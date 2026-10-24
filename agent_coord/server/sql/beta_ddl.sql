@@ -168,9 +168,8 @@ CREATE TABLE letter_to (
   CONSTRAINT fk_lt_member FOREIGN KEY (room_id, desk_id) REFERENCES room_member (room_id, desk_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- A card belongs to a roster (room_id, never a discussion room). Came-from is at most one typed parent.
--- ord is a gapped signed ordinal among siblings, step 2^20 (1048576): a front insert takes MIN(ord) - step and an
--- append MAX(ord) + step, so neither renumbers; only an exhausted middle gap renumbers that one parent's children.
+-- A card belongs to a roster (room_id, never a discussion room). Where it came from and its place in a plan live in
+-- plan_node (nested sets, below), not on the card.
 -- status is a cache of the newest card_event (composite FK fk_card_status_event). Parked stays a status: it is
 -- exclusive with claimed. done_when is the acceptance line, set by the asker or Admin until the card is done.
 CREATE TABLE card (
@@ -184,21 +183,14 @@ CREATE TABLE card (
   volunteer_id    INT UNSIGNED NULL, claimed_at DATETIME(6) NULL, retired_at DATETIME(6) NULL,
   body            VARCHAR(4096) NOT NULL DEFAULT '',
   done_when       VARCHAR(1000) NULL,
-  from_letter_id  BIGINT UNSIGNED NULL, from_card_id BIGINT UNSIGNED NULL, from_score_id INT UNSIGNED NULL,
-  ord             BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id), UNIQUE KEY uq_need (room_id, need),
   KEY ix_status (status, retired_at), KEY ix_room_status (room_id, status), KEY ix_vol (volunteer_id, status),
-  KEY ix_from_card (from_card_id, ord), KEY ix_from_letter (from_letter_id, ord), KEY ix_from_score (from_score_id, ord),
-  CONSTRAINT ck_card_one_parent CHECK ((from_letter_id IS NOT NULL) + (from_card_id IS NOT NULL) + (from_score_id IS NOT NULL) <= 1),
   CONSTRAINT ck_card_volunteer CHECK (status NOT IN ('claimed','shipped') OR volunteer_id IS NOT NULL),
   CONSTRAINT ck_card_claimed_at CHECK ((status = 'claimed') = (claimed_at IS NOT NULL)),
   CONSTRAINT ck_card_need CHECK (CHAR_LENGTH(need) > 0),
   CONSTRAINT fk_card_creator FOREIGN KEY (creator_id) REFERENCES desk (id),
   CONSTRAINT fk_card_room FOREIGN KEY (room_id, room_roster) REFERENCES room (id, is_roster),
-  CONSTRAINT fk_card_vol FOREIGN KEY (volunteer_id) REFERENCES desk (id),
-  CONSTRAINT fk_card_from_letter FOREIGN KEY (from_letter_id) REFERENCES letter (id),
-  CONSTRAINT fk_card_from_card FOREIGN KEY (from_card_id) REFERENCES card (id),
-  CONSTRAINT fk_card_from_score FOREIGN KEY (from_score_id) REFERENCES score (id)
+  CONSTRAINT fk_card_vol FOREIGN KEY (volunteer_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 -- Status history: one row per transition. evidence (a PR, a sha, a test run) only on shipped or done.
 CREATE TABLE card_event (
@@ -215,6 +207,38 @@ CREATE TABLE card_event (
   CONSTRAINT fk_ev_desk FOREIGN KEY (desk_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ALTER TABLE card ADD CONSTRAINT fk_card_status_event FOREIGN KEY (id, status_event_id, status) REFERENCES card_event (card_id, id, to_status);
+
+-- Plan trees: Celko nested sets, as on main. One plan = one lft/rgt line; reads (span, trail, came-from) are one
+-- range read, writes are rare. A node is a card, a letter or a score (exactly one, typed FK). The root's node is
+-- where the plan came from: a letter (card created from a letter), a score (card filed from a score miss) or a card.
+-- The same card may sit in several plans (a command naming a card on two plans fails closed until the plan is named).
+-- Every tree write (attach, move, prune, detach) runs in one SP transaction that first locks the plan row
+-- (SELECT ... FROM plan WHERE id = ? FOR UPDATE), so lft/rgt shifts of one plan are serialized and plans never
+-- block each other. Children are ordered by lft; there is no separate sibling ordinal.
+CREATE TABLE plan (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name        VARCHAR(64) NOT NULL,                          -- a hidden plan is 10 hex
+  room_id     INT UNSIGNED NOT NULL DEFAULT 1, room_roster TINYINT NOT NULL DEFAULT 1,
+  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  retired_at  DATETIME(6) NULL,
+  PRIMARY KEY (id), UNIQUE KEY uq_name (name), KEY ix_room (room_id),
+  CONSTRAINT fk_plan_room FOREIGN KEY (room_id, room_roster) REFERENCES room (id, is_roster)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+CREATE TABLE plan_node (
+  plan_id   INT UNSIGNED NOT NULL,
+  lft       INT UNSIGNED NOT NULL,
+  rgt       INT UNSIGNED NOT NULL,
+  card_id   BIGINT UNSIGNED NULL, letter_id BIGINT UNSIGNED NULL, score_id INT UNSIGNED NULL,
+  PRIMARY KEY (plan_id, lft), UNIQUE KEY uq_rgt (plan_id, rgt),
+  UNIQUE KEY uq_card (plan_id, card_id), UNIQUE KEY uq_letter (plan_id, letter_id), UNIQUE KEY uq_score (plan_id, score_id),
+  KEY ix_card (card_id), KEY ix_letter (letter_id), KEY ix_score (score_id),
+  CONSTRAINT ck_pn_span CHECK (lft >= 1 AND rgt > lft AND (rgt - lft) % 2 = 1),
+  CONSTRAINT ck_pn_one CHECK ((card_id IS NOT NULL) + (letter_id IS NOT NULL) + (score_id IS NOT NULL) = 1),
+  CONSTRAINT fk_pn_plan FOREIGN KEY (plan_id) REFERENCES plan (id),
+  CONSTRAINT fk_pn_card FOREIGN KEY (card_id) REFERENCES card (id),
+  CONSTRAINT fk_pn_letter FOREIGN KEY (letter_id) REFERENCES letter (id),
+  CONSTRAINT fk_pn_score FOREIGN KEY (score_id) REFERENCES score (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Labels: an agreed name plus rank over cards or letters. A label named like a desk is that desk's focus list,
 -- kept in focus (its own table). rank_ord is gapped (step 2^20); 0 = pinned.
@@ -406,18 +430,6 @@ CREATE TABLE sp_deploy (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 DELIMITER //
--- Plan cycle guard (an adjacency list cannot express it declaratively).
-CREATE TRIGGER card_no_cycle BEFORE UPDATE ON card FOR EACH ROW
-BEGIN
-  IF NEW.from_card_id IS NOT NULL AND NOT (NEW.from_card_id <=> OLD.from_card_id) THEN
-    IF EXISTS (WITH RECURSIVE up (id, p) AS (
-                 SELECT id, from_card_id FROM card WHERE id = NEW.from_card_id
-                 UNION ALL SELECT c.id, c.from_card_id FROM card c JOIN up ON c.id = up.p)
-               SELECT 1 FROM up WHERE id = NEW.id) THEN
-      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card: plan cycle';
-    END IF;
-  END IF;
-END //
 -- Only a current member writes to a room or roster (an FK cannot see left_at; a member with history is never deleted).
 CREATE TRIGGER letter_sender_current BEFORE INSERT ON letter FOR EACH ROW
 BEGIN
