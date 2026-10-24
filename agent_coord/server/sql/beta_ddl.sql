@@ -1,21 +1,29 @@
 -- Beta schema (0.8, card 868): design B plus the roster = room fold. Applied to an empty database.
--- One table per entity with its own key. There is no universal id table. A reference to one known table is a typed
--- FK; a reference that can point at several kinds is the composite (kind ENUM, id INT UNSIGNED), as on main, and
--- the SP that writes it checks that the target exists (the app user holds EXECUTE only, so no other writer exists).
--- Ids are INT UNSIGNED. Two tables use BIGINT and say why: activity.seq and push.id.
--- Every FK is RESTRICT (the default): MySQL refuses CHECK on columns with referential actions, and RESTRICT is the intent.
--- Isolation: run the office at READ COMMITTED. Every invariant is an FK, CHECK, UNIQUE, or a FOR UPDATE row lock taken
--- inside an SP, so none depends on REPEATABLE READ snapshots.
 --
--- Rosters and rooms are one thing (the fold). A room has one member list (room_member) and a kind:
+-- Three rules place every relation (owner rules, both for speed: reads far outnumber writes):
+--   [row]   field on a row: a column on the row that owns the fact. A reference to one known table is a typed FK;
+--           a reference that can point at several kinds is the composite (kind ENUM, id INT UNSIGNED), as on main,
+--           and the procedure that writes it checks the target exists.
+--   [tree]  nested-set tree (Celko lft/rgt, as on main): plans and letter threads, one root per tree, every write
+--           under that tree's row lock. A read is one range scan.
+--   [label] label rank (as on main): a named, ranked membership over items, the fast path for ordered reads a tree
+--           does not answer. ord 0 = pinned, 65535 = unranked; a desk's focus list is the label named after it.
+-- There is no universal id table and no edge table. Relations the three rules do not span are listed in the
+-- NOT SPANNED block at the end of this file.
+--
+-- Ids are INT UNSIGNED. Two columns use BIGINT and say why: activity.seq and push.id.
+-- Every FK is RESTRICT (the default): MySQL refuses CHECK on columns with referential actions, and RESTRICT is the intent.
+-- Writers are stored procedures only (beta_sp.sql); the app user holds EXECUTE and nothing else.
+-- Isolation: READ COMMITTED. Every invariant is an FK, CHECK, UNIQUE, or a FOR UPDATE row lock taken inside an SP.
+--
+-- Rosters and rooms are one thing (the fold). room.kind is:
 --   office      room 1, "Office". Every desk is always a member and cannot leave. Direct letters live here too:
 --               their letter_to rows name only the addressed desk.
 --   roster      a project roster. Members post, are woken, vote and claim its cards. A desk may be on many.
 --   discussion  a plain discussion room (no cards, no plans, no votes).
 -- Roles are not rooms: grp holds role groups only (Admin = 2). There is no lead role; a roster decides by vote.
--- Structure is trees, not graphs: plans and letter threads are Celko nested sets (tree, tree_node), as on main.
--- Faster-than-tree ordered reads use label rank (label), as on main; a desk's focus list is the label named after it.
 
+-- desk: [row] one desk (an agent seat holder); retired desks keep their row
 CREATE TABLE desk (
   id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name       VARCHAR(64) NOT NULL,
@@ -28,6 +36,7 @@ CREATE TABLE desk (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- One desk's standing setup. socket_at NOT NULL = present now (the hub sets and clears it); else last_seen.
+-- seat: [row] one desk's standing setup and presence; one row per desk
 CREATE TABLE seat (
   desk_id       INT UNSIGNED NOT NULL,
   token_hash    CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
@@ -44,11 +53,13 @@ CREATE TABLE seat (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Role groups only. Admin = 2 (id kept from main's catalog so desks and humans keep their role).
+-- grp: [row] a role group (Admin = 2); not a roster
 CREATE TABLE grp (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(64) NOT NULL,
   PRIMARY KEY (id), UNIQUE KEY uq_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 INSERT INTO grp (id, name) VALUES (2, 'Admin');
+-- grp_member: NOT SPANNED (membership): which desks hold a role
 CREATE TABLE grp_member (
   grp_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL, created DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (grp_id, desk_id), KEY ix_desk (desk_id),
@@ -59,6 +70,7 @@ CREATE TABLE grp_member (
 -- The fold: a roster is a room. is_roster is 1 for office and roster rooms (they own cards, plans, scores and votes)
 -- and NULL for discussion rooms; owners FK to (id, is_roster), so a discussion room cannot own them.
 -- office_one makes room 1 the only office room.
+-- room: [row] a room: the Office roster, a project roster or a discussion room (the fold)
 CREATE TABLE room (
   id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name       VARCHAR(64) NOT NULL,
@@ -73,6 +85,7 @@ CREATE TABLE room (
 INSERT INTO room (id, name, kind, is_roster) VALUES (1, 'Office', 'office', 1);
 
 -- One membership set per room. left_at stamps a leave (the row stays as history; letters and votes FK to it).
+-- room_member: NOT SPANNED (membership): who is in a room, with join and leave times
 CREATE TABLE room_member (
   room_id   INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL,
   joined_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), left_at DATETIME(6) NULL,
@@ -83,6 +96,7 @@ CREATE TABLE room_member (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Humans (wall sign-in). The host stores only the bearer hash.
+-- human: [row] one signed-in person (bearer hash only)
 CREATE TABLE human (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   bearer_hash   CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -91,6 +105,7 @@ CREATE TABLE human (
   updated       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id), UNIQUE KEY uq_hash (bearer_hash), UNIQUE KEY uq_sub (directory_sub)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- human_desk: [row] which human a desk belongs to (one row per desk)
 CREATE TABLE human_desk (
   human_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL, created DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (human_id, desk_id), UNIQUE KEY uq_desk (desk_id),
@@ -98,6 +113,7 @@ CREATE TABLE human_desk (
   CONSTRAINT fk_hd_desk FOREIGN KEY (desk_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 -- A directory group maps onto a role (grp) or a roster (room), one row per human. No row = viewer.
+-- human_member: [row] a human's directory role: one role group or one roster (one row per human)
 CREATE TABLE human_member (
   human_id INT UNSIGNED NOT NULL, grp_id INT UNSIGNED NULL, room_id INT UNSIGNED NULL, room_roster TINYINT NULL,
   created  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -109,6 +125,7 @@ CREATE TABLE human_member (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- A score belongs to a roster. desk_id NULL = an office (system) score recorded by no desk.
+-- score: [row] a number a roster is trying to move
 CREATE TABLE score (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   room_id     INT UNSIGNED NOT NULL DEFAULT 1, room_roster TINYINT NOT NULL DEFAULT 1,
@@ -121,6 +138,7 @@ CREATE TABLE score (
   CONSTRAINT fk_score_room FOREIGN KEY (room_id, room_roster) REFERENCES room (id, is_roster),
   CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- score_point: [row] one recorded value of a score
 CREATE TABLE score_point (
   id       INT UNSIGNED NOT NULL AUTO_INCREMENT, score_id INT UNSIGNED NOT NULL,
   at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), desk_id INT UNSIGNED NULL,
@@ -130,6 +148,7 @@ CREATE TABLE score_point (
   CONSTRAINT fk_sp_desk FOREIGN KEY (desk_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 -- Hour and day documents of one score (carried from main: hour rows reuse 1970-01-01, taken is the real day).
+-- score_evidence: [row] hour and day documents of a score
 CREATE TABLE score_evidence (
   score_id INT UNSIGNED NOT NULL, timestamp DATETIME(6) NOT NULL, value JSON NOT NULL, taken DATE NULL,
   PRIMARY KEY (score_id, timestamp),
@@ -139,6 +158,7 @@ CREATE TABLE score_evidence (
 -- A letter lives in one room (Office for direct letters and Office sends). The sender is a member of that room (FK)
 -- and a current one (trigger letter_sender_current). Its place in a thread is a node of a thread tree in the same
 -- room (tree_node, SP-checked); the room never changes after send (trigger letter_room_fixed).
+-- letter: [row] one letter, in one room; its thread place is a [tree] node
 CREATE TABLE letter (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -153,6 +173,7 @@ CREATE TABLE letter (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- One row per recipient: the only read state. named = addressed (woken); copied = a room member on a reply (no wake).
+-- letter_to: [row] one delivery of a letter to a desk: the only read state
 CREATE TABLE letter_to (
   letter_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL, room_id INT UNSIGNED NOT NULL,
   kind      ENUM('named','copied') NOT NULL DEFAULT 'named', asked TINYINT NOT NULL DEFAULT 0,
@@ -169,6 +190,7 @@ CREATE TABLE letter_to (
 -- its place in a plan live in tree_node, not on the card. status is a cache of the newest card_event (composite FK
 -- fk_card_status_event). Parked stays a status: it is exclusive with claimed. done_when is the acceptance line, set
 -- by the asker or Admin until the card is done.
+-- card: [row] one card of a roster; its plan place is a [tree] node
 CREATE TABLE card (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   created         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -190,6 +212,7 @@ CREATE TABLE card (
   CONSTRAINT fk_card_vol FOREIGN KEY (volunteer_id) REFERENCES desk (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 -- Status history: one row per transition. evidence (a PR, a sha, a test run) only on shipped or done.
+-- card_event: [row] one status transition of a card (history; card.status caches the newest)
 CREATE TABLE card_event (
   id           INT UNSIGNED NOT NULL AUTO_INCREMENT, card_id INT UNSIGNED NOT NULL,
   at           DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), desk_id INT UNSIGNED NOT NULL,
@@ -215,6 +238,7 @@ ALTER TABLE card ADD CONSTRAINT fk_card_status_event FOREIGN KEY (id, status_eve
 -- that first locks the tree row (SELECT ... FROM tree WHERE id = ? FOR UPDATE), so the lft/rgt shifts of one tree
 -- are serialized and trees never block each other. Children are ordered by lft. A read is one range scan:
 -- span = node_kind/id rows WHERE tree_id = ? AND lft BETWEEN root.lft AND root.rgt, ORDER BY lft.
+-- tree: [tree] one plan or one letter thread (header row; the per-tree lock)
 CREATE TABLE tree (
   id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   kind       ENUM('plan','thread') NOT NULL,
@@ -225,6 +249,7 @@ CREATE TABLE tree (
   PRIMARY KEY (id), UNIQUE KEY uq_name (name), UNIQUE KEY uq_id_kind (id, kind), KEY ix_room (room_id, kind),
   CONSTRAINT fk_tree_room FOREIGN KEY (room_id) REFERENCES room (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- tree_node: [tree] one node of a tree: lft/rgt plus the (kind, id) it holds
 CREATE TABLE tree_node (
   tree_id   INT UNSIGNED NOT NULL,
   tree_kind ENUM('plan','thread') NOT NULL,
@@ -244,10 +269,12 @@ CREATE TABLE tree_node (
 -- ord: 0 pinned, 65535 unplaced; (label_id, ord, created) gives the ordered read from the index alone.
 -- A desk's focus list is the label named after the desk (as on main); there is no separate focus table.
 -- sp_label_renumber spreads one label's ranks again when its gaps run out (beta_sp.sql).
+-- label_name: [label] the name of a label
 CREATE TABLE label_name (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(64) NOT NULL, created DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id), UNIQUE KEY uq_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- label: [label] one item wearing a label, with its rank
 CREATE TABLE label (
   kind     ENUM('card','letter','doing','hold','score') NOT NULL,
   id       INT UNSIGNED NOT NULL,
@@ -260,8 +287,10 @@ CREATE TABLE label (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Holds: a row exists only while held (no row = free), by a live desk (FK to desk (id, live)).
+-- resource: [row] a name desks agree to hold
 CREATE TABLE resource (id INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(128) NOT NULL, PRIMARY KEY (id), UNIQUE KEY uq_name (name))
   ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- hold: [row] a held resource (no row = free)
 CREATE TABLE hold (
   resource_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL, desk_live TINYINT NOT NULL DEFAULT 1,
   card_id     INT UNSIGNED NULL, taken_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -271,6 +300,7 @@ CREATE TABLE hold (
   CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id, desk_live) REFERENCES desk (id, live),
   CONSTRAINT fk_hold_card FOREIGN KEY (card_id) REFERENCES card (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- hold_event: [row] one take, drop or release (history)
 CREATE TABLE hold_event (
   id      INT UNSIGNED NOT NULL AUTO_INCREMENT, resource_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL,
   card_id INT UNSIGNED NULL, verb ENUM('take','drop','release') NOT NULL, at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -282,6 +312,7 @@ CREATE TABLE hold_event (
 
 -- Doing: append-only. (on_kind, on_id) is what the entry is about; (wait_kind, wait_id) is what it is blocked on,
 -- plus waiting_why, as fields on this one row. A hold target is the resource id. cmd_doing checks both targets exist.
+-- doing: [row] one doing entry; what it is about and what it waits on are fields on the row
 CREATE TABLE doing (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT, desk_id INT UNSIGNED NOT NULL,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), text VARCHAR(512) NOT NULL DEFAULT '',
@@ -297,6 +328,7 @@ CREATE TABLE doing (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 -- Current doing per desk, written in the same transaction. The composite FKs pin it to a row of the same desk with
 -- the same wait target, so it cannot point at another desk's doing or disagree about what it waits on.
+-- doing_now: [row] the desk's current doing (read model, same transaction)
 CREATE TABLE doing_now (
   desk_id INT UNSIGNED NOT NULL, doing_id INT UNSIGNED NOT NULL,
   wait_kind ENUM('desk','card','letter','hold') NULL, wait_id INT UNSIGNED NULL,
@@ -311,6 +343,7 @@ CREATE TABLE doing_now (
 --   deadlock  every member voted and no option has a majority
 --   no_show   some member did not vote and no option has a majority
 -- deadlock and no_show escalate to the human (escalated_at); the result and the votes show in the roster glance.
+-- decision: [row] one vote a roster holds: a letter with options and a deadline
 CREATE TABLE decision (
   id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
   room_id      INT UNSIGNED NOT NULL, room_roster TINYINT NOT NULL DEFAULT 1,
@@ -334,6 +367,7 @@ CREATE TABLE decision (
   CONSTRAINT fk_dec_letter FOREIGN KEY (letter_id, room_id) REFERENCES letter (id, room_id),
   CONSTRAINT fk_dec_opener FOREIGN KEY (room_id, opener_id) REFERENCES room_member (room_id, desk_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- decision_option: [row] one option of a decision
 CREATE TABLE decision_option (
   decision_id INT UNSIGNED NOT NULL, opt TINYINT UNSIGNED NOT NULL, label VARCHAR(64) NOT NULL,
   PRIMARY KEY (decision_id, opt), UNIQUE KEY uq_label (decision_id, label),
@@ -341,6 +375,7 @@ CREATE TABLE decision_option (
   CONSTRAINT fk_opt_dec FOREIGN KEY (decision_id) REFERENCES decision (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ALTER TABLE decision ADD CONSTRAINT fk_dec_result FOREIGN KEY (id, result_opt) REFERENCES decision_option (decision_id, opt);
+-- vote: [row] one member's vote on a decision
 CREATE TABLE vote (
   decision_id INT UNSIGNED NOT NULL, desk_id INT UNSIGNED NOT NULL, room_id INT UNSIGNED NOT NULL,
   opt         TINYINT UNSIGNED NOT NULL, cast_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -355,6 +390,7 @@ CREATE TABLE vote (
 -- cmd_* write it only for a named letter_to row or a card event. Kept 7 days (sp_push_purge); the letter itself stays
 -- unread in letter_to, so only the wake copy expires. BIGINT id: one row per recipient per letter (an Office send
 -- writes one per desk) and rows are deleted on delivery, so the counter outruns every other table.
+-- push: [row] one undelivered wake (letter or card event) for a desk
 CREATE TABLE push (
   id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, desk_id INT UNSIGNED NOT NULL,
   kind     ENUM('letter','card_event') NOT NULL, ref_id INT UNSIGNED NOT NULL,
@@ -366,6 +402,7 @@ CREATE TABLE push (
 
 -- The timeline (read model): one row per event, (kind, ref_id), each event at most once. Written only by SPs.
 -- BIGINT seq: it counts the events of every kind together and is never reused.
+-- activity: [row] one timeline entry, (kind, ref_id) of the event (read model)
 CREATE TABLE activity (
   seq    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   kind   ENUM('letter','card_event','doing','hold_event','score_point','vote') NOT NULL, ref_id INT UNSIGNED NOT NULL,
@@ -377,6 +414,7 @@ CREATE TABLE activity (
 
 -- The office glance (relaxed tier): one row, one writer (sp_glance_refresh, every 30 s). No office-wide unread:
 -- per-desk, per-room and per-roster unread are exact reads.
+-- glance_cache: [row] the office glance, one row refreshed every 30 s (relaxed tier)
 CREATE TABLE glance_cache (
   id TINYINT UNSIGNED NOT NULL DEFAULT 1, at DATETIME(6) NOT NULL, refresh_us INT UNSIGNED NOT NULL,
   present INT UNSIGNED NOT NULL, held INT UNSIGNED NOT NULL,
@@ -387,6 +425,7 @@ CREATE TABLE glance_cache (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Invites (admin door). Only the token hash reaches SQL.
+-- mill_invite: [row] one invite key (hash only)
 CREATE TABLE mill_invite (
   key_id      VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   token_hash  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -397,6 +436,7 @@ CREATE TABLE mill_invite (
   CONSTRAINT ck_inv_revoked CHECK (revoked_at IS NULL OR revoked_at >= created_at),
   CONSTRAINT ck_inv_expiry CHECK ((ttl_seconds IS NULL) = (expires_at IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- mill_invite_join: [row] one redemption of an invite key
 CREATE TABLE mill_invite_join (
   key_id   VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   party    VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -406,6 +446,7 @@ CREATE TABLE mill_invite_join (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- SP version stamp: one row per deploy of beta_sp.sql (mill_sp_version() returns the deployed one).
+-- sp_deploy: [row] one deploy of beta_sp.sql (the version stamp)
 CREATE TABLE sp_deploy (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT, version CHAR(15) CHARACTER SET ascii NOT NULL, file VARCHAR(200) NOT NULL,
   at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), by_user VARCHAR(100) NOT NULL DEFAULT (CURRENT_USER()),
@@ -472,3 +513,10 @@ BEGIN
   END IF;
 END //
 DELIMITER ;
+
+-- NOT SPANNED. Relations the three rules do not hold, and why they stay as they are:
+-- - room_member, grp_member: a membership set, not a graph edge. They cannot be a [label]: letter, letter_to, vote
+--   and decision FK to (room_id, desk_id) so only members send, receive and vote, and a label row cannot be an FK
+--   target or keep a leave time. They cannot be a [row] field: a desk is on many rooms and a room has many desks.
+-- - A card on several plans (allowed, as on main) is several tree_node rows, one per tree; nothing links the trees.
+-- - Who waits on whom is doing.wait_kind/wait_id (a field on the row); "who waits on desk X" reads doing_now.ix_wait.
