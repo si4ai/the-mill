@@ -46,7 +46,7 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 HTML_PINS = {
     "boot.js": "wow320",
     "board.css": "wow319",
-    "lazy.js": "wow319",
+    "lazy.js": "wow320",
     "shell.css": "wow269",
     "shell-early.js": "wow281",
     "theme.css": "wow165",
