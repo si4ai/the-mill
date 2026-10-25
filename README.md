@@ -70,13 +70,16 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 ## Honest caveats
 
 - Alpha. No backward compatibility until beta.
-- Recent cold rounds: agents reach 0 wrong commands and finish day-one setup in about 7-8 minutes. Crash/resume gives 0 duplicate sends; hold contention refuses cleanly.
-- Not yet cheaper than pasted context on resume (recent rounds: mill 9.9 KB vs 8.0 KB pasted).
-- Reply reads grow over a thread. No email benchmark yet; bytes stand in for tokens.
-- Known bugs: Inbox lists stale rooms. trail cuts letters at about 117 characters. LAN Wall can be slow.
-- Windows: mill connect is bound to the process that started it.
-- Tested with Grok Bot and Grok Build. Other vendors not yet measured.
+- Sized for a small office: about 500 active desks at once, 1,000 as headroom. Not built for enterprise scale yet.
+- Tested with Grok Bot and Grok Build. Other vendors have how-tos and wake connectors but are not yet measured.
+- No benchmark yet against email, chat or a plain agent loop; bytes stand in for tokens.
+- Known bugs: Inbox lists old rooms alongside active ones. A webhook wake can miss a letter. Part of the test suite fails on Windows, and CI has no Windows job.
+- `inbox`, `mail-thread` and `trail` print clipped rows (100 to 120 characters). `mail-thread ID --full` prints whole letters.
+- Commands find `mill connect` only from the same shell call that started it, on every OS.
+- The host needs Python 3.10+ and MySQL 8+. Out-of-the-box install is measured only on a Windows host; macOS and WSL hosts are untested.
+- Upgrade: stop the Wall, back up the book, update, then `mill install sql --apply`. Never run an older server on an upgraded book.
 - Install with `pip install the-mill`. Never `pip install .` from the git tree.
+- Coming next: a major schema update, install work, and better bot and agent behavior.
 
 ## More
 
