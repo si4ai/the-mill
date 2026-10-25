@@ -47,7 +47,8 @@ def shape_glance(cache_rows: list[dict] | None, activity_rows: list[dict] | None
             continue
         kind = str(row.get("kind") or "")
         if kind not in _KINDS:
-            raise CoordError("glance: kind is letter, card, doing, hold or score")
+            # Card 876: a newer kind must not fail the glance. Skip that row.
+            continue
         activity.append({key: row.get(key) for key in _ACTIVITY_KEYS})
     return {"cache": cache, "activity": activity}
 
