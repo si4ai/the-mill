@@ -28,6 +28,17 @@ python -m tools.git_changes --names
 
 TTY -> pretty table. Pipe/redirect -> `--names` (no color). Override with `--pretty` / `--patch` / `--stat`.
 
+## glance.py
+
+Time a Wall page cold (lab tool, not run by CI). Each run loads the page with the HTTP cache off, then records the JS, CSS and HTML bytes at first paint, the time from click to painted for the desk panel and each strip pane, and the scripts each step loads. The first run also saves each pane's text and a screenshot, so a before and an after report can be diffed. It only reads; it never logs in or posts. Needs `playwright` with a `chromium` build.
+
+```bash
+python tools/glance.py URL before --roster ROSTER_ID
+python tools/glance.py URL after --roster ROSTER_ID --out glance-report --runs 3
+```
+
+Writes `glance-report/TAG.json` and `glance-report/shots/`.
+
 ## check_pr_text.py
 
 Scan PR and issue text with the commit-message hygiene rules (address, home path, email). CI runs it from `.github/workflows/pr_text.yml` on every PR, issue, comment and review, and once a day over all of them. Run `file` on a body before you post it: GitHub keeps every revision of a body in its edit history.
