@@ -16,15 +16,18 @@ REPO = Path(__file__).resolve().parents[2]
 ROOTS = (REPO / "agent_coord" / "web" / "wall_ui", REPO / "tests" / "wall")
 TEXT = {".js", ".css", ".html", ".py", ".json", ".md", ".svg"}
 TAG = re.compile("w" + r"ow\d+")
-PIN = re.compile(r"""(\?v=|["'])$""")
+QUERY_PIN = re.compile(r"\?v=$")
+TABLE_PIN = re.compile(r"""^\s*"[\w.-]+\.\w+":\s*"w""" + r"""ow\d+",?\s*$""")
 
 
 def tag_hits(text: str) -> list[int]:
     """1-based line numbers holding a counter tag that is not a cache pin."""
     out = []
     for n, line in enumerate(text.splitlines(), 1):
+        if TABLE_PIN.match(line):
+            continue
         for m in TAG.finditer(line):
-            if not PIN.search(line[: m.start()]):
+            if not QUERY_PIN.search(line[: m.start()]):
                 out.append(n)
                 break
     return out
@@ -45,3 +48,7 @@ def test_check_flags_a_tag_and_keeps_pins():
     assert tag_hits(f"/* {tag}: fix */\n") == [1]
     assert tag_hits(f'<script src="/boot.js?v={tag}"></script>\n') == []
     assert tag_hits(f'    "boot.js": "{tag}",\n') == []
+    # A tag right after a quote is only a pin on a pin-table line (#870 review).
+    assert tag_hits(f'/* see "{tag} */\n') == [1]
+    assert tag_hits(f'var x = "{tag}";\n') == [1]
+    assert tag_hits(f'    "boot.js": "{tag}", // {tag}\n') == [1]
