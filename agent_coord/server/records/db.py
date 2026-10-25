@@ -427,6 +427,38 @@ def _exec_call_ok() -> bool:
 _EXEC_CALL = _exec_call_ok()
 
 
+class Inline:
+    """One CALL arg spelled as a SQL function call with its own params (#867).
+
+    CALL cmd_pass(MILL_DESK_ID(%s), %s, ...) resolves a desk name to its id in the
+    same round trip as the command. Only plain function calls are allowed.
+    """
+
+    __slots__ = ("sql", "params")
+
+    def __init__(self, sql: str, *params: Any):
+        if not _INLINE_SQL.match(sql or ""):
+            raise ValueError("Inline: one function call, %s placeholders only")
+        self.sql = sql
+        self.params = params
+
+
+_INLINE_SQL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\((?:%s(?:,\s*%s)*)?\)$")
+
+
+def _inline_resolve(cur, args: list) -> list:
+    """Older-connector path: read each Inline arg's value first (one SELECT each)."""
+    out = []
+    for a in args:
+        if isinstance(a, Inline):
+            cur.execute("SELECT " + a.sql, tuple(a.params))
+            row = cur.fetchone()
+            out.append(row[0] if row else None)
+        else:
+            out.append(a)
+    return out
+
+
 def _run_proc(cur, name: str, args: list) -> list[dict[str, Any]]:
     """Rows of every result set of CALL name(args).
 
@@ -436,10 +468,13 @@ def _run_proc(cur, name: str, args: list) -> list[dict[str, Any]]:
     identifier keeps callproc.
     """
     if not _EXEC_CALL or not _PROC_NAME.match(name or "") or not hasattr(cur, "nextset"):
-        cur.callproc(name, args)
+        cur.callproc(name, _inline_resolve(cur, args))
         return drain_proc(cur)
-    marks = ",".join(["%s"] * len(args))
-    cur.execute("CALL `%s`(%s)" % (name, marks), tuple(args))
+    marks = ",".join(a.sql if isinstance(a, Inline) else "%s" for a in args)
+    params: list[Any] = []
+    for a in args:
+        params.extend(a.params if isinstance(a, Inline) else (a,))
+    cur.execute("CALL `%s`(%s)" % (name, marks), tuple(params))
     rows: list[dict[str, Any]] = []
     for _ in range(64):
         if getattr(cur, "with_rows", False):

@@ -44,8 +44,6 @@ def test_h_send_mail_tos_per_dest_roster():
     ), patch(
         "agent_coord.server.records.mail.to_put"
     ) as mock_put, patch(
-        "agent_coord.server.records.mail.set_sender_roster"
-    ), patch(
         "agent_coord.server.records.mail.dest_count", return_value=3
     ), patch(
         "agent_coord.server.records.mail.to_list", return_value=dest_rows
@@ -87,10 +85,8 @@ def test_h_send_dst_plus_default_roster():
     ), patch("agent_coord.server.records.name.get", return_value=2), patch(
         "agent_coord.server.records.name.ensure_roster", return_value=10
     ), patch(
-        "agent_coord.server.records.mail.insert", return_value=[{"id": 7, "created": "t"}]
-    ), patch(
-        "agent_coord.server.records.mail.set_sender_roster",
-        side_effect=lambda cn, mid, aff, kind="": sender_aff.append(aff),
+        "agent_coord.server.records.mail.insert",
+        side_effect=lambda cn, roster, *a, **k: (sender_aff.append(roster), [{"id": 7, "created": "t"}])[1],
     ), patch(
         "agent_coord.server.records.mail.dest_count", return_value=1
     ), patch(
@@ -118,8 +114,6 @@ def test_h_send_one_dest_no_room_lean():
         "agent_coord.server.records.name.ensure_roster"
     ), patch(
         "agent_coord.server.records.mail.insert", return_value=[{"id": 3, "created": "t"}]
-    ), patch(
-        "agent_coord.server.records.mail.set_sender_roster"
     ), patch(
         "agent_coord.server.records.mail.dest_count", return_value=1
     ), patch(

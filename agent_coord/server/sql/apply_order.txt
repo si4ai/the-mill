@@ -11,6 +11,7 @@ sp_opened.sql
 sp_push.sql
 sp_member.sql
 sp_todo.sql
+sp_cmd.sql
 sp_label.sql
 sp_join.sql
 sp_doing.sql

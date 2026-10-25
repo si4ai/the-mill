@@ -47,9 +47,11 @@ def test_the_volunteer_cannot_accept_a_card_another_desk_asked_for(cn) -> None:
     assert rpc._h_pass(book, {"need": "p789-a", "step": "done"}, "unit", "a789")["status"] == "done"
 
 
-def test_admin_accepts(cn, monkeypatch) -> None:
+def test_admin_accepts(cn) -> None:
+    from agent_coord.server.records import member as rec_member
+
     book = _shipped(cn, "p789-b")
-    monkeypatch.setattr("agent_coord.server.admin.guard.is_role_admin", lambda cn, who: who == "adm789")
+    rec_member.put_admin(cn, "adm789")  # #867: cmd_pass reads the Admin roster itself
     assert rpc._h_pass(book, {"need": "p789-b", "step": "done"}, "unit", "adm789")["status"] == "done"
 
 

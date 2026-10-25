@@ -868,6 +868,33 @@ def _ensure_mail_to_asked(cn) -> list[str]:
     return applied
 
 
+def _ensure_todo_done_when(cn) -> list[str]:
+    """#867 (0.7.18): todo.done_when and todo.evidence, additive NULL columns.
+    Rollback: ALTER TABLE todo DROP COLUMN done_when, DROP COLUMN evidence."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "todo"):
+            return applied
+        if not _column_exists(cur, "todo", "done_when"):
+            cur.execute(
+                "ALTER TABLE todo ADD COLUMN done_when VARCHAR(1000) CHARACTER SET utf8mb4"
+                " COLLATE utf8mb4_0900_ai_ci NULL AFTER body"
+            )
+            applied.append("todo.done_when")
+        if not _column_exists(cur, "todo", "evidence"):
+            cur.execute(
+                "ALTER TABLE todo ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4"
+                " COLLATE utf8mb4_0900_ai_ci NULL AFTER done_when"
+            )
+            applied.append("todo.evidence")
+        if applied:
+            cn.commit()
+    finally:
+        cur.close()
+    return applied
+
+
 def _ensure_todo_claimed_at(cn) -> list[str]:
     """#818 D2: todo.claimed_at. Add the column, then backfill every claimed
     card that has none, so a run killed after the ALTER converges (after this
@@ -1352,6 +1379,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_mail_to_asked(cn))
             # #818 D2: before the routine reload (mill_todo_update, mill_doing_now read it).
             applied.extend(_ensure_todo_claimed_at(cn))
+            # #867: before the routine reload (mill_todo_select, cmd_pass read them).
+            applied.extend(_ensure_todo_done_when(cn))
             # #818 after the join column steps (the seat copy reads them).
             did_818 = apply_doing_818(cn)
             applied.extend(did_818)

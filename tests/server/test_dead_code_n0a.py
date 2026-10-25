@@ -54,6 +54,8 @@ def test_next_status_is_gone() -> None:
 
 
 class _Cur:
+    with_rows = True
+
     def __init__(self, log: list[str], rows: list) -> None:
         self.log, self.rows, self.rowcount = log, rows, 1
 
@@ -61,7 +63,11 @@ class _Cur:
         self.log.append(sql)
 
     def fetchall(self):
-        return self.rows
+        # #867: an invite write is a CALL that answers with its row count.
+        return [(1,)] if self.log[-1].startswith("CALL") else self.rows
+
+    def nextset(self):
+        return None
 
     def close(self) -> None:
         pass

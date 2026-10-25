@@ -106,9 +106,7 @@ def test_send_without_roster_uses_seat_roster(seats, want):
         "agent_coord.server.records.name.ensure_roster"
     ), patch(
         "agent_coord.server.records.mail.insert", return_value=[{"id": 3, "created": "t"}]
-    ), patch(
-        "agent_coord.server.records.mail.set_sender_roster"
-    ) as setaff, patch(
+    ) as ins, patch(
         "agent_coord.server.records.mail.dest_count", return_value=1
     ), patch(
         "agent_coord.server.records.mail.to_list", return_value=dest_rows
@@ -124,5 +122,5 @@ def test_send_without_roster_uses_seat_roster(seats, want):
         out = rpc._h_send(
             _book(), {"src": "alice", "dst": "bob", "body": "plain"}, "the-mill", "alice"
         )
-    setaff.assert_not_called()  # no --roster: letter keeps the SP project stamp
+    assert ins.call_args.args[1] == want  # no --roster: the letter carries the seat roster
     assert out["sender"] == {"deskId": "alice", "roster": want}

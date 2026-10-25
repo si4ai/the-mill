@@ -175,6 +175,10 @@ CREATE TABLE IF NOT EXISTS todo (
   -- --take-over, assign, pass --back to claimed). NULL when not claimed.
   claimed_at      DATETIME(6)   NULL,
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  -- #867: the asker's acceptance line (cmd_card_accept) and the evidence of the last
+  -- ship or done step (cmd_pass). NULL when unset.
+  done_when       VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  evidence        VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_status (status, updated),

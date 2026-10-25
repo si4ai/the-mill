@@ -488,6 +488,11 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
         "tree": _stored(r.get("tree") or "") or None,
         "labels": _json_names(r.get("labels")),
     }
+    # #867: the acceptance line and the last ship/done evidence, when set.
+    if r.get("done_when"):
+        card["done_when"] = str(r["done_when"])
+    if r.get("evidence"):
+        card["evidence"] = str(r["evidence"])
     # #330: notes land in detail. A progress token that was never set is left
     # out, so no field in the reply is always empty. #818: cards have no title.
     if not card["progress"]:
@@ -1494,9 +1499,10 @@ def _h_send(
 
     # One mail row; first dest via insert; remaining via mill_mail_to_put.
     first_kind, first_to = resolved[0]
+    # #867: the sender roster goes in the insert (no follow-up UPDATE).
     rows = rec_mail.insert(
         c._cn,
-        _stored(project),
+        _stored(sender_roster or project),
         _stored(src),
         first_to,
         raw,
@@ -1510,9 +1516,6 @@ def _h_send(
         rec_mail.to_put(
             c._cn, mid, _stored(project), to, receipt=receipt, dst_kind=dst_kind
         )
-
-    if sender_roster:
-        rec_mail.set_sender_roster(c._cn, mid, sender_roster)
 
     if room_only:
         # #818 D1: store the wake's split. A room member that is not named is copied.
@@ -2152,13 +2155,122 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return rec
 
 
-def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+# Card 867: a card guard runs in its SP, in the transaction that moves the card,
+# under the card's row lock. The SP's 45000 text is the refusal the desk reads.
+EVIDENCE_MAX = 2000
+DONE_WHEN_MAX = 1000
+
+
+def _card_refusal(code: str, roster: str, need: str) -> str:
+    """The desk's refusal line for a card SP's code (#867).
+
+    SIGNAL's MESSAGE_TEXT holds at most 128 characters, and the refusal lines name the
+    roster, the card and the command to run (up to about 300). So a card SP signals
+    `card:<code>[:<arg>]` and the text is written here, word for word as before.
+    """
+    kind, _, arg = code.partition(":")
+    form = f"mill pass {roster} {need}"
+    if kind == "moves":  # moves:<command>:<status>[:noparent]
+        command, _, rest = arg.partition(":")
+        st, _, flag = rest.partition(":")
+        head = f"{command}: {roster}/{need} is {st}; "
+        if st == "parked":
+            unpark = f"mill unpark {roster} {need}"
+            if flag == "noparent":
+                unpark += " --parent-type T --parent-id N"
+            return head + unpark + " first"
+        if st == "shipped":
+            return head + f"the asker accepts it with {form} --done, or steps it back with {form} --back"
+        return head + f"{form} --back steps it back to shipped; for new work file a new card"
+    texts = {
+        "claimed_by": f"claim: {roster}/{need} is claimed by {arg}; ask {arg} to "
+        f"mill unclaim {roster} {need}, or run mill claim {roster} {need} "
+        "--take-over to take it (the card records the prior volunteer)",
+        "who_may_unclaim": "who-may: unclaim is the volunteer",
+        "stale_prior": f"claim: {roster}/{need} changed volunteer while claiming; nothing changed; run it again",
+        "already_shipped": f"pass: {need} is already shipped; the asker accepts it with {form} --done",
+        "already_done": f"pass: {need} is already done; {form} --back steps it back to shipped",
+        "not_shippable": f"pass: {need} is {arg}; only a claimed card ships",
+        "claim_first": "claim first: mill claim <project> <need>",
+        "who_may_ship": "who-may: pass claimed->shipped is the volunteer",
+        "done_not_shipped": f"pass --done: {need} is {arg}, not shipped; nothing changed",
+        "who_may_done": f"who-may: pass shipped->done is the asker ({arg}) or Admin"
+        if arg
+        else "who-may: pass shipped->done is the asker; the card's asker does not resolve, so only the volunteer or Admin may",
+        "back_status": f"pass --back: {need} is {arg}; only shipped or done steps back (unclaim releases a claim)",
+        "who_may_back": "who-may: pass --back is the asker or the volunteer"
+        if arg
+        else "who-may: pass --back is the asker or the volunteer; the card's asker does not resolve, so only the volunteer may",
+        "who_may_done_when": "who-may: done-when is the asker or Admin",
+        "done_when_done": f"done-when: {need} is done; nothing changed",
+    }
+    return texts.get(kind, f"{kind}: refused")
+
+
+def _desk_arg(owner: str | None) -> Any:
+    """The desk id arg of a card SP: MILL_DESK_ID(name) in the same CALL (#867).
+    NULL for no desk (no who-may check), 0 for a name the book does not hold."""
+    from agent_coord.server.records.db import Inline
+    from agent_coord.server.records.name import bare
+
+    return Inline("MILL_DESK_ID(%s)", bare(_stored(owner or ""), CONST_DESK))
+
+
+def _card_sp(c: Book, proc: str, args: list, roster: str, need: str) -> dict[str, Any]:
+    """Call a card SP; a `card:<code>` refusal is written out for this roster and need."""
+    from agent_coord.server.records.db import call
+
+    try:
+        rows = call(c._cn, proc, args)
+    except CoordError:
+        raise
+    except Exception as e:
+        msg = _sql_refusal(e)
+        if msg and msg.startswith("card:"):
+            raise CoordError(_card_refusal(msg[5:], roster, need)) from e
+        if msg:
+            raise CoordError(msg) from e
+        raise
+    # The SP's answer is its last row (a nested call may send rows of its own first).
+    return dict(rows[-1]) if rows else {}
+
+
+def _card_hit(c: Book, project: str, need: str) -> dict[str, Any]:
     from agent_coord.server.records import todo as rec_todo
 
-    need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
         raise CoordError(f"no such need: {project}/{need}")
+    return hit
+
+
+CLAIM_TRIES = 3
+
+
+def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Claim a card. Refusals come in main's order on the row already read: status,
+    msg cap, eta, #325 claimed-by, card budget (Validator letter 2944). cmd_claim is
+    the authority: it checks status and volunteer again under the row lock, and
+    refuses a take-over whose body names a prior that no longer holds the card
+    (then the card is read again and the line rewritten)."""
+    need = slug(str(body.get("need") or ""))
+    for _ in range(CLAIM_TRIES):
+        hit = _card_hit(c, project, need)
+        try:
+            return _claim_once(c, body, project, need, hit, owner)
+        except _StalePrior:
+            continue
+    raise CoordError(f"claim: {project}/{need} changed volunteer while claiming; nothing changed; run it again")
+
+
+class _StalePrior(Exception):
+    """cmd_claim read another volunteer under the lock than the take-over line names."""
+
+
+def _claim_once(c: Book, body: dict[str, Any], project: str, need: str, hit: dict[str, Any], owner: str | None) -> Any:
+    from agent_coord.server.records import todo as rec_todo
+
+    # Read-only pre-check, main's order (cmd_claim checks the same under the lock).
     _card_moves(c, hit, "claim", project, need)
     # --eta and --msg are stored. A bad eta or an oversize msg refuses
     # before the claim is written (#232).
@@ -2172,18 +2284,15 @@ def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             eta_at = rec_todo.parse_eta(eta_raw)
         except ValueError as e:
             raise CoordError("claim: %s" % e) from e
+    take_over = bool(body.get("take_over"))
+    who = _stored(owner or "")
     # #325: a card another desk holds is not taken silently. --take-over takes it
     # and the card records the prior volunteer.
-    who = _stored(owner or "")
     prior = _desk_slug(c._cn, hit, "volunteer", "assigned")
     if prior == "-" or prior == who:
         prior = ""
-    if prior and not body.get("take_over"):
-        raise CoordError(
-            f"claim: {project}/{need} is claimed by {prior}; ask {prior} to "
-            f"mill unclaim {project} {need}, or run mill claim {project} {need} "
-            "--take-over to take it (the card records the prior volunteer)"
-        )
+    if prior and not take_over:
+        raise CoordError(_card_refusal("claimed_by:" + prior, project, need))
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
     payload = fields["payload"] or {
         "slug": fields["need_id"],
@@ -2203,15 +2312,20 @@ def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         if refusal:
             raise CoordError(refusal)
     body_s = rec_todo.stored_body(payload) if (eta_at is not None or lines) else None
-    rec_todo.update(
-        c._cn,
-        int(hit["id"]),
-        _stored(owner or ""),
-        status="claimed",
-        volunteer=_stored(owner or ""),
-        body=body_s,
-    )
+    try:
+        got = _card_sp(
+            c,
+            "cmd_claim",
+            [_desk_arg(owner), int(hit["id"]), 1 if take_over else 0, prior, body_s],
+            project,
+            need,
+        )
+    except CoordError as e:
+        if str(e) == _card_refusal("stale_prior", project, need):
+            raise _StalePrior() from e
+        raise
     rec = {"ok": True, "need_id": need, "id": int(hit["id"]), "status": "claimed", "volunteer": owner}
+    prior = _stored(str(got.get("prior_volunteer") or ""))
     if prior:
         rec["prior_volunteer"] = prior
     if eta_at is not None:
@@ -2257,6 +2371,9 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             % (len(detail_raw), rec_todo.BODY_MAX)
         )
     detail = detail_raw
+    if len(str(body.get("done_when") or "").strip()) > DONE_WHEN_MAX:
+        raise CoordError("done-when would be %s chars (max %s); refused, nothing stored"
+                         % (len(str(body.get("done_when")).strip()), DONE_WHEN_MAX))
     # Create accepts parked or open only. An empty status is open (#231).
     raw_status = body.get("status")
     if raw_status is None or str(raw_status).strip() == "":
@@ -2299,6 +2416,8 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         rows = rec_todo.insert(c._cn, _stored(project), _stored(owner or ""), st, body_s)
         tid = int(rows[0]["id"]) if rows else 0
     rec = {"project_id": project, "need_id": need, "id": tid, "status": st, "detail": detail}
+    if str(body.get("done_when") or "").strip():
+        rec["done_when"] = _done_when(c, tid, project, need, body.get("done_when"), owner)["done_when"]
     _poke(c, "todo", tid, "open", owner=owner)
     return rec
 
@@ -2371,20 +2490,10 @@ def _desk_slug(cn, hit: dict[str, Any], *keys: str) -> str:
 
 
 def _h_yield(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    from agent_coord.server.records import todo as rec_todo
 
     need = slug(str(body.get("need") or ""))
-    hit = rec_todo.find(c._cn, project, need)
-    if not hit:
-        raise CoordError(f"no such need: {project}/{need}")
-    _card_moves(c, hit, "unclaim", project, need)
-    who = _stored(owner or "")
-    vol = _desk_slug(c._cn, hit, "volunteer", "assigned")
-    if vol and who and vol != who:
-        raise CoordError("who-may: unclaim is the volunteer")
-    rec_todo.update(
-        c._cn, int(hit["id"]), _stored(owner or ""), status="open", volunteer="-"
-    )
+    hit = _card_hit(c, project, need)
+    _card_sp(c, "cmd_unclaim", [_desk_arg(owner), int(hit["id"])], project, need)
     rec = {"ok": True, "need": need, "status": "open"}
     _poke(c, "todo", int(hit["id"]), "unclaim", owner=owner)
     return rec
@@ -2418,74 +2527,50 @@ def _h_pass(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     """One named step (#615): ship (claimed -> shipped, the volunteer), done
     (shipped -> done, the asker or Admin accepts) or back (done -> shipped -> claimed).
     A step that does not fit the card's status is refused and changes nothing.
-    NEED may be a comma list (#19)."""
+    Optional evidence (#867) is kept with a ship or done step. NEED may be a comma list (#19)."""
     step = str(body.get("step") or "ship").strip().lower()
     if step not in ("ship", "done", "back"):
         raise CoordError("pass: step is ship, done or back")
-    return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner))
+    evidence = str(body.get("evidence") or "").strip()
+    if len(evidence) > EVIDENCE_MAX:
+        raise CoordError(
+            "pass: evidence would be %s chars (max %s); refused, nothing changed" % (len(evidence), EVIDENCE_MAX)
+        )
+    return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner, evidence))
 
 
-def _pass_one(c: Book, raw_need: str, step: str, project: str, owner: str | None) -> dict[str, Any]:
-    from agent_coord.server.admin.guard import is_role_admin
-    from agent_coord.server.records import todo as rec_todo
+def _pass_one(
+    c: Book, raw_need: str, step: str, project: str, owner: str | None, evidence: str = ""
+) -> dict[str, Any]:
 
     need = slug(str(raw_need or ""))
-    hit = rec_todo.find(c._cn, project, need)
-    if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
-    st = hit.get("status") or ""
-    who = _stored(owner or "")
-    vol = _desk_slug(c._cn, hit, "volunteer", "assigned")
-    ask = _desk_slug(c._cn, hit, "asker", "creator")
-    form = f"mill pass {project} {need}"
-    if step == "ship":
-        if st == "shipped":
-            raise CoordError(f"pass: {need} is already shipped; the asker accepts it with {form} --done")
-        if st == "done":
-            raise CoordError(f"pass: {need} is already done; {form} --back steps it back to shipped")
-        if st not in ("open", "claimed"):
-            raise CoordError(f"pass: {need} is {st}; only a claimed card ships")
-        # An open card with no volunteer is not shipped by anyone (#211).
-        if st == "open" and not vol:
-            raise CoordError("claim first: mill claim <project> <need>")
-        if vol and who and vol != who:
-            raise CoordError("who-may: pass claimed->shipped is the volunteer")
-        # No volunteer yet: only the asker may ship it.
-        if not vol and ask and who and ask != who:
-            raise CoordError("who-may: pass claimed->shipped is the volunteer")
-        nxt = "shipped"
-    elif step == "done":
-        if st != "shipped":
-            raise CoordError(f"pass --done: {need} is {st}, not shipped; nothing changed")
-        # #655: an asker that does not resolve is not a pass for everyone;
-        # only the volunteer may still finish the card. #19: Admin closes a card
-        # whose asker is gone or idle; the refusal names the asker.
-        # Card 789: with an asker that resolves, the volunteer does not accept
-        # its own work; the asker or Admin does.
-        may = who == ask or (not ask and who == vol)
-        if who and not may and not is_role_admin(c._cn, who):
-            raise CoordError(
-                f"who-may: pass shipped->done is the asker ({ask}) or Admin"
-                if ask
-                else "who-may: pass shipped->done is the asker; the card's asker does not resolve, so only the volunteer or Admin may"
-            )
-        nxt = "done"
-    else:
-        if st not in ("shipped", "done"):
-            raise CoordError(
-                f"pass --back: {need} is {st}; only shipped or done steps back (unclaim releases a claim)"
-            )
-        if who and ask != who and vol != who:
-            raise CoordError(
-                "who-may: pass --back is the asker or the volunteer"
-                if ask
-                else "who-may: pass --back is the asker or the volunteer; the card's asker does not resolve, so only the volunteer may"
-            )
-        nxt = "shipped" if st == "done" else ("claimed" if vol else "open")
-    rec_todo.update(c._cn, int(hit["id"]), _stored(owner or ""), status=nxt)
-    rec = {"ok": True, "need": need, "status": nxt, "was": st, "id": int(hit["id"])}
+    hit = _card_hit(c, project, need)
+    got = _card_sp(
+        c,
+        "cmd_pass",
+        [_desk_arg(owner), int(hit["id"]), step, evidence or None],
+        project,
+        need,
+    )
+    nxt = str(got.get("status") or "")
+    rec = {"ok": True, "need": need, "status": nxt, "was": str(got.get("was") or ""), "id": int(hit["id"])}
+    # #867: the card's evidence after the step (a done keeps the ship's; a back step clears it).
+    if got.get("evidence"):
+        rec["evidence"] = str(got["evidence"])
     _poke(c, "todo", rec["id"], "pass", owner=owner)
     return rec
+
+
+def _done_when(c: Book, card_id: int, project: str, need: str, raw: Any, owner: str | None) -> dict[str, Any]:
+    """Set or clear the card's acceptance line (#867). The SP checks asker or Admin and not done."""
+
+    text = str(raw or "").strip()
+    if len(text) > DONE_WHEN_MAX:
+        raise CoordError(
+            "done-when would be %s chars (max %s); refused, nothing changed" % (len(text), DONE_WHEN_MAX)
+        )
+    got = _card_sp(c, "cmd_card_accept", [_desk_arg(owner), card_id, text], project, need)
+    return {"ok": True, "need": need, "id": card_id, "done_when": got.get("done_when")}
 
 
 def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -2495,6 +2580,8 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
         raise CoordError(f"no such need: {project}/{need}")
+    if "done_when" in body:
+        return _done_when(c, int(hit["id"]), project, need, body.get("done_when"), owner)
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
     payload = fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]}
     before = dict(payload)

@@ -210,35 +210,6 @@ def test_inbox_role_does_not_mark():
     op_ins.assert_not_called()
 
 
-def test_whomay_unclaim_uses_assigned_id():
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    hit = {"id": 5, "status": "claimed", "assigned_id": 99, "creator_id": 88, "body": "{}"}
-    with patch("agent_coord.server.records.todo.find", return_value=hit), patch(
-        "agent_coord.server.records.name.by_id", side_effect=lambda cn, i: "vol" if int(i) == 99 else "ask"
-    ), patch(
-        "agent_coord.server.api.mill.rpc._poke"
-    ):
-        with pytest.raises(CoordError) as ei:
-            rpc._h_yield(c, {"need": "card"}, "office", "intruder")
-    assert "who-may" in str(ei.value).lower()
-
-
-def test_whomay_pass_shipped_uses_assigned_id():
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    hit = {"id": 5, "status": "claimed", "assigned_id": 99, "creator_id": 88, "body": "{}"}
-    with patch("agent_coord.server.records.todo.find", return_value=hit), patch(
-        "agent_coord.server.records.name.by_id", side_effect=lambda cn, i: "vol" if int(i) == 99 else "ask"
-    ), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"):
-        with pytest.raises(CoordError) as ei:
-            rpc._h_pass(c, {"need": "card"}, "office", "intruder")
-    assert "who-may" in str(ei.value).lower()
-    upd.assert_not_called()
-
-
 def _named_hit(status: str) -> dict:
     """mill_todo_select row shape: names joined next to ids."""
     return {
@@ -252,68 +223,31 @@ def _named_hit(status: str) -> dict:
     }
 
 
-def test_whomay_pass_shipped_to_done_allows_asker_with_names():
-    """agent-ux 1213: asker (not volunteer) may pass shipped->done."""
+def test_pass_and_unclaim_hand_the_guard_to_the_sp():
+    """#867: who-may and status guards run in cmd_pass / cmd_unclaim (the SQL suite
+    checks them: test_pass_step_sql_615, test_sec_pass_asker_655, test_server_sp_only_867).
+    The server passes the desk, card, step and evidence, and returns the SP's answer."""
     c = MagicMock(spec=Book)
     c._cn = MagicMock()
+    seen = []
+
+    def fake_sp(book, proc, args, roster, need):
+        desk = args[0]
+        seen.append((proc, [desk.sql, *desk.params, *args[1:], roster, need]))
+        if proc == "cmd_unclaim":
+            raise CoordError("who-may: unclaim is the volunteer")
+        return {"card": 63, "status": "done", "was": "shipped", "evidence": args[3]}
+
     with patch("agent_coord.server.records.todo.find", return_value=_named_hit("shipped")), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"):
-        out = rpc._h_pass(c, {"need": "63", "step": "done"}, "office", "ask")
-    assert out["ok"] is True and out["status"] == "done"
-    upd.assert_called_once()
-
-
-def test_whomay_pass_shipped_to_done_refuses_third_desk():
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    with patch("agent_coord.server.records.todo.find", return_value=_named_hit("shipped")), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"), patch(
-        "agent_coord.server.admin.guard.is_role_admin", return_value=False
-    ):
-        with pytest.raises(CoordError) as ei:
-            rpc._h_pass(c, {"need": "63", "step": "done"}, "office", "intruder")
-    assert "shipped->done is the asker" in str(ei.value)
-    upd.assert_not_called()
-
-
-def test_whomay_pass_claimed_to_shipped_refuses_asker_with_names():
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    with patch("agent_coord.server.records.todo.find", return_value=_named_hit("claimed")), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"):
-        with pytest.raises(CoordError):
-            rpc._h_pass(c, {"need": "63"}, "office", "ask")
-    upd.assert_not_called()
-
-
-def test_whomay_pass_unassigned_ship_is_asker_only():
-    """An open unclaimed card refuses pass with claim first, asker included (#211)."""
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    hit = {"id": 64, "status": "open", "creator": "ask", "creator_id": 88, "assigned_id": None, "body": "{}"}
-    with patch("agent_coord.server.records.todo.find", return_value=hit), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"):
-        with pytest.raises(CoordError, match=r"mill claim <project> <need>"):
-            rpc._h_pass(c, {"need": "64"}, "office", "intruder")
-        upd.assert_not_called()
-        with pytest.raises(CoordError, match=r"mill claim <project> <need>"):
-            rpc._h_pass(c, {"need": "64"}, "office", "ask")
-        upd.assert_not_called()
-
-
-def test_pass_claimed_volunteer_still_ships():
-    c = MagicMock(spec=Book)
-    c._cn = MagicMock()
-    with patch("agent_coord.server.records.todo.find", return_value=_named_hit("claimed")), patch(
-        "agent_coord.server.records.todo.update"
-    ) as upd, patch("agent_coord.server.api.mill.rpc._poke"):
-        out = rpc._h_pass(c, {"need": "63"}, "office", "vol")
-    assert out["ok"] is True and out["status"] == "shipped"
-    upd.assert_called_once()
+        "agent_coord.server.api.mill.rpc._card_sp", side_effect=fake_sp
+    ), patch("agent_coord.server.api.mill.rpc._poke"):
+        out = rpc._h_pass(c, {"need": "63", "step": "done", "evidence": "PR 1"}, "office", "ask")
+        assert out["ok"] is True and out["status"] == "done" and out["was"] == "shipped"
+        assert out["evidence"] == "PR 1"
+        with pytest.raises(CoordError, match="who-may: unclaim is the volunteer"):
+            rpc._h_yield(c, {"need": "63"}, "office", "intruder")
+    assert seen[0] == ("cmd_pass", ["MILL_DESK_ID(%s)", "ask", 63, "done", "PR 1", "office", "63"])
+    assert seen[1][0] == "cmd_unclaim" and seen[1][1][1:3] == ["intruder", 63]
 
 
 def test_desk_slug_picks_requested_role():
