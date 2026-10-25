@@ -2,37 +2,40 @@
 -- commands follow in later commits of #868.
 -- Public (EXECUTE to the app user): cmd_*, sp_name_*, mill_*. Internal helpers are b_* (never granted).
 -- sp_admin_set is granted to the host database user only (admin.md section 1: Admin grant is host loopback only).
--- Trust: every procedure reads office_setting itself (b_trust) and applies docs/requirements/admin.md sections 1-3;
--- no guard reads an app argument or a caller-set user variable.
+-- Trust: every procedure reads b_trust() itself and applies docs/requirements/admin.md sections 1-3; no guard reads an
+-- app argument or a caller-set user variable. The level lives in the server's config.toml (as on main); the server
+-- re-creates b_trust() from it at startup and on `mill trust` (docs/requirements/schema-design.md section 9).
+-- Ids are BIGINT UNSIGNED, as on main. There is no name history table: a lifecycle step changes the name row only.
 -- No procedure starts, commits or rolls back; the caller owns the transaction; guards run before the
 -- first write; the name row a decision depends on is read FOR UPDATE.
 -- Refusals: SIGNAL SQLSTATE 45000 with main's texts where main has one (sp_name.sql, catalog.py, guard.py).
 
 DELIMITER //
 
+-- Install default. The server replaces this body with the config.toml level ('high' or 'limited') before it serves.
 DROP FUNCTION IF EXISTS b_trust //
-CREATE FUNCTION b_trust() RETURNS VARCHAR(8) READS SQL DATA
-  RETURN IFNULL((SELECT trust FROM office_setting WHERE id = 1), 'high') //
+CREATE FUNCTION b_trust() RETURNS VARCHAR(8) DETERMINISTIC NO SQL
+  RETURN 'high' //
 -- Admin is roster id 2, never the string (F92).
 DROP FUNCTION IF EXISTS b_is_admin //
-CREATE FUNCTION b_is_admin(p_desk INT UNSIGNED) RETURNS TINYINT READS SQL DATA
+CREATE FUNCTION b_is_admin(p_desk BIGINT UNSIGNED) RETURNS TINYINT READS SQL DATA
   RETURN p_desk IS NOT NULL AND EXISTS (SELECT 1 FROM member WHERE name_id = 2 AND desk_id = p_desk) //
 -- A live, seated desk by name (the caller of a command).
 DROP FUNCTION IF EXISTS b_desk //
-CREATE FUNCTION b_desk(p_name VARCHAR(64)) RETURNS INT UNSIGNED READS SQL DATA
+CREATE FUNCTION b_desk(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
 BEGIN
-  DECLARE v INT UNSIGNED;
+  DECLARE v BIGINT UNSIGNED;
   SELECT n.id INTO v FROM name n JOIN seat s ON s.desk_id = n.id
    WHERE n.type = 'desk' AND n.name = TRIM(p_name) AND n.deleted IS NULL AND s.token_hash IS NOT NULL;
   IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'desk: not a seated desk'; END IF;
   RETURN v;
 END //
 DROP FUNCTION IF EXISTS mill_desk_id //
-CREATE FUNCTION mill_desk_id(p_name VARCHAR(64)) RETURNS INT UNSIGNED READS SQL DATA
+CREATE FUNCTION mill_desk_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
   RETURN (SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL) //
 -- A roster by name. Office is id 1 by name while no roster holds the name 'Office' (F92: Office follows id 1).
 DROP FUNCTION IF EXISTS mill_roster_id //
-CREATE FUNCTION mill_roster_id(p_name VARCHAR(64)) RETURNS INT UNSIGNED READS SQL DATA
+CREATE FUNCTION mill_roster_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
   RETURN IFNULL((SELECT id FROM name WHERE type = 'roster' AND name = TRIM(p_name) AND deleted IS NULL),
                 IF(TRIM(p_name) COLLATE utf8mb4_0900_ai_ci = 'Office', 1, NULL)) //
 -- The name a lifecycle verb acts on. F60: the type is typed by the caller, one of desk, roster, label.
@@ -45,8 +48,6 @@ BEGIN
   RETURN LOWER(TRIM(p_type));
 END //
 DROP PROCEDURE IF EXISTS b_name_event //
-CREATE PROCEDURE b_name_event(IN p_name INT UNSIGNED, IN p_by INT UNSIGNED, IN p_verb VARCHAR(8), IN p_old VARCHAR(64), IN p_new VARCHAR(64))
-  INSERT INTO name_event (name_id, desk_id, verb, old_name, new_name, trust) VALUES (p_name, p_by, p_verb, p_old, p_new, b_trust()) //
 DROP PROCEDURE IF EXISTS b_name_check //
 CREATE PROCEDURE b_name_check(IN p_name VARCHAR(64))
 BEGIN
@@ -60,7 +61,7 @@ END //
 -- resource (res): any seated desk (section 3: tree, hold). A desk mints itself at connect (sp_name_mint_desk).
 -- A live name of that type is returned as it is ('exists'); a retired one is refused (reuse = Admin reclaim).
 DROP PROCEDURE IF EXISTS b_name_mint //
-CREATE PROCEDURE b_name_mint(IN p_by INT UNSIGNED, IN p_type VARCHAR(8), IN p_name VARCHAR(64), OUT o_id INT UNSIGNED, OUT o_op VARCHAR(8))
+CREATE PROCEDURE b_name_mint(IN p_by BIGINT UNSIGNED, IN p_type VARCHAR(8), IN p_name VARCHAR(64), OUT o_id BIGINT UNSIGNED, OUT o_op VARCHAR(8))
 BEGIN
   DECLARE v_del DATETIME(6);
   CALL b_name_check(p_name);
@@ -77,13 +78,14 @@ BEGIN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
     END IF;
     INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name)); SET o_id = LAST_INSERT_ID(); SET o_op = 'created';
-    CALL b_name_event(o_id, p_by, 'mint', NULL, TRIM(p_name));
+    -- Kind table: a roster name gets its roster row in the same call (roster.id = name.id).
+    IF p_type = 'roster' THEN INSERT INTO roster (id) VALUES (o_id); END IF;
   END IF;
 END //
 DROP PROCEDURE IF EXISTS sp_name_mint //
 CREATE PROCEDURE sp_name_mint(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
-  DECLARE v_by INT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_id INT UNSIGNED; DECLARE v_op VARCHAR(8);
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_id BIGINT UNSIGNED; DECLARE v_op VARCHAR(8);
   CALL b_name_mint(v_by, LOWER(TRIM(p_type)), p_name, v_id, v_op);
   SELECT v_id AS id, TRIM(p_name) AS name, LOWER(TRIM(p_type)) AS name_type, v_op AS op;
 END //
@@ -91,7 +93,7 @@ END //
 DROP PROCEDURE IF EXISTS sp_name_mint_desk //
 CREATE PROCEDURE sp_name_mint_desk(IN p_name VARCHAR(64), IN p_token_hash CHAR(64))
 BEGIN
-  DECLARE v INT UNSIGNED; DECLARE v_del DATETIME(6);
+  DECLARE v BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
   CALL b_name_check(p_name);
   IF p_token_hash IS NULL OR CHAR_LENGTH(p_token_hash) <> 64 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'connect: seat token hash required'; END IF;
   SELECT id, deleted INTO v, v_del FROM name WHERE type = 'desk' AND name = TRIM(p_name) FOR UPDATE;
@@ -101,7 +103,6 @@ BEGIN
   INSERT INTO seat (desk_id, token_hash) VALUES (v, p_token_hash);
   INSERT INTO member (name_id, desk_id) VALUES (1, v);
   UPDATE name SET n = n + 1 WHERE id = 1;
-  CALL b_name_event(v, v, 'mint', NULL, TRIM(p_name));
   SELECT v AS id, TRIM(p_name) AS name, 'desk' AS name_type, 'created' AS op;
 END //
 
@@ -112,8 +113,8 @@ END //
 DROP PROCEDURE IF EXISTS sp_name_rename //
 CREATE PROCEDURE sp_name_rename(IN p_by VARCHAR(64), IN p_by_hash CHAR(64), IN p_type VARCHAR(16), IN p_old VARCHAR(64), IN p_new VARCHAR(64))
 BEGIN
-  DECLARE v_by INT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
-  DECLARE v_id INT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_old VARCHAR(64); DECLARE v_self TINYINT DEFAULT 0;
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
+  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_old VARCHAR(64); DECLARE v_self TINYINT DEFAULT 0;
   CALL b_name_check(p_new);
   SELECT id, deleted, name INTO v_id, v_del, v_old FROM name WHERE type = v_type AND name = TRIM(p_old) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
@@ -131,7 +132,6 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
   END IF;
   UPDATE name SET name = TRIM(p_new) WHERE id = v_id;
-  CALL b_name_event(v_id, v_by, 'rename', v_old, TRIM(p_new));
   SELECT v_id AS id, TRIM(p_new) AS name, v_type AS name_type, 'renamed' AS op;
 END //
 
@@ -141,8 +141,8 @@ END //
 DROP PROCEDURE IF EXISTS sp_name_retire //
 CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
-  DECLARE v_by INT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
-  DECLARE v_id INT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0; DECLARE v_doing INT UNSIGNED;
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
+  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0; DECLARE v_doing BIGINT UNSIGNED;
   IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: retire'; END IF;
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
@@ -162,7 +162,6 @@ BEGIN
     INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('doing', v_doing, v_id, 1);
     INSERT INTO doing_now (desk_id, doing_id) VALUES (v_id, v_doing) AS x ON DUPLICATE KEY UPDATE doing_id = x.doing_id;
   END IF;
-  CALL b_name_event(v_id, v_by, 'retire', v_nm, v_nm);
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op, v_released AS released;
 END //
 
@@ -172,8 +171,8 @@ END //
 DROP PROCEDURE IF EXISTS sp_name_reclaim //
 CREATE PROCEDURE sp_name_reclaim(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
-  DECLARE v_by INT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
-  DECLARE v_id INT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64);
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
+  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64);
   IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: reclaim'; END IF;
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
@@ -184,7 +183,6 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: mill reset first, then mill reclaim';
   END IF;
   UPDATE name SET deleted = NULL WHERE id = v_id;
-  CALL b_name_event(v_id, v_by, 'reclaim', v_nm, v_nm);
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'reclaimed' AS op,
          (SELECT COUNT(*) FROM member WHERE name_id = v_id OR desk_id = v_id) AS members;
 END //
@@ -193,7 +191,7 @@ END //
 -- Spreads one label's ranked rows (ord 1..65534) evenly over 1..65534 in their current order; 0 (pinned) and
 -- 65535 (unplaced) keep their meaning and are not touched. Run when an insert finds no gap.
 DROP PROCEDURE IF EXISTS sp_label_renumber //
-CREATE PROCEDURE sp_label_renumber(IN p_label INT UNSIGNED)
+CREATE PROCEDURE sp_label_renumber(IN p_label BIGINT UNSIGNED)
 BEGIN
   DECLARE v_n INT;
   SELECT COUNT(*) INTO v_n FROM label WHERE name_id = p_label AND ord BETWEEN 1 AND 65534;
@@ -206,16 +204,19 @@ BEGIN
 END //
 
 -- ---------- trust (admin.md: show is any seated desk; set is Admin) ----------
+-- No table holds trust. Show returns b_trust(). A set is guarded here (Admin, a known level) and answers the level to
+-- apply; the server then writes config.toml and re-creates b_trust() (schema-design.md section 9).
 DROP PROCEDURE IF EXISTS cmd_trust //
 CREATE PROCEDURE cmd_trust(IN p_by VARCHAR(64), IN p_level VARCHAR(8))
 BEGIN
-  DECLARE v_by INT UNSIGNED DEFAULT b_desk(p_by);
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
   IF p_level IS NOT NULL AND TRIM(p_level) <> '' THEN
     IF LOWER(TRIM(p_level)) NOT IN ('high','limited') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill trust: high or limited'; END IF;
     IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: set trust'; END IF;
-    UPDATE office_setting SET trust = LOWER(TRIM(p_level)), updated_id = v_by WHERE id = 1;
+    SELECT LOWER(TRIM(p_level)) AS trust, 'set' AS op;
+  ELSE
+    SELECT b_trust() AS trust, 'show' AS op;
   END IF;
-  SELECT b_trust() AS trust;
 END //
 
 -- ---------- Admin grant (admin.md section 1: host loopback only) ----------
@@ -223,7 +224,7 @@ END //
 DROP PROCEDURE IF EXISTS sp_admin_set //
 CREATE PROCEDURE sp_admin_set(IN p_by VARCHAR(64), IN p_desk VARCHAR(64), IN p_on TINYINT)
 BEGIN
-  DECLARE v INT UNSIGNED DEFAULT mill_desk_id(p_desk); DECLARE v_by INT UNSIGNED DEFAULT mill_desk_id(p_by);
+  DECLARE v BIGINT UNSIGNED DEFAULT mill_desk_id(p_desk); DECLARE v_by BIGINT UNSIGNED DEFAULT mill_desk_id(p_by);
   IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   SELECT id FROM name WHERE id = 2 FOR UPDATE;
   IF p_on THEN

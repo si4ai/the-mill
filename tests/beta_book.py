@@ -59,6 +59,17 @@ def make_book(prefix: str, *, sp: bool = True):
     return cn, db
 
 
+def set_trust(cn, level: str) -> None:
+    """Re-create b_trust() with `level`, as the server does from config.toml at startup and on `mill trust`."""
+    assert level in ("high", "limited"), level
+    cur = cn.cursor()
+    try:
+        cur.execute("DROP FUNCTION IF EXISTS b_trust")
+        cur.execute(f"CREATE FUNCTION b_trust() RETURNS VARCHAR(8) DETERMINISTIC NO SQL RETURN '{level}'")
+    finally:
+        cur.close()
+
+
 def drop_book(cn, db: str) -> None:
     if os.environ.get("MILL_KEEP_TEST_DB"):
         return

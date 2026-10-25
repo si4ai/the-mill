@@ -17,8 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 # (and justified), so a name string cannot slip into a table unnoticed.
 SHORT_TEXT_OK = {
     ("name", "name"): "the name itself",
-    ("name_event", "old_name"): "history: the name before a rename",
-    ("name_event", "new_name"): "history: the name after",
     ("score", "kpi"): "a kpi key, not a name row (main)",
     ("score", "value"): "a reading (main)",
     ("score", "target"): "a target (main)",
@@ -32,19 +30,23 @@ SHORT_TEXT_OK = {
     ("vote_option", "label"): "option text",
     ("seat", "lan_ip"): "an address",
 }
-# Id-like columns that are not INT UNSIGNED, with the reason.
+# Id-like columns that are not BIGINT UNSIGNED (main's id type, owner decision 2026-10-24), with the reason.
 ID_TYPE_OK = {
-    ("push_queue", "id"): "bigint unsigned: a churning queue",
     ("mill_invite", "key_id"): "an invite key string",
     ("mill_invite_join", "key_id"): "an invite key string",
     ("mill_invite_join", "party_id"): "FINDING F1",
-    ("office_setting", "id"): "the one row (tinyint)",
     ("glance_cache", "id"): "the one row (tinyint)",
     ("vote_option", "opt"): "option number 1..n, not an id",
     ("vote_cast", "opt"): "option number 1..n, not an id",
 }
-# The one untyped reference to name: name_event.name_id may point at any type (the history of every name).
-UNTYPED_NAME_REF_OK = {("name_event", "name_id")}
+# Kind tables (owner decision 2026-10-24): only a kind table references name, one FK each, kind id = name.id.
+KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind", ("roster", "id"): "the roster kind"}
+# label, tree and res have no kind table on main; these keep main's FK to name (id) (BETA-CHANGES.md open question Q1).
+NAME_REF_PENDING_Q1 = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id")}
+# A single-kind column FKs to its kind table: desk columns to seat (desk_id), roster columns to roster (id).
+DESK_COLS = ("desk_id", "updated_id", "creator_id", "assigned_id")
+ROSTER_COLS = ("roster_id",)
+ROSTER_NAME_ID = {"member", "human_member"}  # name_id is a roster there (main's comments)
 EDGE_WORDS = ("parent", "reply_to", "from_card", "from_letter", "from_score", "edge", "link", "adjacen", "child")
 
 
@@ -81,13 +83,13 @@ def test_no_name_string_outside_name(book):
     assert not bad, f"short text columns that could hold a name string; justify in SHORT_TEXT_OK or use a name id: {bad}"
 
 
-def test_ids_are_int_unsigned(book):
+def test_ids_are_bigint_unsigned(book):
     cn, db = book
     rows = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s"
                      " AND (COLUMN_NAME = 'id' OR COLUMN_NAME LIKE '%%\\_id' OR COLUMN_NAME = 'opt')", (db,))
-    bad = sorted((t, c, ty) for t, c, ty in rows if ty != "int unsigned" and (t, c) not in ID_TYPE_OK)
-    assert not bad, f"ids are INT UNSIGNED unless allowlisted with a reason: {bad}"
-    assert ("push_queue", "id", "bigint unsigned") in [(t, c, ty) for t, c, ty in rows]
+    bad = sorted((t, c, ty) for t, c, ty in rows if ty != "bigint unsigned" and (t, c) not in ID_TYPE_OK)
+    assert not bad, f"ids are BIGINT UNSIGNED as on main unless allowlisted with a reason: {bad}"
+    assert ("name", "id", "bigint unsigned") in rows
 
 
 def test_trees_are_nested_sets_no_edge_table(book):
@@ -101,23 +103,45 @@ def test_trees_are_nested_sets_no_edge_table(book):
     assert {"lft", "rgt", "name_id", "type", "id"} <= tree
 
 
-def test_every_name_reference_is_typed(book):
+def _fks(cn, db):
+    return _rows(cn, "SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION),"
+                     " k.REFERENCED_TABLE_NAME, GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION)"
+                     " FROM information_schema.KEY_COLUMN_USAGE k WHERE k.TABLE_SCHEMA = %s AND k.REFERENCED_TABLE_NAME IS NOT NULL"
+                     " GROUP BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME", (db,))
+
+
+def test_only_kind_tables_reference_name(book):
     cn, db = book
-    rows = _rows(cn, "SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION),"
-                     " GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION)"
-                     " FROM information_schema.KEY_COLUMN_USAGE k WHERE k.TABLE_SCHEMA = %s AND k.REFERENCED_TABLE_NAME = 'name'"
-                     " GROUP BY k.TABLE_NAME, k.CONSTRAINT_NAME", (db,))
-    assert rows
-    gen = {(t, c): e for t, c, e in _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME, GENERATION_EXPRESSION FROM information_schema.COLUMNS"
-                                              " WHERE TABLE_SCHEMA = %s AND COLUMN_NAME LIKE 't\\_%%'", (db,))}
+    to_name = {(t, c): r for t, _fk, c, rt, r in _fks(cn, db) if rt == "name"}
+    assert all(r == "id" for r in to_name.values()), f"a reference to name is one column to name (id): {to_name}"
+    assert set(KIND_REF_TO_NAME) <= set(to_name), f"each kind table links to name: {sorted(to_name)}"
+    bad = sorted(set(to_name) - set(KIND_REF_TO_NAME) - NAME_REF_PENDING_Q1)
+    assert not bad, f"only a kind table references name; point these at their kind table: {bad}"
+    gen = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s"
+                    " AND COLUMN_NAME LIKE 't\\_%%'", (db,))
+    assert not gen, f"no generated type columns since the kind-table rework: {gen}"
+
+
+def test_single_kind_columns_reference_their_kind_table(book):
+    cn, db = book
     bad = []
-    for t, fk, cols, refs in rows:
-        cols_l, refs_l = cols.split(","), refs.split(",")
-        if len(cols_l) == 1 and (t, cols_l[0]) in UNTYPED_NAME_REF_OK:
+    for t, fk, c, rt, r in _fks(cn, db):
+        if "," in c or (t, c) in KIND_REF_TO_NAME:
             continue
-        if refs_l != ["type", "id"] or not cols_l[0].startswith("t_") or (t, cols_l[0]) not in gen:
-            bad.append((t, fk, cols, refs))
-    assert not bad, f"every reference to name is (generated t_<type>, id) -> name (type, id): {bad}"
+        if c in DESK_COLS and (rt, r) != ("seat", "desk_id"):
+            bad.append((t, fk, c, rt, r))
+        if (c in ROSTER_COLS or (t in ROSTER_NAME_ID and c == "name_id")) and (rt, r) != ("roster", "id"):
+            bad.append((t, fk, c, rt, r))
+    assert not bad, f"a desk column FKs to seat (desk_id), a roster column to roster (id): {bad}"
+
+
+def test_no_name_history_table(book):
+    cn, db = book
+    assert not _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s"
+                         " AND TABLE_NAME = 'name_event'", (db,))
+    uniq = _rows(cn, "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
+                     " WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'name' AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", (db,))
+    assert sorted(uniq) == [("PRIMARY", "id"), ("idx_type", "type,name")], uniq
 
 
 def test_app_grant_is_execute_only(book):

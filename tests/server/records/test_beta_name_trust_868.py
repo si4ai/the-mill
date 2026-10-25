@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Beta name family and trust (card 868, F161): admin.md sections 1, 2, 4 and rows F60, F65, F92, F135, enforced
-inside sp_name_* / cmd_trust on beta_ddl.sql. One test per gated cell. Each reads the trust row the procedure
-reads; nothing is passed as an app argument.
+inside sp_name_* / cmd_trust on beta_ddl.sql. One test per gated cell. Trust is set the way the server sets it
+(b_trust() re-created from config.toml); nothing is passed as an app argument. There is no name history table.
 """
 from __future__ import annotations
 
@@ -57,10 +57,10 @@ def refused(c, text, proc, *args):
 
 @pytest.fixture
 def trust(cn):
-    def set_(level):
-        call(cn, "cmd_trust", "adm", level)
-    yield set_
-    call(cn, "cmd_trust", "adm", "high")
+    from tests.beta_book import set_trust
+
+    yield lambda level: set_trust(cn, level)
+    set_trust(cn, "high")
 
 
 def nid(c, t, n):
@@ -68,8 +68,8 @@ def nid(c, t, n):
     return r[0][0] if r else None
 
 
-def last_event(c, name_id):
-    return q(c, "SELECT verb, old_name, new_name, desk_id, trust FROM name_event WHERE name_id = %s ORDER BY id DESC LIMIT 1", (name_id,))[0]
+def row(c, name_id):
+    return q(c, "SELECT type, name, deleted IS NOT NULL FROM name WHERE id = %s", (name_id,))[0]
 
 
 # ---- section 2: mint (trust-gated)
@@ -77,7 +77,7 @@ def last_event(c, name_id):
 def test_mint_high_any_desk(cn, trust, kind):
     trust("high")
     assert call(cn, "sp_name_mint", "ann", kind, f"h-{kind}")[0][3] == "created"
-    assert last_event(cn, nid(cn, kind, f"h-{kind}"))[:4] == ("mint", None, f"h-{kind}", nid(cn, "desk", "ann"))
+    assert row(cn, nid(cn, kind, f"h-{kind}")) == (kind, f"h-{kind}", 0)
 
 
 @pytest.mark.parametrize("kind", ["roster", "label"])
@@ -90,8 +90,22 @@ def test_mint_limited_refused_for_plain_desk(cn, trust, kind):
 @pytest.mark.parametrize("kind", ["roster", "label"])
 def test_mint_limited_admin_ok(cn, trust, kind):
     trust("limited")
-    call(cn, "sp_name_mint", "adm", kind, f"la-{kind}")
-    assert last_event(cn, nid(cn, kind, f"la-{kind}"))[4] == "limited"
+    assert call(cn, "sp_name_mint", "adm", kind, f"la-{kind}")[0][3] == "created"
+    assert nid(cn, kind, f"la-{kind}") is not None
+
+
+def test_mint_roster_writes_its_kind_row(cn):
+    call(cn, "sp_name_mint", "adm", "roster", "kind-r")
+    i = nid(cn, "roster", "kind-r")
+    assert q(cn, "SELECT id FROM roster WHERE id = %s", (i,)) == [(i,)]
+    call(cn, "sp_name_mint", "adm", "label", "kind-l")
+    assert q(cn, "SELECT id FROM roster WHERE id = %s", (nid(cn, "label", "kind-l"),)) == []
+
+
+def test_desk_column_refuses_a_roster_id(cn):
+    with pytest.raises(mysql.connector.Error) as ei:
+        q(cn, "INSERT INTO watcher (type, id, desk_id) VALUES ('todo', 1, 1)")  # 1 = Office, a roster
+    assert "foreign key" in str(ei.value).lower()
 
 
 @pytest.mark.parametrize("kind", ["tree", "res"])
@@ -122,12 +136,15 @@ def test_rename_plain_desk_refused(cn, trust, level):
 
 
 @pytest.mark.parametrize("level", ["high", "limited"])
-def test_rename_admin_ok_with_history(cn, trust, level):
+def test_rename_admin_is_a_plain_update(cn, trust, level):
     trust(level)
     call(cn, "sp_name_mint", "adm", "label", f"ra-{level}")
     i = nid(cn, "label", f"ra-{level}")
     call(cn, "sp_name_rename", "adm", None, "label", f"ra-{level}", f"rb-{level}")
-    assert last_event(cn, i) == ("rename", f"ra-{level}", f"rb-{level}", nid(cn, "desk", "adm"), level)
+    assert row(cn, i) == ("label", f"rb-{level}", 0) and nid(cn, "label", f"ra-{level}") is None
+    # No hold on a renamed-away name: the old string mints a new id at once.
+    call(cn, "sp_name_mint", "adm", "label", f"ra-{level}")
+    assert nid(cn, "label", f"ra-{level}") not in (None, i)
 
 
 def test_desk_self_rename_with_own_hash(cn):
@@ -199,7 +216,7 @@ def test_retire_desk_clears_seat_and_frees_holds_f65_f135(cn):
     seat = q(cn, "SELECT token_hash, endpoint_url, endpoint_key, delivery_mode FROM seat WHERE desk_id = %s", (cat,))[0]
     assert seat == (None, None, None, "websocket")
     assert q(cn, "SELECT desk_id FROM hold WHERE id = %s", (hid,))[0][0] is None
-    assert last_event(cn, cat)[0] == "retire"
+    assert row(cn, cat)[2] == 1
 
 
 def test_retired_name_not_reused_and_reclaim_same_id(cn):
@@ -210,7 +227,7 @@ def test_retired_name_not_reused_and_reclaim_same_id(cn):
     refused(cn, "name retired: mill reclaim first", "sp_name_rename", "adm", None, "label", "old-l", "new-l")
     refused(cn, "Admin only: reclaim", "sp_name_reclaim", "ann", "label", "old-l")
     call(cn, "sp_name_reclaim", "adm", "label", "old-l")
-    assert nid(cn, "label", "old-l") == i and last_event(cn, i)[0] == "reclaim"
+    assert nid(cn, "label", "old-l") == i and row(cn, i)[2] == 0
 
 
 def test_reclaim_refused_while_a_live_seat_is_a_member(cn):
@@ -221,17 +238,19 @@ def test_reclaim_refused_while_a_live_seat_is_a_member(cn):
     refused(cn, "mill reset first", "sp_name_reclaim", "adm", "roster", "busy-r")
 
 
-def test_name_history_append_only(cn):
-    for stmt in ("UPDATE name_event SET new_name = 'x' WHERE id = 1", "DELETE FROM name_event WHERE id = 1"):
-        with pytest.raises(mysql.connector.Error) as ei:
-            q(cn, stmt)
-        assert "append-only" in str(ei.value)
+def test_no_name_history_table(cn):
+    assert q(cn, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
+                 " AND TABLE_NAME = 'name_event'") == [(0,)]
 
 
 # ---- trust setting: show any seated desk, set Admin; Admin grant is the host procedure
 def test_trust_show_any_set_admin(cn, trust):
-    assert call(cn, "cmd_trust", "ann", None)[0][0] == "high"
+    assert call(cn, "cmd_trust", "ann", None)[0] == ("high", "show")
     refused(cn, "Admin only: set trust", "cmd_trust", "ann", "limited")
+    refused(cn, "mill trust: high or limited", "cmd_trust", "adm", "low-ish")
+    # The procedure answers the level to apply; the server writes config.toml and re-creates b_trust().
+    assert call(cn, "cmd_trust", "adm", "limited")[0] == ("limited", "set")
+    assert call(cn, "cmd_trust", "ann", "")[0][0] == "high"
     trust("limited")
     assert call(cn, "cmd_trust", "ann", "")[0][0] == "limited"
 
