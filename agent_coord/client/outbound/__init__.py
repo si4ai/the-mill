@@ -266,6 +266,11 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
+# Card 866: a done-when note writes only the done-when, so other note fields beside it would be lost.
+_NOTE_WITH_DONE_WHEN = ("text", "note", "supersedes", "eta", "started")
+_DONE_WHEN_ALONE = "note: --done-when goes alone; send the note in its own mill note. Nothing changed"
+
+
 def body_from_args(args: Any) -> dict[str, Any]:
     cmd = str(getattr(args, "cmd", "") or "")
     obj = str(getattr(args, "object", "") or "")
@@ -348,6 +353,10 @@ def body_from_args(args: Any) -> dict[str, Any]:
                 )
             if command == "note" or dw:
                 body["done_when"] = dw
+            if command == "note" and any(
+                getattr(args, k, None) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN
+            ):
+                raise CoordError(_DONE_WHEN_ALONE)
     if command == "glance":
         body.pop("project", None)
     if bool(getattr(args, "yes", False)):

@@ -129,3 +129,25 @@ def test_glance_refuses_when_the_read_is_missing():
 
     with pytest.raises(CoordError, match="not installed"):
         read_cached_glance(_Cn())
+
+@pytest.mark.parametrize(
+    "extra",
+    [["9/12"], ["--note", "x"], ["--eta", "2h"], ["--started"], ["--supersedes", "old", "--note", "new"]],
+)
+def test_note_refuses_done_when_with_other_note_fields(extra):
+    # A done-when note writes only the done-when; anything beside it would be dropped.
+    args = _build_parser().parse_args(["note", "unit", "n1", *extra, "--done-when", "tests green"])
+    with pytest.raises(CoordError, match="--done-when goes alone"):
+        body_from_args(args)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"text": "9/12"}, {"note": "x"}, {"detail": "x"}, {"eta": "2h"}, {"started": True}, {"supersedes": "old"}],
+)
+def test_server_note_refuses_done_when_with_other_note_fields(extra):
+    from agent_coord.server.api.mill.rpc import _h_note
+
+    body = {"verb": "note", "need": "n1", "done_when": "tests green", **extra}
+    with pytest.raises(CoordError, match="--done-when goes alone"):
+        _h_note(None, body, "unit", "builder")
