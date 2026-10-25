@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""wow161: wall_perf appends timings=1 on /api/v1/* GET and parses body.timings into strip."""
+"""wall_perf appends timings=1 on /api/v1/* GET and parses body.timings into strip."""
 from __future__ import annotations
 
 from agent_coord.web.wall_logic.packs import wall_ui_root

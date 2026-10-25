@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Wall UI: theme Auto follows prefers-color-scheme via matchMedia (wow164)."""
+"""Wall UI: theme Auto follows prefers-color-scheme via matchMedia."""
 from __future__ import annotations
 
 from agent_coord.web.wall_logic.packs import wall_ui_root

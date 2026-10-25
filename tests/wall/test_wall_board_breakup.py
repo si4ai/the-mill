@@ -28,7 +28,7 @@ def test_board_shell_links_and_markers():
 def test_no_large_inline_style_or_script():
     board = default_board_path().read_text(encoding="utf-8")
     styles = re.findall(r"<style\b[^>]*>(.*?)</style>", board, flags=re.I | re.S)
-    # wow176 critical welcome + wow190 .dismiss close chrome (Host lock); was 800 pre-welcome
+    # critical welcome + .dismiss close chrome (Host lock); was 800 pre-welcome
     assert sum(len(s) for s in styles) < 1200
     inline = []
     for m in re.finditer(r"<script\b([^>]*)>(.*?)</script>", board, flags=re.I | re.S):

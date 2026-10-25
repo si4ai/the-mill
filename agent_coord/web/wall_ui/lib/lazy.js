@@ -70,13 +70,13 @@
       modules: ["mailPaint"]
     },
     score: {
-      js: "/score/score.js?v=wow182",
+      js: "/score/score.js?v=wow320",
       css: "/score/score.css?v=wow319",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow182",
+      js: "/todo/todo.js?v=wow320",
       css: "/todo/todo.css?v=wow319",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
@@ -111,12 +111,12 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow319",
+      js: "/mail/mail-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
     scorePaint: {
-      js: "/score/score-paint.js?v=wow319",
+      js: "/score/score-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_SCORE_PAINT",
       domain: "score"
     },
@@ -126,9 +126,26 @@
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow319",
+      js: "/todo/todo-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
+    },
+    /* #872 rule-lazy-panes: pane-only code split out of boot.js; each loads on first use. */
+    deskPaint: {
+      js: "/session/desk-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_DESK_PAINT"
+    },
+    servicePaint: {
+      js: "/session/service-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_SERVICE_PAINT"
+    },
+    listsPaint: {
+      js: "/lists/lists-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_LISTS_PAINT"
+    },
+    adminMint: {
+      js: "/admin/mint-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_ADMIN_MINT"
     },
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
     doingPaint: {

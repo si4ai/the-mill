@@ -22,3 +22,22 @@ def boot_source() -> str:
     parts = [BOOT.read_text(encoding="utf-8")]
     parts += [p.read_text(encoding="utf-8") for p in pane_paint_files()]
     return "\n".join(parts)
+
+
+def wall_fn(name: str) -> str:
+    """Source of one top-level Wall function, from whichever file holds it (#872).
+
+    A function split out of boot.js lives in its pane module, and boot.js keeps a
+    one-line wallLazyCall stub under the same name; the stub is skipped.
+    """
+    for path in [BOOT] + pane_paint_files():
+        src = path.read_text(encoding="utf-8")
+        for decl in ("    async function " + name + "(", "    function " + name + "("):
+            head = src.find(decl)
+            while head >= 0:
+                line_end = src.find("\n", head)
+                if "wallLazyCall(" not in src[head:line_end]:
+                    end = src.index("\n    }\n", head) + len("\n    }\n")
+                    return src[head:end]
+                head = src.find(decl, line_end)
+    raise ValueError("no Wall function " + name)

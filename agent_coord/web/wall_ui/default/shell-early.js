@@ -1,4 +1,4 @@
-/* WALL_UI_SHELL_EARLY wow155/wow281: theme FOUC + hash pane sync + wall_perf gate.
+/* WALL_UI_SHELL_EARLY theme FOUC + hash pane sync + wall_perf gate.
  * One script tag runs all three (data-wall-early=all|boot|empty). Legacy kind=theme|hash|perf still work.
  */
 (function () {
@@ -14,7 +14,7 @@
 
   function applyTheme() {
     try {
-      /* wow164: Auto -> resolve prefers-color-scheme; pref attr keeps choice */
+      /* Auto -> resolve prefers-color-scheme; pref attr keeps choice */
       var p = localStorage.getItem("factory-theme") || "auto";
       if (p !== "light" && p !== "dark") p = "auto";
       var resolved = p;
@@ -39,7 +39,7 @@
   }
 
   function applyHash() {
-    /* WALL_UI_SHELL_BOOT wow142/155: sync pane/strip/subnav from hash before defer boot.js. */
+    /* WALL_UI_SHELL_BOOT sync pane/strip/subnav from hash before defer boot.js. */
     try {
       if (!document.querySelector || !document.querySelector(".pane")) return false;
       var raw = String(location.hash || "").replace(/^#/, "").split(/[\/?&]/)[0].toLowerCase();

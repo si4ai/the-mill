@@ -83,7 +83,7 @@ code, kbd, pre, .sg-node {
   font-family: var(--font-mono);
 }
 
-/* wow164: palette keys off data-theme=light|dark (JS resolves Auto).
+/* palette keys off data-theme=light|dark (JS resolves Auto).
  * data-theme=auto media queries are no-JS fallback only; do not key light
  * palette off data-theme-pref alone (would fight resolved dark). */
 html[data-theme="dark"] {
