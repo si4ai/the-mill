@@ -114,14 +114,6 @@
       void hint;
       return "agent" + wallRandom10Digits();
     }
-    function wallResolveMintDesk(hint) {
-      /* empty or still auto-default -> regenerate agent+10digits;
-       * user-edited name -> trimmed as-is (no random append). */
-      let bare = wallInviteDeskBare(hint || "");
-      bare = bare.replace(/\s+/g, "-");
-      if (!bare || wallIsAutoDefaultDesk(bare)) return wallFreshMintDesk();
-      return bare;
-    }
     function wallSeedAssignNameDefault() {
       const deskIn = document.getElementById("wall-welcome-desk");
       if (!deskIn) return;
@@ -135,26 +127,6 @@
       const d = wallInviteDeskBare(desk) || "desk";
       const s = String(seat || "").trim() || "seat";
       return base + "/welcome?desk=" + encodeURIComponent(d) + "&seat=" + encodeURIComponent(s);
-    }
-    function wallInviteUrlFromHub(hubUrl, desk, seat) {
-      /* Prefer Hub invite_url origin when present; force root /welcome and the stored desk name. */
-      const bare = wallInviteDeskBare(desk);
-      const s = String(seat || "").trim();
-      const hub = String(hubUrl || "").trim();
-      if (hub && bare && s) {
-        try {
-          const abs = /^https?:\/\//i.test(hub);
-          const u = new URL(hub, wallBaseOrigin() || "http://local.invalid");
-          u.pathname = "/welcome";
-          u.search = "";
-          u.hash = "";
-          u.searchParams.set("desk", bare);
-          u.searchParams.set("seat", s);
-          if (abs) return u.origin + u.pathname + u.search;
-          return u.pathname + u.search;
-        } catch (eNorm) {}
-      }
-      return wallBuildInviteUrl(bare, s);
     }
     function wallWelcomeWakeupText(inviteUrl) {
       /* Brief for the agent. The install paste stays in docs/JOIN.md. */
@@ -249,18 +221,6 @@
       if (open) {
         try { open.setAttribute("data-invite-ok", _wallInviteGateOk ? "1" : "0"); } catch (eO) {}
       }
-    }
-    function wallStubSeatToken() {
-      const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-      let s = "";
-      try {
-        const arr = new Uint8Array(24);
-        (window.crypto || crypto).getRandomValues(arr);
-        for (let i = 0; i < arr.length; i++) s += alphabet[arr[i] % alphabet.length];
-      } catch (eR) {
-        s = "stub" + String(Date.now());
-      }
-      return s;
     }
 
     function wallInviteOwnerToken() {
@@ -364,97 +324,7 @@
       return _wallInviteCountInflight;
     }
 
-    async function wallMintInvite(deskHint) {
-      /* Human-readonly write exception: mint_seat only via HTTP (not CLI).
-       * POST /api/admin/invites { action:"mint_seat", desk }. Stub only on 404.
-       * each mint needs a fresh desk (Hub join no-steal / desk live).
-       * invite URL uses the stored desk name.
-       * empty/auto agent+10digits -> regenerate; user-edited name minted as-is. */
-      const deskIn = document.getElementById("wall-welcome-desk");
-      const hint = String(deskHint || (deskIn && deskIn.value) || "").trim();
-      let desk = wallResolveMintDesk(hint);
-      try { if (deskIn) deskIn.value = desk; } catch (eDeskFill) {}
-      function applyMint(data, stub) {
-        const rawDesk = (data && data.desk) || desk;
-        const rawSeat = (data && data.seat) || "";
-        const bare = wallInviteDeskBare(rawDesk) || desk;
-        const hubUrl = String((data && data.invite_url) || "").trim();
-        const url = hubUrl
-          ? wallInviteUrlFromHub(hubUrl, bare, rawSeat)
-          : wallBuildInviteUrl(bare, rawSeat);
-        wallWelcomeSetInvite(url, bare, rawSeat);
-        const note = document.getElementById("wall-welcome-invite-note");
-        if (note) {
-          note.textContent = stub
-            ? "This office cannot make a seat URL yet."
-            : ("Ready. " + bare);
-        }
-        return { invite_url: url, desk: bare, seat: rawSeat || "", stub: !!stub };
-      }
-      let human = "";
-      let token = "";
-      let owner = "";
-      try {
-        human = localStorage.getItem("factory-human") || "";
-        token = localStorage.getItem("factory-human-token") || "";
-        owner = human || localStorage.getItem("factory-desk") || localStorage.getItem("AGENT_COORD_OWNER") || "builder";
-      } catch (eLs) {
-        owner = "builder";
-      }
-      const seatBody = { action: "mint_seat", desk: desk, owner: owner, token: token };
-      let status = 0;
-      let data = null;
-      try {
-        const r = await fetch("/api/admin/invites", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(seatBody),
-        });
-        status = r.status;
-        try { data = await r.json(); } catch (eJ) { data = null; }
-        if (r.ok && data && !data.error && (data.invite_url || (data.desk && data.seat))) {
-          const out = applyMint(data, false);
-          try { wallRefreshInviteCount(); } catch (eRef) {}
-          return out;
-        }
-      } catch (eFetch) {
-        status = 0;
-      }
-      /* desk already live -> one retry with fresh agent+10digits desk. */
-      const errText = (data && data.error) ? String(data.error) : "";
-      const liveCollide = status === 400 && /desk live|token required|no steal/i.test(errText);
-      if (liveCollide) {
-        desk = wallFreshMintDesk();
-        try { if (deskIn) deskIn.value = desk; } catch (eDesk2) {}
-        const seatBody2 = { action: "mint_seat", desk: desk, owner: owner, token: token };
-        try {
-          const r2 = await fetch("/api/admin/invites", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(seatBody2),
-          });
-          status = r2.status;
-          try { data = await r2.json(); } catch (eJ2) { data = null; }
-          if (r2.ok && data && !data.error && (data.invite_url || (data.desk && data.seat))) {
-            const out = applyMint(data, false);
-            try { wallRefreshInviteCount(); } catch (eRef2) {}
-            return out;
-          }
-        } catch (eFetch2) {
-          status = 0;
-        }
-      }
-      /* Stub only when endpoint missing (404). Other errors surface in note. */
-      if (status === 404) {
-        const seat = wallStubSeatToken();
-        return applyMint({ desk: desk, seat: seat, invite_url: wallBuildInviteUrl(desk, seat), status: "stub" }, true);
-      }
-      const note = document.getElementById("wall-welcome-invite-note");
-      const err = (data && data.error) ? String(data.error) : ("mint_seat HTTP " + (status || "fail"));
-      if (note) note.textContent = err;
-      wallWelcomeFillJoin();
-      return { invite_url: _wallInviteUrl || "", desk: desk, seat: _wallInviteSeat || "", stub: false, error: err };
-    }
+    function wallMintInvite() { return wallLazyCall("adminMint", "wallMintInvite", wallMintInvite, arguments); }
 
     function wallWelcomeShouldShow() {
       try {
@@ -1512,18 +1382,6 @@
     }
     function wallProjects() {
       return currentFilter().projects;
-    }
-    function wallProjectName() {
-      const picked = (currentFilter().projects || []).filter(Boolean);
-      if (picked.length) return String(picked[0]).trim();
-      const floor = window._floor || {};
-      const fromFloor = (floor.wall && floor.wall[0]) || ((floor.groups || floor.projects) && (floor.groups || floor.projects)[0]) || "";
-      return String(fromFloor || "").trim();
-    }
-    function wallRoleNames() {
-      return Array.from(document.querySelectorAll("#rail-roster .rail-row"))
-        .map(el => String(el.getAttribute("data-id") || "").trim())
-        .filter(Boolean);
     }
     function floorProjectQuery() {
       const names = (currentFilter().projects || []).filter(Boolean);
@@ -3304,309 +3162,12 @@
     let _svcPacket = null;
     let _svcSection = "alerts";
     let _svcGen = 0;
-    function glanceSafe(raw) {
-      const t = String(raw == null ? "" : raw);
-      if (!t) return "";
-      const low = t.toLowerCase();
-      if (low.indexOf("password=") >= 0) return "";
-      if (low.indexOf("bearer ") >= 0) return "";
-      if (low.indexOf("private-token") >= 0) return "";
-      if (low.indexOf("invite=") >= 0) return "";
-      if (t.indexOf("-----BEGIN") >= 0) return "";
-      return t;
-    }
-    function glanceNum(cell) {
-      if (!cell || cell.stored !== true || cell.value == null) return "not written";
-      return String(cell.value);
-    }
-    function glanceTarget(cell) {
-      if (!cell || cell.target == null || cell.target === "") return "";
-      return glanceSafe(cell.target);
-    }
-    function glanceCount(n) {
-      if (n == null || n === "") return "unavailable";
-      const x = Number(n);
-      return Number.isFinite(x) ? String(x) : "unavailable";
-    }
-    function glanceYes(v) { return v ? "yes" : "no"; }
-    function glanceDl(rows) {
-      let html = '<dl class="svc-dl">';
-      rows.forEach(function (row) {
-        const v = row[1] == null || row[1] === "" ? "-" : row[1];
-        const wide = String(v).length > 48 ? ' class="svc-wide"' : "";
-        html += "<div" + wide + "><dt>" + esc(row[0]) + "</dt><dd>" + esc(v) + "</dd></div>";
-      });
-      return html + "</dl>";
-    }
-    function glanceMeters(rows) {
-      let html = '<div class="svc-meters">';
-      rows.forEach(function (row) {
-        const quiet = row[1] === "not written" ? ' class="svc-quiet"' : "";
-        html += "<div" + quiet + "><dt>" + esc(row[0]) + "</dt><dd>" + esc(row[1]) + "</dd><span>";
-        html += row[2] ? ("target " + esc(row[2])) : "";
-        html += "</span></div>";
-      });
-      return html + "</div>";
-    }
-    function glanceTable(heads, rows) {
-      let html = '<table class="svc-table"><thead><tr>';
-      heads.forEach(function (h) { html += "<th>" + esc(h) + "</th>"; });
-      html += "</tr></thead><tbody>";
-      if (!rows.length) {
-        html += '<tr><td colspan="' + heads.length + '">none</td></tr>';
-      } else {
-        rows.forEach(function (row) {
-          html += "<tr>";
-          row.forEach(function (cell) { html += "<td>" + esc(cell == null || cell === "" ? "-" : cell) + "</td>"; });
-          html += "</tr>";
-        });
-      }
-      return html + "</tbody></table>";
-    }
     function glanceMarkSection() {
       document.querySelectorAll("#wall-service [data-svc]").forEach(function (btn) {
         btn.classList.toggle("on", btn.getAttribute("data-svc") === _svcSection);
       });
     }
-    function paintGlanceAlerts(a) {
-      a = a || {};
-      const ver = a.version || {};
-      const skew = !ver.installed
-        ? "no installed pack to compare"
-        : (ver.skew ? "installed pack differs from this process" : "installed pack matches this process");
-      let html = '<h3 class="svc-h">Alerts</h3>';
-      html += glanceMeters([
-        ["Wall errors", glanceNum(a.err_n), glanceTarget(a.err_n)],
-        ["Fanout misses", glanceNum(a.ws_miss), glanceTarget(a.ws_miss)],
-        ["Hint drops", glanceNum(a.hint_drop), glanceTarget(a.hint_drop)],
-      ]);
-      const drain = a.drain;
-      let drainText = "No drain.";
-      if (drain && typeof drain === "object") {
-        const phase = glanceSafe(drain.phase);
-        const eta = glanceSafe(drain.eta_at);
-        if (phase === "overdue") drainText = eta ? ("overdue since " + eta) : "overdue";
-        else if (phase === "draining") drainText = eta ? ("draining until " + eta) : "draining";
-        else if (phase) drainText = phase;
-      }
-      html += glanceDl([
-        ["Drain", drainText],
-        ["Routines missing", a.routines_missing == null ? "the routine check did not run" : glanceCount(a.routines_missing)],
-      ]);
-      (Array.isArray(a.standing) ? a.standing : []).forEach(function (row) {
-        const line = glanceSafe(row && row.line);
-        if (line) html += '<p class="svc-note">' + esc(line) + "</p>";
-      });
-      html += '<h3 class="svc-h">Version</h3>';
-      html += glanceDl([
-        ["Process", glanceSafe(ver.process) || "-"],
-        ["Installed", ver.installed ? glanceSafe(ver.installed) : "none recorded"],
-        ["Checkout", ver.checkout ? glanceSafe(ver.checkout) : "this process is the installed pack"],
-        ["Skew", skew],
-      ]);
-      return html;
-    }
-    function paintGlanceOffice(o) {
-      o = o || {};
-      const mysql = o.mysql || {};
-      const seeds = Array.isArray(o.seeds) ? o.seeds : [];
-      function seedLine(type, name) {
-        const row = seeds.find(function (item) {
-          return item && item.type === type && item.name === name;
-        });
-        if (!row || !row.present) return "absent";
-        return row.retired ? "retired" : "live";
-      }
-      const station = glanceSafe(o.station);
-      return '<h3 class="svc-h">Office</h3>' + glanceDl([
-        ["Door", glanceSafe(o.door) || "-"],
-        ["Trust", glanceSafe(o.trust) || "-"],
-        ["HTTPS", glanceYes(o.https)],
-        ["Bind", glanceSafe(o.bind) || "-"],
-        ["LAN-only", glanceYes(o.lan_only)],
-        ["Cert", o.cert_present ? "present" : "absent"],
-        ["One process", glanceYes(o.one_process)],
-        ["API only", glanceYes(o.api_only)],
-        ["Serves the glass", glanceYes(o.serves_glass)],
-        ["Static cache", glanceSafe(o.static_cache) || "-"],
-        ["API cache", glanceSafe(o.api_cache) || "-"],
-        ["MySQL host", glanceSafe(mysql.host) || "-"],
-        ["MySQL database", glanceSafe(mysql.database) || "-"],
-        ["Office", seedLine("roster", "Office")],
-        ["Admin", seedLine("roster", "Admin")],
-        ["Station", station || "no station on this browser"],
-        ["Signed in", glanceYes(o.signed_in)],
-      ]);
-    }
-    function paintGlancePlatform(p) {
-      p = p || {};
-      const names = (Array.isArray(p.desks_here_without_names) ? p.desks_here_without_names : [])
-        .map(glanceSafe).filter(Boolean);
-      let who = names.length ? names.join(", ") : "none";
-      if (p.desks_here_without != null && Number(p.desks_here_without) > names.length) who += " and more";
-      let html = '<h3 class="svc-h">Platform</h3>';
-      html += glanceDl([
-        ["Desks with a command score", glanceCount(p.desks_with_score)],
-        ["Commands today", glanceCount(p.verbs_today)],
-        ["Desks here without a command score", glanceCount(p.desks_here_without)],
-        ["Those desks", who],
-        ["Ticks", glanceNum(p.ticks) + (glanceTarget(p.ticks) ? (" / " + glanceTarget(p.ticks)) : "")],
-        ["Hint drops", glanceNum(p.hint_drop) + (glanceTarget(p.hint_drop) ? (" / " + glanceTarget(p.hint_drop)) : "")],
-      ]);
-      html += '<h3 class="svc-h">Routes this hour</h3>';
-      const routes = [];
-      (Array.isArray(p.routes) ? p.routes : []).forEach(function (row) {
-        const route = glanceSafe(row && row.route);
-        if (!route || route.indexOf("floor") >= 0) return;
-        routes.push([route, glanceCount(row.n), glanceCount(row.ms)]);
-      });
-      html += glanceTable(["Route", "n", "ms"], routes);
-      const episodes = [];
-      (Array.isArray(p.episodes) ? p.episodes : []).forEach(function (row) {
-        const kpi = glanceSafe(row && row.kpi);
-        if (!kpi) return;
-        episodes.push([kpi, glanceCount(row.value), glanceSafe(row.target)]);
-      });
-      if (episodes.length) {
-        html += '<h3 class="svc-h">Episodes</h3>';
-        html += glanceTable(["kpi", "Last", "Target"], episodes);
-      }
-      return html;
-    }
-    function paintGlanceLogs(block) {
-      block = block || {};
-      const win = Number(block.window_s);
-      const every = Number(block.every_s);
-      const span = win === 3600 ? "Last hour." : ("Window " + glanceCount(block.window_s) + " seconds.");
-      const tick = every === 900 ? " Tick every 15 minutes." : (" Tick every " + glanceCount(block.every_s) + " seconds.");
-      let html = '<h3 class="svc-h">Logs</h3><p class="svc-note">' + esc(span + tick) + "</p>";
-      const rows = [];
-      (Array.isArray(block.lines) ? block.lines : []).forEach(function (row) {
-        const caption = glanceSafe(row && row.caption);
-        const source = glanceSafe(row && row.source);
-        if (!caption && !source) return;
-        rows.push([caption || "-", source || "-", glanceNum(row), glanceTarget(row)]);
-      });
-      html += glanceTable(["Reading", "Source", "Last", "Target"], rows);
-      return html;
-    }
-    function paintGlanceBook(b) {
-      b = b || {};
-      const order = ["mail", "todo", "doing", "hold", "score", "name"];
-      const types = b.types || {};
-      let html = '<h3 class="svc-h">Book</h3>';
-      if (b.open === false) html += '<p class="svc-note">Activity counts could not be read.</p>';
-      const typeRows = order.map(function (name) {
-        const row = types[name] || {};
-        return [
-          name,
-          glanceCount(row.activity),
-          glanceCount(row.live),
-          name === "name" ? glanceCount(row.retired) : "",
-        ];
-      });
-      html += glanceTable(["Type", "Activity", "Live", "Retired"], typeRows);
-      const admins = (Array.isArray(b.admin) ? b.admin : []).map(glanceSafe).filter(Boolean);
-      html += glanceDl([
-        ["Seats here", glanceCount(b.seats_here)],
-        ["Promises held", glanceCount(b.promises_held)],
-        ["Retired names", glanceCount(b.retired_names)],
-        ["Admin", admins.length ? admins.join(", ") : "none"],
-        ["Activity touched last hour", glanceNum(b.activity_touched_last_hour)],
-      ]);
-      const routines = b.routines || {};
-      const missing = Array.isArray(routines.missing) ? routines.missing.map(glanceSafe).filter(Boolean) : null;
-      const extra = Array.isArray(routines.extra) ? routines.extra.map(glanceSafe).filter(Boolean) : null;
-      const watch = routines.watch || {};
-      function watchLine(name) {
-        if (watch[name] == null) return "unknown";
-        return watch[name] ? "present" : "absent";
-      }
-      html += '<h3 class="svc-h">Routines</h3>';
-      html += glanceDl([
-        ["Pack", routines.pack == null ? "unavailable" : glanceCount(routines.pack)],
-        ["Live", routines.live == null ? "unavailable" : glanceCount(routines.live)],
-        ["Missing", missing == null ? "the routine check did not run" : (missing.length ? missing.join(", ") : "none")],
-        ["Extra", extra == null ? "the routine check did not run" : (extra.length ? extra.join(", ") : "none")],
-        ["mill_span", watchLine("mill_span")],
-        ["mill_between", watchLine("mill_between")],
-        ["mill_wall_event", watchLine("mill_wall_event")],
-      ]);
-      return html;
-    }
-    function paintGlanceDoor(d) {
-      d = d || {};
-      const counts = d.counts || {};
-      const welcome = d.welcome || {};
-      const directory = d.directory || {};
-      const chart = d.trust_chart || {};
-      let html = '<h3 class="svc-h">Door</h3>';
-      html += glanceDl([
-        ["Default TTL", glanceSafe(d.default_ttl) || "-"],
-        ["Pending", glanceCount(counts.pending)],
-        ["Enabled", glanceCount(counts.enabled)],
-        ["Revoked", glanceCount(counts.revoked)],
-        ["Expired", glanceCount(counts.expired)],
-        ["Trust", glanceSafe(d.trust) || "-"],
-        ["Allow enforced", glanceYes(d.allow_enforced)],
-      ]);
-      if (d.keys_stored === false) html += '<p class="svc-note">Key board could not be read.</p>';
-      const keys = [];
-      (Array.isArray(d.keys) ? d.keys : []).forEach(function (row) {
-        const label = glanceSafe(row && row.label);
-        keys.push([
-          label || "(withheld)",
-          glanceSafe(row && row.status) || "-",
-          row && row.ttl_seconds == null ? "-" : glanceCount(row.ttl_seconds),
-          glanceSafe(row && row.expires_at) || "-",
-        ]);
-      });
-      html += '<h3 class="svc-h">Keys</h3>';
-      html += glanceTable(["Label", "Status", "TTL seconds", "Expires"], keys);
-      html += '<h3 class="svc-h">Welcome</h3>';
-      if (welcome.stored === false) {
-        html += '<p class="svc-note">Welcome counts could not be read.</p>';
-      } else {
-        html += glanceDl([
-          ["Invite keys", glanceCount(welcome.invites)],
-          ["Joins on those keys", glanceCount(welcome.joined)],
-        ]);
-      }
-      const allow = (Array.isArray(d.allow) ? d.allow : []).map(glanceSafe).filter(Boolean);
-      html += '<h3 class="svc-h">Allow</h3>';
-      html += '<p class="svc-note">' + esc(allow.length ? allow.join(", ") : "none") + "</p>";
-      html += '<h3 class="svc-h">Directory</h3>';
-      html += glanceDl([
-        ["Issuer set", glanceYes(directory.issuer_set)],
-        ["Client id present", glanceYes(directory.client_id_present)],
-        ["Logout URL present", glanceYes(directory.logout_url_present)],
-        ["Sign out link", glanceYes(directory.sign_out_link)],
-      ]);
-      html += '<h3 class="svc-h">Trust</h3>';
-      ["high", "limited", "assign"].forEach(function (key) {
-        const line = glanceSafe(chart[key]);
-        if (line) html += '<p class="svc-note">' + esc(line) + "</p>";
-      });
-      return html;
-    }
-    function paintWallService() {
-      const body = document.getElementById("wall-service-body");
-      if (!body || !_svcPacket) return;
-      const sec = _svcPacket[_svcSection];
-      if (!sec || typeof sec !== "object") {
-        body.innerHTML = '<p class="svc-wait">No reading.</p>';
-        return;
-      }
-      let html = "";
-      if (_svcSection === "alerts") html = paintGlanceAlerts(sec);
-      else if (_svcSection === "office") html = paintGlanceOffice(sec);
-      else if (_svcSection === "platform") html = paintGlancePlatform(sec);
-      else if (_svcSection === "logs") html = paintGlanceLogs(sec);
-      else if (_svcSection === "book") html = paintGlanceBook(sec);
-      else if (_svcSection === "door") html = paintGlanceDoor(sec);
-      else html = '<p class="svc-wait">No reading.</p>';
-      body.innerHTML = html;
-    }
+    function paintWallService() { return wallLazyCall("servicePaint", "paintWallService", paintWallService, arguments); }
     async function loadWallService() {
       const gen = ++_svcGen;
       let data = null;
@@ -4705,21 +4266,6 @@
        "unnamed plan" on every row. With no plan name the root card's title is the head and
        the line under it says the root's status and who has it; a named plan keeps its name
        as the head and the root title as the line. */
-    function millPlanRowFace(label, rootPayload, root) {
-      const p = rootPayload || {};
-      const title = String(p.title || "").replace(/\s+/g, " ").trim();
-      const name = String(label || "").trim();
-      if (name) return { head: name, line: title, full: name };
-      if (title) {
-        const bits = [String(p.status || "").trim(), String(p.who || "").trim()].filter(Boolean);
-        /* The plans column is narrow: keep the head to about two lines. */
-        const head = title.length > 64 ? (title.slice(0, 63).replace(/\s+\S*$/, "") + "\u2026") : title;
-        return { head: head, line: bits.join(" | "), full: title };
-      }
-      const id = root && root.id != null && String(root.id) !== "" ? String(root.id) : "";
-      const head = id ? ("card " + id) : "plan";
-      return { head: head, line: String(p.status || "").trim(), full: head };
-    }
     /* #33: one nested-set pass per nodes array. Parent map + depth memo (a parent's
        depth is set before its kids in lft order), O(n log n) once, O(1) per lookup.
        Overlap, ties, inverted rows, or a repeated row mark the index bad and callers
@@ -4928,7 +4474,8 @@
       const was = _officeScoreMiss;
       _officeScoreSeen = true;
       paintHereScores();
-      try {
+      /* #872: the SCORE pane paints these itself when it opens; repaint only once its module is in. */
+      if (window.WALL_UI_DEFAULT_SCORE_PAINT) try {
         const scoreFloor = window._floor || {};
         paintScoreShow(scoreFloor);
         paintScoreDeskTable((typeof scoreDeskRows === "function") ? scoreDeskRows(scoreFloor) : []);
@@ -4969,188 +4516,9 @@
       });
       return _officeScoreInflight;
     }
-    function hereDeskId(value) {
-      if (value == null || value === "") return "";
-      if (typeof value === "string") return value.trim();
-      return String(value.deskId || value.desk || value.id || value.owner || "").trim();
-    }
-    function hereMailParty(m) {
-      const ids = [];
-      const push = (v) => {
-        const id = hereDeskId(v);
-        if (id) ids.push(id);
-      };
-      if (!m) return ids;
-      push(m.sender || m.src || m.desk);
-      const tos = m.mail_tos || m.tos;
-      if (Array.isArray(tos)) tos.forEach(push);
-      else push(m.dst || m.to);
-      return ids;
-    }
-    function hereMailTouches(m, owner) {
-      const o = String(owner || "").trim().toLowerCase();
-      if (!o) return false;
-      return hereMailParty(m).some(id => id.toLowerCase() === o);
-    }
     let _hereDesk = { key: "", ready: false, inflight: false, got: {}, needs: [], issues: [], mailbox: [], locks: [] };
-    function hereDeskKey(owner) {
-      let scope = "";
-      try { scope = String(floorScope().key || ""); } catch (eScope) { scope = ""; }
-      return scope + "|" + String(owner || "").trim();
-    }
-    function hereDeskUrls() {
-      const scope = floorScope();
-      const lim = "&limit=50";
-      const q = String(scope.query || "");
-      const todosQ = String(scope.key || "").indexOf("lan:") === 0 ? floorProjectQuery() : q;
-      /* A station todo query fails in the lan procedure. The card uses the project book. */
-      return [
-        "/api/v1/todos?" + todosQ + lim,
-        "/api/v1/mailbox?" + q + lim,
-        "/api/v1/holds?" + q + lim
-      ];
-    }
-    function hereDeskLoad(owner) {
-      owner = String(owner || "").trim();
-      if (!owner) return;
-      const key = hereDeskKey(owner);
-      if (_hereDesk.key === key && (_hereDesk.ready || _hereDesk.inflight)) return;
-      _hereDesk = { key: key, ready: false, inflight: true, got: {}, needs: [], issues: [], mailbox: [], locks: [] };
-      const urls = hereDeskUrls();
-      Promise.all(urls.map(function (url) {
-        return fetch(url, { cache: "no-store" }).then(function (r) {
-          if (!r.ok) return { down: true };
-          return r.json().then(function (json) { return { down: false, json: json }; });
-        }).catch(function () { return { down: true }; });
-      })).then(function (rows) {
-        if (_hereDesk.key !== key) return;
-        const got = {};
-        const needs = [];
-        const issues = [];
-        const mailbox = [];
-        const locks = [];
-        (rows || []).forEach(function (row) {
-          if (!row || row.down || !row.json) return;
-          const json = row.json;
-          (Array.isArray(json.parts) ? json.parts : []).forEach(function (p) {
-            if (p) got[p] = true;
-          });
-          if (Array.isArray(json.needs) || Array.isArray(json.issues)) got.todos = true;
-          if (Array.isArray(json.mailbox)) got.mail = true;
-          if (Array.isArray(json.locks)) got.holds = true;
-          if (Array.isArray(json.needs)) needs.push.apply(needs, json.needs);
-          if (Array.isArray(json.issues)) issues.push.apply(issues, json.issues);
-          if (Array.isArray(json.mailbox)) mailbox.push.apply(mailbox, json.mailbox);
-          if (Array.isArray(json.locks)) locks.push.apply(locks, json.locks);
-        });
-        _hereDesk = { key: key, ready: true, inflight: false, got: got, needs: needs, issues: issues, mailbox: mailbox, locks: locks };
-        if (_hereOwner === owner) paintHereDesk(window._floor || {}, owner);
-      });
-    }
-    function hereHoldFor(row, owner) {
-      const o = String(owner || "").trim();
-      if (!o) return false;
-      return [row && row.owner, row && row.holder, row && row.desk, row && row.volunteer].some(v => String(v || "").trim() === o);
-    }
-    function paintHereDesk(d, owner) {
-      const el = document.getElementById("here-desk");
-      if (!el) return;
-      d = d || window._floor || {};
-      owner = String(owner || "").trim();
-      if (!owner) {
-        el.innerHTML = '<div class="idle">Open a desk</div>';
-        return;
-      }
-      const agents = uniqueDesksByOwner(d.agents || []);
-      const agent = agents.find(a => String(a.owner || "").trim() === owner) || { owner: owner, alive: false };
-      const g = hereGlance(d, agent);
-      const book = (_hereDesk.key === hereDeskKey(owner)) ? _hereDesk : null;
-      const ready = !!(book && book.ready);
-      const got = (book && book.got) || {};
-      const jobs = (ready && got.todos) ? millJobsForOwner({ needs: book.needs, issues: book.issues }, owner, "") : [];
-      const cardBody = !ready
-        ? "Loading the card."
-        : (!got.todos
-          ? "The card list did not load."
-          : (jobs.length
-            ? jobs.slice(0, 8).map(card => {
-                const title = card.detail || card.need_id || "claimed card";
-                return `<div>${esc(title)}</div>`;
-              }).join("")
-            : "No claimed card in this slice"));
-      const locks = (ready && got.holds) ? (book.locks || []).filter(L => hereHoldFor(L, owner)) : [];
-      const promise = locks.length
-        ? `<details class="here-fold"><summary>Promise</summary><div class="here-fold-body">` +
-          locks.map(L => {
-            const file = String(L.resource || L.path || "a file").split(/[/\\]/).pop();
-            return `<div>${esc(file || "a file")}</div>`;
-          }).join("") + `</div></details>`
-        : "";
-      const letters = (ready && got.mail) ? (book.mailbox || []).filter(m => hereMailTouches(m, owner)).slice(0, 8) : [];
-      const chatBody = !ready
-        ? "Loading the letters."
-        : (!got.mail
-          ? "The letters did not load."
-          : (letters.length
-            ? letters.map(m => {
-                const who = hereDeskId(m.sender || m.src || m.desk);
-                const line = String(m.body || m.subject || "").replace(/\s+/g, " ").slice(0, 80);
-                return `<div class="here-letter"><b>${esc(who)}</b> ${esc(line)}</div>`;
-              }).join("")
-            : "No letters for this desk in this slice."));
-      const give = (g.state === "idle" || g.state === "here" || g.state === "gone")
-        ? `<details class="here-fold"><summary>Give a todo</summary><div class="here-fold-body">The wall cannot file a card yet. Tell your agent.</div></details>`
-        : "";
-      const histRows = [];
-      if (ready) {
-        letters.forEach(function (m) {
-          const who = hereDeskId(m.sender || m.src || m.desk);
-          const line = String(m.body || "").replace(/\s+/g, " ").trim().slice(0, 72);
-          histRows.push({ at: String(m.created || ""), text: "letter " + (who || "desk") + (line ? ": " + line : "") });
-        });
-        jobs.forEach(function (card) {
-          const title = String(card.detail || card.need_id || "card").replace(/\s+/g, " ").trim().slice(0, 72);
-          const st = card.status ? String(card.status) + " " : "";
-          histRows.push({ at: String(card.updated_at || card.asked_at || ""), text: "card " + st + title });
-        });
-        locks.forEach(function (L) {
-          const file = String(L.resource || L.path || "a file").split(/[/\\]/).pop();
-          histRows.push({ at: "", text: "promise " + (file || "a file") });
-        });
-        histRows.sort(function (a, b) { return String(b.at).localeCompare(String(a.at)); });
-      }
-      const histBody = !ready
-        ? "Loading."
-        : (histRows.length
-          ? histRows.slice(0, 12).map(function (row) {
-              const when = row.at ? dt(row.at).slice(5, 16) : "";
-              return `<div class="here-letter">${when ? `<span class="here-when">${esc(when)}</span> ` : ""}${esc(row.text)}</div>`;
-            }).join("")
-          : "Nothing has changed for this desk in this slice.");
-      const html =
-        `<div class="here-desk-head"><b>${esc(millName("desk", owner))}</b> <span class="here-state">${esc(g.state || "")}</span></div>` +
-        wallDoingBlock(owner, agent.doing) +
-        `<details class="here-fold"><summary>Card</summary><div class="here-fold-body">${cardBody}</div></details>` +
-        promise +
-        `<details class="here-fold"><summary>Chat</summary><div class="here-fold-body">${chatBody}</div></details>` +
-        `<details class="here-fold"><summary>History</summary><div class="here-fold-body">${histBody}</div></details>` +
-        `<details class="here-fold" data-fold="doing"><summary>Doing trail</summary><div class="here-fold-body">${wallDoingTrailSlot("desk-" + owner)}</div></details>` +
-        give;
-      if (el.getAttribute("data-here-owner") === owner && el._hereHtml === html) return;
-      const open = {};
-      el.querySelectorAll("details.here-fold").forEach(node => {
-        const sum = node.querySelector("summary");
-        if (sum && node.open) open[String(sum.textContent || "")] = 1;
-      });
-      el.innerHTML = html;
-      el.setAttribute("data-here-owner", owner);
-      el._hereHtml = html;
-      el.querySelectorAll("details.here-fold").forEach(node => {
-        const sum = node.querySelector("summary");
-        if (sum && open[String(sum.textContent || "")]) node.open = true;
-      });
-      try { wallDoingTrail(); } catch (eTrail) {}
-    }
+    function hereDeskLoad() { return wallLazyCall("deskPaint", "hereDeskLoad", hereDeskLoad, arguments); }
+    function paintHereDesk() { return wallLazyCall("deskPaint", "paintHereDesk", paintHereDesk, arguments); }
     function wireHereFront() {
       if (document._hereFrontWired) return;
       document._hereFrontWired = true;
@@ -6386,95 +5754,6 @@
     }
     let spendWindow = "all";
     let spendOwner = "";
-    function spendWhatRows(d) {
-      const lines = d.spend_lines || [];
-      let rows = lines.length ? lines : (d.spend || []);
-      if (spendWindow === "today") {
-        const now = new Date();
-        const ymd = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
-        rows = rows.filter(r => rowDay(r) === ymd);
-      }
-      if (spendOwner) {
-        const want = spendOwner.toLowerCase();
-        rows = rows.filter(r => String(r.owner || "").toLowerCase() === want);
-      }
-      return rows;
-    }
-    function presenceSpendLines(d) {
-      return (d.events || []).map(e => ({
-        at: e.at || e.updated || "",
-        owner: e.owner || "",
-        source: "presence",
-        kind: e.kind || e.type || "",
-        tokens: Number(e.n || 0) * Number(e.weight == null ? 1 : e.weight),
-        usd: 0,
-        detail: (e.kind || e.type || "") + " n*weight",
-      }));
-    }
-    function millSpend(d) {
-      if (!(d.spend_lines && d.spend_lines.length) && !(d.spend && d.spend.length)) {
-        d = Object.assign({}, d, { spend_lines: presenceSpendLines(d) });
-      }
-      const allLines = (d.spend_lines && d.spend_lines.length) ? d.spend_lines : (d.spend || []);
-      const rows = spendWhatRows(d);
-      const tokens = rows.reduce((a, r) => a + Number(r.tokens || 0), 0);
-      const usd = rows.reduce((a, r) => a + Number(r.usd || 0), 0).toFixed(4);
-      const spendEl = document.getElementById("score-spend");
-      if (spendEl) spendEl.innerHTML = `MILL SPEND<b>${esc(tokens)}</b> | est USD<b>${esc(usd)}</b>`;
-      const owners = [...new Set(allLines.map(r => r.owner).filter(Boolean))].sort();
-      const ownerOpts = `<option value="">owner</option>` + owners.map(o =>
-        `<option value="${esc(o)}"${o === spendOwner ? " selected" : ""}>${esc(o)}</option>`
-      ).join("");
-      const ownerSel = owners.length > 1
-        ? `<select id="spend-owner">${ownerOpts}</select>`
-        : "";
-      const cut = allLines.length
-        ? (`<span class="wall-filter spend-cut">` +
-          `<button type="button" data-spend-window="today" class="${spendWindow === "today" ? "on" : ""}">today</button>` +
-          `<button type="button" data-spend-window="all" class="${spendWindow === "all" ? "on" : ""}">all</button>` +
-          `</span>` + ownerSel)
-        : "";
-      const byOwner = {};
-      rows.forEach(r => {
-        const o = String(r.owner || "-");
-        (byOwner[o] = byOwner[o] || []).push(r);
-      });
-      const groups = Object.keys(byOwner).sort((a, b) => {
-        const ta = byOwner[a].reduce((s, r) => s + Number(r.tokens || 0), 0);
-        const tb = byOwner[b].reduce((s, r) => s + Number(r.tokens || 0), 0);
-        return tb - ta || a.localeCompare(b);
-      }).map(owner => {
-        const list = byOwner[owner].slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
-        const tok = list.reduce((s, r) => s + Number(r.tokens || 0), 0);
-        const u = list.reduce((s, r) => s + Number(r.usd || 0), 0);
-        const lines = list.map(r => {
-          const kind = String(r.kind || r.source || "mill");
-          const kcls = kind.toLowerCase().replace(/[^a-z0-9]+/g, "");
-          const what = r.detail || r.note || (millGid(r) ? (String(millGid(r)) + (r.cmds ? " cmds " + r.cmds : "")) : "");
-          return `<div class="spend-row kind-${esc(kcls)}">` +
-            `<span class="when">${esc(dt(r.at))}</span>` +
-            `<span class="k">${esc(kind)}</span>` +
-            `<span class="tok" title="tokens">${esc(r.tokens == null ? "-" : r.tokens)}</span>` +
-            `<span class="usd" title="est USD">${esc(r.usd == null || r.usd === 0 ? "" : ("$" + r.usd))}</span>` +
-            `<span class="what">${esc(what)}</span>` +
-          `</div>`;
-        }).join("");
-        return `<div class="spend-group">` +
-          `<h3>${esc(owner)} <span>${esc(String(tok))} tok` + (u ? ` | $${esc(u.toFixed(4))}` : "") + `</span></h3>` +
-          lines +
-        `</div>`;
-      }).join("");
-      const body = rows.length
-        ? groups
-        : '<div class="idle">nothing in this window yet</div>';
-      return `<div class="spend-chrome">${cut}</div>` +
-        `<div class="spend-summary">` +
-          `<span class="sp-item">Tokens<b>${esc(tokens)}</b></span>` +
-          `<span class="sp-item">est USD<b>${esc(usd)}</b></span>` +
-          `<span class="sp-item">Lines<b>${esc(String(rows.length))}</b></span>` +
-        `</div>` +
-        `<div class="spend-body">${body}</div>`;
-    }
 
 
     /* SCORECARDS_BOTTLENECK / SCORECARDS_GLANCE / SCORECARDS_TOKEN_DETAIL / SCORECARDS_TOKENS_EST */
@@ -6504,15 +5783,6 @@
       return (typeof WallScore !== "undefined" && WallScore.scoreDeskRows)
         ? WallScore.scoreDeskRows(d, (typeof scoreSpan !== "undefined" ? scoreSpan : "24h"))
         : [];
-    }
-    function scoreKpiCell(k) {
-      if (!k) return `<span class="score-lt dim">-</span>`;
-      const last = (k.value == null || k.value === "") ? "-" : String(k.value);
-      const tgt = (k.target == null || k.target === "") ? "-" : String(k.target);
-      const quiet = typeof scoreMintQuiet === "function" && scoreMintQuiet(k.value, k.target);
-      const miss = !quiet && typeof kpiMiss === "function" && kpiMiss(k.value, k.target);
-      return `<span class="score-lt${miss ? " miss" : ""}${quiet ? " mint" : ""}">` +
-        `<b>${esc(last)}</b><span class="tgt"> / ${esc(tgt)}</span></span>`;
     }
     const SCORE_SHOW_KEY = "factory-score-show";
     let _scoreShowOff = {};
@@ -6554,39 +5824,6 @@
       if (_scoreGroupOff[bucket]) return false;
       return !_scoreShowOff[String(name || "").trim()];
     }
-    function scoreCatalog(d) {
-      const names = [];
-      const seen = {};
-      function add(n) {
-        n = String(n || "").trim();
-        if (!n || seen[n]) return;
-        seen[n] = 1;
-        names.push(n);
-      }
-      add("system");
-      const books = [];
-      if (_officeScores && Array.isArray(_officeScores.kpis)) books.push(_officeScores.kpis);
-      if (d && Array.isArray(d.kpis)) books.push(d.kpis);
-      books.forEach(function (list) {
-        list.forEach(function (k) { add(hereKpiName(k)); });
-      });
-      const office = names.filter(function (n) { return n !== "system"; });
-      office.sort(function (a, b) { return a.localeCompare(b); });
-      return ["system"].concat(office);
-    }
-    function scoreShowLabel(name) {
-      const raw = String(name || "").trim();
-      if (raw === "system") return "commands";
-      const mapped = (typeof scoreKpiLabel === "function") ? scoreKpiLabel(raw) : raw;
-      if (mapped && mapped !== raw) return mapped;
-      return raw.replace(/[._]+/g, " ");
-    }
-    function scoreFiledFamily(name) {
-      const raw = String(name || "").trim();
-      const dot = raw.indexOf(".");
-      if (dot <= 0) return "";
-      return raw.slice(0, dot).replace(/[-_]+/g, " ");
-    }
     function scoreFiledFace(name) {
       const raw = String(name || "").trim();
       const mapped = (typeof scoreKpiLabel === "function") ? scoreKpiLabel(raw) : "";
@@ -6594,12 +5831,6 @@
       const dot = raw.indexOf(".");
       const rest = dot > 0 ? raw.slice(dot + 1) : raw;
       return rest.replace(/[._]+/g, " ");
-    }
-    function scoreFiledRank(k) {
-      if (typeof kpiMiss === "function" && kpiMiss(k.value, k.target)) return 0;
-      const last = (k && k.value == null) ? "" : String(k.value).trim();
-      if (last && last !== "-" && last !== "0") return 1;
-      return 2;
     }
     function scoreFiledList(d) {
       const books = [];
@@ -6622,42 +5853,8 @@
       });
       return rows;
     }
-    function paintScoreShow(d) {
-      const box = document.getElementById("score-show");
-      if (!box) return;
-      const names = scoreCatalog(d);
-      const sig = names.join("|");
-      function sync() {
-        box.querySelectorAll("input[data-score-kpi]").forEach(function (inp) {
-          inp.checked = !_scoreShowOff[inp.getAttribute("data-score-kpi") || ""];
-        });
-        box.querySelectorAll("input[data-score-group]").forEach(function (inp) {
-          const g = inp.getAttribute("data-score-group") || "";
-          inp.checked = !_scoreGroupOff[g];
-          const set = inp.closest(".score-show-set");
-          if (set) set.classList.toggle("is-off", !!_scoreGroupOff[g]);
-        });
-      }
-      if (box.getAttribute("data-sig") === sig) { sync(); return; }
-      function group(id, title, list) {
-        const items = list.map(function (n) {
-          const on = !_scoreShowOff[n] ? " checked" : "";
-          return `<label class="score-show-item"><input type="checkbox" data-score-kpi="${esc(n)}"${on}> ${esc(scoreShowLabel(n))}</label>`;
-        }).join("");
-        const gOn = !_scoreGroupOff[id] ? " checked" : "";
-        const off = _scoreGroupOff[id] ? " is-off" : "";
-        return `<fieldset class="score-show-set${off}"><legend><label><input type="checkbox" data-score-group="${id}"${gOn}> ${esc(title)}</label></legend>${items}</fieldset>`;
-      }
-      const platform = names.filter(function (n) { return scoreKpiBucket(n) === "platform"; });
-      const office = names.filter(function (n) { return scoreKpiBucket(n) === "office"; });
-      box.innerHTML = group("platform", "Platform", platform) + group("office", "Filed", office);
-      box.setAttribute("data-sig", sig);
-    }
+    function paintScoreShow() { return wallLazyCall("scorePaint", "paintScoreShow", paintScoreShow, arguments); }
     try { loadScoreShow(); } catch (eShow) {}
-    function scoreEvidenceBase() {
-      const q = activitySpanQuery();
-      return { key: q.kind + ":" + q.id, kind: q.kind, id: q.id };
-    }
     function scoreOwnerKey(raw) {
       let s = String(raw || "").trim();
       if (!s) return "";
@@ -6667,173 +5864,10 @@
       } catch (eOwner) {}
       return s;
     }
-    function paintScoreDeskTable(rows) {
-      void rows;
-      const el = document.getElementById("score-desk-table");
-      const commandsEl = document.getElementById("score-verbs");
-      const graphsEl = document.getElementById("score-graphs");
-      const humanEl = document.getElementById("score-human");
-      const productEl = document.getElementById("score-product");
-      if (!el) return;
-      const d = window._floor || window._floorRaw || {};
-      try { paintScoreShow(d); } catch (eShowPaint) {}
-      function deskOf(k) {
-        if (typeof scoreDeskSlug === "function") return scoreOwnerKey(scoreDeskSlug(k));
-        return scoreOwnerKey(k && k.owner);
-      }
-      function deskLabel(desk) {
-        return millName ? millName("desk", desk) : desk;
-      }
-      const books = [];
-      if (_officeScores && Array.isArray(_officeScores.kpis)) books.push(_officeScores.kpis);
-      if (d && Array.isArray(d.kpis)) books.push(d.kpis);
-      const showPlatform = !!scoreShown("system");
-      const showFiled = !_scoreGroupOff.office;
-      if (productEl) productEl.hidden = !showPlatform;
-      if (!showPlatform && !showFiled) {
-        if (humanEl) {
-          humanEl.hidden = false;
-          humanEl.innerHTML = `<div class="idle" style="padding:.45rem">No scores selected.</div>`;
-        }
-        return;
-      }
-      if (showPlatform) {
-        const byDesk = {};
-        books.forEach(function (list) {
-          list.forEach(function (k) {
-            if (hereKpiName(k) !== "system") return;
-            const desk = deskOf(k);
-            if (!desk || desk === "(unknown)") return;
-            const id = desk.toLowerCase();
-            if (!byDesk[id]) byDesk[id] = { desk: desk, kpi: k };
-          });
-        });
-        ((d.agents || []).filter(function (a) { return a && a.alive !== false; })).forEach(function (a) {
-          const desk = scoreOwnerKey(a.owner);
-          if (!desk) return;
-          const id = desk.toLowerCase();
-          if (!byDesk[id]) byDesk[id] = { desk: desk, kpi: null };
-        });
-        const desks = Object.keys(byDesk).map(function (id) { return byDesk[id]; });
-        desks.sort(function (a, b) { return deskLabel(a.desk).localeCompare(deskLabel(b.desk)); });
-        let selected = scoreOwnerKey(scoreSelectedDesk);
-        const found = desks.find(function (item) { return item.desk.toLowerCase() === selected.toLowerCase(); });
-        if (found) selected = found.desk;
-        else selected = desks.length ? desks[0].desk : "";
-        if (selected !== scoreSelectedDesk) {
-          scoreSelectedDesk = selected;
-          scoreSelectedCommand = "";
-          try { localStorage.setItem("factory-score-desk", scoreSelectedDesk); } catch (eDesk) {}
-        }
-        if (!desks.length) {
-          el.innerHTML = `<div class="score-office-h">Desks</div><div class="idle" style="padding:.45rem">No desk command scores yet.</div>`;
-          if (commandsEl) commandsEl.innerHTML = `<div class="idle">Pick a desk.</div>`;
-          if (graphsEl) graphsEl.innerHTML = `<div class="idle">Pick a command.</div>`;
-        } else {
-          const body = desks.map(function (item) {
-            const k = item.kpi;
-            const last = (!k || k.value == null || k.value === "") ? "-" : String(k.value);
-            const sel = item.desk === scoreSelectedDesk ? " sel" : "";
-            return `<tr class="${sel}" data-score-desk="${esc(item.desk)}"><td>${esc(deskLabel(item.desk))}</td><td>${esc(last)}</td></tr>`;
-          }).join("");
-          el.innerHTML = `<div class="score-office-h">Desks</div>` +
-            `<table data-table="score-platform"><thead><tr><th>desk</th><th>today</th></tr></thead><tbody>${body}</tbody></table>`;
-          const pane = document.getElementById("pane-score");
-          const scoreOn = !!(pane && pane.classList.contains("on"));
-          const evKey = scoreEvidenceBase().key;
-          const evReady = _scoreEv.key === evKey;
-          if (scoreOn && (!evReady || (Date.now() - _scoreEvAt) >= 15000)) loadScoreEvidence();
-          paintScoreCommands(commandsEl, graphsEl, scoreSelectedDesk, evReady, scoreOn);
-        }
-      }
-      if (!humanEl) return;
-      if (!showFiled) {
-        humanEl.hidden = true;
-        humanEl.innerHTML = "";
-        return;
-      }
-      humanEl.hidden = false;
-      const officeRows = scoreFiledList(d);
-      if (!officeRows.length) {
-        humanEl.innerHTML = `<div class="score-office-h">Filed</div><div class="idle" style="padding:.45rem">No filed scores yet. Ask your agent to file one.</div>`;
-        return;
-      }
-      const buckets = {};
-      const famOrder = [];
-      officeRows.forEach(function (k) {
-        const fam = scoreFiledFamily(hereKpiName(k));
-        if (!buckets[fam]) {
-          buckets[fam] = [];
-          famOrder.push(fam);
-        }
-        buckets[fam].push(k);
-      });
-      function famBest(fam) {
-        let n = 3;
-        buckets[fam].forEach(function (k) {
-          const r = scoreFiledRank(k);
-          if (r < n) n = r;
-        });
-        return n;
-      }
-      famOrder.sort(function (a, b) {
-        const d = famBest(a) - famBest(b);
-        if (d) return d;
-        return a.localeCompare(b);
-      });
-      famOrder.forEach(function (fam) {
-        buckets[fam].sort(function (a, b) {
-          const d = scoreFiledRank(a) - scoreFiledRank(b);
-          if (d) return d;
-          return scoreFiledFace(hereKpiName(a)).localeCompare(scoreFiledFace(hereKpiName(b)))
-            || deskOf(a).localeCompare(deskOf(b));
-        });
-      });
-      const filed = [];
-      famOrder.forEach(function (fam) {
-        if (fam) filed.push(`<tr class="score-family"><th colspan="3">${esc(fam)}</th></tr>`);
-        buckets[fam].forEach(function (k) {
-          const name = hereKpiName(k);
-          const desk = deskOf(k);
-          const miss = typeof kpiMiss === "function" && kpiMiss(k.value, k.target);
-          filed.push(
-            `<tr class="${miss ? "hot" : ""}">` +
-            `<td title="${esc(name)}">${esc(scoreFiledFace(name))}</td>` +
-            `<td>${esc(deskLabel(desk))}</td><td>${scoreKpiCell(k)}</td></tr>`
-          );
-        });
-      });
-      if (_scoreGlanceUser) _scoreGlanceScroll = humanEl.scrollTop;
-      humanEl.innerHTML = `<div class="score-office-h">Filed</div>` +
-        `<table data-table="score-filed"><thead><tr><th>score</th><th>desk</th><th>Last / target</th></tr></thead><tbody>${filed.join("")}</tbody></table>`;
-      wallWireScoreGlance();
-      wallQueueScoreGlance();
-    }
+    function paintScoreDeskTable() { return wallLazyCall("scorePaint", "paintScoreDeskTable", paintScoreDeskTable, arguments); }
     let _scoreGlanceUser = false;
     let _scoreGlanceScroll = 0;
     let _scoreGlanceLock = false;
-    function wallWireScoreGlance() {
-      const box = document.getElementById("score-human");
-      if (!box || box._glanceWired) return;
-      box._glanceWired = true;
-      function markUser() { _scoreGlanceUser = true; }
-      box.addEventListener("wheel", markUser, { passive: true });
-      box.addEventListener("pointerdown", markUser);
-      box.addEventListener("touchstart", markUser, { passive: true });
-      box.addEventListener("scroll", function () {
-        if (_scoreGlanceLock || !_scoreGlanceUser) return;
-        _scoreGlanceScroll = box.scrollTop;
-      }, { passive: true });
-    }
-    function wallCenterScoreGlance() {}
-    function wallQueueScoreGlance() {
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          try { wallCenterScoreGlance(); } catch (eGlance) {}
-          try { if (window.markOverflow) window.markOverflow(); } catch (eMore) {}
-        });
-      });
-    }
     (function wireScorecardsGlance() {
       const chrome = document.getElementById("score-chrome");
       const sub = document.getElementById("subnav");
@@ -7960,127 +6994,9 @@
     function wallTodoIsTrunc(r) {
       return !!(r && r.detail_trunc === true);
     }
-    function wallFindMailRow(id) {
-      const box = (window._floor && window._floor.mailbox) || [];
-      const want = String(id);
-      for (let i = 0; i < box.length; i++) {
-        if (String(box[i] && box[i].id) === want) return box[i];
-      }
-      return null;
-    }
-    function wallFindTodoRow(id) {
-      const d = window._floor || {};
-      const want = String(id);
-      const pools = [d.needs, d.issues, d.on_it];
-      for (let p = 0; p < pools.length; p++) {
-        const arr = pools[p];
-        if (!Array.isArray(arr)) continue;
-        for (let i = 0; i < arr.length; i++) {
-          if (String(arr[i] && arr[i].id) === want) return arr[i];
-        }
-      }
-      return null;
-    }
-    function wallMergeMailDetail(full) {
-      if (!full || full.id == null) return false;
-      const d = window._floor;
-      if (!d) return false;
-      if (!Array.isArray(d.mailbox)) d.mailbox = [];
-      const want = String(full.id);
-      const next = Object.assign({}, full);
-      delete next.body_trunc;
-      let i = -1;
-      for (let k = 0; k < d.mailbox.length; k++) {
-        if (String(d.mailbox[k] && d.mailbox[k].id) === want) { i = k; break; }
-      }
-      if (i < 0) {
-        d.mailbox.push(next);
-      } else {
-        d.mailbox[i] = Object.assign({}, d.mailbox[i], next);
-        delete d.mailbox[i].body_trunc;
-      }
-      return true;
-    }
-    function wallMergeTodoDetail(full) {
-      if (!full || full.id == null) return false;
-      const d = window._floor;
-      if (!d) return false;
-      const want = String(full.id);
-      const keys = ["needs", "issues", "on_it"];
-      let hit = false;
-      for (let p = 0; p < keys.length; p++) {
-        const arr = d[keys[p]];
-        if (!Array.isArray(arr)) continue;
-        for (let i = 0; i < arr.length; i++) {
-          if (String(arr[i] && arr[i].id) !== want) continue;
-          const merged = Object.assign({}, arr[i], full);
-          delete merged.detail_trunc;
-          arr[i] = merged;
-          hit = true;
-        }
-      }
-      if (!hit) {
-        if (!Array.isArray(d.needs)) d.needs = [];
-        const row = Object.assign({}, full);
-        delete row.detail_trunc;
-        d.needs.push(row);
-      }
-      return true;
-    }
     const _wallLeanDetailInflight = Object.create(null);
-    async function wallOpenMailIfTrunc(id) {
-      const mid = String(id || "").trim();
-      if (!mid) return false;
-      const row = wallFindMailRow(mid);
-      if (!wallMailIsTrunc(row)) return false;
-      const key = "mail:" + mid;
-      if (_wallLeanDetailInflight[key]) return _wallLeanDetailInflight[key];
-      const p = (async function () {
-        try {
-          const r = await fetch("/api/v1/mail/" + encodeURIComponent(mid), { cache: "no-store" });
-          if (!r.ok) return false;
-          const json = await r.json();
-          const full = json && json.mail;
-          if (!full) return false;
-          if (!wallMergeMailDetail(full)) return false;
-          try { mail(window._floor); } catch (ePaint) {}
-          return true;
-        } catch (eFetch) {
-          return false;
-        } finally {
-          delete _wallLeanDetailInflight[key];
-        }
-      })();
-      _wallLeanDetailInflight[key] = p;
-      return p;
-    }
-    async function wallOpenTodoIfTrunc(id) {
-      const tid = String(id || "").trim();
-      if (!tid) return false;
-      const row = wallFindTodoRow(tid);
-      if (row && !wallTodoIsTrunc(row)) return false;
-      const key = "todo:" + tid;
-      if (_wallLeanDetailInflight[key]) return _wallLeanDetailInflight[key];
-      const p = (async function () {
-        try {
-          const r = await fetch("/api/v1/todo/" + encodeURIComponent(tid), { cache: "no-store" });
-          if (!r.ok) return false;
-          const json = await r.json();
-          const full = json && json.todo;
-          if (!full) return false;
-          if (!wallMergeTodoDetail(full)) return false;
-          try { board(window._floor); } catch (ePaint) {}
-          try { paintPlan(window._floor); } catch (ePlan) {}
-          return true;
-        } catch (eFetch) {
-          return false;
-        } finally {
-          delete _wallLeanDetailInflight[key];
-        }
-      })();
-      _wallLeanDetailInflight[key] = p;
-      return p;
-    }
+    function wallOpenMailIfTrunc() { return wallLazyCall("mailPaint", "wallOpenMailIfTrunc", wallOpenMailIfTrunc, arguments); }
+    function wallOpenTodoIfTrunc() { return wallLazyCall("todoPaint", "wallOpenTodoIfTrunc", wallOpenTodoIfTrunc, arguments); }
     try {
       window.wallOpenMailIfTrunc = wallOpenMailIfTrunc;
       window.wallOpenTodoIfTrunc = wallOpenTodoIfTrunc;
@@ -8132,9 +7048,6 @@
         dst.push(row);
       }
       return dst;
-    }
-    function wallWatcherKey(r) {
-      return String((r && r.type) || "") + ":" + String((r && r.id) || "");
     }
     function wallTreeNodeKey(n) {
       return String((n && n.type) || "").toLowerCase() + ":" + String((n && n.id) || "");
@@ -8194,223 +7107,8 @@
       } catch (eTab) {}
       return null;
     }
-    function wallPaintTreesKind(kind) {
-      const d = window._floor;
-      if (!d) return;
-      if (kind === "tree-mail" || kind === "trees") {
-        try {
-          if (typeof mailView !== "undefined" && mailView === "rooms" && typeof paintMailRooms === "function") {
-            paintMailRooms(d);
-          } else if (typeof mailView !== "undefined" && mailView === "letters" && typeof mail === "function") {
-            mail(d);
-          }
-        } catch (eM) {}
-      }
-      if (kind === "tree-todo" || kind === "trees") {
-        try { if (typeof paintPlan === "function") paintPlan(d); } catch (eP) {}
-        try { if (typeof board === "function") board(d); } catch (eB) {}
-        try { if (typeof issues === "function") issues(d); } catch (eI) {}
-      }
-    }
-    async function wallFetchTreeExpand(parentType, parentId, opts) {
-      /* GET ?parent_id=type:id&limit=50 (+cursor) -> splice direct children under parent. */
-      opts = opts || {};
-      const typ = String(parentType || "").toLowerCase();
-      const id = String(parentId || "");
-      if (!typ || !id) return false;
-      const parentKey = typ + ":" + id;
-      const kind = opts.kind || wallActiveTreeKind() || (typ === "todo" ? "tree-todo" : "tree-mail");
-      const cursor = opts.cursor != null ? opts.cursor : _wallTreeExpandNext[parentKey];
-      if (opts.cursor === undefined && _wallTreeExpandInflight[parentKey]) {
-        return _wallTreeExpandInflight[parentKey];
-      }
-      const scope = (typeof floorScope === "function") ? floorScope() : null;
-      if (!scope || !String(scope.query || "").trim()) return false;
-      const q = String(scope.query || "");
-      const path = (kind === "tree-todo" || (kind === "trees" && typ === "todo"))
-        ? "/api/v1/tree-todo"
-        : "/api/v1/tree-mail";
-      let url = path + "?" + q + (q ? "&" : "") + "limit=50&parent_id=" + encodeURIComponent(parentKey);
-      url += wallTreesWindowQuery();
-      if (cursor) url += "&cursor=" + encodeURIComponent(String(cursor));
-      const p = (async function () {
-        try {
-          const r = await fetch(url, { cache: "no-store" });
-          if (!r.ok) return false;
-          const ct = (r.headers.get("content-type") || "").toLowerCase();
-          if (ct.indexOf("json") < 0) return false;
-          const json = await r.json();
-          if (!wallAppendTreesPage(json, kind)) return false;
-          const nxt = json && json.next;
-          _wallTreeExpandNext[parentKey] = (nxt == null || nxt === "") ? null : String(nxt);
-          wallPaintTreesKind(kind);
-          try { if (typeof markOverflow === "function") markOverflow(); } catch (eMore) {}
-          return true;
-        } catch (eFetch) {
-          return false;
-        } finally {
-          _wallTreeExpandInflight[parentKey] = null;
-        }
-      })();
-      _wallTreeExpandInflight[parentKey] = p;
-      return p;
-    }
-    function wallAppendMailboxPage(json) {
-      if (!json || !Array.isArray(json.mailbox)) return false;
-      const d = window._floor;
-      if (!d) return false;
-      d.mailbox = wallDedupeAppend(Array.isArray(d.mailbox) ? d.mailbox : [], json.mailbox);
-      if (json.desk_unread && typeof json.desk_unread === "object") {
-        d.desk_unread = Object.assign({}, d.desk_unread || {}, json.desk_unread);
-      }
-      wallRememberListNext("mailbox", json);
-      try {
-        if (_floorBook && typeof _floorBook === "object") {
-          _floorBook.mailbox = d.mailbox;
-          if (d.desk_unread) _floorBook.desk_unread = d.desk_unread;
-        }
-      } catch (eBook) {}
-      return true;
-    }
-    function wallAppendTodosPage(json) {
-      if (!json) return false;
-      const d = window._floor;
-      if (!d) return false;
-      if (Array.isArray(json.needs)) d.needs = wallDedupeAppend(Array.isArray(d.needs) ? d.needs : [], json.needs);
-      if (Array.isArray(json.issues)) d.issues = wallDedupeAppend(Array.isArray(d.issues) ? d.issues : [], json.issues);
-      wallRememberListNext("todos", json);
-      try {
-        if (_floorBook && typeof _floorBook === "object") {
-          if (d.needs) _floorBook.needs = d.needs;
-          if (d.issues) _floorBook.issues = d.issues;
-        }
-      } catch (eBook) {}
-      return true;
-    }
-    function wallAppendFloorKindPage(kind, json) {
-      /* append agents/scores/holds/watchers/events from floor page. */
-      const d = window._floor;
-      if (!d || !json || typeof json !== "object") return false;
-      if (kind === "agents" && Array.isArray(json.agents)) {
-        d.agents = wallDedupeAppend(Array.isArray(d.agents) ? d.agents : [], json.agents);
-        try { if (_floorBook) _floorBook.agents = d.agents; } catch (eB) {}
-      } else if (kind === "scores" && Array.isArray(json.kpis)) {
-        d.kpis = wallDedupeAppend(Array.isArray(d.kpis) ? d.kpis : [], json.kpis);
-        try { if (_floorBook) _floorBook.kpis = d.kpis; } catch (eB) {}
-      } else if (kind === "holds" && Array.isArray(json.locks)) {
-        d.locks = wallDedupeAppend(Array.isArray(d.locks) ? d.locks : [], json.locks);
-        try { if (_floorBook) _floorBook.locks = d.locks; } catch (eB) {}
-      } else if (kind === "watchers" && Array.isArray(json.watchers)) {
-        d.watchers = wallDedupeAppend(Array.isArray(d.watchers) ? d.watchers : [], json.watchers, wallWatcherKey);
-        try { if (_floorBook) _floorBook.watchers = d.watchers; } catch (eB) {}
-      } else if (kind === "events" && Array.isArray(json.events)) {
-        d.events = wallDedupeAppend(Array.isArray(d.events) ? d.events : [], json.events, wallWatcherKey);
-        try { if (_floorBook) _floorBook.events = d.events; } catch (eB) {}
-      } else if (kind === "names" && Array.isArray(json.catalog)) {
-        d.catalog = wallDedupeAppend(Array.isArray(d.catalog) ? d.catalog : [], json.catalog, function (r) {
-          return String((r && r.kind) || "") + ":" + String((r && r.name) || "");
-        });
-        try { if (_floorBook) _floorBook.catalog = d.catalog; } catch (eB) {}
-      } else {
-        return false;
-      }
-      wallRememberListNext(kind, json);
-      return true;
-    }
-    function wallAppendActivityPage(json) {
-      if (!json || !Array.isArray(json.rows)) return false;
-      _presenceRows = wallDedupeAppend(Array.isArray(_presenceRows) ? _presenceRows : [], json.rows);
-      wallRememberListNext("activity", json);
-      return true;
-    }
-    function wallPaintListKind(kind) {
-      const d = window._floor;
-      if (kind === "mailbox") { try { mail(d); } catch (e) {} return; }
-      if (kind === "tree-mail" || kind === "tree-todo" || kind === "trees") {
-        try { wallPaintTreesKind(kind); } catch (eT) {}
-        return;
-      }
-      if (kind === "todos") {
-        try { board(d); } catch (e) {}
-        try { issues(d); } catch (e2) {}
-        try { if (typeof paintPlan === "function") paintPlan(d); } catch (e3) {}
-        return;
-      }
-      if (kind === "agents") { try { board(d, { hereOnly: true }); } catch (e) {} return; }
-      if (kind === "scores") { try { cards(d); } catch (e) {} return; }
-      if (kind === "holds") { try { stations(d); } catch (e) {} return; }
-      if (kind === "watchers") { try { paintWatchers(d); } catch (e) {} return; }
-      if (kind === "activity") { try { if (d) paintSessionWire(d); } catch (e) {} return; }
-      if (kind === "events") {
-        try { wire(d); } catch (eW) {}
-        try { if (d) paintSessionWire(d); } catch (eS) {}
-        try {
-          const floorOn = document.getElementById("pane-floor");
-          if (floorOn && floorOn.classList.contains("on") && typeof ensureFloorPaint === "function") ensureFloorPaint();
-        } catch (eF) {}
-        return;
-      }
-    }
-    async function wallFetchListNextPage(kind) {
-      if (!WALL_LIST_KINDS[kind]) return false;
-      const cursor = _wallListNext[kind];
-      if (cursor == null || cursor === "") return false;
-      if (_wallListInflight[kind]) return _wallListInflight[kind];
-      const scope = (typeof floorScope === "function") ? floorScope() : null;
-      if (!scope || !String(scope.query || "").trim()) return false;
-      const q = String(scope.query || "");
-      let url = "";
-      if (kind === "mailbox" || kind === "todos") {
-        const path = (kind === "mailbox") ? "/api/v1/mailbox" : "/api/v1/todos";
-        url = path + "?" + q + (q ? "&" : "") + "limit=50&cursor=" + encodeURIComponent(cursor);
-      } else if (kind === "tree-mail" || kind === "tree-todo" || kind === "trees") {
-        const treePath = (kind === "tree-todo" || (kind === "trees" && wallActiveTreeKind() === "tree-todo"))
-          ? "/api/v1/tree-todo"
-          : "/api/v1/tree-mail";
-        url = treePath + "?" + q + (q ? "&" : "") + "limit=50&cursor=" + encodeURIComponent(cursor);
-        url += wallTreesWindowQuery();
-      } else if (kind === "agents" || kind === "scores" || kind === "holds" ||
-                 kind === "watchers" || kind === "events" || kind === "names") {
-        const v1Path = ({
-          agents: "/api/v1/agents",
-          scores: "/api/v1/scores",
-          holds: "/api/v1/holds",
-          watchers: "/api/v1/watchers",
-          events: "/api/v1/events",
-          names: "/api/v1/names"
-        })[kind];
-        url = v1Path + "?" + q + (q ? "&" : "") + "limit=50&cursor=" + encodeURIComponent(cursor);
-      } else if (kind === "activity") {
-        url = activitySpanQuery().url + "&cursor=" + encodeURIComponent(cursor);
-      } else {
-        return false;
-      }
-      const p = (async function () {
-        try {
-          const r = await fetch(url, { cache: "no-store" });
-          if (!r.ok) return false;
-          const ct = (r.headers.get("content-type") || "").toLowerCase();
-          if (ct.indexOf("json") < 0) return false;
-          const json = await r.json();
-          let ok = false;
-          if (kind === "mailbox") ok = wallAppendMailboxPage(json);
-          else if (kind === "todos") ok = wallAppendTodosPage(json);
-          else if (kind === "tree-mail" || kind === "tree-todo" || kind === "trees") ok = wallAppendTreesPage(json, kind);
-          else if (kind === "activity") ok = wallAppendActivityPage(json);
-          else ok = wallAppendFloorKindPage(kind, json);
-          if (!ok) return false;
-          wallPaintListKind(kind);
-          try { if (typeof markOverflow === "function") markOverflow(); } catch (eMore) {}
-          return true;
-        } catch (eFetch) {
-          return false;
-        } finally {
-          _wallListInflight[kind] = null;
-        }
-      })();
-      _wallListInflight[kind] = p;
-      return p;
-    }
+    function wallFetchTreeExpand() { return wallLazyCall("listsPaint", "wallFetchTreeExpand", wallFetchTreeExpand, arguments); }
+    function wallFetchListNextPage() { return wallLazyCall("listsPaint", "wallFetchListNextPage", wallFetchListNextPage, arguments); }
     function wallScrollNearBottom(el) {
       if (!el) return false;
       const ch = el.clientHeight;

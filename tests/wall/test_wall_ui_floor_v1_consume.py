@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from agent_coord.web.wall_logic.packs import wall_ui_root
 
+from ._wall_src import boot_source
+
 ROOT = wall_ui_root()
 BOOT = ROOT / "default" / "boot.js"
 
@@ -26,7 +28,8 @@ LOCKED_V1 = (
 
 
 def _boot() -> str:
-    return BOOT.read_text(encoding="utf-8")
+    """boot.js plus the pane modules split out of it (#710, #872)."""
+    return boot_source()
 
 
 def _routes() -> str:

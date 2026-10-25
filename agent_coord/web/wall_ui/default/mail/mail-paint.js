@@ -1161,4 +1161,73 @@
       if (typeof wallPerfFirst === "function") wallPerfFirst("mailbox_body");
       enhanceTables(el);
     }
+
+    /* Moved out of boot.js with the pane (#872, wall-contract rule-lazy-panes). */
+    function wallProjectName() {
+      const picked = (currentFilter().projects || []).filter(Boolean);
+      if (picked.length) return String(picked[0]).trim();
+      const floor = window._floor || {};
+      const fromFloor = (floor.wall && floor.wall[0]) || ((floor.groups || floor.projects) && (floor.groups || floor.projects)[0]) || "";
+      return String(fromFloor || "").trim();
+    }
+    function wallRoleNames() {
+      return Array.from(document.querySelectorAll("#rail-roster .rail-row"))
+        .map(el => String(el.getAttribute("data-id") || "").trim())
+        .filter(Boolean);
+    }
+    function wallFindMailRow(id) {
+      const box = (window._floor && window._floor.mailbox) || [];
+      const want = String(id);
+      for (let i = 0; i < box.length; i++) {
+        if (String(box[i] && box[i].id) === want) return box[i];
+      }
+      return null;
+    }
+    function wallMergeMailDetail(full) {
+      if (!full || full.id == null) return false;
+      const d = window._floor;
+      if (!d) return false;
+      if (!Array.isArray(d.mailbox)) d.mailbox = [];
+      const want = String(full.id);
+      const next = Object.assign({}, full);
+      delete next.body_trunc;
+      let i = -1;
+      for (let k = 0; k < d.mailbox.length; k++) {
+        if (String(d.mailbox[k] && d.mailbox[k].id) === want) { i = k; break; }
+      }
+      if (i < 0) {
+        d.mailbox.push(next);
+      } else {
+        d.mailbox[i] = Object.assign({}, d.mailbox[i], next);
+        delete d.mailbox[i].body_trunc;
+      }
+      return true;
+    }
+    async function wallOpenMailIfTrunc(id) {
+      const mid = String(id || "").trim();
+      if (!mid) return false;
+      const row = wallFindMailRow(mid);
+      if (!wallMailIsTrunc(row)) return false;
+      const key = "mail:" + mid;
+      if (_wallLeanDetailInflight[key]) return _wallLeanDetailInflight[key];
+      const p = (async function () {
+        try {
+          const r = await fetch("/api/v1/mail/" + encodeURIComponent(mid), { cache: "no-store" });
+          if (!r.ok) return false;
+          const json = await r.json();
+          const full = json && json.mail;
+          if (!full) return false;
+          if (!wallMergeMailDetail(full)) return false;
+          try { mail(window._floor); } catch (ePaint) {}
+          return true;
+        } catch (eFetch) {
+          return false;
+        } finally {
+          delete _wallLeanDetailInflight[key];
+        }
+      })();
+      _wallLeanDetailInflight[key] = p;
+      return p;
+    }
+
 var WALL_UI_DEFAULT_MAIL_PAINT = "WALL_UI_DEFAULT_MAIL_PAINT";

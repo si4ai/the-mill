@@ -17,16 +17,14 @@ import pytest
 
 from agent_coord.web.wall_logic.packs import wall_ui_root
 
+from ._wall_src import wall_fn
+
 BOOT = wall_ui_root() / "default" / "boot.js"
 
 
 def _fn(name: str) -> str:
-    src = BOOT.read_text(encoding="utf-8")
-    head = src.find("    async function " + name + "(")
-    if head < 0:
-        head = src.index("    function " + name + "(")
-    end = src.index("\n    }\n", head) + len("\n    }\n")
-    return src[head:end]
+    """The real function, in boot.js or the pane module it was split into (#872)."""
+    return wall_fn(name)
 
 
 def _const(name: str) -> str:
