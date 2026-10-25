@@ -72,11 +72,13 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 - Alpha. No backward compatibility until beta. Operational rough edges remain.
 - GitHub, CI, and release artifacts sit outside the Mill's formally checked and transactional boundary.
 - Scoring is not yet mature enough to reliably drive the right fixes.
-- Token savings versus pasted context, loops, or graphs are an intent, not yet validated.
-- Dogfooded with Grok Bot and Grok Build. Other vendors and load are not yet measured.
-- Install and upgrade still need work on the path to beta.
+- Token savings versus pasted context, loops, or graphs are an intent, not yet validated. No benchmark yet against email, chat or a plain agent loop; bytes stand in for tokens.
+- Dogfooded with Grok Bot and Grok Build. Other vendors have how-tos and wake connectors but are not yet measured, and neither is load.
+- Known bugs: Inbox lists old rooms alongside active ones. A wake can re-ring a letter the desk already read. CI has no Windows job.
+- `inbox` and `trail` print clipped rows. `mail-thread ID --full` prints whole letters.
 - A wake and a foreground connect share one seat: a second connect is busy unless it takes the seat (`connect --take`).
 - Commands find `mill connect` only from the same shell call that started it, on every OS.
+- The host needs Python 3.10+ and MySQL 8 (InnoDB). Install and upgrade still need work on the path to beta.
 - Install with `pip install the-mill`. Never `pip install .` from the git tree.
 
 ## More
