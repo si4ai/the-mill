@@ -66,6 +66,7 @@ WALL = COMMANDS | SIT | PROBE | frozenset(
         "invite",
         "invite-seat",
         "trust",
+        "glance",
     }
 )
 
@@ -265,6 +266,11 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
+# Card 866: a done-when note writes only the done-when, so other note fields beside it would be lost.
+_NOTE_WITH_DONE_WHEN = ("text", "note", "supersedes", "eta", "started")
+_DONE_WHEN_ALONE = "note: --done-when goes alone; send the note in its own mill note. Nothing changed"
+
+
 def body_from_args(args: Any) -> dict[str, Any]:
     cmd = str(getattr(args, "cmd", "") or "")
     obj = str(getattr(args, "object", "") or "")
@@ -327,6 +333,32 @@ def body_from_args(args: Any) -> dict[str, Any]:
     if command == "pass":
         # #615: the step is named; a repeat never moves a card on by itself.
         body["step"] = "done" if getattr(args, "done", False) else ("back" if getattr(args, "back", False) else "ship")
+        # Card 866: evidence rides the pass. The server stores it. Blank is omitted.
+        # --back still sends it; the server stores none.
+        ev = str(getattr(args, "evidence", "") or "").strip()
+        if ev:
+            if len(ev) > 2000:
+                raise CoordError(
+                    "pass: evidence would be %s chars (max 2000); refused, nothing changed" % len(ev)
+                )
+            body["evidence"] = ev
+    if command in ("open", "note"):
+        raw_dw = getattr(args, "done_when", None)
+        if raw_dw is not None:
+            dw = str(raw_dw).strip()
+            if len(dw) > 1000:
+                tail = "nothing stored" if command == "open" else "nothing changed"
+                raise CoordError(
+                    "done-when would be %s chars (max 1000); refused, %s" % (len(dw), tail)
+                )
+            if command == "note" or dw:
+                body["done_when"] = dw
+            if command == "note" and any(
+                getattr(args, k, None) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN
+            ):
+                raise CoordError(_DONE_WHEN_ALONE)
+    if command == "glance":
+        body.pop("project", None)
     if bool(getattr(args, "yes", False)):
         body["yes"] = True
     if command == "claim" and bool(getattr(args, "take_over", False)):

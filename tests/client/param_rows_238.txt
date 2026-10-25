@@ -275,6 +275,7 @@ create todo detail_file
 create todo status
 create todo parent_type
 create todo parent_id
+create todo done_when
 create todo yes
 create todo office
 create todo doing
@@ -311,6 +312,7 @@ note supersedes
 note eta
 note started
 note full
+note done_when
 note office
 note yes
 note doing
@@ -354,10 +356,14 @@ pass project
 pass need
 pass done
 pass back
+pass evidence
 pass office
 pass yes
 pass doing
 pass waiting_on
+glance (command)
+glance office
+glance yes
 invite (command)
 invite door
 invite rotate

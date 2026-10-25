@@ -2573,9 +2573,22 @@ def _done_when(c: Book, card_id: int, project: str, need: str, raw: Any, owner: 
     return {"ok": True, "need": need, "id": card_id, "done_when": got.get("done_when")}
 
 
+def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """The office glance from the cached procedure: one cache row, newest 30 activity rows."""
+    from agent_coord.server.beta_client import read_cached_glance
+
+    return read_cached_glance(c._cn)
+
+
+_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started")
+
+
 def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import todo as rec_todo
 
+    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
+        # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
+        raise CoordError("note: --done-when goes alone; send the note in its own mill note. Nothing changed")
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
@@ -3578,6 +3591,7 @@ HANDLERS = {
     "unpark": _h_unpark,
     "unclaim": _h_yield,
     "pass": _h_pass,
+    "glance": _h_glance,
     "note": _h_note,
     "hold": _h_hold,
     "drop": _h_drop,
