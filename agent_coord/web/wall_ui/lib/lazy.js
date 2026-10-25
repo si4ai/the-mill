@@ -70,13 +70,13 @@
       modules: ["mailPaint"]
     },
     score: {
-      js: "/score/score.js?v=wow182",
+      js: "/score/score.js?v=wow320",
       css: "/score/score.css?v=wow319",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow182",
+      js: "/todo/todo.js?v=wow320",
       css: "/todo/todo.css?v=wow319",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]

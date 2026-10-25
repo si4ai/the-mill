@@ -36,7 +36,7 @@
   }
 
   function millGid(r) {
-    return String((r && (r.roster_id || r.group_id || r.project_id)) || "");
+    return String((r && r.roster_id) || ""); /* #869 rule-roster-fields */
   }
 
   function millJobsForOwner(d, owner, projectId) {
