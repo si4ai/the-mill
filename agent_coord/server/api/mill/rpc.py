@@ -2573,6 +2573,13 @@ def _done_when(c: Book, card_id: int, project: str, need: str, raw: Any, owner: 
     return {"ok": True, "need": need, "id": card_id, "done_when": got.get("done_when")}
 
 
+def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """The office glance from the cached procedure: one cache row, newest 30 activity rows."""
+    from agent_coord.server.beta_client import read_cached_glance
+
+    return read_cached_glance(c._cn)
+
+
 def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import todo as rec_todo
 
@@ -3578,6 +3585,7 @@ HANDLERS = {
     "unpark": _h_unpark,
     "unclaim": _h_yield,
     "pass": _h_pass,
+    "glance": _h_glance,
     "note": _h_note,
     "hold": _h_hold,
     "drop": _h_drop,

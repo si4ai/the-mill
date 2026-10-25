@@ -1099,6 +1099,12 @@ def _build_parser() -> MillArgumentParser:
             dest="parent_id",
             help="optional TREE parent id (attach on create)",
         )
+        p.add_argument(
+            "--done-when",
+            default=None,
+            dest="done_when",
+            help="acceptance line, 0..1000 chars; the asker or Admin",
+        )
 
     cr = sub.add_parser(
         "create",
@@ -1199,6 +1205,12 @@ def _build_parser() -> MillArgumentParser:
         action="store_true",
         help="reply with the card's whole detail (default: detail_chars and the last line)",
     )
+    pg.add_argument(
+        "--done-when",
+        default=None,
+        dest="done_when",
+        help="set or clear the acceptance line (asker or Admin); a blank value clears it",
+    )
 
     vo = sub.add_parser("claim", help="claim a card")
     vo.add_argument("project")
@@ -1255,6 +1267,15 @@ def _build_parser() -> MillArgumentParser:
     pstep = psd.add_mutually_exclusive_group()
     pstep.add_argument("--done", action="store_true", help="asker or Admin: accept a shipped card (shipped -> done)")
     pstep.add_argument("--back", action="store_true", help="asker or volunteer: done -> shipped, shipped -> claimed")
+    psd.add_argument(
+        "--evidence",
+        default="",
+        help="text stored with a ship or a done step (0..2000 chars); --back stores none",
+    )
+    sub.add_parser(
+        "glance",
+        help="office glance from the cached read: one summary row and the newest activity",
+    )
 
     inv = sub.add_parser(
         "invite",

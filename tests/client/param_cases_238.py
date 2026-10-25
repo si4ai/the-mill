@@ -77,7 +77,8 @@ KIND = {
     ("unpark", "project"): "name", ("unpark", "need"): "name",
     ("unpark", "parent_type"): "enum", ("unpark", "parent_id"): "id",
     ("assign", "project"): "name", ("assign", "need"): "name", ("assign", "desk"): "name",
-    ("pass", "project"): "name", ("pass", "need"): "name",
+    ("pass", "project"): "name", ("pass", "need"): "name", ("pass", "evidence"): "text",
+    ("create todo", "done_when"): "text", ("note", "done_when"): "text",
     ("label", "type"): "enum", ("label", "id"): "cardref", ("label", "label"): "newname",  # high trust creates on first use
     ("label", "ord"): "int",
     ("unlabel", "type"): "enum", ("unlabel", "id"): "cardref",

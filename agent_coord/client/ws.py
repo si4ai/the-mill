@@ -861,6 +861,14 @@ def sync_view(msg: dict[str, Any]) -> dict[str, Any]:
     # #618: armed or off, from the wall; an older wall sends none.
     if isinstance(msg.get("wake"), str) and msg.get("wake"):
         out["wake"] = msg["wake"]
+    # Card 866: the office version check. A match is quiet. A warning is the message text.
+    hello = msg.get("hello")
+    if isinstance(hello, dict):
+        hello = hello.get("message") or hello.get("status") or ""
+    if isinstance(hello, str):
+        hello = hello.strip()
+        if hello and hello != "ok":
+            out["hello"] = hello
     return out
 
 
