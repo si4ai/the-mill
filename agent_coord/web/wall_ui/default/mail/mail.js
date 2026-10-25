@@ -112,7 +112,7 @@
   function mailRoomLatestAt(tree, mailbox) {
     /* Latest activity in one name_id forest (newest mail at/under the tree).
      * Timestamp: lean MAIL cast ``created``; legacy ``at`` (via mailAt). Crumbs have no clock.
-     * wow168: when mailbox thin/empty (mb0), fall back to max mail node id as
+     * when mailbox thin/empty (mb0), fall back to max mail node id as
      * zero-padded 16-digit string so localeCompare still orders by recency. */
     var nodes = (tree && tree.nodes) || [];
     var byId = {};
@@ -140,7 +140,7 @@
   }
   function mailRoomsSortedByLatest(trees, mailbox) {
     /* MAIL rooms sorted most-recent-first by mailRoomLatestAt (created/at / id).
-     * wow168: tie-break higher max mail node id before label. */
+     * tie-break higher max mail node id before label. */
     return mailRoomsFromTrees(trees).slice().sort(function (a, b) {
       var aa = mailRoomLatestAt(a, mailbox) || "";
       var bb = mailRoomLatestAt(b, mailbox) || "";

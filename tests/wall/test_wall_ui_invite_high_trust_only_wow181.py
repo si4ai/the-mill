@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""INVITE strip/chip high-trust only (wow181 Host lock)."""
+"""INVITE strip/chip high-trust only (Host lock)."""
 from __future__ import annotations
 
 from agent_coord.web.wall_logic.packs import wall_ui_root
