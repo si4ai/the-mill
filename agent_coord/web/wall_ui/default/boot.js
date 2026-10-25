@@ -619,7 +619,7 @@
     const WIRE_PROTO = [["","all"],["mail","mail"],["lock","stations"],["cards","todo"],["presence","presence"]];
     const WIRE_KIND = {send:"mail",kpi:"kpi",refuse:"refuse",acquire:"lock",release:"lock",steal:"lock",ask:"cards",volunteer:"cards",yield:"cards",done:"cards",progress:"cards",issue:"issues","issue-status":"issues",register:"presence",unregister:"presence",recover:"recover",drift:"recover"};
     function millGid(r) {
-      return String((r && (r.roster_id || r.group_id || r.project_id)) || "");
+      return String((r && r.roster_id) || ""); /* #869 rule-roster-fields: roster_id only */
     }
     /* Display the stored name. Counts are not name ids. */
     function millNameBare(kind, raw) {
@@ -3085,7 +3085,7 @@
       };
       (raw.groups || []).forEach(addP);
       (raw.projects || []).forEach(addP);
-      (raw.agents || []).forEach(a => addP(a.roster_id || a.group_id || a.project_id));
+      (raw.agents || []).forEach(a => addP(a.roster_id));
       const cuts = [];
       const seen = {};
       const add = (label, f, custom) => {
@@ -5812,7 +5812,7 @@
         kind: r.type || r.kind,
         type: r.type || r.kind,
         owner: r.owner,
-        group_id: millGid(r),
+        roster_id: millGid(r),
         n: r.n,
         state: r.state || null,
       }));
@@ -6106,7 +6106,7 @@
       return g;
     }
     function stations(d) {
-      const by = group((d.locks || []).map(r => Object.assign({}, r, { group_id: millGid(r) })), "group_id");
+      const by = group((d.locks || []).map(r => Object.assign({}, r, { roster_id: millGid(r) })), "roster_id");
       const el = document.getElementById("stations");
       const ids = Object.keys(by).sort();
       if (!ids.length) { el.innerHTML = '<div class="idle">No promises. Scarce files are free.</div>'; return; }
@@ -6130,7 +6130,7 @@
       if (!el) return; /* WALL_IA_BACKLOG: AGENTS removed from Jobs Wall */
       const live = (d.agents || []).filter(r => r.alive);
       const shown = showDead ? (d.agents || []) : live;
-      const by = group(shown.map(r => Object.assign({}, r, { group_id: millGid(r) })), "group_id");
+      const by = group(shown.map(r => Object.assign({}, r, { roster_id: millGid(r) })), "roster_id");
       const ids = Object.keys(by).sort();
       if (!ids.length) {
         el.innerHTML = '<div class="idle">' + (showDead ? "no registered pids" : "no live agents") + "</div>";

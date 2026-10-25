@@ -40,7 +40,7 @@ global.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt
 global.t = v => (v ? String(v) : '-');
 global.dt = v => (v ? String(v).replace('T', ' ').slice(0, 19) : '-');
 global.millName = (k, v) => String(v || '');
-global.millGid = r => (r && (r.roster_id || r.project_id)) || '';
+global.millGid = r => (r && r.roster_id) || '';
 global.millJobsForOwner = () => [];
 global.wallLazyCall = () => Promise.resolve();
 global.board = () => { calls.push('repaint'); };
