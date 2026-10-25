@@ -7,7 +7,7 @@ from agent_coord.web.wall_logic.packs import wall_ui_root
 ROOT = wall_ui_root()
 BOOT = ROOT / "default" / "boot.js"
 
-# Locked v1 surface set for wow158/163 (joined map/timeline; no invent beyond Builder Claim).
+# Locked v1 surface set (joined map/timeline; no invent beyond Builder Claim).
 LOCKED_V1 = (
     "/api/v1/rooms",
     "/api/v1/mailbox",
@@ -87,7 +87,7 @@ def test_session_now_routes_agents_v1():
 
 
 def test_score_glossary_session_modes_route_v1():
-    """wow158: single-part score/glossary/leases/watch/history -> v1 isolates."""
+    """single-part score/glossary/leases/watch/history -> v1 isolates."""
     routes = _routes()
     assert 'tab === "score"' in routes
     assert 'return [{ path: "/api/v1/scores", kind: "scores" }];' in routes
@@ -109,7 +109,7 @@ def test_score_glossary_session_modes_route_v1():
 
 
 def test_floor_hybrids_hit_joined_map_timeline():
-    """wow163: FLOOR map/timeline hybrids hit joined v1 (one RTT); not Promise.all fan-out."""
+    """FLOOR map/timeline hybrids hit joined v1 (one RTT); not Promise.all fan-out."""
     routes = _routes()
     src = _boot()
     assert 'core = mode === "timeline" ? "agents,timeline" : "agents,mail"' in src
@@ -169,7 +169,7 @@ def test_merge_prefers_tree_mail_over_rooms_trees():
     assert 'addPart("agents")' in merge
     assert "out.agents" in merge
     assert "out.next_agents" in merge
-    # wow158 kill-slice merge kinds
+    # kill-slice merge kinds
     assert 'addPart("scores")' in merge
     assert "out.kpis" in merge
     assert "out.next_scores" in merge
@@ -201,7 +201,7 @@ def test_v1_down_paints_the_wall_down():
 
 
 def test_pageable_fetch_limit_and_fp():
-    """wow158/163: pageable isolates limit=50 + fp + remember; map/timeline pageable; mailbox fp key mail."""
+    """pageable isolates limit=50 + fp + remember; map/timeline pageable; mailbox fp key mail."""
     src = _boot()
     fetch_fn = src.split("async function wallFetchFloorV1", 1)[1].split(
         "function wallMailRoomsWantEarlyRail", 1
@@ -253,7 +253,7 @@ def test_human_readonly_get_only_no_invented_routes():
     assert "Marker: WALL_HUMAN_READONLY" in src
     for locked in LOCKED_V1:
         assert locked in src, f"missing locked route {locked}"
-    # do not invent beyond wow158/163 locked set (map/timeline now allowed)
+    # do not invent beyond locked set (map/timeline now allowed)
     for banned in (
         "/api/v1/activity",
         "/api/v1/locks",
@@ -286,7 +286,7 @@ def test_no_builder_server_sor_in_wall_surface():
 
 
 def test_floor_hybrid_early_absorb_not_on_floor_tab():
-    """wow163: early-absorb stays session/score/glossary; FLOOR hybrids settle via joined v1."""
+    """early-absorb stays session/score/glossary; FLOOR hybrids settle via joined v1."""
     body = _boot().split("async function _tickBody()", 1)[1][:8000]
     absorb_ifs = [ln for ln in body.splitlines() if "tabNow ===" in ln and "session" in ln]
     assert absorb_ifs, "missing early-absorb tabNow check"

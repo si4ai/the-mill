@@ -118,11 +118,11 @@
       const browser = document.querySelector(".mail-browser, .mail-split");
       if (browser) browser.setAttribute("data-mail-view", mailView);
       try { syncMailRoomsFiltersVisible(); } catch (eRoomsWin) {}
-      /* wow147: bump gen + overlay; stale ticks must not blank; keep theme. */
+      /* bump gen + overlay; stale ticks must not blank; keep theme. */
       const mailGen = wallBumpSwitchGen();
       try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestMail) {}
       try { wallShowPaneOverlay("pane-mail", "Checking\u2026"); } catch (eOvMail) {}
-            /* wow148/150: Checking overlay; reuse in-flight if same parts, else tick after fp decide. */
+            /* Checking overlay; reuse in-flight if same parts, else tick after fp decide. */
       if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
         /* keep Checking until in-flight settle */
       } else if (typeof tick === "function") {
@@ -461,7 +461,7 @@
         const aa = latestOf(a);
         const bb = latestOf(b);
         if (aa !== bb) return bb < aa ? -1 : 1;
-        /* wow168: tie-break higher max mail node id before label. */
+        /* tie-break higher max mail node id before label. */
         const ia = (typeof mailRoomMaxMailId === "function") ? mailRoomMaxMailId(a) : 0;
         const ib = (typeof mailRoomMaxMailId === "function") ? mailRoomMaxMailId(b) : 0;
         if (ia !== ib) return ib - ia;
@@ -606,7 +606,7 @@
         const hr = r.humanRequired > 0 ? `<span class="hr-cue" title="open human_required">HR</span>` : "";
         const castN = r.castN | 0;
         const castBit = castN ? (" / cast " + castN) : "";
-        /* wow168: short recency hint when latestAt is a real clock (not id-fallback). */
+        /* short recency hint when latestAt is a real clock (not id-fallback). */
         let whenBit = "";
         const lat = String(r.latestAt || "").trim();
         if (lat && !/^\d{16}$/.test(lat)) {
@@ -723,7 +723,7 @@
         const rootM = root ? mailRoomMailbox(d, root) : null;
         const castN = (rootM && typeof mailCastCount === "function") ? mailCastCount(rootM) : 0;
         const castTip = (rootM && typeof mailCastTip === "function") ? mailCastTip(rootM) : "";
-        /* wow168: latestAt = mailbox created/at (mailAt); else max mail id padded. */
+        /* latestAt = mailbox created/at (mailAt); else max mail id padded. */
         const latestAt = (typeof mailRoomLatestAt === "function")
           ? (mailRoomLatestAt(t, (d && d.mailbox) || []) || "")
           : "";
@@ -747,7 +747,7 @@
       });
       rooms = rooms.filter(function (r) { return (r.n | 0) > 1; });
       if (q) rooms = rooms.filter(function (r) { return mailRoomMatchesQ(d, r.tree, q); });
-      /* wow168: Left pane most-recent-first. latestAt = mailbox created/at else max id;
+      /* Left pane most-recent-first. latestAt = mailbox created/at else max id;
        * tie-break higher maxMailId before label (hex rooms without mb still rise). */
       rooms.sort(function (a, b) {
         const aa = String(a.latestAt || "");
@@ -828,7 +828,7 @@
         const picked0 = rooms.find(function (r) { return r.id === mailSelectedRoom; }) || rooms[0];
         const nestEl = document.getElementById("mail");
         if (nestEl && picked0) {
-          /* wow146: paint structure alone (no loading marker sibling that blanked on re-enter).
+          /* paint structure alone (no loading marker sibling that blanked on re-enter).
              Opaque pane overlay covers confirm; keep struct as last-good paint. */
           const struct = mailRoomsNestHtml(d, picked0.tree, q);
           nestEl.innerHTML = struct;

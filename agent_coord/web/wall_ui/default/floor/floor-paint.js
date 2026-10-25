@@ -153,7 +153,7 @@
       try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestF) {}
       try { wallShowPaneOverlay("pane-floor", "Checking\u2026"); } catch (eOvF) {}
       if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
-        /* wow150: reuse in-flight */
+        /* reuse in-flight */
       } else {
         tick(true);
       }

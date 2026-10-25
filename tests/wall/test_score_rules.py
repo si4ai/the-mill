@@ -335,7 +335,7 @@ def test_spend_tokens_est_dim_vs_exact():
 
 
 def test_score_js_activities_h_chip_label_and_empty_target():
-    """wow162: mill-office.activities -> activities/h; empty target never numeric miss in score.js."""
+    """mill-office.activities -> activities/h; empty target never numeric miss in score.js."""
     root = Path(__file__).resolve().parents[2]
     score_js = (root / "agent_coord/web/wall_ui/default/score/score.js").read_text(encoding="utf-8")
     assert 'SCORE_OFFICE_CHIPS = ["mill-office.activities"]' in score_js or (

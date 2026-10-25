@@ -106,11 +106,11 @@
       return n;
     }
     function wallIsAutoDefaultDesk(raw) {
-      /* wow187: auto default is contiguous agent + exactly 10 digits (no hyphen). */
+      /* auto default is contiguous agent + exactly 10 digits (no hyphen). */
       return /^agent\d{10}$/i.test(String(raw || "").trim());
     }
     function wallFreshMintDesk(hint) {
-      /* wow187: fresh auto desk = agent + 10 decimal digits (no hyphen). hint unused. */
+      /* fresh auto desk = agent + 10 decimal digits (no hyphen). hint unused. */
       void hint;
       return "agent" + wallRandom10Digits();
     }
@@ -235,9 +235,9 @@
       if (sec) sec.hidden = !_wallInviteGateOk;
       if (box) {
         box.hidden = !_wallInviteGateOk;
-        /* wow179: gate via [hidden] only - do not toggle .on (that means selected strip tab) */
+        /* gate via [hidden] only - do not toggle .on (that means selected strip tab) */
         try { box.classList.remove("on"); } catch (eOn) {}
-        /* wow180: live seat_count M/N when gate on (same mint owner/token) */
+        /* live seat_count M/N when gate on (same mint owner/token) */
         if (_wallInviteGateOk) {
           try { wallRefreshInviteCount(); } catch (eCnt) {}
         }
@@ -367,9 +367,9 @@
     async function wallMintInvite(deskHint) {
       /* Human-readonly write exception: mint_seat only via HTTP (not CLI).
        * POST /api/admin/invites { action:"mint_seat", desk }. Stub only on 404.
-       * wow185/wow186: each mint needs a fresh desk (Hub join no-steal / desk live).
-       * wow186: invite URL uses the stored desk name.
-       * wow187: empty/auto agent+10digits -> regenerate; user-edited name minted as-is. */
+       * each mint needs a fresh desk (Hub join no-steal / desk live).
+       * invite URL uses the stored desk name.
+       * empty/auto agent+10digits -> regenerate; user-edited name minted as-is. */
       const deskIn = document.getElementById("wall-welcome-desk");
       const hint = String(deskHint || (deskIn && deskIn.value) || "").trim();
       let desk = wallResolveMintDesk(hint);
@@ -420,7 +420,7 @@
       } catch (eFetch) {
         status = 0;
       }
-      /* wow185/wow186/wow187: desk already live -> one retry with fresh agent+10digits desk. */
+      /* desk already live -> one retry with fresh agent+10digits desk. */
       const errText = (data && data.error) ? String(data.error) : "";
       const liveCollide = status === 400 && /desk live|token required|no steal/i.test(errText);
       if (liveCollide) {
@@ -463,7 +463,7 @@
       return true;
     }
     function wallWelcomeStripForceQs() {
-      /* wow174: ?welcome=1 force-opens every load; strip on dismiss so refresh stays closed. */
+      /* ?welcome=1 force-opens every load; strip on dismiss so refresh stays closed. */
       try {
         const u = new URL(String((typeof location !== "undefined" && location.href) || ""));
         if (!u.searchParams.has("welcome")) return;
@@ -473,8 +473,8 @@
       } catch (eStrip) {}
     }
     function wallWelcomeHide(persist) {
-      /* wow173: always dismiss Nest welcome; mint pending must never block close.
-       * wow174: persist factory-welcome-hide so next document load skips auto-open. */
+      /* always dismiss Nest welcome; mint pending must never block close.
+       * persist factory-welcome-hide so next document load skips auto-open. */
       const el = document.getElementById("wall-welcome");
       if (el) el.hidden = true;
       if (persist) {
@@ -487,7 +487,7 @@
       return !!(el && !el.hidden);
     }
     function wallWelcomeDismiss(persist) {
-      /* wow174: default persist=true (Dismiss / Escape / X / backdrop). */
+      /* default persist=true (Dismiss / Escape / X / backdrop). */
       if (persist === undefined || persist === null) persist = true;
       wallWelcomeHide(!!persist);
     }
@@ -499,7 +499,7 @@
       wallApplyInviteGate();
       try { wallSeedAssignNameDefault(); } catch (eSeedShow) {}
       wallWelcomeFillJoin();
-      /* wow175: optional ?welcome=1 replaceState on current Nest path - never assign /welcome. */
+      /* optional ?welcome=1 replaceState on current Nest path - never assign /welcome. */
       try {
         if (opts && opts.stampQs) {
           const u = new URL(String((typeof location !== "undefined" && location.href) || ""));
@@ -583,7 +583,7 @@
         copyText(pre ? pre.textContent : "");
       });
       function wallInviteOpenFromStrip(ev) {
-        /* Strip always reopens full welcome kit; noshow only skips auto-open on new visits. wow175 Nest overlay only (never href=/welcome or location assign). */
+        /* Strip always reopens full welcome kit; noshow only skips auto-open on new visits. Nest overlay only (never href=/welcome or location assign). */
         try { if (ev) { ev.preventDefault(); ev.stopPropagation(); } } catch (eEv) {}
         wallApplyInviteGate();
         try { wallRefreshInviteCount(); } catch (eStripCnt) {}
@@ -610,7 +610,7 @@
       try { window.wallInviteOpenFromStrip = wallInviteOpenFromStrip; } catch (eWinInv) {}
       /* trust re-gate hooked after wallRememberTrust (below) */
     }
-    /* wallWelcomeWire+Boot scheduled after wallRememberTrust (wow172) */
+    /* wallWelcomeWire+Boot scheduled after wallRememberTrust */
 
     let showReads = false;
     let wireDetails = false;
@@ -1271,13 +1271,13 @@
         /* keep nest outline warm without changing strip tab */
         try { paintPlan(window._floor); } catch (eNest) {}
       }
-      /* wow147: bump gen + overlay; never blank prior TODO DOM; keep theme. */
+      /* bump gen + overlay; never blank prior TODO DOM; keep theme. */
       if (todoOn) {
         try { wallBumpSwitchGen(); } catch (eGenJ) {}
         try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestJ) {}
         try { wallShowPaneOverlay("pane-todo", "Checking\u2026"); } catch (eOv) {}
         if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
-          /* wow150: reuse in-flight */
+          /* reuse in-flight */
         } else if (typeof tick === "function") {
           try { tick(true); } catch (eTickJobs) {}
         }
@@ -1400,9 +1400,9 @@
       }
       if (name === "guide") loadGuide();
       if (name === "glossary") paintGlossary();
-      /* wow151: translucent Checking overlay (last-good visible under); stays until fp confirms.
-         wow148: Checking overlay; last-good stays until tick fp confirms refresh.
-         wow147 gen guard; wow146 keep-prior restore only if empty. */
+      /* translucent Checking overlay (last-good visible under); stays until fp confirms.
+         Checking overlay; last-good stays until tick fp confirms refresh.
+         gen guard; keep-prior restore only if empty. */
       const switchGen = wallBumpSwitchGen();
       try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestShow) {}
       try {
@@ -1413,8 +1413,8 @@
         else if (name === "session") wallShowPaneOverlay("pane-session", "Checking\u2026");
         else wallClearActivePaneOverlay();
       } catch (eOvS) {}
-            /* wow148: no provisional body paint under Checking overlay.
-         wow150: if same-pane in-flight fetch exists, reuse it (no second DB call). */
+            /* no provisional body paint under Checking overlay.
+         if same-pane in-flight fetch exists, reuse it (no second DB call). */
       if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
         /* keep Checking until in-flight settle paints live */
       } else if (typeof tick === "function") {
@@ -1547,7 +1547,7 @@
       }
       return { key: "project:" + project, query: project };
     }
-    /* WALL_UI_LOADING (wow139): every pending region shows spinner/hourglass until inbound.
+    /* WALL_UI_LOADING: every pending region shows spinner/hourglass until inbound.
      * Empty must not look broken. Progressive paint fills regions as lean isolates land. */
     function wallLoadingHtml(label) {
       const lbl = (label == null || label === "") ? "Loading\u2026" : String(label);
@@ -1557,12 +1557,12 @@
         `<span class="wall-loading-lbl">${esc(lbl)}</span></div>`;
     }
     function wallStripLoadHtml() {
-      /* Compact spinner+hourglass for strip KPI tabs (wow142). */
+      /* Compact spinner+hourglass for strip KPI tabs. */
       return `<span class="kpi-load" aria-hidden="true">` +
         `<span class="wall-loading-spin"></span>` +
         `<span class="wall-loading-ico" title="loading">\u231B</span></span>`;
     }
-    /* Sticky strip-tab ready flags (wow142); declared early - wallMarkShellLoading may run before strip(). */
+    /* Sticky strip-tab ready flags; declared early - wallMarkShellLoading may run before strip(). */
     const _stripReady = { session: false, floor: false, todo: false, score: false, mail: false };
     let _officeScoreSeen = false;
     function wallIsLoadingEl(el) {
@@ -1582,7 +1582,7 @@
       });
     }
     function wallHasRealContent(el) {
-      /* wow146: painted content counts even if a loading spinner/overlay coexists.
+      /* painted content counts even if a loading spinner/overlay coexists.
          Do NOT treat "has loading descendant" as empty - that blanked panes on re-enter. */
       if (!el) return false;
       if (!wallLoadingOnly(el)) return true;
@@ -1594,7 +1594,7 @@
       return true;
     }
     function wallShowLoading(el, label) {
-      /* wow146: NEVER blank prior paint. Only fill truly empty / loading-only hosts. */
+      /* NEVER blank prior paint. Only fill truly empty / loading-only hosts. */
       if (!el) return false;
       if (!wallLoadingOnly(el)) return false;
       if (wallHasRealContent(el)) return false;
@@ -1603,7 +1603,7 @@
       el.innerHTML = html;
       return true;
     }
-    /* wow146: opaque subtab overlay - covers pane-body, does NOT blank prior content.
+    /* opaque subtab overlay - covers pane-body, does NOT blank prior content.
        Keep theme/chrome classes across leave->return for every strip family. */
     function wallPreserveThemeChrome() {
       try {
@@ -1659,7 +1659,7 @@
         });
       } catch (eLazy) {}
     }
-    /* wow147: switch generation - only latest showTab/subtab may mutate panes / clear overlays.
+    /* switch generation - only latest showTab/subtab may mutate panes / clear overlays.
        Stale tick/early-paint/domain-ensure callbacks must no-op without blanking. */
     let _wallSwitchGen = 0;
     function wallBumpSwitchGen() {
@@ -1691,7 +1691,7 @@
       return pane.querySelector(".pane-body") || pane;
     }
     function wallShowPaneOverlay(paneOrId, label) {
-      /* wow152: translucent when last-good exists; opaque when pane empty. */
+      /* translucent when last-good exists; opaque when pane empty. */
       const host = wallPaneBodyHost(paneOrId);
       if (!host) return false;
       try {
@@ -1739,8 +1739,8 @@
       } catch (eAll) {}
     }
     function wallRestoreActivePaneFromFloor(opts) {
-      /* wow146/149: repaint active pane from _floor last-good.
-         force=true (wow149): show latest committed book on return even if DOM still has prior paint. */
+      /* repaint active pane from _floor last-good.
+         force=true: show latest committed book on return even if DOM still has prior paint. */
       const d = window._floor;
       if (!d) return;
       const force = !!(opts && opts.force);
@@ -1789,7 +1789,7 @@
       }
     }
     function wallCommitFloorBook(raw, opts) {
-      /* wow149: commit late/stale payload into floor book + window._floor last-good (no live-pane requirement). */
+      /* commit late/stale payload into floor book + window._floor last-good (no live-pane requirement). */
       if (!raw || typeof raw !== "object") return null;
       const storedFp = (opts && opts.storedFp) || {};
       const projectKey = (opts && opts.projectKey) != null ? opts.projectKey : floorScope().key;
@@ -1807,7 +1807,7 @@
       return d;
     }
     function wallPaintOffPaneLastGood(d, parts) {
-      /* wow149: update OFF-SCREEN pane DOM from committed last-good; never touch active .on pane. */
+      /* update OFF-SCREEN pane DOM from committed last-good; never touch active .on pane. */
       if (!d) return false;
       const sliceParts = Array.isArray(parts) ? parts : [];
       const has = function (n) { return !sliceParts.length || sliceParts.indexOf(n) >= 0; };
@@ -1862,7 +1862,7 @@
       return did;
     }
     function wallAbsorbOffPaneResult(raw, opts) {
-      /* wow149: late/stale settle - commit book + paint off-pane last-good; live .on pane untouched. */
+      /* late/stale settle - commit book + paint off-pane last-good; live .on pane untouched. */
       const d = wallCommitFloorBook(raw, opts);
       if (!d) return null;
       try {
@@ -1870,7 +1870,7 @@
       } catch (eP) {}
       return d;
     }
-    /* wow150: leave->return before in-flight fetch completes -- reuse same request (no second DB call). */
+    /* leave->return before in-flight fetch completes -- reuse same request (no second DB call). */
     let _tickInflightParts = "";
     let _tickInflightScope = "";
     let _wallReuseInflight = false;
@@ -1915,7 +1915,7 @@
       } catch (e) { return false; }
     }
     function wallMarkTabLoading() {
-      /* wow148: while opaque check overlay is up, do not mutate pane bodies - overlay IS the check. */
+      /* while opaque check overlay is up, do not mutate pane bodies - overlay IS the check. */
       try {
         const tabBtn0 = document.querySelector("nav.tabs button.on");
         const tab0 = (tabBtn0 && tabBtn0.dataset.tab) || "session";
@@ -1933,7 +1933,7 @@
         const src = document.getElementById("mail-src-col");
         const msg = document.getElementById("mail");
         if (typeof mailView !== "undefined" && mailView === "rooms") {
-          /* wow146: never blank src/dst/msg on leave/re-enter; spinner only if empty. */
+          /* never blank src/dst/msg on leave/re-enter; spinner only if empty. */
           if (dst && !wallHasRealContent(dst)) wallShowLoading(dst, "Loading rooms\u2026");
           if (msg && !wallHasRealContent(msg)) wallShowLoading(msg, "Loading nest\u2026");
         } else {
@@ -2061,51 +2061,51 @@
     }
 
 
-    /* Floor v1 part isolates (Wall contract card rule-routes: mill todo wall-contract rule-routes) + wow139 progressive paint.
+    /* Floor v1 part isolates (Wall contract card rule-routes: mill todo wall-contract rule-routes) + progressive paint.
      * MAIL Rooms -> /api/v1/rooms + mailbox + tree-mail
-     *   Fetch stagger (wow143 Loop-3 cold-SQL): phase A rooms+tree-mail parallel; phase B mailbox after A.
+     *   Fetch stagger (Loop-3 cold-SQL): phase A rooms+tree-mail parallel; phase B mailbox after A.
      *   Phase 1 paint: tree-mail (or rooms) paints left rail + nest structure; do NOT wait mailbox.
      *   Phase 2 paint: mailbox re-sorts (mailRoomLatestAt), badges, cast, search haystack, nest bodies.
      *   Rooms isolate kept in the trio (tree-mail not proven to always superset lean roots).
      * MAIL nest/list -> mailbox; spinner until isolate lands.
-     * Lean list+detail (wow144): paint body/doing/detail snippets; on open if *_trunc,
+     * Lean list+detail: paint body/doing/detail snippets; on open if *_trunc,
      *   GET /api/v1/mail/{id} or /api/v1/todo/{id}, merge into local row, re-paint.
-     * Limit+cursor scroll (wow145): first mailbox/todos GET ?limit=50; near-bottom appends
-     *   via ?cursor= next; opaque subtab overlay until tick confirms (wow146: never blank on leave; keep prior+theme).
+     * Limit+cursor scroll: first mailbox/todos GET ?limit=50; near-bottom appends
+     *   via ?cursor= next; opaque subtab overlay until tick confirms (never blank on leave; keep prior+theme).
      * TODO Nest/List/Board -> /api/v1/todos + tree-todo; paint each isolate as it lands.
-     * wow165: tree-mail/tree-todo progressive (limit=50 depth=1 cursor parent_id has_children);
+     * tree-mail/tree-todo progressive (limit=50 depth=1 cursor parent_id has_children);
      *   outline near-bottom appends; twist expand fetches direct children.
-     * wow163: FLOOR Map/Timeline hybrids -> joined /api/v1/map + /api/v1/timeline (one RTT).
+     * FLOOR Map/Timeline hybrids -> joined /api/v1/map + /api/v1/timeline (one RTT).
      *   Do NOT Promise.all agents+mailbox.
-     * wow162: SCORE chip mill-office.activities -> activities/h; empty target never red.
-     * wow160 history: hybrids briefly on floor until Builder joined Claim (now wow163).
+     * SCORE chip mill-office.activities -> activities/h; empty target never red.
+     * history: hybrids briefly on floor until Builder joined Claim (now).
      * Pending regions ALWAYS show wall-loading (spinner/hourglass); never blank.
      * A failed part read paints the wall down. Project, role, and station use the same routes.
-     * wow165: progressive trees - tree-mail/tree-todo ?limit=50&depth=1 + cursor next;
+     * progressive trees - tree-mail/tree-todo ?limit=50&depth=1 + cursor next;
      *   expand ?parent_id=type:id.
      *   Prefer progressive expand over fat full-tree loads. GET-only (human-readonly).
-     * wow166: nest window chips All|1d|1w|30d on MAIL Rooms + TODO Nest; pass ?window=
+     * nest window chips All|1d|1w|30d on MAIL Rooms + TODO Nest; pass ?window=
      *   on tree-mail/tree-todo progressive fetches (limit/cursor/depth/parent_id unchanged).
      *   Sticky: floor parts=trees has no window yet -> All-only (omit window; full trees).
-     * wow167: trust browse vs membership on MAIL Rooms GET /api/v1/rooms.
+     * trust browse vs membership on MAIL Rooms GET /api/v1/rooms.
      *   Read trust from any v1/floor envelope; limited => ?desk=<seated>&scope=membership;
      *   high => omit desk (browse book). Admin bypass is server-side. Seated desk =
      *   wallResolveDeskId (URL ?desk/?for, factory-desk-badge, factory-desk). GET-only.
-     * wow168: MAIL Rooms scroll (grid min-height:0 + thin scrollbars) + sort by recency
+     * MAIL Rooms scroll (grid min-height:0 + thin scrollbars) + sort by recency
      *   (mailbox created/at via mailAt; else max mail node id zero-padded).
-     * wow169: welcome opening surface (beat1 + JOIN paste with minted invite_url +
+     * welcome opening surface (beat1 + JOIN paste with minted invite_url +
      *   Invite Agent mint/copy). New document visits only; Do not show again -> localStorage.
-     * wow170: split paste - Workstation once (pip+skill) vs This agent (join+connect);
+     * split paste - Workstation once (pip+skill) vs This agent (join+connect);
      *   Generate new URL remints mint_seat (one seat per agent).
-     * wow172: show welcome before mint (hung mint must not block Host); Nest popup overlay.
+     * show welcome before mint (hung mint must not block Host); Nest popup overlay.
      *   ALWAYS auto-open on new window/tab document load unless Do not show again.
      *   /welcome serves Nest + opens popup (replaceState to /).
-     * wow173: Escape / backdrop / X / Dismiss always dismiss overlay (mint pending never blocks).
-     * wow174: dismiss persists factory-welcome-hide=1; strip ?welcome=1 via replaceState so refresh
+     * Escape / backdrop / X / Dismiss always dismiss overlay (mint pending never blocks).
+     * dismiss persists factory-welcome-hide=1; strip ?welcome=1 via replaceState so refresh
      *   does not reopen. Host: click Dismiss/X/Escape/backdrop OR localStorage.setItem("factory-welcome-hide","1").
-     * wow175: Invite Agent strip -> wallWelcomeShow on Nest (replaceState ?welcome=1 ok); never location=/welcome.
-     *   board.css?v=wow179 + critical inline overlay so Host cache is not stuck on opaque wow170 full-page.
-     *   Cache-bust wow174. */
+     * Invite Agent strip -> wallWelcomeShow on Nest (replaceState ?welcome=1 ok); never location=/welcome.
+     *   board.css?v=wow179 + critical inline overlay so Host cache is not stuck on opaque full-page.
+     *   Cache-bust. */
     let _wallTrust = null; /* high|limited from v1 envelope (mill trust) */
     window._wallTrust = null;
     function wallRememberTrust(src) {
@@ -2157,7 +2157,7 @@
           { path: "/api/v1/tree-todo", kind: "tree-todo" },
         ];
       }
-      /* wow158/163: single-part + FLOOR joined map/timeline -> v1. */
+      /* single-part + FLOOR joined map/timeline -> v1. */
       if (tab === "score") {
         return [{ path: "/api/v1/scores", kind: "scores" }];
       }
@@ -2182,7 +2182,7 @@
           if (parts === "watchers") return [{ path: "/api/v1/watchers", kind: "watchers" }];
           if (parts === "events") return [{ path: "/api/v1/events", kind: "events" }];
         }
-        /* wow163: joined isolates (one RTT each) - not Promise.all agents+mailbox. */
+        /* joined isolates (one RTT each) - not Promise.all agents+mailbox. */
         if (tab === "floor") {
           if (parts === "agents,mail") {
             /* Map is the joined picture. Between is /api/activity, not a window on /api/v1/map. */
@@ -2303,10 +2303,10 @@
       return out;
     }
     async function wallFetchFloorV1(scope, routes, onRow) {
-      /* GET isolates. First-paint stagger (wow280): MAIL Rooms paints mailbox first, then
+      /* GET isolates. First-paint stagger: MAIL Rooms paints mailbox first, then
        * tree-mail/rooms; Jobs paints todos before tree-todo. Shared pane overlay stays
-       * translucent over last-good (opaque only when empty). wow148: onRow absorbs; paint after fp.
-       * wow145: mailbox+todos first page always ?limit=50; wow165: trees ?limit=50&depth=1. */
+       * translucent over last-good (opaque only when empty). onRow absorbs; paint after fp.
+       * mailbox+todos first page always ?limit=50; trees ?limit=50&depth=1. */
       const q = String(scope.query || "");
       async function fetchOne(route) {
         const pageKinds = {
@@ -2324,13 +2324,13 @@
         if (!route.absolute && pageKinds[route.kind]) {
           url += (q ? "&" : "") + "limit=50";
         }
-        /* wow165: first-paint depth-cap on progressive trees (omit = server default 1).
-         * wow166: ?window=1d|1w|30d when chip set; All omits window. */
+        /* first-paint depth-cap on progressive trees (omit = server default 1).
+         * ?window=1d|1w|30d when chip set; All omits window. */
         if (route.kind === "tree-mail" || route.kind === "tree-todo") {
           url += "&depth=1";
           url += wallTreesWindowQuery();
         }
-        /* wow167: MAIL Rooms membership when trust=limited + seated desk. */
+        /* MAIL Rooms membership when trust=limited + seated desk. */
         if (route.kind === "rooms") {
           url += wallRoomsMembershipQuery();
         }
@@ -2339,7 +2339,7 @@
         }
         const fpPart = route.fpParts || fpKinds[route.kind];
         if (fpPart) {
-          /* wow158/163: empty-on-match fp; mailbox=mail; map/timeline use fpParts. */
+          /* empty-on-match fp; mailbox=mail; map/timeline use fpParts. */
           const fpA = floorFpQuery(scope.key, fpPart);
           if (fpA) url += fpA;
         }
@@ -2411,8 +2411,8 @@
       return true;
     }
     function wallPaintMailRoomsEarly(merged) {
-      /* wow148 absorb-only; wow149: still commit when gen stale / pane off (off-pane last-good).
-       * wow280: mailbox may land before trees; absorb mailbox-only slices too. */
+      /* absorb-only; still commit when gen stale / pane off (off-pane last-good).
+       * mailbox may land before trees; absorb mailbox-only slices too. */
       if (!merged) return false;
       if (!Array.isArray(merged.trees) && !Array.isArray(merged.mailbox)) return false;
       const book = absorbFloorSlice(merged);
@@ -2421,7 +2421,7 @@
         ? applyRailPick(cutFloor(book))
         : book;
       window._floor = d;
-      if (!wallTickGenAlive()) return true; /* wow149: late result kept for next visit */
+      if (!wallTickGenAlive()) return true; /* late result kept for next visit */
       if (!wallMailRoomsWantEarlyRail()) return true;
       return true;
     }
@@ -2435,7 +2435,7 @@
       return tab === "jobs";
     }
     function wallPaintTodosEarly(merged) {
-      /* wow148 absorb-only; wow149: still commit when gen stale / pane off. */
+      /* absorb-only; still commit when gen stale / pane off. */
       if (!merged) return false;
       const book = absorbFloorSlice(merged);
       const scopeNow = floorScope();
@@ -2443,12 +2443,12 @@
         ? applyRailPick(cutFloor(book))
         : book;
       window._floor = d;
-      if (!wallTickGenAlive()) return true; /* wow149: late result kept */
+      if (!wallTickGenAlive()) return true; /* late result kept */
       if (!wallTodosWantEarlyPaint()) return true;
       return true;
     }
     function wallPaintFloorPartEarly(slice) {
-      /* Progressive absorb. wow148: no live DOM until fp settle. wow149: commit even if gen stale. */
+      /* Progressive absorb. no live DOM until fp settle. commit even if gen stale. */
       if (!slice || typeof slice !== "object") return false;
       const book = absorbFloorSlice(slice);
       const scopeNow = floorScope();
@@ -2496,7 +2496,7 @@
         const ps = Array.isArray(partList) ? partList.join(",") : String(partList || "agents");
         const q = String(scope.query || "");
         const fpQ = floorFpQuery(scope.key, ps);
-        /* wow154/153: pageable parts first page ?limit=50 (incl. events). */
+        /* pageable parts first page ?limit=50 (incl. events). */
         const pageable = { agents: 1, scores: 1, holds: 1, watchers: 1, events: 1, mail: 1, todos: 1, names: 1 };
         let path = partPath[ps];
         if (ps === "trees") {
@@ -2562,7 +2562,7 @@
      * ?roles=|?role= -> replaceState path (keep hash + other query). Station ids:
      * encodeURIComponent (IPv4 dots stay literal; IPv6 colons %3A).
      * NEST_PATH_WRITE=true. Writers emit /project|station|role/<slug>. */
-    var NEST_PATH_WRITE = true; /* wow178: Hub SPA fallthrough live */
+    var NEST_PATH_WRITE = true; /* Hub SPA fallthrough live */
     function nestEncodeSlug(id) {
       return encodeURIComponent(String(id == null ? "" : id).trim());
     }
@@ -2599,7 +2599,7 @@
       return u;
     }
     function compatNestQueryToPath() {
-      if (!NEST_PATH_WRITE) return false; /* wow178 write gate */
+      if (!NEST_PATH_WRITE) return false; /* write gate */
       try {
         const u = new URL(String(location.href || ""));
         const q = u.searchParams;
@@ -2959,7 +2959,7 @@
           if (cur) applyNestPathToUrl(u, "", "");
         }
       } else {
-        /* wow178 fallback: keep ?projects= when NEST_PATH_WRITE false; clear stray nest path. */
+        /* fallback: keep ?projects= when NEST_PATH_WRITE false; clear stray nest path. */
         if (f.projects && f.projects.length) {
           u.searchParams.set("projects", f.projects.join(","));
         }
@@ -4112,7 +4112,7 @@
         `<span class="kpi strip-nav${mailCls}${mailLoad ? " kpi-loading" : ""}" id="strip-mail" title="${esc(mailTitle)}" role="link" tabindex="0" data-wall-strip-loading="${mailLoad ? "1" : "0"}">MAIL${mailLoad ? loadSpin : ""}<b>${mailB}</b>${mailLoad ? "" : mailCue}</span>` +
         `<span class="kpi strip-nav${scoreCls}${scoreLoad ? " kpi-loading" : ""}" id="strip-score" title="Last against target" role="link" tabindex="0" data-wall-strip-loading="${scoreLoad ? "1" : "0"}">SCORE${scoreLoad ? loadSpin : ""}<b>${scoreB}</b>${scoreLoad ? "" : `<span class="kpi-cue">${esc(scoreCue)}</span>`}</span>` +
         `<span class="kpi strip-nav strip-later${floorLoad ? " kpi-loading" : ""}" id="strip-floor" title="Shared letters, cards, and promises" role="link" tabindex="0" data-wall-strip-loading="${floorLoad ? "1" : "0"}">COLLAB${floorLoad ? loadSpin : ""}<b>${floorB}</b>${floorLoad ? "" : `<span class="kpi-cue">${esc(floorCue)}</span>`}</span>`;
-      /* wow190: strip() innerHTML destroys per-chip listeners. One-time document
+      /* strip() innerHTML destroys per-chip listeners. One-time document
        * delegation survives rebuilds. */
       if (!document._wallStripNavDelegated) {
         document._wallStripNavDelegated = true;
@@ -4539,7 +4539,7 @@
         `</div>`;
     }
 
-    /* wow166: nest time window for tree-mail / tree-todo (All | 1d | 1w | 30d).
+    /* nest time window for tree-mail / tree-todo (All | 1d | 1w | 30d).
      * Persist like floor-span / todo-done-span. All = omit window=.
      * Sticky: when v1 down, floor parts=trees does not take window -> All-only. */
     const TREES_WINDOW_KEY = "factory-trees-window";
@@ -5168,7 +5168,7 @@
       });
     }
     function board(d, opts) {
-      /* wow146: opts.hereOnly paints SESSION #here only - never rewrite TODO pane on agents ticks. */
+      /* opts.hereOnly paints SESSION #here only - never rewrite TODO pane on agents ticks. */
       const hereOnly = !!(opts && opts.hereOnly);
       const cards = hereOnly ? [] : millTodoCards(d);
       const nestIx = hereOnly ? {} : millNestIndex(d);
@@ -5706,7 +5706,7 @@
       }).catch(function () { _floorSharedFill = "fail:" + key; });
     }
     function paintFloorView(g, opts) {
-      /* wow146: keep prior floor paint when glance empty / floor pane not on (leave must not blank). */
+      /* keep prior floor paint when glance empty / floor pane not on (leave must not blank). */
       paintFloorSpan();
       paintFloorMode();
       const floorOn = document.getElementById("pane-floor");
@@ -7413,7 +7413,7 @@
       if (!root || root.dataset.busy === "1") return;
       root.dataset.busy = "1";
       _railBookAt = Date.now();
-      /* wow139: spinner until each POV part lands; fetch desks/projects/roles in parallel. */
+      /* spinner until each POV part lands; fetch desks/projects/roles in parallel. */
       try {
         ["rail-desks", "rail-roster"].forEach(function (id) {
           const el = document.getElementById(id);
@@ -7662,7 +7662,7 @@
               if (!row || row.down) return;
               if (floorScope().key !== projectKey) return;
               earlyRows.push(row);
-              /* wow149: even if switch-gen stale, keep absorbing isolates into last-good. */
+              /* even if switch-gen stale, keep absorbing isolates into last-good. */
               if (!wallTickGenAlive(tickGen)) {
                 try {
                   const mergedStale = wallMergeV1Isolates(earlyRows);
@@ -7710,7 +7710,7 @@
               if ((tabNow === "session" || tabNow === "score" || tabNow === "glossary") &&
                   (kind === "agents" || kind === "holds" || kind === "watchers" ||
                    kind === "events" || kind === "scores" || kind === "names")) {
-                /* wow158: absorb single-part v1 early; paint after fp settle (like mail list). */
+                /* absorb single-part v1 early; paint after fp settle (like mail list). */
                 try {
                   const merged = wallMergeV1Isolates(earlyRows);
                   const book = absorbFloorSlice(merged);
@@ -7760,8 +7760,8 @@
       }
       try {
         if (floorScope().key !== projectKey) return;
-                /* wow150: leave->return mid-flight reuses this result on LIVE pane (no second fetch).
-           wow149: otherwise commit off-pane last-good; live .on untouched. */
+                /* leave->return mid-flight reuses this result on LIVE pane (no second fetch).
+           otherwise commit off-pane last-good; live .on untouched. */
         if (!wallTickGenAlive(tickGen)) {
           const reuseLive = !!(
             _wallReuseInflight
@@ -7792,7 +7792,7 @@
           const cl = document.getElementById("clock");
           /* Same version, node and local zone as every other paint (no bare UTC). */
           if (cl) cl.textContent = wallClockLine(raw);
-          /* wow148: fp same / hash same - keep last result; drop checking overlay. */
+          /* fp same / hash same - keep last result; drop checking overlay. */
           try { wallRestoreActivePaneFromFloor(); } catch (eRest0) {}
           try { wallPreserveThemeChrome(); } catch (eTh0) {}
           if (wallTickGenAlive(tickGen)) {
@@ -7816,7 +7816,7 @@
         }
         const book = absorbFloorSlice(raw, { storedFp: storedFpBefore });
         const d = projectKey.indexOf("project:") === 0 ? applyRailPick(cutFloor(book)) : book;
-        /* wow139: do NOT await /api/activity before first paint - run in parallel, refresh timeline after. */
+        /* do NOT await /api/activity before first paint - run in parallel, refresh timeline after. */
         const presenceP = loadPresenceBuckets().then(function () {
           if (!wallTickGenAlive(tickGen)) return;
           if (floorScope().key !== projectKey) return;
@@ -7853,7 +7853,7 @@
           }
         }
         window._floor = d;
-        /* wow148: fp decided refresh - paint below, then drop overlay (keep last-good until then). */
+        /* fp decided refresh - paint below, then drop overlay (keep last-good until then). */
         try { wallPreserveThemeChrome(); } catch (eTh1) {}
         /* paint throws must not call paintApiDown (prior P0 wall-api-down-false) */
         const safe = (typeof wallPaintThrowSafe === "function")
@@ -7892,7 +7892,7 @@
         if (partPaint("agents") || partPaint("holds") || partPaint("events") || hereStale) {
           safe(function () { agents(d); }, "session");
           safe(function () { paintSessionWire(d); }, "session-wire");
-          /* board() owns #here (SESSION glance); agents-only polls must still paint it (wow139). */
+          /* board() owns #here (SESSION glance); agents-only polls must still paint it. */
           safe(function () { board(d, { hereOnly: true }); }, "session-here");
         }
         if (partPaint("scores")) safe(function () { cards(d); }, "scorecards");
@@ -7927,7 +7927,7 @@
             clock.title = "render warn: floor/mail/score " + ((eFloorTick && eFloorTick.message) ? eFloorTick.message : String(eFloorTick));
           }
         }
-        /* wow148: drop checking overlay only after confirmed paint (or skip) finished. */
+        /* drop checking overlay only after confirmed paint (or skip) finished. */
         if (wallTickGenAlive(tickGen)) {
           try { wallClearActivePaneOverlay(); } catch (eOv1) {}
         }
@@ -7950,7 +7950,7 @@
       v.classList.add("copied");
       setTimeout(() => v.classList.remove("copied"), 600);
     });
-    /* wow144 lean list + detail-on-open (Wall contract card rule-lean-rows: mill todo wall-contract rule-lean-rows).
+    /* lean list + detail-on-open (Wall contract card rule-lean-rows: mill todo wall-contract rule-lean-rows).
      * List/poll paints snippets (body/doing/detail <=256 + *_trunc flags).
      * On human open of a truncated mail/todo: GET detail, merge into local
      * _floor row (drop trunc flags), re-paint that surface. GET-only. */
@@ -8088,20 +8088,20 @@
       window.wallTodoIsTrunc = wallTodoIsTrunc;
     } catch (eWinLean) {}
 
-    /* wow154 parts=events infinite scroll (Builder next fix) + wow153 floor/activity scroll.
-     * wow153 floor/activity infinite scroll + scrollable translucent Checking.
-     * wow152 Checking overlay: translucent over last-good; opaque when pane empty.
-     * wow151 translucent Checking overlay: last-good visible under semi-transparent backdrop.
-     * wow150 reuse in-flight: leave->return mid-fetch keeps same request; Checking until settle.
-     * wow149 absorb off-pane: stale-gen still commits last-good for next visit (live pane untouched).
-     * wow148 fp-before-paint: opaque Checking overlay; no DOM overwrite until fp confirms.
-     * wow147 tab-switch generation guard (stale tick/early-paint no-op; never blank).
-     * wow146 keep prior pane+theme on subtab leave/return (never blank).
-     * wow145 limit+cursor infinite scroll (Wall contract card rule-paging: mill todo wall-contract rule-paging).
+    /* parts=events infinite scroll (Builder next fix) + floor/activity scroll.
+     * floor/activity infinite scroll + scrollable translucent Checking.
+     * Checking overlay: translucent over last-good; opaque when pane empty.
+     * translucent Checking overlay: last-good visible under semi-transparent backdrop.
+     * reuse in-flight: leave->return mid-fetch keeps same request; Checking until settle.
+     * absorb off-pane: stale-gen still commits last-good for next visit (live pane untouched).
+     * fp-before-paint: opaque Checking overlay; no DOM overwrite until fp confirms.
+     * tab-switch generation guard (stale tick/early-paint no-op; never blank).
+     * keep prior pane+theme on subtab leave/return (never blank).
+     * limit+cursor infinite scroll (Wall contract card rule-paging: mill todo wall-contract rule-paging).
      * First poll: ?limit=50. Near-bottom: if next, fetch ?limit=50&cursor=, append, keep trunc. */
-    /* wow154/153: floor parts + /api/activity + events infinite scroll (Wall contract card rule-paging: mill todo wall-contract rule-paging).
+    /* floor parts + /api/activity + events infinite scroll (Wall contract card rule-paging: mill todo wall-contract rule-paging).
      * Kinds: mailbox, todos (v1), agents, scores, holds, watchers, activity, events.
-     * wow165: tree-mail / tree-todo + parent_id expand.
+     * tree-mail / tree-todo + parent_id expand.
      * First poll: ?limit=50. Near-bottom: ?limit=50&cursor=, append, keep trunc / last-good. */
     const _wallListNext = { mailbox: null, todos: null, agents: null, scores: null, holds: null, watchers: null, activity: null, events: null, "tree-mail": null, "tree-todo": null, trees: null };
     const _wallListInflight = { mailbox: null, todos: null, agents: null, scores: null, holds: null, watchers: null, activity: null, events: null, "tree-mail": null, "tree-todo": null, trees: null };
@@ -8213,7 +8213,7 @@
       }
     }
     async function wallFetchTreeExpand(parentType, parentId, opts) {
-      /* wow165: GET ?parent_id=type:id&limit=50 (+cursor) -> splice direct children under parent. */
+      /* GET ?parent_id=type:id&limit=50 (+cursor) -> splice direct children under parent. */
       opts = opts || {};
       const typ = String(parentType || "").toLowerCase();
       const id = String(parentId || "");
@@ -8288,7 +8288,7 @@
       return true;
     }
     function wallAppendFloorKindPage(kind, json) {
-      /* wow154/153: append agents/scores/holds/watchers/events from floor page. */
+      /* append agents/scores/holds/watchers/events from floor page. */
       const d = window._floor;
       if (!d || !json || typeof json !== "object") return false;
       if (kind === "agents" && Array.isArray(json.agents)) {
@@ -8424,12 +8424,12 @@
         el.addEventListener("scroll", function () {
           if (!wallScrollNearBottom(el)) return;
           let k = kind;
-          /* wow154: SESSION History uses #wire-log with parts=events; otherwise activity. */
+          /* SESSION History uses #wire-log with parts=events; otherwise activity. */
           if (kind === "activity-or-events") {
             const histOn = document.querySelector('[data-session-mode="history"].on');
             k = histOn ? "events" : "activity";
           }
-          /* wow165: tree scroll hosts only page when that tree pane is active. */
+          /* tree scroll hosts only page when that tree pane is active. */
           if (kind === "tree-mail" || kind === "tree-todo") {
             const active = wallActiveTreeKind();
             if (active !== kind) return;
@@ -8445,18 +8445,18 @@
         document.querySelectorAll("#pane-todo .jobs-kanban-col .body").forEach(function (b) {
           bind(b, "todos");
         });
-        /* wow165: progressive trees outline / mail rooms nest near-bottom -> tree next. */
+        /* progressive trees outline / mail rooms nest near-bottom -> tree next. */
         bind(document.getElementById("jobs-outline"), "tree-todo");
         bind(document.getElementById("mail"), "tree-mail");
         bind(document.getElementById("mail-msg-col"), "tree-mail");
-        /* wow153/154 dense panes incl. events. */
+        /* dense panes incl. events. */
         bind(document.getElementById("here"), "agents");
         bind(document.getElementById("stations"), "holds");
         bind(document.getElementById("watchers"), "watchers");
         bind(document.getElementById("score-desk-table"), "scores");
         bind(document.getElementById("score-core"), "scores");
         bind(document.getElementById("wire-log"), "activity-or-events");
-        bind(document.getElementById("wire"), "events"); /* wow154: Wire body = parts=events scroll host */
+        bind(document.getElementById("wire"), "events"); /* Wire body = parts=events scroll host */
       } catch (eBind) {}
     }
 
@@ -8500,7 +8500,7 @@
         }
       }
     });
-    /* wow144 lean: on open, if body_trunc / detail_trunc, fetch detail
+    /* lean: on open, if body_trunc / detail_trunc, fetch detail
      * and merge into local _floor then re-paint (Wall contract card rule-lean-rows: mill todo wall-contract rule-lean-rows). */
     document.addEventListener("click", ev => {
       const tr = ev.target.closest("#mail tr[data-mail-id]");
@@ -8690,7 +8690,7 @@
       apply(on);
     })();
     (function wireThemePref() {
-      /* wow229: Auto resolves via matchMedia -> data-theme light|dark.
+      /* Auto resolves via matchMedia -> data-theme light|dark.
          data-theme-pref keeps auto|light|dark. CSS still keys the palette off
          data-theme. Chrome treats a single root color-scheme as the OS, so the
          read forces light dark first. Auto leaves that inline in place so the
@@ -8923,11 +8923,11 @@
         document.querySelectorAll("[data-session-mode]").forEach(b => {
           b.classList.toggle("on", b.getAttribute("data-session-mode") === m);
         });
-        /* wow147: SESSION subtoggles bump gen; keep prior DOM+theme; drop leftover cover only. */
+        /* SESSION subtoggles bump gen; keep prior DOM+theme; drop leftover cover only. */
         try { wallBumpSwitchGen(); } catch (eGenSess) {}
         try { wallShowPaneOverlay("pane-session", "Checking\u2026"); } catch (eOvSess) {}
         if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
-          /* wow150: reuse in-flight */
+          /* reuse in-flight */
         } else if (typeof tick === "function") {
           tick(true);
         }
@@ -9001,7 +9001,7 @@
     })();
 
     (function wireTreesWindow() {
-      /* wow166: All | 1 day | 1 week | 30 days on TODO Nest + MAIL Rooms. */
+      /* All | 1 day | 1 week | 30 days on TODO Nest + MAIL Rooms. */
       paintTreesWindowChips();
       try { syncMailRoomsFiltersVisible(); } catch (eSync) {}
       function onChip(ev) {
@@ -9208,7 +9208,7 @@
   function wallBootWelcomeInvite() {
     try { wallWelcomeWire(); } catch (eWire172) {}
     try { wallWelcomeBoot(); } catch (eWBoot) {}
-    /* wow189: page refresh gets the same seat_count refresh as strip() rebuilds. */
+    /* page refresh gets the same seat_count refresh as strip() rebuilds. */
     try { wallRefreshInviteCount(); } catch (eCntBoot) {}
   }
   function wallBootReadonlyKeysWelcome() {

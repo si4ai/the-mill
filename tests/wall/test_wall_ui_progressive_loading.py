@@ -173,7 +173,7 @@ def test_load_rail_book_parallel_with_spinners():
 def test_show_tab_marks_loading():
     src = _boot()
     show = src.split("function showTab(name)", 1)[1].split("function mdLite", 1)[0]
-    # wow148+: Checking overlay + tick/reuse; no provisional wallMarkTabLoading in showTab
+    # Checking overlay + tick/reuse; no provisional wallMarkTabLoading in showTab
     assert "wallShowPaneOverlay" in show
     assert ("tick(true)" in show) or ("wallReuseInflightForReturn" in show)
 
@@ -214,7 +214,7 @@ def test_shell_critical_pane_chrome():
 
 def test_shell_boot_inline_hash_sync():
     html = BOARD.read_text(encoding="utf-8")
-    # wow155: hash sync extracted to shell-early.js (inline script budget)
+    # hash sync extracted to shell-early.js (inline script budget)
     early = (ROOT / "default" / "shell-early.js").read_text(encoding="utf-8")
     assert "WALL_UI_SHELL_BOOT" in early
     assert 'data-wall-early="all"' in html

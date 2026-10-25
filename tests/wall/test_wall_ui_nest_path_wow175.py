@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Wall Nest URL paths /project|/station|/role (wow175)."""
+"""Wall Nest URL paths /project|/station|/role."""
 from __future__ import annotations
 
 from agent_coord.web.wall_logic.packs import wall_ui_root
