@@ -85,9 +85,11 @@ def _run_ws(monkeypatch, command: str, handler) -> dict[str, Any]:
 
 
 def _sql_handler(c, body, project, owner):
-    # What records/db.call does for each CALL: one sql line per statement.
-    push.perf_log("sql.mill_mail_insert", 30.25, n=1, ok=1)
-    perf.sql_line("sql.mill_mail_select", 1.5, n=4, ok=1)  # a fast read
+    # The real path: records/db.call times each CALL through db._perf (Validator 3207, D1).
+    from agent_coord.server.records import db
+
+    db._perf("sql.mill_mail_insert", 30.25, n=1, ok=1)
+    db._perf("sql.mill_mail_select", 1.5, n=4, ok=1)  # a fast read
     return [{"id": 9}]
 
 
