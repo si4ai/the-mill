@@ -11,7 +11,18 @@ DROP TRIGGER IF EXISTS join_no_delete_in_tree;
 DROP TRIGGER IF EXISTS doing_no_delete_in_tree;
 DROP TRIGGER IF EXISTS score_no_delete_in_tree;
 DROP TRIGGER IF EXISTS name_no_delete;
+DROP TRIGGER IF EXISTS name_fixed;
+DROP TRIGGER IF EXISTS vote_cast_open;
+DROP TRIGGER IF EXISTS vote_cast_change;
 
+-- 0.8.0 tables (FOREIGN_KEY_CHECKS is off, so the order is not load-bearing).
+DROP TABLE IF EXISTS vote_cast;
+DROP TABLE IF EXISTS vote_option;
+DROP TABLE IF EXISTS vote;
+DROP TABLE IF EXISTS doing_now;
+DROP TABLE IF EXISTS todo_event;
+DROP TABLE IF EXISTS glance_cache;
+DROP TABLE IF EXISTS sp_deploy;
 DROP TABLE IF EXISTS mill_invite_join;
 DROP TABLE IF EXISTS mill_invite;
 DROP TABLE IF EXISTS label;
@@ -155,3 +166,15 @@ DROP FUNCTION IF EXISTS TREE_KEY;
 DROP FUNCTION IF EXISTS MILL_SLUG;
 DROP FUNCTION IF EXISTS MILL_DESLUG;
 DROP FUNCTION IF EXISTS MILL_KIND;
+
+-- 0.8.0 migration helpers (migrate_080.sql); a finished run drops them, a killed one may leave them.
+DROP PROCEDURE IF EXISTS mill_migrate_080_exec;
+DROP PROCEDURE IF EXISTS mill_migrate_080_check;
+DROP PROCEDURE IF EXISTS mill_migrate_080_fk_list;
+DROP PROCEDURE IF EXISTS mill_migrate_080_preflight;
+DROP PROCEDURE IF EXISTS mill_migrate_080_step;
+DROP FUNCTION IF EXISTS mill_migrate_080_col;
+DROP FUNCTION IF EXISTS mill_migrate_080_idx;
+DROP FUNCTION IF EXISTS mill_migrate_080_tbl;
+DROP FUNCTION IF EXISTS mill_migrate_080_fk_has;
+DROP FUNCTION IF EXISTS mill_migrate_080_fk_ok;
