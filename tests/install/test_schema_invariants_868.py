@@ -41,7 +41,7 @@ ID_TYPE_OK = {
 }
 # Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data. seat is the
 # desk kind (one FK to name, kind id = name.id); roster, label, tree and res have no data of their own, so their
-# columns reference name (id) as on main.
+# columns reference name with a kind-checked composite FK (col, <x>_kind) -> name (id, type) (F168).
 KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind"}
 NAME_REF_NO_OWN_DATA = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id"),
                         ("member", "name_id"), ("activity", "roster_id"), ("mail", "roster_id"), ("todo", "roster_id"),
@@ -115,8 +115,9 @@ def _fks(cn, db):
 
 def test_only_kind_tables_reference_name(book):
     cn, db = book
-    to_name = {(t, c): r for t, _fk, c, rt, r in _fks(cn, db) if rt == "name"}
-    assert all(r == "id" for r in to_name.values()), f"a reference to name is one column to name (id): {to_name}"
+    to_name = {(t, c.split(",")[0]): r for t, _fk, c, rt, r in _fks(cn, db) if rt == "name"}
+    bad_shape = {k: r for k, r in to_name.items() if r != ("id" if k in KIND_REF_TO_NAME else "id,type")}
+    assert not bad_shape, f"seat references name (id); the kind-checked columns name (id, type) (F168): {bad_shape}"
     assert set(KIND_REF_TO_NAME) <= set(to_name), f"each kind table links to name: {sorted(to_name)}"
     bad = sorted(set(to_name) - set(KIND_REF_TO_NAME) - NAME_REF_NO_OWN_DATA)
     assert not bad, f"only seat and the kinds with no data of their own reference name: {bad}"
@@ -144,7 +145,7 @@ def test_no_name_history_table(book):
                          " AND TABLE_NAME = 'name_event'", (db,))
     uniq = _rows(cn, "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
                      " WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'name' AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", (db,))
-    assert sorted(uniq) == [("PRIMARY", "id"), ("idx_type", "type,name")], uniq
+    assert sorted(uniq) == [("PRIMARY", "id"), ("idx_id_type", "id,type"), ("idx_type", "type,name")], uniq
 
 
 def test_app_grant_is_execute_only(book):
@@ -205,3 +206,109 @@ def test_no_roster_table_and_roster_columns_reference_name(book):
     bad = {key: got.get(key) for key, rule in ROSTER_FKS.items() if got.get(key) != ("name", "id", rule)}
     assert not bad, f"each roster column FKs to name (id) with its rule: {bad}"
     assert not [k for k, v in got.items() if v[0] == "roster"], "nothing references a roster table"
+
+
+# The owner (2026-10-25, approved review file): the twelve single-kind name references are kind-checked. Each has a
+# plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and its FK is (col, <x>_kind) -> name (id, type), keeping the
+# constraint name and ON DELETE rule. name carries UNIQUE idx_id_type (id, type) as the FK target. Desk columns keep
+# referencing seat (desk_id) (F168).
+KIND_FKS = {
+    ("member", "fk_member_name"): ("name_id", "name_kind", "roster", "RESTRICT"),
+    ("human_member", "fk_human_member_name"): ("name_id", "name_kind", "roster", "CASCADE"),
+    ("activity", "fk_activity_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("mail", "fk_mail_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("todo", "fk_todo_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("doing", "fk_doing_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("score", "fk_score_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("vote", "fk_vote_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
+    ("tree", "fk_tree_name"): ("name_id", "name_kind", "tree", "RESTRICT"),
+    ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree_kind", "tree", "RESTRICT"),
+    ("label", "fk_label_name"): ("name_id", "name_kind", "label", "RESTRICT"),
+    ("hold", "fk_hold_res"): ("resource_id", "resource_kind", "res", "RESTRICT"),
+}
+KINDS = ("desk", "roster", "label", "tree", "res")
+
+
+def _one(cn, sql, args=()):
+    cur = cn.cursor()
+    try:
+        cur.execute(sql, args)
+        return cur.lastrowid
+    finally:
+        cur.close()
+
+
+def test_kind_checked_fks_have_the_reviewed_shape(book):
+    cn, db = book
+    got = {}
+    for t, fk, cols, rt, rcols, rule in _rows(
+            cn, "SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION),"
+                " k.REFERENCED_TABLE_NAME, GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION),"
+                " r.DELETE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r"
+                " ON r.CONSTRAINT_SCHEMA = k.TABLE_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME"
+                " WHERE k.TABLE_SCHEMA = %s AND k.REFERENCED_TABLE_NAME = 'name'"
+                " GROUP BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.DELETE_RULE", (db,)):
+        got[(t, fk)] = (cols, rt, rcols, rule)
+    want = {key: (f"{c},{kc}", "name", "id,type", rule) for key, (c, kc, _k, rule) in KIND_FKS.items()}
+    want[("seat", "fk_seat_desk")] = ("desk_id", "name", "id", "RESTRICT")
+    assert got == want, f"FKs to name: {sorted(set(got.items()) ^ set(want.items()))}"
+    cols = {(t, c): (ty, dflt, nul) for t, c, ty, dflt, nul in _rows(
+        cn, "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT, IS_NULLABLE FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = %s AND COLUMN_NAME LIKE '%%\\_kind'", (db,))}
+    enum = "enum(" + ",".join(f"'{k}'" for k in KINDS) + ")"
+    assert cols == {(t, kc): (enum, k, "NO") for (t, _fk), (_c, kc, k, _r) in KIND_FKS.items()}, cols
+    checks = {(t, cc.replace("`", "").replace("_utf8mb4", "").replace("\\'", "'")) for t, cc in _rows(
+        cn, "SELECT t.TABLE_NAME, c.CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS c JOIN"
+            " information_schema.TABLE_CONSTRAINTS t ON t.CONSTRAINT_SCHEMA = c.CONSTRAINT_SCHEMA"
+            " AND t.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.CONSTRAINT_SCHEMA = %s AND c.CHECK_CLAUSE LIKE '%%\\_kind%%'",
+        (db,))}
+    assert checks == {(t, f"({kc} = '{k}')") for (t, _fk), (_c, kc, k, _r) in KIND_FKS.items()}, checks
+    uniq = _rows(cn, "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
+                     " WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'name' AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", (db,))
+    assert ("idx_id_type", "id,type") in uniq, uniq
+
+
+def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
+    # One name of each kind; each of the twelve columns takes its own kind and refuses the other four (FK, 1452).
+    import mysql.connector
+
+    cn, db = book
+    ids = {k: _one(cn, "INSERT INTO name (type, name) VALUES (%s, %s)", (k, f"kchk-{k}")) for k in KINDS}
+    desk = ids["desk"]
+    _one(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (desk,))
+    human = _one(cn, "INSERT INTO human (bearer_hash) VALUES (%s)", ("k" * 64,))
+    mail = _one(cn, "INSERT INTO mail (desk_id, roster_id, body) VALUES (%s, 1, 'kchk')", (desk,))
+    _one(cn, "INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('mail', %s, %s, 1)", (mail, desk))
+    writes = {
+        "member": ("INSERT INTO member (name_id, desk_id) VALUES (%s, %s)", lambda x: (x, desk)),
+        "human_member": ("INSERT INTO human_member (human_id, name_id) VALUES (%s, %s)", lambda x: (human, x)),
+        "activity": ("INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('todo', 990001, %s, %s)",
+                     lambda x: (desk, x)),
+        "mail": ("INSERT INTO mail (desk_id, roster_id, body) VALUES (%s, %s, 'k')", lambda x: (desk, x)),
+        "todo": ("INSERT INTO todo (updated_id, roster_id, creator_id) VALUES (%s, %s, %s)", lambda x: (desk, x, desk)),
+        "doing": ("INSERT INTO doing (desk_id, roster_id) VALUES (%s, %s)", lambda x: (desk, x)),
+        "score": ("INSERT INTO score (desk_id, roster_id, kpi) VALUES (%s, %s, 'kchk')", lambda x: (desk, x)),
+        "vote": ("INSERT INTO vote (desk_id, roster_id, mail_id, question, deadline)"
+                 " VALUES (%s, %s, %s, 'q', NOW(6) + INTERVAL 1 DAY)", lambda x: (desk, x, mail)),
+        "tree": ("INSERT INTO tree (name_id, type, id, lft, rgt) VALUES (%s, 'mail', %s, 1, 2)", lambda x: (x, mail)),
+        "tree_read": ("INSERT INTO tree_read (desk_id, tree_id, last_id) VALUES (%s, %s, 0)", lambda x: (desk, x)),
+        "label": ("INSERT INTO label (type, id, name_id) VALUES ('mail', %s, %s)", lambda x: (mail, x)),
+        "hold": ("INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", lambda x: (desk, x)),
+    }
+    assert set(writes) == {t for t, _fk in KIND_FKS}
+    wrong_ok, right_refused = [], []
+    for (table, _fk), (_c, _kc, kind, _r) in KIND_FKS.items():
+        sql, args = writes[table]
+        for k in KINDS:
+            cn.start_transaction()
+            try:
+                _one(cn, sql, args(ids[k]))
+                if k != kind:
+                    wrong_ok.append((table, k))
+            except mysql.connector.Error as exc:
+                if k == kind or exc.errno != 1452:
+                    right_refused.append((table, k, exc.errno, str(exc)[:120]))
+            finally:
+                cn.rollback()
+    assert not right_refused, f"a right-kind id (or a wrong kind with an error other than FK 1452): {right_refused}"
+    assert not wrong_ok, f"a wrong-kind name id was accepted: {wrong_ok}"

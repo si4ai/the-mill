@@ -71,7 +71,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 5a. Kind tables: only a kind with its own data gets a table
 
 - **Rule (the owner, 2026-10-25).** A name kind gets its own table only if the thing has its own data; otherwise
-  references go to `name (id)`.
+  references go to `name`, kind-checked (the owner's review, 2026-10-25).
 - **Scope.** The rework narrows single-kind FKs only: a column that always points at ONE kind. The
   composite-reference design (section 1) is intact: every reference that can point at several kinds (label and tree
   nodes, watchers, `doing.on_*` / `waiting_*`, the activity timeline) stays a (type ENUM, id) composite, unchanged.
@@ -79,18 +79,23 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 - **Decision.** The desk is the one kind with data of its own (token, wake, connect stamps), so `seat` (desk_id,
   UNIQUE as on main) is its kind table: it links to `name (id)` with one FK, and every desk column FKs to seat
   (desk_id). A roster, label, tree or res has no data of its own (a roster's desk count is `name.n`, as on main), so
-  none has a kind table: the eight roster columns and the four label, tree and res references keep main's FK to
-  `name (id)`. There is no `roster` table (f316ac0f had one; the owner dropped it on 2026-10-25).
+  none has a kind table. Their twelve columns (the eight roster columns and the label, tree, tree_read and hold
+  references) each carry a plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and the FK is
+  `(col, <x>_kind) REFERENCES name (id, type)` against `name`'s UNIQUE `idx_id_type` (id, type) (UNIQUE only
+  because MySQL 8.4 needs a unique FK target; id is already the PK). There is no `roster` table (f316ac0f had one;
+  the owner dropped it on 2026-10-25).
 - **Link shape: kind id = name.id.** Chosen because it keeps ids shared: every desk column still holds the name id,
   so no column, join or procedure argument changes, and seat needs no new index (its UNIQUE desk_id is the
   referenced key).
 - **Why.** The typed composite FK to `name (type, id)` made `name` the hub of every relation and cost a generated
   column plus an index per reference. seat gives desk columns the guarantee that matters most (a desk column cannot
   hold a roster id) with plain one-column FKs that reuse main's indexes. Counts on a fresh book, #199 head and now:
-  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 88, generated type columns 31 -> 0 (BETA-CHANGES.md,
-  Kind tables).
-- **Cost.** A roster column can hold any name id at the database level; the procedures make sure it is a roster.
-  Whether a seat row is a desk name is the minting procedure's job (open question Q3).
+  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 100 (88 before the kind check), generated type
+  columns 31 -> 0 (BETA-CHANGES.md, Kind tables). The kind check closes the gap the plain FKs left: a roster,
+  label, tree or res column refuses a name id of another kind (F168).
+- **Cost.** Twelve `*_kind` columns (one byte each) and twelve CHECKs; twelve more indexes (`idx_id_type` plus
+  eleven that MySQL adds for the composite FKs, BETA-CHANGES.md). Whether a seat row is a desk name is still the
+  minting procedure's job (open question Q3).
 - **To change it.** A kind that gains data of its own, plus the owner's OK.
 
 ## 6. High / limited trust with Admin applies to every command, enforced in the procedures

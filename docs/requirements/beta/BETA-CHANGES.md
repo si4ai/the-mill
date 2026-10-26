@@ -6,30 +6,30 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 **proposed, needs the owner**. A diff to `tables.sql` or `beta_ddl.sql` must update this file, or
 `docs/requirements/schema-design.md` for a design change (test F160). Design: `docs/requirements/schema-design.md`.
 
-29 departures (rows 1-37; rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn). `beta_ddl.sql` keeps main's table order, except
+30 departures (rows 1-38; rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn). `beta_ddl.sql` keeps main's table order, except
 that seat, the desk kind table, comes right after name (row 37); new tables sit next to the main table they extend.
 
 | # | main (table.column / key) | beta | why | status |
 |---|---|---|---|---|
 | 1 | every `BIGINT UNSIGNED` id and id reference (all tables) | ~~`INT UNSIGNED`~~: same as main, `BIGINT UNSIGNED`; the beta-only tables use it too | withdrawn: the owner decision 2026-10-24, ids stay BIGINT UNSIGNED as on main (sizes below) | withdrawn |
 | 2 | `name` keys: PRIMARY (id), UNIQUE `idx_type` (type, name) | ~~adds UNIQUE `idx_type_id` (type, id)~~: same as main | withdrawn: same as main since the kind-table rework (the owner decision 2026-10-24); nothing references (type, id) any more | withdrawn |
-| 3 | `member`.fk_member_name, fk_member_desk: `(col) REFERENCES name (id)` | fk_member_name `(name_id)` stays main's `REFERENCES name (id)` (row 36), fk_member_desk `(desk_id) REFERENCES seat (desk_id)`, same names and ON DELETE rule | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 4 | `activity`.fk_activity_desk, fk_activity_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id)` stays main's `REFERENCES name (id)` (row 36) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
+| 3 | `member`.fk_member_name, fk_member_desk: `(col) REFERENCES name (id)` | fk_member_name `(name_id, name_kind) REFERENCES name (id, type)` (row 38), fk_member_desk `(desk_id) REFERENCES seat (desk_id)`, same names and ON DELETE rule | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 4 | `activity`.fk_activity_desk, fk_activity_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id, roster_kind) REFERENCES name (id, type)` (row 38) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
 | 5 | `label`.fk_label_name: `(name_id) REFERENCES name (id)` | ~~typed composite FK~~: same as main | withdrawn: same as main since the kind-table rework (the owner decision 2026-10-24); label has no kind table on main (open question Q1) | withdrawn |
 | 6 | `tree`.fk_tree_name: `(name_id) REFERENCES name (id)` | ~~typed composite FK~~: same as main | withdrawn: same as main since the kind-table rework (the owner decision 2026-10-24); tree has no kind table on main (open question Q1) | withdrawn |
-| 7 | `watcher`.fk_watcher_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 8 | `mail`.fk_mail_desk, fk_mail_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id)` stays main's `REFERENCES name (id)` (row 36) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 9 | `mail_to`.fk_mail_to_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 10 | `tree_read`.fk_tree_read_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`; fk_tree_read_tree stays main's `(tree_id) REFERENCES name (id)` (open question Q1) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 11 | `todo`.fk_todo_roster, fk_todo_updated, fk_todo_creator, fk_todo_assigned: `(col) REFERENCES name (id)` | `(roster_id)` stays main's `REFERENCES name (id)` (row 36); updated_id, creator_id, assigned_id `REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
+| 7 | `watcher`.fk_watcher_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 8 | `mail`.fk_mail_desk, fk_mail_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id, roster_kind) REFERENCES name (id, type)` (row 38) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 9 | `mail_to`.fk_mail_to_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 10 | `tree_read`.fk_tree_read_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`; fk_tree_read_tree `(tree_id, tree_kind) REFERENCES name (id, type)` (row 38) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 11 | `todo`.fk_todo_roster, fk_todo_updated, fk_todo_creator, fk_todo_assigned: `(col) REFERENCES name (id)` | `(roster_id, roster_kind) REFERENCES name (id, type)` (row 38); updated_id, creator_id, assigned_id `REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
 | 12 | `seat`.fk_seat_desk: `(desk_id) REFERENCES name (id)` | ~~typed composite FK~~: same as main; seat is now the desk kind table (row 37) | withdrawn: same as main since the kind-table rework (the owner decision 2026-10-24) | withdrawn |
-| 13 | `doing`.fk_doing_desk, fk_doing_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id)` stays main's `REFERENCES name (id)` (row 36) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 14 | `hold`.fk_hold_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`; fk_hold_res stays main's `(resource_id) REFERENCES name (id)` (open question Q1) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 15 | `score`.fk_score_roster, fk_score_desk: `(col) REFERENCES name (id)` | `(roster_id)` stays main's `REFERENCES name (id)` (row 36), `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 16 | `score_point`.fk_score_point_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
-| 17 | `human_desk`.fk_human_desk_desk: `(desk_id) REFERENCES name (id)` ON DELETE CASCADE | `(desk_id) REFERENCES seat (desk_id)`, same ON DELETE rule | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
+| 13 | `doing`.fk_doing_desk, fk_doing_roster: `(col) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`, `(roster_id, roster_kind) REFERENCES name (id, type)` (row 38) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 14 | `hold`.fk_hold_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)`; fk_hold_res `(resource_id, resource_kind) REFERENCES name (id, type)` (row 38) | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 15 | `score`.fk_score_roster, fk_score_desk: `(col) REFERENCES name (id)` | `(roster_id, roster_kind) REFERENCES name (id, type)` (row 38), `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 16 | `score_point`.fk_score_point_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
+| 17 | `human_desk`.fk_human_desk_desk: `(desk_id) REFERENCES name (id)` ON DELETE CASCADE | `(desk_id) REFERENCES seat (desk_id)`, same ON DELETE rule | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
 | 18 | `human_member`.fk_human_member_name: `(name_id) REFERENCES name (id)` ON DELETE CASCADE | ~~`(name_id) REFERENCES roster (id)`~~: same as main | withdrawn with row 36 (the owner rule 2026-10-25): a roster has no kind table | withdrawn |
-| 19 | `push_queue`.fk_push_queue_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns keep main's FK to name (id) | proposed, needs the owner |
+| 19 | `push_queue`.fk_push_queue_desk: `(desk_id) REFERENCES name (id)` | `(desk_id) REFERENCES seat (desk_id)` | kind tables (the owner rule 2026-10-25): a desk column FKs to seat, the desk kind table, which has real desk data; a roster has no data of its own, so roster columns FK to name with a kind check (row 38) | proposed, needs the owner |
 | 20 | `activity.desk_id` NOT NULL | NULL allowed (NULL = the office itself) | forced by the desk FK to seat (desk_id): main's system-score activity rows store roster id 2 (Admin) in desk_id, and a roster is not a seat | proposed, needs the owner |
 | 21 | `score.desk_id` NOT NULL; UNIQUE `idx_score_who` (roster_id, desk_id, kpi) | desk_id NULL allowed; generated `desk_key` = IFNULL(desk_id, 0); UNIQUE `idx_score_who` (roster_id, desk_key, kpi) | forced by the desk FK to seat (system scores used roster id 2 as their desk); desk_key keeps one office row per kpi | proposed, needs the owner |
 | 22 | system score seed rows: desk_id = 2 | desk_id = NULL | same reason as the row above | proposed, needs the owner |
@@ -48,6 +48,7 @@ that seat, the desk kind table, comes right after name (row 37); new tables sit 
 | 35 | header comment | adds the BETA blocks: three rules, names, kind tables, trust, ids | documentation of the rows above | proposed, needs the owner |
 | 36 | (none) | ~~table `roster` (id = name.id, FK to `name (id)`) + seed rows 1 (Office), 2 (Admin), written by `b_name_mint`~~ | withdrawn: the owner rule (2026-10-25), a name kind gets its own table only if the thing has its own data; a roster has none, so the eight roster columns keep main's FK to `name (id)` (F167) | withdrawn |
 | 37 | table order: `seat` after `todo` | `seat` right after `name` (the desk kind table first) | kind tables: the desk columns of member, activity, mail and the rest FK to seat (desk_id), so seat is created before them | proposed, needs the owner |
+| 38 | `name` keys; the twelve single-kind name references (member.name_id, human_member.name_id; roster_id on activity, mail, todo, doing, score, vote; tree.name_id, tree_read.tree_id; label.name_id; hold.resource_id): `(col) REFERENCES name (id)` | `name` adds UNIQUE `idx_id_type` (id, type); each of the twelve tables adds a `<x>_kind` ENUM('desk','roster','label','tree','res') NOT NULL with DEFAULT and CHECK pinned to its kind, and its FK is `(col, <x>_kind) REFERENCES name (id, type)`, same constraint name and ON DELETE rule (human_member CASCADE, the rest RESTRICT); `seat.desk_id` stays `(desk_id) REFERENCES name (id)` | the owner's review (2026-10-25): the database refuses a wrong-kind name id (F168); UNIQUE only because MySQL 8.4 needs a unique key as an FK target (id is already the PK) | approved by the owner |
 
 ## Names (the owner decision 2026-10-24)
 
@@ -59,30 +60,41 @@ is free for a new mint at once.
 
 ## Kind tables (the owner rule 2026-10-25)
 
-**A name kind gets its own table only if the thing has its own data; otherwise references go to `name (id)`.** A name
+**A name kind gets its own table only if the thing has its own data; otherwise references go to `name`, kind-checked.** A name
 is not a first-class object, just an isolated column managed in `name`. seat (desk_id, UNIQUE as on main) has real
 desk data (token, wake, connect stamps), so it is the desk kind table: it links to `name (id)` with one FK (kind id =
 name.id), and every desk column FKs to seat (desk_id), so a desk column cannot hold a roster id. A roster, label, tree
-or res has no data of its own (a roster's desk count is `name.n`, as on main), so none of them has a kind table, and
-their columns keep main's FK to `name (id)`: the eight roster columns (member.name_id, activity, mail, todo, doing,
-score, vote roster_id, human_member.name_id) and label.name_id, tree.name_id, tree_read.tree_id, hold.resource_id.
-Every column keeps holding the name id, so no id changes and no join changes. The typed composite FKs to
-`name (type, id)` (33 at dbef70f, 32 once `name_event` went), the generated `t_*` columns and `name`'s UNIQUE
-(type, id) are gone. The beta-only tables follow the same rule: `todo_event`, `vote` and `vote_cast` FK their desk
-columns to seat (desk_id), and `vote.roster_id` to `name (id)`. f316ac0f (2026-10-24) had a `roster` kind table;
-the owner dropped it on 2026-10-25 (row 36).
+or res has no data of its own (a roster's desk count is `name.n`, as on main), so none of them has a kind table.
+Their twelve columns are kind-checked instead (row 38, the owner's review 2026-10-25): the eight roster columns
+(member.name_id, activity, mail, todo, doing, score, vote roster_id, human_member.name_id) and label.name_id,
+tree.name_id, tree_read.tree_id, hold.resource_id each sit next to a plain `<x>_kind` ENUM pinned by DEFAULT and
+CHECK, and the FK is `(col, <x>_kind) REFERENCES name (id, type)`, against `name`'s UNIQUE `idx_id_type` (id, type).
+A wrong-kind name id is refused by the database (F168). Every column keeps holding the name id, so no id changes and
+no join changes, and a writer that leaves the kind column out gets its DEFAULT (no procedure changes). The older
+typed composite FKs to `name (type, id)` (33 at dbef70f, 32 once `name_event` went) and the generated `t_*` columns
+stay gone. The beta-only tables follow the same rule: `todo_event`, `vote` and `vote_cast` FK their desk columns to
+seat (desk_id), and `vote.roster_id` is kind-checked. f316ac0f (2026-10-24) had a `roster` kind table; the owner
+dropped it on 2026-10-25 (row 36).
 
-| measure (fresh book, information_schema) | main `tables.sql` (943b3c2) | dbef70f (before) | PR #199 head (5d350b9) | f316ac0f (roster table) | no roster table (now) |
-|---|---|---|---|---|---|
-| tables | 22 | 30 | 31 (with `office_setting`) | 30 (name_event out, roster in) | 29 (roster out) |
-| FKs, all | 35 | 48 | 49 | 47 | 46 |
-| FKs to `name` | 27 | 34 (33 typed (type, id) + name_event.name_id) | 35 | 6 (seat, roster; label, tree, tree_read, hold) | 13 (seat; 8 roster columns; label, tree, tree_read, hold) |
-| FKs to `seat (desk_id)` / `roster (id)` | 0 / 0 | 0 / 0 | 0 / 0 | 19 / 8 | 19 / 0 |
-| indexes, all (incl. PRIMARY) | 68 | 115 | 117 | 89 | 88 |
-| secondary indexes | 46 | 85 | 86 | 59 | 59 |
-| indexes MySQL adds for an FK (named fk_*) | 6 | 36 | 37 | 12 | 12 |
-| generated `t_*` columns | 0 | 30 | 31 | 0 | 0 |
-| id columns BIGINT / INT UNSIGNED | 49 / 0 | | 1 / 66 | 64 / 0 (row 1 withdrawn) | 63 / 0 |
+| measure (fresh book, information_schema) | main `tables.sql` (943b3c2) | dbef70f (before) | PR #199 head (5d350b9) | f316ac0f (roster table) | no roster table (a1cda5f) | kind-checked (now) |
+|---|---|---|---|---|---|---|
+| tables | 22 | 30 | 31 (with `office_setting`) | 30 (name_event out, roster in) | 29 (roster out) | 29 |
+| FKs, all | 35 | 48 | 49 | 47 | 46 | 46 |
+| FKs to `name` | 27 | 34 (33 typed (type, id) + name_event.name_id) | 35 | 6 (seat, roster; label, tree, tree_read, hold) | 13 (seat; 8 roster columns; label, tree, tree_read, hold) | 13 (seat plain; 12 kind-checked) |
+| FKs to `seat (desk_id)` / `roster (id)` | 0 / 0 | 0 / 0 | 0 / 0 | 19 / 8 | 19 / 0 | 19 / 0 |
+| indexes, all (incl. PRIMARY) | 68 | 115 | 117 | 89 | 88 | 100 |
+| secondary indexes | 46 | 85 | 86 | 59 | 59 | 71 |
+| indexes MySQL adds for an FK (named fk_*) | 6 | 36 | 37 | 12 | 12 | 23 |
+| kind columns (`*_kind`) / CHECK constraints | | | | | 0 / 7 | 12 / 19 |
+| generated `t_*` columns | 0 | 30 | 31 | 0 | 0 | 0 |
+| id columns BIGINT / INT UNSIGNED | 49 / 0 | | 1 / 66 | 64 / 0 (row 1 withdrawn) | 63 / 0 | 63 / 0 |
+
+Indexes, now: 12 more than a1cda5f, not 1. One is `name.idx_id_type`; the other eleven are indexes MySQL adds on its
+own for a composite FK whose (col, `<x>_kind`) pair does not lead an existing key (fk_activity_roster, fk_hold_res,
+fk_human_member_name, fk_label_name, fk_mail_roster, fk_member_name, fk_score_roster, fk_todo_roster, fk_tree_name,
+fk_tree_read_tree, fk_vote_roster). Only `doing` already had one (fk_doing_roster), which now covers
+(roster_id, roster_kind). Adding each kind column to the existing key that leads with its column would avoid the
+eleven; not done, it changes keys the owner did not review.
 
 Id width, measured on a throwaway book (MySQL 8.4, 200,000 letters: `mail`, `mail_to` and `activity` rows each,
 data + index after ANALYZE): BIGINT ids 102.3 MB, the same as main to the tenth; INT ids 81.2 MB (21% less).
@@ -93,17 +105,33 @@ multi-kind (type, id) composite reference (label, tree, watcher, doing.on_* / wa
 
 ### Open questions for the owner
 
-- Q1 and Q2 are answered by the rule above (2026-10-25): no kind table for label, tree, res or roster, so their
-  references keep main's FK to `name (id)` and `name.n` stays on `name`. The database does not stop a desk id in a
-  roster column there; the procedures do.
+- Q1 and Q2 are answered by the rule above (2026-10-25): no kind table for label, tree, res or roster, and
+  `name.n` stays on `name`. Since the owner's review (row 38) the database also stops a wrong-kind id in those
+  twelve columns (F168).
 - Q3. Typing at the kind table: `seat.desk_id` FKs to `name (id)`, so only the minting procedure makes
   sure a seat row is a desk name (the app user is EXECUTE-only). The database could
-  check it too, at the cost of `name`'s UNIQUE (type, id) back plus a generated column on seat, or a
-  BEFORE INSERT trigger. Not done: the owner asked for the fewest indexes.
+  check it too with the row 38 pattern (`name.idx_id_type` is already there, so the cost is a `desk_kind`
+  column and CHECK on seat plus the index MySQL adds for the FK), or a BEFORE INSERT trigger. Not done: the owner
+  kept `seat.desk_id` a plain FK (2026-10-25).
 
-## Main tables with no change beyond rows 3-19 (kind-table FKs)
+### Drop when ported (main's guards the kind-checked FKs make redundant)
 
-name (rows 23-24 triggers), member, activity (row 20), label (row 26 is a comment), tree, watcher,
+Main lacks row 38, so main's procedures stay as they are. When they are ported onto this schema, these by-id kind
+checks can become the constant they confirm. Office (id 1) is never retired, and `roster_id` is kind-checked by
+fk_*_roster, so `SELECT id FROM name WHERE id = 1 AND type = 'roster'` can only return 1:
+
+- `agent_coord/server/sql/sp_activity.sql:226` (Office by id, also `AND deleted IS NULL`; fk_activity_roster)
+- `agent_coord/server/sql/sp_score.sql:93`, `:529`, `:636` (Office by id; fk_score_roster)
+
+These stay: name lookups within a kind (`mill_roster_id`, the mint, rename, retire and reclaim selects), the
+desk-or-roster routing in `sp_mail.sql:28`, `:74`, `:149` (mail_to recipients and add/remove WHO are not among the
+twelve columns), and read filters and sorts (`sp_activity.sql:92`, `sp_tree.sql:404`, `sp_score.sql:367-415`).
+`beta_sp.sql` has no such guard: its `name` selects are lookups by name within a kind, plus the Admin row lock in
+`sp_admin_set`.
+
+## Main tables with no change beyond rows 3-19 and 38 (kind-table FKs, kind-checked name FKs)
+
+name (rows 23-24 triggers, row 38 key), member, activity (row 20), label (row 26 is a comment), tree, watcher,
 mail, mail_to, tree_read, todo (row 28), seat (row 37), doing (row 30), hold, score (rows 21-22), score_point,
 score_evidence, human, human_desk, human_member, push_queue (row 27 is a comment).
 
