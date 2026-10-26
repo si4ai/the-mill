@@ -1,8 +1,8 @@
 -- 22 tables. Wipe then apply.
 -- 0.8.0 schema (card 868): main's 0.7.18 tables with the departures in docs/requirements/beta/BETA-CHANGES.md;
 -- name, seat, member, activity, label, tree, watcher, mail, mail_to, tree_read, todo,
--- doing, hold, score, score_point, score_evidence, human, human_desk, human_member, mill_invite, mill_invite_join,
--- push_queue. No new table (the owner, 2026-10-26): doing is the history of card and hold moves, and seat.doing_id
+-- doing, hold, score, score_point, score_evidence, human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
+-- No new table (the owner, 2026-10-26): doing is the history of card and hold moves, and seat.doing_id
 -- names a desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- Order: name, then seat (the desk kind table), then main's order.
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
