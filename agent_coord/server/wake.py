@@ -473,6 +473,7 @@ def wake_body(
     room: str | None = None,
     pending_count: int = 0,
     last_note: str | None = None,
+    lease: str | None = None,
 ) -> dict[str, Any]:
     """The POST body: the same frame a sitting desk gets on /ws (with its poke key, idem),
     trimmed to the keys the redirector walk reads, plus one wake block. No letter or card text.
@@ -501,14 +502,15 @@ def wake_body(
         "pending": int(pending),
         "pending_count": 0 if test else int(pending_count),
         "last_note": None if test else (last_note or None),
+        "lease": None if test else (lease or None),
         "window_s": int(lease_s()),
         "next": (
             "nothing to do: this is the join test"
             if test
             else f"mill connect -r {desk}: the sync line hands over every waiting hint and letter, "
             "and this desk's routes walk them. A busy answer means another session has the seat "
-            "and gets these letters: stop. Last step of the run: mill wake-done --note TEXT "
-            "(one wake at a time; letters that came meanwhile ring once after it)"
+            "and gets these letters: stop. Last step of the run: mill wake-done --lease LEASE --note TEXT "
+            "(LEASE is wake.lease; one wake at a time; letters that came meanwhile ring once after it)"
         ),
     }
     return stamp_mill(body)
@@ -571,15 +573,26 @@ _GATE_LOCK = threading.Lock()
 _TRAIL: dict[str, dict[str, Any]] = {}
 # F144: desk -> the note its last run left with mill wake-done, for the next wake.
 _NOTE: dict[str, str] = {}
+# F144b (card 888): desk -> the token of its current lease, sent as wake.lease;
+# mill wake-done --lease TOKEN ends only that lease.
+_EPOCH: dict[str, str] = {}
+
+
+def _new_lease(desk: str, now: float) -> None:
+    """Start a lease. Caller holds _GATE_LOCK."""
+    import uuid
+
+    _GATE[desk] = now
+    _EPOCH[desk] = uuid.uuid4().hex[:12]
 
 
 def _gate_take(desk: str, now: float) -> bool:
-    """True when this desk may be POSTed now; then the window starts."""
+    """True when this desk may be POSTed now; then the lease starts."""
     with _GATE_LOCK:
         last = _GATE.get(desk)
         if last is not None and now - last < lease_s():
             return False
-        _GATE[desk] = now
+        _new_lease(desk, now)
         return True
 
 
@@ -596,6 +609,7 @@ def gate_clear(desk: str) -> None:
     d = str(desk or "").strip()
     with _GATE_LOCK:
         _GATE.pop(d, None)
+        _EPOCH.pop(d, None)
         _TRAIL.pop(d, None)
 
 
@@ -632,25 +646,44 @@ def _item_key(frame: dict[str, Any], hint_id: int | None) -> str:
     return f"{frame.get('kind') or ''}:{frame.get('type') or ''}:{ident}"
 
 
-def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None) -> None:
-    """Remember an item the lease held back. The first one in a lease schedules
-    the lease-end check (#669, F144); later ones only update the latest item."""
+def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | None,
+                 reason: str, room: str | None) -> float | None:
+    """Caller holds _GATE_LOCK. When a live lease is held, record the item under
+    it and return the lease start if this is its first held-back item (the
+    caller schedules the lease-end check), else -1.0. None: no live lease."""
+    at = _GATE.get(desk)
+    if at is None or now - at >= lease_s():
+        return None
+    t = _TRAIL.get(desk)
+    first = t is None or t.get("at") != at
+    if first:
+        t = _TRAIL[desk] = {"at": at, "reason": reason, "keys": set()}
+    elif reason == ADDRESSED:
+        t["reason"] = ADDRESSED  # #627: the burst is addressed when any item is
+    t["keys"].add(_item_key(frame, hint_id))
+    t.update(frame=dict(frame), hint_id=hint_id, room=room)
+    return at if first else -1.0
+
+
+def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
+               *, take: bool = False) -> bool:
+    """One lock hold (F144a, card 887): when the desk holds a live lease, record
+    the item the lease holds back and return True. The first one in a lease
+    schedules the lease-end check (#669, F144); later ones only update the
+    latest item. No live lease: False, and with take=True a new lease starts in
+    the same hold, so a wake-done can never land between the check and the record."""
     import time
 
+    now = time.monotonic()
     with _GATE_LOCK:
-        at = _GATE.get(desk)
-        if at is None:
-            return
-        t = _TRAIL.get(desk)
-        first = t is None or t.get("at") != at
-        if first:
-            t = _TRAIL[desk] = {"at": at, "reason": reason, "keys": set()}
-        elif reason == ADDRESSED:
-            t["reason"] = ADDRESSED  # #627: the burst is addressed when any item is
-        t["keys"].add(_item_key(frame, hint_id))
-        t.update(frame=dict(frame), hint_id=hint_id, room=room)
-    if first:
-        _schedule(at + lease_s() - time.monotonic(), trail, desk, at)
+        first = _hold_locked(desk, now, frame, hint_id, reason, room)
+        if first is None:
+            if take:
+                _new_lease(desk, now)
+            return False
+    if first >= 0:
+        _schedule(first + lease_s() - time.monotonic(), trail, desk, first)
+    return True
 
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
@@ -683,6 +716,7 @@ def trail(desk: str, at: float) -> str:
         if _GATE.get(desk) != at:
             return "none"
         _GATE.pop(desk, None)  # this lease is over; post_desk takes the next one
+        _EPOCH.pop(desk, None)
     cn = None
     try:
         cn = _book()
@@ -710,20 +744,36 @@ def _clean_note(raw: Any) -> str:
     return text[:NOTE_MAX]
 
 
-def lease_done(cn, desk: str, note: str = "") -> str:
+def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     """mill wake-done (F144): the woken run is finished. Ends this desk's lease; when
     items were held back and still wait, sends exactly one trailing wake with
-    pending_count and the note. sent | error | none. A second done is a no-op."""
+    pending_count and the note. sent | error | none | stale. A second done is a no-op.
+
+    lease (F144b, card 888): the wake.lease token the run was woken with. A token
+    that is not the current lease's is a stale done (a run that outlived its
+    lease): it keeps its note for the next wake, unless a newer one waits, and
+    ends nothing. No token (an older client) ends the current lease."""
     import time
 
     d = str(desk or "").strip()
     text = _clean_note(note)
+    token = str(lease or "").strip()
     now = time.monotonic()
     with _GATE_LOCK:
-        at = _GATE.pop(d, None)
-        t = _TRAIL.pop(d, None)
-        if text:
-            _NOTE[d] = text
+        if token and token != _EPOCH.get(d):
+            if text and d not in _NOTE:
+                _NOTE[d] = text
+            stale = True
+        else:
+            stale = False
+            at = _GATE.pop(d, None)
+            _EPOCH.pop(d, None)
+            t = _TRAIL.pop(d, None)
+            if text:
+                _NOTE[d] = text
+    if stale:
+        _bc_log_safe(f"webhook desk={d} wake=done stale=yes note={'yes' if text else 'no'}")
+        return "stale"
     if t is not None and t.get("at") != at:
         t = None
     held = len((t or {}).get("keys") or ())
@@ -863,10 +913,10 @@ def post_desk(
         # the queue for its next connect; no window is taken.
         _wake_log(desk, frame, hint_id, "skipped reason=room-only")
         return "skipped"
-    if not _gate_open(desk, time.monotonic()):
-        # A wake already went out in this window: skip the checks and the DNS lookup.
+    if _coalesced(desk, frame, hint_id, reason, room):
+        # A wake already went out and its lease is live: skip the checks and the DNS
+        # lookup. Checked and recorded in one lock hold (F144a, card 887).
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
-        _coalesced(desk, frame, hint_id, reason, room)
         return "coalesced"
     try:
         url, host = check_url(url)
@@ -878,10 +928,10 @@ def post_desk(
         return "error"
     # The window starts only for a POST that is actually attempted: a refused or
     # unresolvable target takes no gate, so it never blocks the next valid wake.
-    # Taken here (not peeked) so two threads racing past the peek send one POST.
-    if not _gate_take(desk, time.monotonic()):
+    # Taken here (not peeked) so two threads racing past the peek send one POST;
+    # the loser is recorded under the winner's lease in the same hold (card 887).
+    if _coalesced(desk, frame, hint_id, reason, room, take=True):
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
-        _coalesced(desk, frame, hint_id, reason, room)
         return "coalesced"
     from agent_coord.server.records import push as rec_push
 
@@ -892,8 +942,9 @@ def post_desk(
         reason = ADDRESSED
     with _GATE_LOCK:
         note = _NOTE.get(desk)
+        lease = _EPOCH.get(desk)
     body = wake_body(desk, frame, pending=pending, roster=desk_roster(cn, desk), reason=reason, room=room,
-                     pending_count=pending_count, last_note=note)
+                     pending_count=pending_count, last_note=note, lease=lease)
     status, err = _fire(url, body,
                         timeout=WAKE_TIMEOUT_S, key=key, desk=desk, hint_id=hint_id, quiet=True)
     tag = f" reason={trailing}" if trailing else (f" reason={ring}" if ring else "")

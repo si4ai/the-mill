@@ -551,6 +551,8 @@ def _build_parser() -> MillArgumentParser:
         ),
     )
     dn.add_argument("--note", default="", help="one line for the next wake (last_note): what you did, what is next")
+    dn.add_argument("--lease", default="",
+                    help="the wake.lease token of the wake that started this run: a run that outlived its lease ends nothing")
 
     m = sub.add_parser(
         "send",

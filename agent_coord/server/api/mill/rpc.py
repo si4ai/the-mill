@@ -3571,7 +3571,8 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
 
     if not owner:
         raise CoordError("wake-done: owner required")
-    got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""))
+    got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""),
+                          lease=str(body.get("lease") or ""))
     return {"ok": True, "desk": owner, "wake": got}
 
 

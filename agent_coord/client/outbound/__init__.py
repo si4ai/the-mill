@@ -116,6 +116,7 @@ _STR = (
     "unit",
     "at",
     "since",
+    "lease",
 )
 _INT = ("id", "id_a", "id_b", "rm_id", "after", "limit", "parent_id")
 
