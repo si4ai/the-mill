@@ -261,6 +261,9 @@ async def _ws_handle_client_text(
         return await _fail(req_id, SESSION_WS_REQUIRED)
 
     t0 = time.perf_counter()
+    from agent_coord.server import perf
+
+    cmd = perf.begin(command, who or desk)  # None when perf is off (F171)
 
     # The transport peer decides the office-host (loopback) Admin marker, never
     # the client args. A forwarded request (reverse proxy) is not treated as
@@ -277,11 +280,15 @@ async def _ws_handle_client_text(
         ws_peer = ""
         ws_forwarded = False
 
+    def _dispatch(c: Any) -> Any:
+        return dispatch_ws(c, who, command, args, req_id=str(req_id), peer=ws_peer, forwarded=ws_forwarded)
+
     def _run() -> Any:
-        with Book() as c:
-            return dispatch_ws(
-                c, who, command, args, req_id=str(req_id), peer=ws_peer, forwarded=ws_forwarded
-            )
+        if cmd is None:
+            with Book() as c:
+                return _dispatch(c)
+        perf.phase(cmd, "q", (time.perf_counter() - t_q) * 1000.0)  # waiting for a worker thread
+        return perf.in_book(cmd, Book, _dispatch)
 
     def _sync() -> list:
         from agent_coord.server.push import take_sync
@@ -289,36 +296,38 @@ async def _ws_handle_client_text(
         with Book() as c:
             return _held(take_sync(c._cn, who, hold=acks is not None))
 
+    t_q = time.perf_counter()
     try:
         result = await asyncio.get_running_loop().run_in_executor(None, _run)
-    except CoordError as e:
+    except Exception as e:
         ms = (time.perf_counter() - t0) * 1000.0
-        err = " ".join(str(e).split())[:160]
+        # A refusal keeps its short text; any other error only its class (no stack, no detail).
+        err = " ".join(str(e).split())[:160] if isinstance(e, CoordError) else type(e).__name__
 
         def _command_err() -> None:
-            from agent_coord.server.push import perf_log
+            perf.finish(cmd, ms, ok=0, err=err, req_b=len(text.encode("utf-8")))
 
-            perf_log("verb", ms, desk=who or desk, verb=command, ok=0, err=err)
-
-        try:
-            await asyncio.get_running_loop().run_in_executor(None, _command_err)
-        except Exception:
-            pass
+        if cmd is not None:
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, _command_err)
+            except Exception:
+                pass
         sync = await asyncio.get_running_loop().run_in_executor(None, _sync)
-        return stamp_mill({"id": req_id, "ok": False, "error": str(e), "sync": sync})
-    except Exception as e:
-        sync = await asyncio.get_running_loop().run_in_executor(None, _sync)
+        if isinstance(e, CoordError):
+            return stamp_mill({"id": req_id, "ok": False, "error": str(e), "sync": sync})
         return stamp_mill({"id": req_id, "ok": False, "error": err_text(e), "sync": sync})
 
     # Kick/supersede during handler: do not complete RPC on a dead seat.
     if not socket_seated(who, websocket) and not socket_seated(desk, websocket):
         sync = await asyncio.get_running_loop().run_in_executor(None, _sync)
         return stamp_mill({"id": req_id, "ok": False, "error": SESSION_WS_REQUIRED, "sync": sync})
+    t_s = time.perf_counter()
     sync = await asyncio.get_running_loop().run_in_executor(None, _sync)
+    t_e = time.perf_counter()
+    perf.phase(cmd, "sync", (t_e - t_s) * 1000.0)
     # A refused hold or drop keeps result.ok false. The envelope ok must match (#207, #227).
     env_ok = hold_envelope_ok(command, result)
     reply = stamp_mill({"id": req_id, "ok": env_ok, "result": result, "sync": sync})
-    ms = (time.perf_counter() - t0) * 1000.0
     resp_b = 0
     try:
         from agent_coord.server.mill_json import with_bytes
@@ -326,16 +335,15 @@ async def _ws_handle_client_text(
         reply, resp_b = with_bytes(reply)
     except Exception:
         pass
+    # ms ends after the reply is encoded (F171), so the phases add up to it.
+    t_end = time.perf_counter()
+    ms = (t_end - t0) * 1000.0
+    perf.phase(cmd, "enc", (t_end - t_e) * 1000.0)
     try:
         req_b = len(text.encode("utf-8"))
 
         def _note() -> None:
-            try:
-                from agent_coord.server.push import perf_log
-
-                perf_log("verb", ms, desk=who or desk, verb=command, ok=1 if env_ok else 0)
-            except Exception:
-                pass
+            perf.finish(cmd, ms, ok=1 if env_ok else 0, req_b=req_b, resp_b=resp_b)
 
         # The score write goes to the flusher and the log line to a worker; the
         # reply does not wait for either (F24). It used to await mill_score_event.

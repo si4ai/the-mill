@@ -39,6 +39,8 @@ DEFAULTS: dict[str, Any] = {
     "compress": "",
     "buffered": "",
     "glance_tap": "",
+    # F171: mill-perf.log on (default), all (fast SQL lines too) or off.
+    "perf": "on",
 }
 
 _ENV = {
@@ -70,6 +72,7 @@ _ENV = {
     "compress": "AGENT_COORD_COMPRESS",
     "buffered": "AGENT_COORD_BUFFERED",
     "glance_tap": "AGENT_COORD_GLANCE_TAP",
+    "perf": "AGENT_COORD_PERF",
 }
 
 _INT_KEYS = {"port", "dashboard_port"}
