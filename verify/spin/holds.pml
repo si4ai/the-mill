@@ -10,13 +10,18 @@
  *   agent_coord/server/api/mill/rpc.py   _h_hold (2551-2595), _h_drop (2598-2609)
  *   agent_coord/client/http.py           _refused_hold: a refused hold exits 1 (545-559)
  *   agent_coord/server/sql/tables.sql    hold rows are release-only (441-447)
+ *   agent_coord/server/sql/sp_join.sql   mill_join_reset: frees the desk's holds (card 842)
+ *   agent_coord/server/sql/sp_name.sql   mill_name_delete (retire): same (card 842)
  *
  * What the code does, and so what this model does:
  *   - mill hold never waits: it takes the lock or is refused at once (exit 1).
  *   - no TTL, no expiry, no lease: a hold lasts until its owner runs mill drop.
- *   - only the owner can drop it; no admin break, and a superseded connect,
- *     mill reset seat or mill retire desk leave it held (holds belong to the
- *     desk name; connect_sync_frame only lists them, push.py 633-647).
+ *   - only the owner can drop it, with one exception: mill reset and mill retire
+ *     of a desk free every hold it owns in the same call as the seat change
+ *     (card 842: mill_join_reset and mill_name_delete call
+ *     mill_hold_release_desk, sp_hold.sql). A superseded connect and a clock-out
+ *     leave holds held (holds belong to the desk name; connect_sync_frame only
+ *     lists them, push.py).
  *   - what a desk does after a refusal is not in the code. It is the desk's
  *     policy, and the model checks three:
  *       POLICY 0  keep what you hold and try the next lock again (spin-retry)
@@ -29,6 +34,10 @@
  *   POLICY     0, 1 or 2 (above)
  *   ROUNDS     0 = each desk repeats its work forever; k = k rounds each
  *   DIE        1 = a desk may stop for good while it holds locks (a dead session)
+ *   RESET      1 = (with DIE) someone runs mill reset or mill retire on a dead
+ *              desk: mill_hold_release_desk frees all its holds in one step
+ *   MUT_RESET_KEEPS  mutation of card 842: reset frees the seat but not the holds;
+ *                    must leave the other desks stuck (H12 fails)
  *   MUT_HOLD_NOLOCK  mutation: the upsert reads desk_id and writes it in two steps
  *                    (no FOR UPDATE); must break mutual exclusion
  */
@@ -45,6 +54,9 @@
 #ifndef DIE
 #define DIE 0
 #endif
+#ifndef RESET
+#define RESET 0
+#endif
 
 #define FREE 255
 #define RES DESKS            /* one lock per desk, needed in a cycle */
@@ -55,6 +67,7 @@ bool mine[DESKS * RES];      /* what each desk believes it holds (from the repli
 byte inside = 0;             /* desks doing the work that needs both locks */
 byte done[DESKS];            /* finished rounds per desk */
 bool waiting[DESKS];         /* a desk wants its two locks and has not got them yet */
+bool dead[DESKS];            /* the desk's session stopped for good (DIE) */
 
 /* mill_hold_upsert, one stored procedure call (one transaction). */
 inline hold(d, r, ok) {
@@ -113,7 +126,7 @@ again:
      /* the work: this desk holds both locks */
      atomic { inside++; waiting[d] = false; assert(owner[a] == d && owner[b] == d) };
 #if DIE
-     if :: true -> end_dead: false :: true -> skip fi   /* the session may die here */
+     if :: true -> dead[d] = true; end_dead: false :: true -> skip fi   /* the session may die here */
 #endif
 progress_work:
      atomic { inside--; if :: ROUNDS > 0 -> done[d]++ :: else -> skip fi };
@@ -122,13 +135,47 @@ progress_work:
   od
 }
 
+#if RESET
+/* mill reset / mill retire of a dead desk: mill_hold_release_desk frees every
+ * hold that desk owns, in the same transaction as the seat change (card 842).
+ * The dead session does nothing more, so its belief is cleared with the rows. */
+proctype Admin() {
+  byte k, r;
+end_admin:
+  do
+  :: atomic {
+       (dead[0] || dead[1] || (DESKS == 3 && dead[DESKS-1])) ->
+       k = 0;
+       do
+       :: k < DESKS && !dead[k] -> k++
+       :: k < DESKS && dead[k] -> break
+       od;
+       r = 0;
+       do
+#ifdef MUT_RESET_KEEPS
+       :: r < RES -> skip;
+#else
+       :: r < RES -> if :: owner[r] == k -> owner[r] = FREE :: else -> skip fi;
+#endif
+                     MINE(k, r) = false; r++
+       :: r >= RES -> break
+       od;
+       dead[k] = false            /* reset done: the seat is free again */
+     }
+  od
+}
+#endif
+
 init {
   byte k;
   atomic {
     k = 0;
     do :: k < RES -> owner[k] = FREE; k++ :: k >= RES -> break od;
     k = 0;
-    do :: k < DESKS -> run Desk(k); k++ :: k >= DESKS -> break od
+    do :: k < DESKS -> run Desk(k); k++ :: k >= DESKS -> break od;
+#if RESET
+    run Admin()
+#endif
   }
 }
 
