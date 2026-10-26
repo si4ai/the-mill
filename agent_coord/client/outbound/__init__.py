@@ -41,6 +41,7 @@ COMMANDS = frozenset(
         "remove",
         "score",
         "trail",
+        "done",
     }
 )
 
