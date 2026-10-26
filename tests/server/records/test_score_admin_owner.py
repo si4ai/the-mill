@@ -1,4 +1,4 @@
-"""score_tick office KPIs are owned by the Admin roster (Admin is not a desk)."""
+"""score_tick office KPIs are owned by the office: roster Office, no desk (beta 0.8.0; main used the Admin roster)."""
 from __future__ import annotations
 
 import os
@@ -53,8 +53,7 @@ def _admin_rows(cn, kpi: str) -> list[tuple]:
         cur.execute(
             "SELECT s.id, s.value, s.target FROM score s"
             " JOIN name a ON a.id = s.roster_id AND a.type='roster' AND a.name='Office'"
-            " JOIN name d ON d.id = s.desk_id AND d.type='roster' AND d.name='Admin'"
-            " WHERE s.kpi = %s",
+            " WHERE s.desk_id IS NULL AND s.kpi = %s",
             (kpi,),
         )
         return [tuple(r) for r in cur.fetchall()]
@@ -70,7 +69,7 @@ def test_admin_is_a_roster_and_old_upsert_refuses(cn):
         rec_score.upsert(cn, "Office", "Admin", "mill-wall.ticks", "1", "0", "")
 
 
-def test_publish_writes_office_rows_owned_by_admin_roster(cn):
+def test_publish_writes_office_rows_with_no_desk(cn):
     from agent_coord.server import glance, score_tick
 
     seed_names(cn, ("sa_live", "desk"))
@@ -102,10 +101,10 @@ def test_second_publish_updates_the_same_row(cn):
 
 
 def test_admin_upsert_adds_no_watcher_and_an_activity(cn):
-    office, admin = _office_admin(cn)
+    office, _admin = _office_admin(cn)
     sid = int(rec_score.admin_upsert(cn, "mill-wall.err_n", "3", "0", "n")[0]["id"])
     assert scalar(cn, "SELECT COUNT(*) FROM watcher WHERE type='score' AND id=%s", (sid,)) == 0
-    assert scalar(cn, "SELECT desk_id FROM activity WHERE type='score' AND id=%s", (sid,)) == admin
+    assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='score' AND id=%s AND desk_id IS NULL", (sid,)) == 1
     assert scalar(cn, "SELECT roster_id FROM score WHERE id=%s", (sid,)) == office
 
 
@@ -125,18 +124,18 @@ def test_empty_kpi_refused(cn):
         rec_score.admin_upsert(cn, "", "1", "", "")
 
 
-def test_missing_admin_roster_refuses_and_fallback_fails_closed(cn):
+def test_office_rows_do_not_need_the_admin_roster(cn):
+    # Beta 0.8.0: an office score has no owner name, so a retired Admin roster does not stop it.
     from agent_coord.server import score_tick
 
     cur = cn.cursor()
     cur.execute("UPDATE name SET deleted = CURRENT_TIMESTAMP(6) WHERE type='roster' AND name='Admin'")
     cur.close()
     cn.commit()
-    with pytest.raises(Exception, match="no Admin roster|name retired"):
-        rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "")
+    rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "")
     out = score_tick.publish({score_tick.KPI_TICKS: 4})
-    assert out["ok"] is False
-    assert "Admin roster missing" in out["error"]
+    assert out["ok"] is True and "fallback" not in out, out
+    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == ["4"]
 
 
 def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
@@ -155,7 +154,7 @@ def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     assert any(r.get("desk") == "sa_ok" for r in out["rows"])
 
 
-def test_score_add_is_owned_by_admin_roster(cn):
+def test_score_add_is_owned_by_the_office(cn):
     from agent_coord.server import score_tick
 
     out = score_tick.score_add("todo.open")

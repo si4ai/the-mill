@@ -1,4 +1,4 @@
-"""score_tick never looks Admin up as a desk; fallback resolves rosters by name."""
+"""score_tick never looks Admin up as a desk; office rows have no desk (beta 0.8.0)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,29 +35,31 @@ def test_no_upsert_names_admin_as_a_desk():
     assert "desk_id=2" not in src
 
 
-def test_fallback_resolves_rosters_by_name():
+def test_fallback_updates_the_office_rows_with_no_desk():
+    # Beta 0.8.0: office rows are roster 1 with desk_id NULL; the fallback reads no roster ids.
     from agent_coord.server import score_tick as st
 
     cur = MagicMock()
-    cur.fetchone.return_value = (11, 22)
     cn = MagicMock()
     cn.cursor.return_value = cur
     st._publish_sql(cn, {st.KPI_TICKS: 3})
     updates = [c for c in cur.execute.call_args_list if "UPDATE score" in c.args[0]]
     assert len(updates) == 3
-    assert all(c.args[1][-2:] == (11, 22) for c in updates)
+    assert all("roster_id=1 AND desk_id IS NULL" in c.args[0] for c in updates)
+    assert [c.args[1][0] for c in updates][0] == "3"
+    assert cn.commit.called
 
 
-def test_fallback_without_rosters_fails_closed():
+def test_fallback_failure_does_not_commit():
     import pytest
 
     from agent_coord.server import score_tick as st
 
     cur = MagicMock()
-    cur.fetchone.return_value = (1, None)
+    cur.execute.side_effect = RuntimeError("book down")
     cn = MagicMock()
     cn.cursor.return_value = cur
-    with pytest.raises(RuntimeError, match="roster missing"):
+    with pytest.raises(RuntimeError, match="book down"):
         st._publish_sql(cn, {})
     assert not cn.commit.called
 

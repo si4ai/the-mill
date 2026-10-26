@@ -197,7 +197,7 @@ def test_floor_office_kpis(cn) -> None:
     cur = cn.cursor()
     cur.execute(
         "UPDATE score SET value='7' "
-        "WHERE roster_id=1 AND desk_id=2 AND kpi='mill-wall.ticks'"
+        "WHERE roster_id=1 AND desk_id IS NULL AND kpi='mill-wall.ticks'"  # beta 0.8.0
     )
     cn.commit()
     cur.close()

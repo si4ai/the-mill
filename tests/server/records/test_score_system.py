@@ -342,7 +342,7 @@ def test_wall_routes_share_one_office_score(cn) -> None:
     doc = _loads(row[0])
     assert len(act_rows) == 1
     assert nscore == 1
-    assert row[2] == row[3]
+    assert row[2] is None and row[3] == 1  # beta 0.8.0: the office score has no desk
     assert doc["n"] == 3
     assert doc["/api/floor"] == {"n": 2, "ms": 20}
     assert doc["/api/activity"] == {"n": 1, "ms": 5}

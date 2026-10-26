@@ -107,10 +107,10 @@ def test_seat_roster_refuses_office_by_either_name(cn, renamed, spelling):
 
 def test_score_procs_find_office_by_id(cn, renamed):
     rec_score.admin_upsert(cn, "r722o.kpi", "1", "0", "note")
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id = %s"
-                    " AND kpi = 'r722o.kpi'", (ADMIN_ROSTER_ID,)) == 1
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
+                    " AND kpi = 'r722o.kpi'") == 1  # beta 0.8.0: no desk, not the Admin roster
     call(cn, "mill_wall_event", ["r722o-route", 5, None])
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id = 1"
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
                     " AND kpi = 'wall'") == 1
     call(cn, "mill_score_event", ["r722o-plain", "todo", 5, 1, 1, None])
     assert _one(cn, "SELECT COUNT(*) FROM score s JOIN name d ON d.id = s.desk_id"

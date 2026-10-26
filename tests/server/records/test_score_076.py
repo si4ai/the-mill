@@ -31,7 +31,7 @@ def _q(cn, sql: str, args=()):
 def _live(cn, roster: str, kpi: str) -> list[tuple]:
     return _q(
         cn,
-        "SELECT s.id, s.desk_id = s.roster_id FROM score s JOIN name r ON r.id = s.roster_id"
+        "SELECT s.id, s.desk_id IS NULL FROM score s JOIN name r ON r.id = s.roster_id"
         " JOIN activity a ON a.type = 'score' AND a.id = s.id AND a.deleted IS NULL"
         " WHERE r.name = %s AND s.kpi = %s ORDER BY s.id",
         (roster, kpi),

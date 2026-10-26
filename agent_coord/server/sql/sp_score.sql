@@ -67,10 +67,10 @@ BEGIN
   SELECT v_id AS id, v_ts AS updated, p_kpi AS kpi;
 END //
 
--- Office host score owned by the Admin roster (Admin is a roster, not a desk).
--- score_tick writes mill-wall.* / mill-desk.* / book KPIs here: roster_id = Office,
--- desk_id = Admin roster, the rows Glance reads. No watcher: a roster watcher
--- would wake every Admin desk on each tick. Refuses if either roster is missing.
+-- Office host score, owned by the office itself (beta 0.8.0: desk_id NULL; main wrote
+-- the Admin roster id here). score_tick writes mill-wall.* / mill-desk.* / book KPIs
+-- here: roster_id = Office (id 1), desk_id NULL, the rows Glance reads. No watcher.
+-- The kind-checked FK on score.roster_id holds Office as a roster, so no guard reads it.
 CREATE PROCEDURE mill_score_admin_upsert(
   IN p_kpi    VARCHAR(64),
   IN p_value  VARCHAR(64),
@@ -80,8 +80,6 @@ CREATE PROCEDURE mill_score_admin_upsert(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
-  DECLARE v_office BIGINT UNSIGNED;
-  DECLARE v_admin BIGINT UNSIGNED;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_id = NULL;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -90,23 +88,15 @@ BEGIN
   END;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
-  SET v_office = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
-  SET v_admin = MILL_NAME_GET('roster', 'Admin');
-  IF v_office IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no Office roster (MILL_NAME_GET)';
-  END IF;
-  IF v_admin IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no Admin roster (MILL_NAME_GET)';
-  END IF;
   IF p_kpi IS NULL OR CHAR_LENGTH(p_kpi) = 0 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'kpi required';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_office AND desk_id = v_admin AND kpi = p_kpi
+    WHERE roster_id = 1 AND desk_id IS NULL AND kpi = p_kpi
     LIMIT 1;
   IF v_id IS NULL THEN
     INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-    VALUES (v_ts, v_admin, v_office, p_kpi, IFNULL(p_value, ''), IFNULL(p_target, ''), IFNULL(p_note, ''));
+    VALUES (v_ts, NULL, 1, p_kpi, IFNULL(p_value, ''), IFNULL(p_target, ''), IFNULL(p_note, ''));
     SET v_id = LAST_INSERT_ID();
   ELSE
     UPDATE score
@@ -116,7 +106,7 @@ BEGIN
           note = IFNULL(p_note, note)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_admin, v_office, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, NULL, 1, MILL_WEIGHT('score'), NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -165,7 +155,7 @@ BEGIN
 END //
 
 -- 0.7.5 (#288 step 1): record one numeric point. The definition is owned by the
--- roster (desk_id = roster id, as mill_score_admin_upsert does for Admin), so every
+-- roster (beta 0.8.0: desk_id NULL; main wrote the roster id here), so every
 -- desk on the roster adds to one series. NULL target/better/unit keep the stored
 -- value. Watchers as mill_score_upsert.
 -- 0.7.6 (#308): p_at is the point's time: NULL is now, 'Nm', 'Nh' or 'Nd' is that
@@ -236,11 +226,11 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_proj AND desk_id = v_proj AND kpi = p_kpi
+    WHERE roster_id = v_proj AND desk_id IS NULL AND kpi = p_kpi
     LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
     INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
-    VALUES (v_ts, v_proj, v_proj, p_kpi, '', IFNULL(p_target, ''),
+    VALUES (v_ts, NULL, v_proj, p_kpi, '', IFNULL(p_target, ''),
             '', IFNULL(p_better, 'up'), IFNULL(p_unit, ''));
     SET v_id = LAST_INSERT_ID();
   ELSE
@@ -309,11 +299,11 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_proj AND desk_id = v_proj AND kpi = p_kpi
+    WHERE roster_id = v_proj AND desk_id IS NULL AND kpi = p_kpi
     LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
     INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
-    VALUES (v_ts, v_proj, v_proj, p_kpi, '', IFNULL(p_target, ''), '',
+    VALUES (v_ts, NULL, v_proj, p_kpi, '', IFNULL(p_target, ''), '',
             IFNULL(p_better, 'up'), IFNULL(p_unit, ''));
     SET v_id = LAST_INSERT_ID();
   ELSE
@@ -362,16 +352,15 @@ BEGIN
   END IF;
   SELECT s.id, s.desk_id INTO v_id, v_owner FROM score s
     JOIN activity a ON a.type = 'score' AND a.id = s.id AND a.deleted IS NULL
-    LEFT JOIN name dn ON dn.id = s.desk_id
    WHERE s.roster_id = v_proj AND s.kpi = p_kpi
-     AND (s.desk_id = v_proj OR dn.type = 'roster' OR s.value <> ''
+     AND (s.desk_id IS NULL OR s.value <> ''
           OR EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id))
-   ORDER BY (s.desk_id = v_proj) DESC, (dn.type = 'roster') DESC, s.updated DESC
+   ORDER BY (s.desk_id IS NULL) DESC, s.updated DESC
    LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: no such score on this roster';
   END IF;
-  IF NOT (IFNULL(p_admin, 0) = 1 OR (v_desk IS NOT NULL AND v_owner = v_desk)
+  IF NOT (IFNULL(p_admin, 0) = 1 OR (v_desk IS NOT NULL AND IFNULL(v_owner = v_desk, 0))
           OR (v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM score_point sp
                                               WHERE sp.score_id = v_id AND sp.desk_id = v_desk))) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: only a desk that recorded on it, or Admin, can retire it';
@@ -386,10 +375,11 @@ END //
 
 -- 0.7.5 (#288 step 1): read series. p_kpi names one score: its definition plus the
 -- newest p_limit points by time (--at, else when recorded; idx_score_at). The
--- roster-owned definition wins, then an Admin row, then the newest desk row. An
+-- roster-owned definition (desk_id NULL, beta 0.8.0) wins, then the newest desk row. An
 -- empty legacy desk row (no value, no points) is never returned (#305). p_kpi '' lists the
 -- roster: every live score with its newest p_limit points. One row per point; a
 -- score with no points is one row with point_id NULL. Soft-deleted scores are skipped.
+-- owner is the desk of a desk row, else the roster's name (beta 0.8.0: a roster-owned row has no desk).
 CREATE PROCEDURE mill_score_points(
   IN p_project VARCHAR(64),
   IN p_kpi     VARCHAR(64),
@@ -408,17 +398,17 @@ BEGIN
   IF IFNULL(p_kpi, '') <> '' THEN
     SELECT s.id INTO v_id FROM score s
       LEFT JOIN activity a ON a.type = 'score' AND a.id = s.id
-      LEFT JOIN name dn ON dn.id = s.desk_id
      WHERE s.roster_id = v_proj AND s.kpi = p_kpi AND a.deleted IS NULL
-       AND (s.desk_id = v_proj OR dn.type = 'roster' OR s.value <> ''
+       AND (s.desk_id IS NULL OR s.value <> ''
             OR EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id))
-     ORDER BY (s.desk_id = v_proj) DESC, (dn.type = 'roster') DESC, s.updated DESC
+     ORDER BY (s.desk_id IS NULL) DESC, s.updated DESC
      LIMIT 1;
     SELECT s.id, s.kpi, s.value AS latest, s.target, s.better, s.unit, s.updated,
-           dn.name AS owner, p.id AS point_id, p.value AS v, p.created AS at,
+           IFNULL(dn.name, rn.name) AS owner, p.id AS point_id, p.value AS v, p.created AS at,
            p.note, pn.name AS desk
       FROM score s
       LEFT JOIN name dn ON dn.id = s.desk_id
+      LEFT JOIN name rn ON rn.id = s.roster_id
       LEFT JOIN (SELECT sp.score_id, sp.id, sp.value, sp.created, sp.note, sp.desk_id
                    FROM score_point sp
                   WHERE sp.score_id = v_id
@@ -429,11 +419,12 @@ BEGIN
      ORDER BY p.created DESC, p.id DESC;
   ELSE
     SELECT s.id, s.kpi, s.value AS latest, s.target, s.better, s.unit, s.updated,
-           dn.name AS owner, p.id AS point_id, p.value AS v, p.created AS at,
+           IFNULL(dn.name, rn.name) AS owner, p.id AS point_id, p.value AS v, p.created AS at,
            p.note, pn.name AS desk
       FROM score s
       LEFT JOIN activity a ON a.type = 'score' AND a.id = s.id
       LEFT JOIN name dn ON dn.id = s.desk_id
+      LEFT JOIN name rn ON rn.id = s.roster_id
       LEFT JOIN (SELECT sp.score_id, sp.id, sp.value, sp.created, sp.note, sp.desk_id,
                         ROW_NUMBER() OVER (PARTITION BY sp.score_id ORDER BY sp.created DESC, sp.id DESC) AS rn
                    FROM score_point sp
@@ -526,9 +517,9 @@ BEGIN
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
-  SET v_proj = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
+  SET v_proj = 1;  -- Office by id (#722); the kind-checked FK on score.roster_id holds it a roster
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  IF v_proj IS NOT NULL AND v_desk IS NOT NULL AND p_verb IS NOT NULL AND CHAR_LENGTH(p_verb) > 0 THEN
+  IF v_desk IS NOT NULL AND p_verb IS NOT NULL AND CHAR_LENGTH(p_verb) > 0 THEN
     SET v_id = (
       SELECT id FROM score
        WHERE roster_id = v_proj AND desk_id = v_desk AND kpi = 'system'
@@ -602,7 +593,7 @@ BEGIN
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
--- One office score, kpi wall, hung on Office. Not a desk.
+-- One office score, kpi wall, hung on Office. Not a desk: desk_id NULL (beta 0.8.0).
 -- Each wall /api route is a key: n calls and total host milliseconds.
 CREATE PROCEDURE mill_wall_event(
   IN p_route VARCHAR(64),
@@ -613,7 +604,6 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_now DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
-  DECLARE v_office BIGINT UNSIGNED;
   DECLARE v_dup INT DEFAULT 0;
   DECLARE v_hour DATETIME(6);
   DECLARE v_day DATETIME(6);
@@ -633,26 +623,25 @@ BEGIN
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
-  SET v_office = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
-  IF v_office IS NOT NULL AND p_route IS NOT NULL AND CHAR_LENGTH(p_route) > 0 THEN
+  IF p_route IS NOT NULL AND CHAR_LENGTH(p_route) > 0 THEN
     SET v_id = (
       SELECT id FROM score
-       WHERE roster_id = v_office AND desk_id = v_office AND kpi = 'wall'
+       WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'wall'
        LIMIT 1
     );
     IF v_id IS NULL THEN
       INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-      VALUES (v_ts, v_office, v_office, 'wall', '0', '', 'wall route count and host milliseconds');
+      VALUES (v_ts, NULL, 1, 'wall', '0', '', 'wall route count and host milliseconds');
       IF v_dup = 1 THEN
         SET v_dup = 0;
         SET v_id = (
           SELECT id FROM score
-           WHERE roster_id = v_office AND desk_id = v_office AND kpi = 'wall'
+           WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'wall'
            LIMIT 1
         );
       ELSE
         SET v_id = LAST_INSERT_ID();
-        CALL mill_activity_put('score', v_id, v_ts, v_office, v_office, NULL, NULL);
+        CALL mill_activity_put('score', v_id, v_ts, NULL, 1, NULL, NULL);
       END IF;
     END IF;
     SET v_hour = STR_TO_DATE(

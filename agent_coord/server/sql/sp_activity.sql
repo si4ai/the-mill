@@ -3,6 +3,8 @@
 -- p_id = payload id (mail.id, todo.id, ...). No AUTO_INCREMENT on activity.
 -- p_bytes = last payload UTF-8 byte length (mail/todo body); NULL if none.
 -- p_project NULL keeps the row's roster: a tree parent touch passes NULL (card 841).
+-- p_desk NULL (beta 0.8.0) is the office: a new row has no desk, and a touch of an
+-- existing row keeps its desk (a parent touch is not the parent's new author).
 -- Outer SP owns the transaction.
 
 DROP PROCEDURE IF EXISTS mill_activity_put;
@@ -37,7 +39,7 @@ BEGIN
   VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_weight, MILL_WEIGHT(p_type)), 1, p_bytes)
   ON DUPLICATE KEY UPDATE
     updated = p_ts,
-    desk_id = p_desk,
+    desk_id = IFNULL(p_desk, desk_id),
     roster_id = IFNULL(p_project, roster_id),
     weight = IFNULL(p_weight, weight),
     n = n + 1,
@@ -50,7 +52,9 @@ CREATE PROCEDURE mill_watcher_put(
   IN p_desk BIGINT UNSIGNED
 )
 BEGIN
-  INSERT IGNORE INTO watcher (type, id, desk_id) VALUES (p_type, p_id, p_desk);
+  -- Beta 0.8.0: no IGNORE, so a non-desk (a roster id) is the FK refusal, not a silent no-op.
+  INSERT INTO watcher (type, id, desk_id) VALUES (p_type, p_id, p_desk) AS new
+  ON DUPLICATE KEY UPDATE desk_id = new.desk_id;
 END //
 
 CREATE PROCEDURE mill_watcher_roster(
@@ -78,25 +82,13 @@ CREATE PROCEDURE mill_watcher_select(
   IN p_id   BIGINT UNSIGNED
 )
 BEGIN
-  -- A roster watcher expands to its members when it wakes them (#265), so a desk
-  -- that joins the roster later is woken too. A desk's own row wins over the
-  -- roster row (its own hint), and a desk on two watching rosters appears once.
+  -- Beta 0.8.0: a watcher is a desk (watcher.desk_id FKs to seat). Main's roster
+  -- watcher rows (#265) are expanded to their member desks by the 0.8.0 migration.
   SELECT w.desk_id, n.name AS desk, n.type AS desk_type, w.hint, h.delivery_mode, h.endpoint_url
     FROM watcher w
     JOIN name n ON n.id = w.desk_id AND n.type = 'desk'
     LEFT JOIN seat h ON h.desk_id = w.desk_id
-   WHERE w.type = p_type AND w.id = p_id
-  UNION ALL
-  SELECT d.id, d.name, d.type, MIN(w.hint), h.delivery_mode, h.endpoint_url
-    FROM watcher w
-    JOIN name r ON r.id = w.desk_id AND r.type = 'roster'
-    JOIN member mb ON mb.name_id = r.id
-    JOIN name d ON d.id = mb.desk_id AND d.type = 'desk' AND d.deleted IS NULL
-    LEFT JOIN seat h ON h.desk_id = d.id
-   WHERE w.type = p_type AND w.id = p_id
-     AND NOT EXISTS (
-       SELECT 1 FROM watcher x WHERE x.type = p_type AND x.id = p_id AND x.desk_id = d.id)
-   GROUP BY d.id, d.name, d.type, h.delivery_mode, h.endpoint_url;
+   WHERE w.type = p_type AND w.id = p_id;
 END //
 
 CREATE PROCEDURE mill_watcher_set_hint(
@@ -209,7 +201,6 @@ BEGIN
   DECLARE v_kind VARCHAR(16);
   DECLARE v_grain VARCHAR(16);
   DECLARE v_name BIGINT UNSIGNED;
-  DECLARE v_office BIGINT UNSIGNED;
   DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
 
   SET v_kind = LOWER(IFNULL(p_kind, ''));
@@ -222,8 +213,6 @@ BEGIN
   END IF;
 
   SET v_name = NULL;
-  SET v_office = NULL;
-  SELECT id INTO v_office FROM name WHERE id = 1 AND type = 'roster' AND deleted IS NULL LIMIT 1;  -- #722: Office by id
   IF v_kind = 'project' THEN
     SELECT id INTO v_name FROM name WHERE type = 'roster' AND name = p_id AND deleted IS NULL LIMIT 1;
   ELSEIF v_kind = 'role' THEN
@@ -264,7 +253,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = v_office
+      ON s.roster_id = 1
      AND s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -278,7 +267,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = v_office
+      ON s.roster_id = 1
      AND s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -292,7 +281,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = v_office
+      ON s.roster_id = 1
      AND s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -306,7 +295,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = v_office
+      ON s.roster_id = 1
      AND s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
