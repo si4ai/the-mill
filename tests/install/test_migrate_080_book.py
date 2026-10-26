@@ -511,7 +511,10 @@ def test_perf_lines_on_and_off(main_book, monkeypatch, tmp_path):
 
 
 def test_migration_timing(main_book, capsys):
-    """Time the whole migration on a seeded book. MILL_080_SCALE=10 is about 10x the cloud office's volumes."""
+    """Time the whole migration on a seeded book.
+
+    MILL_080_SCALE=10 is about the cloud office's volumes (mail 3.2k, cards 900, holds 200); 100 is 10x.
+    """
     from agent_coord.install import migrate
 
     scale = int(os.environ.get("MILL_080_SCALE") or 1)
@@ -527,3 +530,42 @@ def test_migration_timing(main_book, capsys):
     with capsys.disabled():
         print(f"\nmigrate_080 scale={scale} seed_s={seeded:.1f} total_s={total:.2f} counts={counts}")
         print("steps_ms=" + json.dumps({k: round(v, 1) for k, v in timings.items()}))
+
+
+def test_wipe_then_apply_on_a_migrated_book_is_a_fresh_install(main_book, fresh_snapshot):
+    """MILL_RECORDS_WIPE: wipe.sql drops the 0.8.0 tables and triggers too, so tables.sql applies clean."""
+    from agent_coord.install import migrate
+    from tests.beta_book import schema_snapshot
+
+    seed(main_book)
+    _migrate(main_book)
+    migrate.apply_records(main_book, wipe=True)
+    snap = schema_snapshot(main_book)
+    for key in fresh_snapshot:
+        assert snap[key] == fresh_snapshot[key], key
+    assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == 0
+
+
+@pytest.mark.parametrize("cut", ["fks_dropped_not_added", "todo_event_copied_not_dropped"])
+def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
+    """A kill between the two ALTERs of the FK step, or between the todo_event copy and the column drop."""
+    from agent_coord.install import migrate
+    from tests.beta_book import schema_snapshot
+
+    seed(main_book)
+    n_ev = _one(main_book, "SELECT COUNT(*) FROM todo WHERE evidence IS NOT NULL")
+    cur = main_book.cursor()
+    if cut == "fks_dropped_not_added":
+        migrate.apply_080(main_book, stop_after="doing_now")
+        cur.execute("ALTER TABLE mail DROP FOREIGN KEY fk_mail_desk, DROP FOREIGN KEY fk_mail_roster")
+    else:
+        migrate.apply_080(main_book, stop_after="tables")
+        cur.execute("INSERT INTO todo_event (todo_id, created, desk_id, to_status, assigned_id, evidence)"
+                    " SELECT id, updated, updated_id, status, assigned_id, evidence FROM todo WHERE evidence IS NOT NULL")
+    main_book.commit()
+    cur.close()
+    assert migrate.apply_080(main_book)
+    snap = schema_snapshot(main_book)
+    for key in fresh_snapshot:
+        assert snap[key] == fresh_snapshot[key], (cut, key)
+    assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == n_ev
