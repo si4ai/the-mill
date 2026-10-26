@@ -1,7 +1,7 @@
 """#629 the Grok Bot guide carries the room barker recipe with the facts a cold
 reader needs: the two barker files, one routine per desk (never both), the map
-written by the spawner, the log path, the fixed wake message, and that an
-addressed-only desk needs another connect path. Plain ASCII, no real URL or key."""
+written by the spawner, the log path, the fixed wake message, and that a
+desk that must see room copies arms --wake-on all, with no scheduled check beside the webhook. Plain ASCII, no real URL or key."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,7 +26,7 @@ def test_the_recipe_names_every_fact():
         "~/.config/mill-barker/barker.log",
         "`Mill wake for DESK on ROSTER (reason R, room X): connect and check your queue`",
         "--wake-on addressed",
-        "scheduled check or another connect path",
+        "one wake method per desk: no scheduled check beside the webhook",
         "in chat, mail or a command line",
         "never reads mail",
     ):
