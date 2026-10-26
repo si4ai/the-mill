@@ -540,6 +540,18 @@ def _build_parser() -> MillArgumentParser:
     )
     r.add_argument("resource")
 
+    dn = sub.add_parser(
+        "wake-done",
+        help="end this woken run: mill wake-done [--note TEXT] (the last step of a webhook-woken run)",
+        description=(
+            "F144: the office sends one webhook wake at a time. mill wake-done ends this desk's wake lease; "
+            "letters that came during the run ring once more, carrying pending_count and the note. "
+            "Without it the lease lapses after the office's wake_lease_s (default 900 s). "
+            "It closes no card: that is mill pass ROSTER NEED --done."
+        ),
+    )
+    dn.add_argument("--note", default="", help="one line for the next wake (last_note): what you did, what is next")
+
     m = sub.add_parser(
         "send",
         help="send a letter: mill send roster NAME | desk NAME --body-file PATH",

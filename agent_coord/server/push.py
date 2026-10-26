@@ -763,11 +763,13 @@ def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     except Exception as e:
         _bc_log(f"hold own err desk={desk} err={e}")
         holds = []
-    # #618: this sync hands over the queue, so the desk's next hint may ring its webhook.
+    # F144: a sync does not end the desk's wake lease. A routine run connects once
+    # per shell call; only mill wake-done or the lease timeout lets the next item POST.
+    # The sync did hand over what was held back, so those no longer count.
     try:
-        from agent_coord.server.wake import gate_clear
+        from agent_coord.server.wake import lease_synced
 
-        gate_clear(desk)
+        lease_synced(desk)
     except Exception:
         pass
     return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk), "hello": hello_line(cn)}

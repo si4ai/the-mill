@@ -45,7 +45,7 @@ def test_a_second_letter_logs_coalesced_with_the_reason(logged):
     with patch("agent_coord.server.wake._open", _ok):
         push.emit(MagicMock(), "away", "mail", {"id": 6251})
         push.emit(MagicMock(), "away", "mail", {"id": 6252})
-    assert _hooks(logged)[1] == "webhook desk=away kind=mail id=6252 wake=coalesced reason=window"
+    assert _hooks(logged)[1] == "webhook desk=away kind=mail id=6252 wake=coalesced reason=lease"
 
 
 def test_hints_log_one_line_each_on_the_fanout_path(logged):
@@ -54,7 +54,7 @@ def test_hints_log_one_line_each_on_the_fanout_path(logged):
         _hint(MagicMock(), 6254)
     assert _hooks(logged) == [
         f"webhook desk=away type=todo id=6253 wake=sent status=200",
-        "webhook desk=away type=todo id=6254 wake=coalesced reason=window",
+        "webhook desk=away type=todo id=6254 wake=coalesced reason=lease",
     ]
 
 
