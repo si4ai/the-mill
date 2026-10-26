@@ -39,11 +39,14 @@ ID_TYPE_OK = {
     ("vote_option", "opt"): "option number 1..n, not an id",
     ("vote_cast", "opt"): "option number 1..n, not an id",
 }
-# Kind tables (owner decision 2026-10-24): only a kind table references name, one FK each, kind id = name.id.
-KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind", ("roster", "id"): "the roster kind"}
-# label, tree and res have no kind table on main; these keep main's FK to name (id) (BETA-CHANGES.md open question Q1).
-NAME_REF_PENDING_Q1 = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id")}
-# A single-kind column FKs to its kind table: desk columns to seat (desk_id), roster columns to roster (id).
+# Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data. seat is the
+# desk kind (one FK to name, kind id = name.id); roster, label, tree and res have no data of their own, so their
+# columns reference name (id) as on main.
+KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind"}
+NAME_REF_NO_OWN_DATA = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id"),
+                        ("member", "name_id"), ("activity", "roster_id"), ("mail", "roster_id"), ("todo", "roster_id"),
+                        ("doing", "roster_id"), ("score", "roster_id"), ("vote", "roster_id"), ("human_member", "name_id")}
+# Desk columns FK to seat (desk_id); roster columns to name (id).
 DESK_COLS = ("desk_id", "updated_id", "creator_id", "assigned_id")
 ROSTER_COLS = ("roster_id",)
 ROSTER_NAME_ID = {"member", "human_member"}  # name_id is a roster there (main's comments)
@@ -115,8 +118,8 @@ def test_only_kind_tables_reference_name(book):
     to_name = {(t, c): r for t, _fk, c, rt, r in _fks(cn, db) if rt == "name"}
     assert all(r == "id" for r in to_name.values()), f"a reference to name is one column to name (id): {to_name}"
     assert set(KIND_REF_TO_NAME) <= set(to_name), f"each kind table links to name: {sorted(to_name)}"
-    bad = sorted(set(to_name) - set(KIND_REF_TO_NAME) - NAME_REF_PENDING_Q1)
-    assert not bad, f"only a kind table references name; point these at their kind table: {bad}"
+    bad = sorted(set(to_name) - set(KIND_REF_TO_NAME) - NAME_REF_NO_OWN_DATA)
+    assert not bad, f"only seat and the kinds with no data of their own reference name: {bad}"
     gen = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s"
                     " AND COLUMN_NAME LIKE 't\\_%%'", (db,))
     assert not gen, f"no generated type columns since the kind-table rework: {gen}"
@@ -130,9 +133,9 @@ def test_single_kind_columns_reference_their_kind_table(book):
             continue
         if c in DESK_COLS and (rt, r) != ("seat", "desk_id"):
             bad.append((t, fk, c, rt, r))
-        if (c in ROSTER_COLS or (t in ROSTER_NAME_ID and c == "name_id")) and (rt, r) != ("roster", "id"):
+        if (c in ROSTER_COLS or (t in ROSTER_NAME_ID and c == "name_id")) and (rt, r) != ("name", "id"):
             bad.append((t, fk, c, rt, r))
-    assert not bad, f"a desk column FKs to seat (desk_id), a roster column to roster (id): {bad}"
+    assert not bad, f"a desk column FKs to seat (desk_id), a roster column to name (id): {bad}"
 
 
 def test_no_name_history_table(book):
@@ -167,10 +170,38 @@ def test_no_name_event_anywhere_in_the_book(book):
     cn, db = book
     tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
     assert "name_event" not in tables
-    assert len(tables) == 30, f"beta book has {len(tables)} tables"
+    assert len(tables) == 29, f"beta book has {len(tables)} tables"
     trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
                      " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
                      " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))
     rout = _rows(cn, "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = %s"
                      " AND (ROUTINE_NAME LIKE '%%name\\_event%%' OR ROUTINE_DEFINITION LIKE '%%name\\_event%%')", (db,))
     assert not trig and not rout, f"still names name_event: triggers {trig}, routines {rout}"
+
+
+# The owner (2026-10-25): a name kind gets its own table only if the thing has its own data. A roster has none, so
+# there is no roster table and the eight roster columns reference name (id), with main's constraint names (F167).
+ROSTER_FKS = {
+    ("member", "fk_member_name", "name_id"): "RESTRICT",
+    ("activity", "fk_activity_roster", "roster_id"): "RESTRICT",
+    ("mail", "fk_mail_roster", "roster_id"): "RESTRICT",
+    ("todo", "fk_todo_roster", "roster_id"): "RESTRICT",
+    ("doing", "fk_doing_roster", "roster_id"): "RESTRICT",
+    ("score", "fk_score_roster", "roster_id"): "RESTRICT",
+    ("vote", "fk_vote_roster", "roster_id"): "RESTRICT",
+    ("human_member", "fk_human_member_name", "name_id"): "CASCADE",
+}
+
+
+def test_no_roster_table_and_roster_columns_reference_name(book):
+    cn, db = book
+    tables = {t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))}
+    assert "roster" not in tables
+    got = {(t, fk, c): (rt, rc, rule) for t, fk, c, rt, rc, rule in _rows(
+        cn, "SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,"
+            " r.DELETE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r"
+            " ON r.CONSTRAINT_SCHEMA = k.TABLE_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME"
+            " WHERE k.TABLE_SCHEMA = %s AND k.REFERENCED_TABLE_NAME IS NOT NULL", (db,))}
+    bad = {key: got.get(key) for key, rule in ROSTER_FKS.items() if got.get(key) != ("name", "id", rule)}
+    assert not bad, f"each roster column FKs to name (id) with its rule: {bad}"
+    assert not [k for k, v in got.items() if v[0] == "roster"], "nothing references a roster table"

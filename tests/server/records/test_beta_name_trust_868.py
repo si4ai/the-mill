@@ -94,12 +94,13 @@ def test_mint_limited_admin_ok(cn, trust, kind):
     assert nid(cn, kind, f"la-{kind}") is not None
 
 
-def test_mint_roster_writes_its_kind_row(cn):
+def test_mint_roster_is_its_name_row_only(cn):
+    # No roster table (owner rule 2026-10-25): a roster has no data of its own, so the name row is the roster.
     call(cn, "sp_name_mint", "adm", "roster", "kind-r")
     i = nid(cn, "roster", "kind-r")
-    assert q(cn, "SELECT id FROM roster WHERE id = %s", (i,)) == [(i,)]
-    call(cn, "sp_name_mint", "adm", "label", "kind-l")
-    assert q(cn, "SELECT id FROM roster WHERE id = %s", (nid(cn, "label", "kind-l"),)) == []
+    assert i is not None
+    q(cn, "INSERT INTO member (name_id, desk_id) VALUES (%s, %s)", (i, nid(cn, "desk", "ann")))
+    assert q(cn, "SELECT COUNT(*) FROM member WHERE name_id = %s", (i,)) == [(1,)]
 
 
 def test_desk_column_refuses_a_roster_id(cn):

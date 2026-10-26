@@ -78,8 +78,6 @@ BEGIN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
     END IF;
     INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name)); SET o_id = LAST_INSERT_ID(); SET o_op = 'created';
-    -- Kind table: a roster name gets its roster row in the same call (roster.id = name.id).
-    IF p_type = 'roster' THEN INSERT INTO roster (id) VALUES (o_id); END IF;
   END IF;
 END //
 DROP PROCEDURE IF EXISTS sp_name_mint //

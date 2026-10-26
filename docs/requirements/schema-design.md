@@ -68,30 +68,30 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 - **Cost.** None beyond main's table and the procedures.
 - **To change it.** The owner's OK; a performance claim also needs a lab result.
 
-## 5a. Kind tables: only a kind table links to name
+## 5a. Kind tables: only a kind with its own data gets a table
 
-- **Scope.** The rework narrows single-kind FKs only: a column that always points at ONE kind (a desk_id that is
-  always a desk, a roster_id that is always a roster) FKs to that kind table instead of `name (type, id)`. The
+- **Rule (the owner, 2026-10-25).** A name kind gets its own table only if the thing has its own data; otherwise
+  references go to `name (id)`.
+- **Scope.** The rework narrows single-kind FKs only: a column that always points at ONE kind. The
   composite-reference design (section 1) is intact: every reference that can point at several kinds (label and tree
   nodes, watchers, `doing.on_*` / `waiting_*`, the activity timeline) stays a (type ENUM, id) composite, unchanged.
   The isolated name table, nested-set trees (section 2) and label rank (section 4) are unchanged too.
-- **Decision.** A table that needs a desk, a roster, a tree and so on FKs to that kind's table, never to `name`.
-  Only a kind table links to `name`, with one FK. The desk kind is `seat` (desk_id, UNIQUE as on main); the roster
-  kind is `roster` (id). label, tree and res have no kind table on main, so their four references keep main's FK
-  to `name (id)` (open question Q1 in BETA-CHANGES.md).
-- **Link shape: kind id = name.id, one FK per kind table to `name (id)`.** Chosen because it keeps ids shared:
-  every desk and roster column still holds the name id, so no column, join or procedure argument changes, and a
-  kind row needs no id of its own. The other shape (kind.name_id UNIQUE with the kind's own id) would add a second
-  id per desk and roster and a translation at every write. seat keeps main's own `id` column; its UNIQUE desk_id
-  is the referenced key, so the same rule holds with no new index.
+- **Decision.** The desk is the one kind with data of its own (token, wake, connect stamps), so `seat` (desk_id,
+  UNIQUE as on main) is its kind table: it links to `name (id)` with one FK, and every desk column FKs to seat
+  (desk_id). A roster, label, tree or res has no data of its own (a roster's desk count is `name.n`, as on main), so
+  none has a kind table: the eight roster columns and the four label, tree and res references keep main's FK to
+  `name (id)`. There is no `roster` table (f316ac0f had one; the owner dropped it on 2026-10-25).
+- **Link shape: kind id = name.id.** Chosen because it keeps ids shared: every desk column still holds the name id,
+  so no column, join or procedure argument changes, and seat needs no new index (its UNIQUE desk_id is the
+  referenced key).
 - **Why.** The typed composite FK to `name (type, id)` made `name` the hub of every relation and cost a generated
-  column plus an index per reference. A kind table carries the same guarantee (a desk column cannot hold a roster
-  id) with plain one-column FKs that reuse the indexes main already has. Counts on a fresh book, before
-  (dbef70f) and after: FKs to `name` 34 -> 6, all indexes 115 -> 89, FK-only indexes 36 -> 12, generated type
-  columns 30 -> 0 (BETA-CHANGES.md, Kind tables).
-- **Cost.** One one-column table (`roster`). Whether a seat row is a desk name and a roster row a roster name is
-  the minting procedures' job (open question Q3).
-- **To change it.** The owner's OK.
+  column plus an index per reference. seat gives desk columns the guarantee that matters most (a desk column cannot
+  hold a roster id) with plain one-column FKs that reuse main's indexes. Counts on a fresh book, #199 head and now:
+  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 88, generated type columns 31 -> 0 (BETA-CHANGES.md,
+  Kind tables).
+- **Cost.** A roster column can hold any name id at the database level; the procedures make sure it is a roster.
+  Whether a seat row is a desk name is the minting procedure's job (open question Q3).
+- **To change it.** A kind that gains data of its own, plus the owner's OK.
 
 ## 6. High / limited trust with Admin applies to every command, enforced in the procedures
 
