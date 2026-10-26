@@ -55,6 +55,15 @@
  *                (the storm the lease fixes); on by default with LEASE
  *   MUT_DONE_ANY mutation of the lease: wake-done never sends the trailing POST
  *                (must fail delivery)
+ *   HOLD1        1 = card 887 / F144a: post_desk checks for a live lease and records
+ *                the held-back item in one lock hold (_coalesced -> _hold_locked),
+ *                and the take is the same single hold (_coalesced take=True: record
+ *                under a lease that started meanwhile, else start one). 0 = the
+ *                #216 order: peek, release, then record in a later hold.
+ *   TOKEN        1 = card 888 / F144b: every lease has a token (wake.lease, _EPOCH);
+ *                the run says mill wake-done --lease TOKEN, and a token that is not
+ *                the current lease's ends nothing (stale). 0 = no token (an older
+ *                client): the done ends whatever lease is current.
  */
 
 #ifndef N
@@ -104,6 +113,12 @@
 #endif
 #ifndef ONE_RUN
 #define ONE_RUN LEASE
+#endif
+#ifndef HOLD1
+#define HOLD1 LEASE
+#endif
+#ifndef TOKEN
+#define TOKEN LEASE
 #endif
 
 #define ALL ((1 << N) - 1)
@@ -194,6 +209,34 @@ inline coalesce() {
 /* wake.py post_desk, from the peek on. Steps between atomics interleave. */
 inline post_desk(ok, took) {
   took = false;
+#if HOLD1 && !defined(MUT_SPLIT_GATE)
+  /* _coalesced(take=False): live lease -> record the item in the same hold */
+  if
+  :: atomic { !GATE_OPEN -> if :: trail != gate_ep -> trail = gate_ep :: else -> skip fi }
+  :: atomic { GATE_OPEN -> skip };
+     /* check_url + public_host assumed to pass: an armed, valid URL */
+     atomic {                     /* _coalesced(take=True): record, or start a lease */
+       if
+       :: !GATE_OPEN -> if :: trail != gate_ep -> trail = gate_ep :: else -> skip fi
+       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
+                       assert(since_ok); since_ok = false;
+                       assert(!ONE_RUN || run_ok); run_ok = false;
+                       firing++
+       fi
+     };
+     if
+     :: took ->
+        fire(ok);
+        atomic {
+          firing--;
+#if RETRY827
+          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++ :: else -> skip fi
+#endif
+        }
+     :: else -> skip
+     fi
+  fi
+#else
   if
   :: atomic { !GATE_OPEN -> skip }; coalesce()                    /* 620-624 */
   :: atomic { GATE_OPEN -> skip };                                 /* peek open */
@@ -231,6 +274,7 @@ coal:
         coalesce()                                                  /* 637-639 */
      fi
   fi
+#endif
 }
 
 /* 832 fix, push.py ring_waiting: not sitting and a missed row that rings
@@ -370,13 +414,23 @@ inline deliver(s) {
 #endif
 
 /* mill wake-done (rpc _h_wake_done -> wake.lease_done): pop the lease and its
-   held-back items under the lock, whatever lease is current; when the popped
+   held-back items under the lock (TOKEN: only when the run's token is the
+   current lease's, else stale: nothing ends, no POST); when the popped
    items belong to that lease and rows still wait, one trailing POST. */
 inline wake_done(ep, ok, took, t) {
   atomic {
+#if TOKEN
+    /* --lease TOKEN: a token that is not the current lease's ends nothing */
+    if
+    :: gate_ep != ep -> t = false
+    :: else ->
+#endif
     if :: gate_ep != 0 && !gate_exp && gate_ep != ep -> stale_done = true :: else -> skip fi;
     t = (trail != 0 && trail == gate_ep);
     gate_ep = 0; gate_exp = false; trail = 0; since_ok = true; run_ok = true
+#if TOKEN
+    fi
+#endif
   };
 #ifndef MUT_DONE_ANY
   if

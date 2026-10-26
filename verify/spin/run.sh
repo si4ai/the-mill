@@ -23,7 +23,7 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which these models were last confirmed to describe the code.
-SYNC=39f2507
+SYNC=629c4f8
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
@@ -44,7 +44,7 @@ W03|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1|safety|pass|same, two connects of the de
 W04|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=0 -DMULTI=0|no_loss|pass|no taken row is lost, one connect at a time, three items
 W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0|no_loss|pass|main (831 fix shipped): a superseded connect (--take) loses no rows
 W06|wake|-DN=2 -DSESSIONS=2 -DREFUSE=1 -DMAXFAIL=0|no_loss|pass|connect -r (4409) never supersedes, so nothing is lost
-W07|wake|-DN=2 -DMAXFAIL=0|live|violated|FINDING (card 886): peek sees the lease, wake-done ends it, _coalesced finds none: no POST
+W07|wake|-DN=2 -DMAXFAIL=0|live|pass|card 887 fix (PR #218): lease check and record in one hold: every item delivered
 W08|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1|live|violated|EXPECTED: both POSTs fail, no later try (current main)
 W09|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|no loss and no races: every item delivered
 W10|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DRECEIPT=1|live|violated|BY DESIGN: a receipt never rings; it waits for a connect
@@ -62,10 +62,12 @@ W21|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_O
 W22|wake|-DN=2 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|live|pass|both fixes, two connects, pre-886 gate: every item delivered
 W23|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=0|no_loss|violated|pre-831 order (take, then send): a superseded connect loses taken rows
 W24|wake|-DN=2 -DLEASE=0 -DMAXFAIL=0 -DPUTFIRST=0 -DRING_ON_LEAVE=0|live|violated|pre-832 order (POST, then queue): perfect receiver, still stranded
-L01|wake|-DN=2 -DMAXFAIL=0|no_stale_done|violated|FINDING (card 886): a run that outlives its lease says done and ends the lease of the next run
+W25|wake|-DN=2 -DMAXFAIL=0 -DHOLD1=0|live|violated|pre-887 order (#216): peek sees the lease, wake-done ends it, the record finds none: no POST
+L01|wake|-DN=2 -DMAXFAIL=0|no_stale_done|pass|card 888 fix (PR #218): wake-done --lease TOKEN ends only its own lease
 L02|wake|-DN=2 -DMAXFAIL=1 -DLEASE=0 -DMULTI=1 -DONE_RUN=1|safety|violated|pre-886 design: a connect frees the gate mid-run, a second POST lands (the storm)
 L03|wake|-DN=2 -DMAXFAIL=1|safety|pass|lease: no new POST while the last lease is held (done or timeout ends it)
-L04|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|lease with emits atomic (W07 race hidden): done or timeout, every item delivered
+L04|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|lease with emits atomic: done or timeout, every item delivered
+L05|wake|-DN=2 -DMAXFAIL=0 -DTOKEN=0|no_stale_done|violated|no token (older client): a run that outlives its lease ends the lease of the next run
 M06|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DMUT_DONE_ANY|live|violated|mutation of the lease: wake-done sends no trailing POST
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
 M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
