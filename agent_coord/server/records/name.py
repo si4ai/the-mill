@@ -182,25 +182,41 @@ def select(cn, *, include_deleted: bool = False) -> list[dict]:
         cur.close()
 
 
-def retire(cn, name: str, kind: str = "") -> list[dict]:
-    k, bare = pair(name, kind)
-    return call(cn, "mill_name_delete", [k, bare])
+# 0.8.0: the lifecycle verbs are sp_name_* (sp_beta_name.sql). `by` is the acting
+# desk's name: the procedure checks Admin (and b_trust() for a mint) itself. A desk
+# acts on itself (rename, retire) only with its own seat's token hash (`by_hash`).
 
 
-def rename(cn, old: str, new: str, kind: str = "") -> list[dict]:
+def _by(by: str) -> str:
+    return bare(by, "desk")
+
+
+def retire(cn, name: str, kind: str = "", *, by: str, by_hash: str | None = None) -> list[dict]:
+    k, bare_name = pair(name, kind)
+    return call(cn, "sp_name_retire", [_by(by), by_hash, k, bare_name])
+
+
+def rename(cn, old: str, new: str, kind: str = "", *, by: str, by_hash: str | None = None) -> list[dict]:
     k, old_b = pair(old, kind)
     _k2, new_b = pair(new, k)
-    return call(cn, "mill_name_rename", [k, old_b, new_b])
+    return call(cn, "sp_name_rename", [_by(by), by_hash, k, old_b, new_b])
 
 
-def reclaim(cn, name: str, kind: str = "") -> list[dict]:
-    k, bare = pair(name, kind)
-    return call(cn, "mill_name_reclaim", [k, bare])
+def reclaim(cn, name: str, kind: str = "", *, by: str) -> list[dict]:
+    k, bare_name = pair(name, kind)
+    return call(cn, "sp_name_reclaim", [_by(by), k, bare_name])
 
 
 def host_put(cn, name: str, kind: str = "") -> list[dict]:
+    """Host path (first-use label in rpc, server setup): MILL_NAME_PUT, which refuses a roster or label at limited trust."""
     k, bare = pair(name, kind)
     return call(cn, "mill_name_host", [k, bare])
+
+
+def mint(cn, name: str, kind: str = "", *, by: str) -> list[dict]:
+    """Get or mint a roster, label, tree or res name as desk `by` (sp_name_mint: op created or exists)."""
+    k, bare_name = pair(name, kind)
+    return call(cn, "sp_name_mint", [_by(by), k, bare_name])
 
 
 def ensure_roster(cn, name: str, kind: str = CONST_ROSTER) -> int:

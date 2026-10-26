@@ -15,6 +15,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import rows_done
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -70,7 +71,7 @@ def test_reset_frees_the_desks_holds_only(book) -> None:
 
 def test_retire_frees_the_desks_holds(book) -> None:
     cn = book
-    out = rec_name.retire(cn, DEAD, "desk")
+    out = rec_name.retire(cn, DEAD, "desk", by=admin_desk(cn))
     assert _holder(cn, "h842/c") is None
     assert int(out[0]["released"]) == 1
     assert _holder(cn, "h842/d") == OTHER

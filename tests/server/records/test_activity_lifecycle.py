@@ -12,6 +12,7 @@ from agent_coord.server.records import hold, join as here, mail, name, opened, s
 from agent_coord.server.records import apply, connect
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
+from tests.server.records.conftest import admin_desk
 from tests.server.records.conftest import seed_names
 
 from tests.sql_isolate import throwaway_db
@@ -194,15 +195,15 @@ def test_name_rename_retire_reclaim_keep_id(cn) -> None:
     assert scalar(cn, "SELECT type FROM name WHERE id=%s", (nid,)) == "roster"
     assert scalar(cn, "SELECT name FROM name WHERE id=%s", (nid,)) == "life_nm"
     assert scalar(cn, "SELECT 1 FROM activity WHERE type='name' AND id=%s", (nid,)) is None
-    name.rename(cn, "life_nm", "life_nm2", "roster")
+    name.rename(cn, "life_nm", "life_nm2", "roster", by=admin_desk(cn))
     assert name.get(cn, "life_nm2", "roster") == nid
-    name.retire(cn, "life_nm2", "roster")
+    name.retire(cn, "life_nm2", "roster", by=admin_desk(cn))
     assert scalar(cn, "SELECT deleted FROM name WHERE id=%s", (nid,)) is not None
     assert name.get(cn, "life_nm2", "roster") is None
     other = name.get_or_insert(cn, "life_nm3", "roster")
     assert other != nid
     assert scalar(cn, "SELECT id FROM name WHERE id=%s", (nid,)) == nid
-    name.reclaim(cn, "life_nm2", "roster")
+    name.reclaim(cn, "life_nm2", "roster", by=admin_desk(cn))
     assert name.get(cn, "life_nm2", "roster") == nid
 
 

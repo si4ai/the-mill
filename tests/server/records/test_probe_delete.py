@@ -71,6 +71,18 @@ def _card(cn, project: str, desk: str, need: str) -> int:
     return int(todo.insert(cn, project, desk, "open", todo.pack({"slug": need}))[0]["id"])
 
 
+def _card_0630(cn, project: str, desk: str, need: str) -> int:
+    """A card as the 0.6.30 delete saw it: no todo_event rows (0.8.0 table, RESTRICT to todo)."""
+    tid = _card(cn, project, desk, need)
+    cur = cn.cursor()
+    try:
+        cur.execute("DELETE FROM todo_event WHERE todo_id = %s", (tid,))
+        cn.commit()
+    finally:
+        cur.close()
+    return tid
+
+
 def _score(cn, project: str, desk: str, kpi: str) -> int:
     return int(score.upsert(cn, project, desk, kpi, "1", "", "")[0]["id"])
 
@@ -502,18 +514,18 @@ def test_aws_0630_procedure_replay_explains_unchanged(aws_cn) -> None:
     """
     cn = aws_cn
     _install_proc(cn, _OLD_0630_DELETE)
-    clean = _card(cn, FIX, "pd_me", "aws-clean")
+    clean = _card_0630(cn, FIX, "pd_me", "aws-clean")
     _probe(cn, "pd_me", "todo", clean)
     assert _gone(cn, "todo", clean) is not None
 
-    missing = _card(cn, FIX, "pd_me", "aws-missing")
+    missing = _card_0630(cn, FIX, "pd_me", "aws-missing")
     _drop_activity(cn, missing)
     out = _probe(cn, "pd_me", "todo", missing)
     assert out["state"] == "unchanged"
     assert scalar(cn, "SELECT id FROM todo WHERE id=%s", (missing,)) is None
     assert scalar(cn, "SELECT id FROM activity WHERE type='todo' AND id=%s", (missing,)) is None
 
-    tripped = _card(cn, FIX, "pd_me", "aws-trigger")
+    tripped = _card_0630(cn, FIX, "pd_me", "aws-trigger")
     cur = cn.cursor()
     try:
         cur.execute("DROP TRIGGER IF EXISTS todo_del_drop_activity_aws")

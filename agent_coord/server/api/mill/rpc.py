@@ -1159,6 +1159,13 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return rows
 
 
+def _seat_hash(c: Book, project: str, owner: str | None) -> str | None:
+    """The acting desk's own seat token hash (0.8.0): sp_name_rename / sp_name_retire let a
+    desk act on itself only with it. None when this request carried no bearer token."""
+    tok = (getattr(c, "_tokens", None) or {}).get((project, _stored(owner or "")))
+    return token_hash(tok) if tok else None
+
+
 def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import name as rec_name
     from agent_coord.server.admin import catalog as admin_cat
@@ -1171,7 +1178,7 @@ def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         old_d, new_d = _stored(old), _stored(new)
         if _stored(owner or "") != old_d:
             raise CoordError("mill rename: hash owns this desk only")
-        rows = rec_name.rename(c._cn, old_d, new_d, "desk")
+        rows = rec_name.rename(c._cn, old_d, new_d, "desk", by=old_d, by_hash=_seat_hash(c, project, owner))
     return rows
 
 
@@ -1188,7 +1195,7 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         slug_s = _stored(raw)
         if _stored(owner or "") != slug_s:
             raise CoordError("mill retire: hash owns this desk only")
-        rows = rec_name.retire(c._cn, slug_s, "desk")
+        rows = rec_name.retire(c._cn, slug_s, "desk", by=slug_s, by_hash=_seat_hash(c, project, owner))
     return rows
 
 
@@ -3123,7 +3130,10 @@ def _sql_refusal(exc: BaseException) -> str | None:
     if str(getattr(exc, "sqlstate", "") or "") == "45000":
         msg = str(getattr(exc, "msg", "") or "").strip()
         return msg or None
-    return None
+    # 0.8.0: a kind-checked FK (1452) or a CHECK (3819) refusal, in plain words.
+    from agent_coord.server.records.db import fk_refusal
+
+    return fk_refusal(exc)
 
 
 def _h_add_remove(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -3225,7 +3235,22 @@ def _h_trust(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if level not in ("high", "limited"):
         raise CoordError("mill trust: high or limited")
     require_admin(c._cn, owner or "")
+    # 0.8.0 (schema-design.md section 9): config.toml first, then b_trust() from it. If the
+    # function cannot be re-created, the file goes back, so the two never disagree.
+    from agent_coord.config import config_path
+    from agent_coord.server.records.trust_fn import init_trust_fn
+
+    path = config_path()
+    before = path.read_bytes() if path.is_file() else None
     set_mill_trust(level)
+    try:
+        init_trust_fn(c._cn, level)
+    except Exception:
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(before)
+        raise
     return {"ok": True, "trust": level}
 
 

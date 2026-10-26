@@ -1,6 +1,7 @@
 -- #818 PR B: --doing on an activity command writes one doing entry linked to
 -- that command's item; `mill connected` reads what every desk is doing.
 -- Rows live in table doing (append-only, see sp_join.sql mill_doing_insert).
+-- 0.8.0: doing_now names each desk's newest row (any row, empty ones too).
 -- An entry ends on a real event, derived on read from rows that never change:
 --   finished: the desk replies under the letter; the desk passes (ships) or
 --             passes --done the card, or drops the hold, without --doing,
@@ -97,7 +98,7 @@ BEGIN
     RESIGNAL;
   END;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';
   END IF;
   IF IFNULL(p_on_type, '') NOT IN ('mail', 'todo', 'hold', 'score') OR p_on_id IS NULL
@@ -162,8 +163,9 @@ BEGIN
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_cur = NULL;
-  SELECT id, text, on_type, on_id, roster_id INTO v_cur, v_text, v_type, v_on, v_roster
-    FROM doing WHERE desk_id = v_desk ORDER BY created DESC, id DESC LIMIT 1 FOR UPDATE;
+  -- 0.8.0: the desk's newest row is doing_now's; its row lock serializes the desk's writers.
+  SELECT g.id, g.text, g.on_type, g.on_id, g.roster_id INTO v_cur, v_text, v_type, v_on, v_roster
+    FROM doing_now dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = v_desk FOR UPDATE;
   IF v_cur IS NOT NULL AND v_text <> '' AND v_type = p_on_type AND v_on = p_on_id THEN
     SET v_ts = MILL_NOW();
     CALL mill_doing_insert(v_desk, v_roster, '', v_ts, v_id);
@@ -213,12 +215,14 @@ BEGIN
   SELECT s.desk_id
     FROM seat s
     JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.deleted IS NULL
-   WHERE (v_one IS NOT NULL AND s.desk_id = v_one)
+   -- 0.8.0: a joined seat only (a named desk has a seat row from its mint; sp_join.sql).
+   WHERE (s.token_hash IS NOT NULL OR s.time_disconnect IS NOT NULL)
+     AND ((v_one IS NOT NULL AND s.desk_id = v_one)
       OR (v_ros IS NOT NULL AND EXISTS (SELECT 1 FROM member m WHERE m.desk_id = s.desk_id AND m.name_id = v_ros))
       OR (v_one IS NULL AND v_ros IS NULL AND (IFNULL(p_all, 0) = 1
           OR s.updated > v_now - INTERVAL 1 DAY
           OR EXISTS (SELECT 1 FROM activity a
-                      WHERE a.desk_id = s.desk_id AND a.created > v_now - INTERVAL 1 DAY)));
+                      WHERE a.desk_id = s.desk_id AND a.created > v_now - INTERVAL 1 DAY))));
 
   SELECT 'desk' AS part, d.name AS desk,
          cur.id, cur.text, cur.on_type, cur.on_id, cur.waiting_type, cur.waiting_id, cur.waiting_why,
@@ -231,26 +235,31 @@ BEGIN
          CASE WHEN en.fin IS NULL AND en.clr IS NULL THEN NULL
               WHEN en.clr IS NULL OR (en.fin IS NOT NULL AND en.fin <= en.clr) THEN 'finished'
               ELSE 'cleared' END AS ended_by,
-         lst.id AS last_id, lst.text AS last_text, lst.on_type AS last_on_type, lst.on_id AS last_on_id,
-         TIMESTAMPDIFF(SECOND, lst.created, v_now) AS last_age_s,
+         -- the last thing it said: the same newest entry (main read it twice)
+         cur.id AS last_id, cur.text AS last_text, cur.on_type AS last_on_type, cur.on_id AS last_on_id,
+         TIMESTAMPDIFF(SECOND, cur.created, v_now) AS last_age_s,
          st.updated AS heartbeat, v_now AS now
     FROM tmp_doing_desk t
     JOIN name d ON d.id = t.desk_id
     JOIN seat st ON st.desk_id = t.desk_id
+    -- 0.8.0: the newest row is doing_now's. When it is a --doing entry it is the
+    -- current one (one primary-key read); after a finish or clear row the newest
+    -- entry is read back from idx_desk_created, as on main.
+    LEFT JOIN doing_now dn ON dn.desk_id = t.desk_id
+    LEFT JOIN doing nw ON nw.id = dn.doing_id
     LEFT JOIN LATERAL (
       SELECT g.id, g.created, g.text, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
-        FROM doing g WHERE g.desk_id = t.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-       ORDER BY g.created DESC, g.id DESC LIMIT 1
+        FROM doing g WHERE g.id = nw.id AND g.on_type IS NOT NULL AND g.text <> ''
+      UNION ALL
+      (SELECT g.id, g.created, g.text, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
+        FROM doing g WHERE NOT (nw.on_type IS NOT NULL AND nw.text <> '')
+         AND g.desk_id = t.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
+       ORDER BY g.created DESC, g.id DESC LIMIT 1)
     ) cur ON TRUE
     LEFT JOIN LATERAL (
       SELECT mill_doing_end(t.desk_id, cur.id, cur.on_type, cur.on_id, cur.created) AS fin,
              mill_doing_cleared(t.desk_id, cur.id, cur.created) AS clr
     ) en ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT g.id, g.created, g.text, g.on_type, g.on_id
-        FROM doing g WHERE g.desk_id = t.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-       ORDER BY g.created DESC, g.id DESC LIMIT 1
-    ) lst ON TRUE
    ORDER BY IFNULL(cur.created, '1970-01-01') DESC, d.name;
 
   SELECT 'letter' AS part, x.desk, x.id, x.sender, x.age_s, x.n, x.asked
@@ -311,10 +320,16 @@ BEGIN
           -- each seated desk's current entry, when it waits on something and has not ended
           SELECT s.desk_id AS waiter_id, cur.*
             FROM seat s
+            LEFT JOIN doing_now dn ON dn.desk_id = s.desk_id
+            LEFT JOIN doing nw ON nw.id = dn.doing_id
             JOIN LATERAL (
               SELECT g.id, g.created, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
-                FROM doing g WHERE g.desk_id = s.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-               ORDER BY g.created DESC, g.id DESC LIMIT 1
+                FROM doing g WHERE g.id = nw.id AND g.on_type IS NOT NULL AND g.text <> ''
+              UNION ALL
+              (SELECT g.id, g.created, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
+                FROM doing g WHERE NOT (nw.on_type IS NOT NULL AND nw.text <> '')
+                 AND g.desk_id = s.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
+               ORDER BY g.created DESC, g.id DESC LIMIT 1)
             ) cur ON TRUE
            WHERE cur.waiting_type IS NOT NULL
              AND mill_doing_end(s.desk_id, cur.id, cur.on_type, cur.on_id, cur.created) IS NULL

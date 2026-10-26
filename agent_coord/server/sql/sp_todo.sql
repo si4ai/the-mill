@@ -1,6 +1,7 @@
 DROP PROCEDURE IF EXISTS mill_todo_insert;
 DROP PROCEDURE IF EXISTS mill_todo_insert_attached;
 DROP PROCEDURE IF EXISTS mill_todo_update;
+DROP PROCEDURE IF EXISTS mill_todo_write;
 DROP PROCEDURE IF EXISTS mill_todo_delete;
 DROP PROCEDURE IF EXISTS mill_todo_select;
 DROP PROCEDURE IF EXISTS mill_todo_page;
@@ -105,8 +106,9 @@ BEGIN
       FROM tree WHERE type = p_parent_type AND id = p_parent_id LIMIT 1;
   END IF;
   IF v_name IS NULL THEN
+    -- 0.8.0: a parent touch is the office's (desk NULL): a desk column holds a seat, never roster id 1.
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, NULL, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
   END IF;
@@ -119,7 +121,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM tree WHERE name_id = v_name LIMIT 1) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree parent not found';
     END IF;
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, NULL, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
     SELECT rgt INTO v_r FROM tree
@@ -133,18 +135,22 @@ BEGIN
   SELECT v_id AS id, v_ts AS updated, p_status AS status, v_name AS name_id, v_r AS lft;
 END //
 
-CREATE PROCEDURE mill_todo_update(
+-- One card write. A status change appends its todo_event row (0.8.0); p_evidence is kept on a
+-- change to shipped or done. mill_todo_update is this with no evidence; cmd_pass passes it.
+CREATE PROCEDURE mill_todo_write(
   IN p_id        BIGINT UNSIGNED,
   IN p_desk      VARCHAR(64),
   IN p_status    VARCHAR(16),
   IN p_volunteer VARCHAR(64),
-  IN p_body      VARCHAR(4096)
+  IN p_body      VARCHAR(4096),
+  IN p_evidence  VARCHAR(2000)
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_vol BIGINT UNSIGNED;
+  DECLARE v_was VARCHAR(8);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -158,7 +164,7 @@ BEGIN
     WHEN p_volunteer = '-' THEN NULL
     ELSE MILL_NAME_GET('desk', p_volunteer)
   END;
-  SELECT roster_id INTO v_proj FROM todo WHERE id = p_id;
+  SELECT roster_id, status INTO v_proj, v_was FROM todo WHERE id = p_id;
   -- #818 D2: claimed_at is first, so it reads the old status and volunteer
   -- (MySQL assigns left to right). A claim, a new volunteer or a step back to
   -- claimed stamps it; leaving claimed clears it; anything else keeps it.
@@ -187,6 +193,18 @@ BEGIN
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
+END //
+
+-- Public: same arguments and result as on main; a status change writes its todo_event row.
+CREATE PROCEDURE mill_todo_update(
+  IN p_id        BIGINT UNSIGNED,
+  IN p_desk      VARCHAR(64),
+  IN p_status    VARCHAR(16),
+  IN p_volunteer VARCHAR(64),
+  IN p_body      VARCHAR(4096)
+)
+BEGIN
+  CALL mill_todo_write(p_id, p_desk, p_status, p_volunteer, p_body, NULL);
 END //
 
 CREATE PROCEDURE mill_todo_delete(
@@ -230,8 +248,11 @@ BEGIN
     CALL mill_tree_detach('todo', p_id);
     -- activity_del_watchers fires only on a hard activity delete, so drop watchers here.
     DELETE FROM watcher WHERE type = 'todo' AND id = p_id;
+    -- 0.8.0: the card's status history goes with it (fk_todo_event_todo is RESTRICT).
+    DELETE FROM todo_event WHERE todo_id = p_id;
     DELETE FROM todo WHERE id = p_id;  -- todo_no_delete_in_tree still guards
-    IF v_desk IS NOT NULL THEN
+    -- 0.8.0: an office touch leaves activity.desk_id NULL, so a stored row is stamped either way.
+    IF v_has > 0 OR v_desk IS NOT NULL THEN
       INSERT INTO activity (
         type, id, created, updated, deleted, desk_id, roster_id, act, bytes
       ) VALUES (
@@ -320,7 +341,9 @@ BEGIN
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
-         t.done_when, t.evidence
+         t.done_when,
+         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
+         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -354,7 +377,9 @@ BEGIN
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
-         t.done_when, t.evidence
+         t.done_when,
+         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
+         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -400,7 +425,9 @@ BEGIN
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
-         t.done_when, t.evidence
+         t.done_when,
+         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
+         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
