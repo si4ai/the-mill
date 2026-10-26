@@ -160,3 +160,17 @@ def test_app_grant_is_execute_only(book):
             assert g.startswith("GRANT USAGE ON *.*") or g.startswith("GRANT EXECUTE ON "), g
     finally:
         _rows(cn, "DROP USER IF EXISTS %s@'localhost'", (user,))
+
+
+def test_no_name_event_anywhere_in_the_book(book):
+    # No name history (the owner): no table, trigger or routine names name_event, and the book has 30 tables (F166).
+    cn, db = book
+    tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
+    assert "name_event" not in tables
+    assert len(tables) == 30, f"beta book has {len(tables)} tables"
+    trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
+                     " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
+                     " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))
+    rout = _rows(cn, "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = %s"
+                     " AND (ROUTINE_NAME LIKE '%%name\\_event%%' OR ROUTINE_DEFINITION LIKE '%%name\\_event%%')", (db,))
+    assert not trig and not rout, f"still names name_event: triggers {trig}, routines {rout}"

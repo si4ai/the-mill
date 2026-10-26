@@ -1,4 +1,4 @@
--- 22 tables. Wipe then apply.
+-- 30 tables. Wipe then apply.
 -- BETA (0.8, card 868): main's tables.sql with the departures listed in BETA-CHANGES.md; 30 tables:
 -- main's 22 plus roster, todo_event, doing_now, vote, vote_option, vote_cast, glance_cache, sp_deploy.
 -- BETA order: the kind tables first (name, roster, seat), then main's order.

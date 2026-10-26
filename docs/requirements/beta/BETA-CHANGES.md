@@ -107,6 +107,14 @@ score_evidence, human, human_desk, human_member, push_queue (row 27 is a comment
 
 Unchanged entirely: `mill_invite`, `mill_invite_join` (no id columns, no reference to name). See finding F1.
 
+## Not in any book yet
+
+- `uc_a6_glance_cached`: `agent_coord/server/beta_client.py` (`read_cached_glance`, behind `mill glance`) calls it,
+  but neither main's `server/sql` nor `beta_sp.sql` defines it. Until a book does, the glance refuses with
+  "glance: the cached glance is not installed" (test `test_glance_refuses_when_the_read_is_missing`). Row 33 is only
+  the `glance_cache` table it would read. Test F166 fails if the client calls a procedure that is neither defined
+  in a book nor listed here.
+
 ## Reverted to main in this push (were in beta_ddl.sql at 9ab69e3)
 
 - Design B's split and renames: `desk`, `room` (the fold), `room_member` (left_at), `grp`, `grp_member`,

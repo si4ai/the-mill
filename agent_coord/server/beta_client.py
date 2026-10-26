@@ -54,7 +54,11 @@ def shape_glance(cache_rows: list[dict] | None, activity_rows: list[dict] | None
 
 
 def read_cached_glance(cn) -> dict[str, Any]:
-    """Call uc_a6_glance_cached and keep its two result sets apart."""
+    """Call uc_a6_glance_cached and keep its two result sets apart.
+
+    No book defines that procedure yet (BETA-CHANGES.md, "Not in any book yet"), so today this refuses with
+    "the cached glance is not installed".
+    """
     cur = cn.cursor(dictionary=True)
     sets: list[list[dict]] = []
     try:
