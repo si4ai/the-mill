@@ -456,6 +456,13 @@ def body_from_args(args: Any) -> dict[str, Any]:
     if cmd in ("retire", "rename", "reclaim") and str(getattr(args, "kind", "") or "") in ("roster", "label", "desk"):
         # #537: the wall acts on the type named; a label may share its desk's name.
         body["name_type"] = str(args.kind)
+    if cmd in ("retire", "rename") and str(getattr(args, "kind", "") or "") == "desk" and getattr(args, "desk_admin", False):
+        # Card 880: another desk's name goes to the wall's Admin path (yes + the name twice);
+        # your own desk keeps the self path, which needs no Admin.
+        target = str(body.get("slug" if cmd == "retire" else "old") or "").strip()
+        if target and target != desk_stem(owner):
+            body["yes"] = True
+            body["confirm"] = target if cmd == "retire" else str(body.get("new") or "").strip()
     if cmd in ("retire", "reclaim") and str(getattr(args, "kind", "") or "") == "todo":
         # #19: retire / reclaim a card; project is the ROSTER, need the NEED (or a comma list).
         body["name_type"] = "todo"
