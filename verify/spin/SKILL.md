@@ -7,7 +7,7 @@ description: Model-check the mill wake path (push queue, webhook window, trailin
 
 ## Does my change touch the modelled code?
 
-Covered code (the sync commit is in `run.sh` as `SYNC`, currently 39f2507):
+Covered code (the sync commit is in `run.sh` as `SYNC`, currently 629c4f8):
 
 | Model | Code |
 | :--- | :--- |
