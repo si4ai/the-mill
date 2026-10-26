@@ -569,3 +569,37 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)
     assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == n_ev
+
+
+def _declared_keys_080() -> set[tuple[str, str]]:
+    """(table, index) for every key tables.sql declares. PRIMARY is always declared."""
+    import re
+    from pathlib import Path
+
+    ddl = (Path(__file__).resolve().parents[2] / "agent_coord" / "server" / "sql" / "tables.sql").read_text(encoding="utf-8")
+    out = set()
+    for t, body in re.findall(r"^CREATE TABLE IF NOT EXISTS (\w+) \((.*?)^\)", ddl, re.M | re.S):
+        out |= {(t, name) for name in re.findall(r"^\s*(?:UNIQUE )?KEY (\w+) \(", body, re.M)}
+    return out
+
+
+@pytest.mark.parametrize("kill_after", [None, "keys_kinds", "doing_now"])
+def test_migrated_book_has_no_implicit_indexes(main_book, kill_after):
+    """The owner rule (F169): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared in
+    tables.sql and named idx_*. A migrated main book (whole, or resumed after a kill) has no index MySQL made for an
+    FK, and no index main declared that 0.8.0 folded or dropped (F170)."""
+    from agent_coord.install import migrate
+
+    seed(main_book)
+    if kill_after:
+        migrate.apply_080(main_book, stop_after=kill_after)
+    _migrate(main_book)
+    declared = _declared_keys_080()
+    got = {(t, i) for t, i in _q(main_book, "SELECT DISTINCT TABLE_NAME, INDEX_NAME FROM information_schema.STATISTICS"
+                                             " WHERE TABLE_SCHEMA = DATABASE()")}
+    fks = {(t, c) for t, c in _q(main_book, "SELECT TABLE_NAME, CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS"
+                                             " WHERE CONSTRAINT_SCHEMA = DATABASE()")}
+    implicit = sorted(k for k in got if k[1] != "PRIMARY" and k not in declared)
+    assert not implicit, f"indexes not declared in tables.sql: {implicit}"
+    assert not sorted(got & fks), "an index named after an FK constraint"
+    assert sorted(declared - got) == [], "a declared key the migrated book does not have"
