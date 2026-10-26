@@ -115,6 +115,23 @@ def test_glance_caps_activity_at_30():
     assert len(shape_glance([], rows)["activity"]) == 30
 
 
+def test_glance_skips_an_unknown_kind():
+    got = shape_glance(
+        [{
+            "id": 1, "at": "t", "refresh_us": 1, "present": 2, "held": 0,
+            "open_n": 0, "claimed_n": 0, "parked_n": 0, "shipped_n": 0, "done_n": 0,
+            "letters_1d": 0, "card_moves_1d": 0, "doings_1d": 0, "holds_1d": 0, "points_1d": 0,
+        }],
+        [
+            {"seq": 1, "at": "t", "kind": "letter", "ref": 5, "desk": "a"},
+            {"seq": 2, "at": "t", "kind": "pulse", "ref": 9, "desk": "b", "extra": 1},
+            {"seq": 3, "at": "t", "kind": "hold", "ref": 4, "desk": "a"},
+        ],
+    )
+    assert got["cache"]["id"] == 1
+    assert [row["kind"] for row in got["activity"]] == ["letter", "hold"]
+
+
 def test_glance_refuses_when_the_read_is_missing():
     class _Cur:
         def execute(self, _sql):
