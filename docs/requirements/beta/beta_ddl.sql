@@ -598,7 +598,7 @@ CREATE TABLE IF NOT EXISTS push_queue (
 -- 24-25, 52 and 57): the office glance, one row refreshed every 30 s (relaxed tier). No office-wide unread (owner rule).
 CREATE TABLE IF NOT EXISTS glance_cache (
   id          TINYINT UNSIGNED NOT NULL DEFAULT 1,
-  updated     DATETIME(6) NOT NULL,
+  at          DATETIME(6) NOT NULL,
   refresh_us  INT UNSIGNED NOT NULL,
   present     INT UNSIGNED NOT NULL,
   held        INT UNSIGNED NOT NULL,
@@ -607,11 +607,11 @@ CREATE TABLE IF NOT EXISTS glance_cache (
   parked_n    INT UNSIGNED NOT NULL,
   shipped_n   INT UNSIGNED NOT NULL,
   done_n      INT UNSIGNED NOT NULL,
-  mail_1d     INT UNSIGNED NOT NULL,
-  todo_1d     INT UNSIGNED NOT NULL,
-  doing_1d    INT UNSIGNED NOT NULL,
-  hold_1d     INT UNSIGNED NOT NULL,
-  score_1d    INT UNSIGNED NOT NULL,
+  letters_1d  INT UNSIGNED NOT NULL,
+  card_moves_1d INT UNSIGNED NOT NULL,
+  doings_1d   INT UNSIGNED NOT NULL,
+  holds_1d    INT UNSIGNED NOT NULL,
+  points_1d   INT UNSIGNED NOT NULL,
   open_votes  INT UNSIGNED NOT NULL,
   PRIMARY KEY (id),
   CONSTRAINT ck_glance_cache_one CHECK (id = 1)

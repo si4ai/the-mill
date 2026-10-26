@@ -43,7 +43,7 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 | 31 | `doing` keys | adds UNIQUE `idx_id_desk` (id, desk_id) | target of doing_now's composite FK (next row) | proposed, needs the owner |
 | 32 | (none) | table `doing_now` (the desk's current doing) | lab: A2 desk doing 4.6 ms to 0.1 ms at M (RESULTS.md lines 20 and 56) | proposed, needs the owner |
 | 33 | (none) | tables `vote`, `vote_option`, `vote_cast` + triggers `vote_cast_open`, `vote_cast_change` | the owner decision: a roster decides by vote (open, cast, close); no lead role | proposed, needs the owner |
-| 34 | (none) | table `glance_cache` (relaxed tier, 30 s); no office-wide unread | lab: glance over traces 226 ms at M, 4.1 s at 10x, cached 0.25 ms (RESULTS.md lines 24-25, 52, 57); the owner decision: drop office-wide unread | proposed, needs the owner |
+| 34 | (none) | table `glance_cache` (relaxed tier, 30 s); no office-wide unread; its columns are the keys the shipped client reads (`at`, `letters_1d`, `card_moves_1d`, `doings_1d`, `holds_1d`, `points_1d`, `agent_coord/server/beta_client.py`) | lab: glance over traces 226 ms at M, 4.1 s at 10x, cached 0.25 ms (RESULTS.md lines 24-25, 52, 57); the owner decision: drop office-wide unread | proposed, needs the owner |
 | 35 | (none) | table `sp_deploy` (SP version stamp) | the owner decision: SP version stamp, client warns or refuses on mismatch | proposed, needs the owner |
 | 36 | header comment | adds the BETA blocks: three rules, names, trust, ids | documentation of the rows above | proposed, needs the owner |
 

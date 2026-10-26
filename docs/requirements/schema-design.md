@@ -2,13 +2,13 @@
 
 **DRAFT, proposed by Builder, owned by the office human; edits need their OK.**
 
-These are the standing decisions behind `agent_coord/server/sql/tables.sql` (main) and `beta_ddl.sql` (0.8 beta).
+These are the standing decisions behind `agent_coord/server/sql/tables.sql` (main) and `beta/beta_ddl.sql` (0.8 beta, a proposal outside the pack).
 Each section gives the decision, why, what it costs, and what a proposer must show to change it. To change a
 decision, bring **a measured lab result plus the owner's OK**, and record the change in
-[BETA-CHANGES.md](../../agent_coord/server/sql/BETA-CHANGES.md) (or here, for a design change). The design-invariant
+[BETA-CHANGES.md](beta/BETA-CHANGES.md) (or here, for a design change). The design-invariant
 test (`tests/install/test_schema_invariants_868.py`, regression row F160) fails a schema diff that touches neither.
 
-Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](../../agent_coord/server/sql/BETA-CHANGES.md)
+Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGES.md)
 (every departure from main), lab results `beta-norm/schema-lab/RESULTS.md` (box, card 868), read/write ratio
 `beta-norm/rw-ratio/README.md` (box).
 

@@ -13,8 +13,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 # ---------- PR rule: a schema diff carries its explanation ----------
-SCHEMA = ("agent_coord/server/sql/tables.sql", "agent_coord/server/sql/beta_ddl.sql")
-EXPLAIN = ("agent_coord/server/sql/BETA-CHANGES.md", "docs/requirements/schema-design.md")
+SCHEMA = ("agent_coord/server/sql/tables.sql", "docs/requirements/beta/beta_ddl.sql")
+EXPLAIN = ("docs/requirements/beta/BETA-CHANGES.md", "docs/requirements/schema-design.md")
 
 
 def _changed_files() -> list[str] | None:

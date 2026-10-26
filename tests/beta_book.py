@@ -1,13 +1,18 @@
 """Throwaway beta book (card 868): beta_ddl.sql + beta_sp.sql on a fresh MySQL schema.
 
+The beta files are a proposal under docs/requirements/beta/, outside the pack (F160).
+
 Used by the beta SQL suites. No SPIN, no server: one connection, seconds of runtime.
 """
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from agent_coord.install.migrate import split_script, sql_dir
+from agent_coord.install.migrate import split_script
 from tests.sql_isolate import throwaway_db
+
+BETA_DIR = Path(__file__).resolve().parents[1] / "docs" / "requirements" / "beta"
 
 
 def admin_conn():
@@ -22,7 +27,7 @@ def admin_conn():
 
 
 def apply_file(cn, name: str) -> int:
-    blob = (sql_dir() / name).read_text(encoding="utf-8")
+    blob = (BETA_DIR / name).read_text(encoding="utf-8")
     cur = cn.cursor()
     n = 0
     try:

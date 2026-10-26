@@ -122,7 +122,7 @@ def test_every_name_reference_is_typed(book):
 
 def test_app_grant_is_execute_only(book):
     cn, db = book
-    from agent_coord.install.migrate import grant_app_user
+    from agent_coord.install.beta_grant import grant_app_user
 
     user = ("inv868_" + str(os.getpid()))[:32]
     try:
