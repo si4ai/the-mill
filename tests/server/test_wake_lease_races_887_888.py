@@ -192,3 +192,50 @@ def test_the_post_carries_its_own_lease_id_when_a_newer_take_lands_after_it(offi
     posts = _posts(office)
     assert len(taken) == 2 and taken[0] != taken[1]
     assert posts[0]["wake"]["lease"] == taken[0]  # its own lease, never the newer one
+
+
+@pytest.mark.parametrize("newer", [False, True], ids=["done", "done-and-newer-take"])
+def test_the_post_carries_its_own_lease_id_past_the_next_lock_hold(office, monkeypatch, newer) -> None:  # noqa: F811
+    """Validator warning 1 on 3174: the gap at the next lock hold after the take,
+    not only at the queue read. A done (and a newer take) before that hold must
+    not change the id on the POST."""
+    import time
+
+    taken: list = []
+    real_new = wake._new_lease
+    real_lock = wake._GATE_LOCK
+
+    def between():
+        wake.lease_done(office["cn"], "away")
+        if newer:
+            assert wake._gate_take("away", time.monotonic())
+
+    class _Next:
+        armed = False
+
+        def __enter__(self):
+            if _Next.armed:
+                _Next.armed = False
+                wake._GATE_LOCK = real_lock
+                try:
+                    between()
+                finally:
+                    wake._GATE_LOCK = self
+            return real_lock.__enter__()
+
+        def __exit__(self, *a):
+            return real_lock.__exit__(*a)
+
+    def new_lease(desk, now):
+        got = real_new(desk, now)
+        taken.append(got)
+        if len(taken) == 1:
+            _Next.armed = True  # fire before the next lock hold after this take
+        return got
+
+    monkeypatch.setattr(wake, "_new_lease", new_lease)
+    monkeypatch.setattr(wake, "_GATE_LOCK", _Next())
+    _letter(office, 1)
+    assert not _Next.armed  # the done did land after the take
+    posts = _posts(office)
+    assert len(posts) == 1 and posts[0]["wake"]["lease"] == taken[0]
