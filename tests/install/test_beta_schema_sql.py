@@ -339,6 +339,12 @@ def test_migrate_then_rollback_round_trip(book07):
     d = b.desk("m07-new")
     assert d > 50
     b.call("cmd_send", 11, 30, None, "after cutover", 0)
+    # a plan deeper than 25 levels: its rollback paths pass MySQL's default 1024-byte sort key
+    parent, chain = 1, []
+    for i in range(40):
+        parent = b.one("cmd_card", 10, 20, f"deep {i}", None, None, parent, None, 0)["card"]
+        chain.append(parent)
+    b.one("cmd_card", 10, 20, "deep sibling", None, None, chain[30], None, 0)
     back = bm.rollback(cn, src + "_b", src + "_r")
     assert back["seconds"] >= 0
     r = Book(cn, src + "_r")
@@ -347,6 +353,11 @@ def test_migrate_then_rollback_round_trip(book07):
     before = {x for x in r.q(q_parent.format(db=src)) if x[2]}
     after = {x for x in r.q(q_parent.format(db=src + "_r")) if x[2]}
     assert before <= after  # every old parent link is back; the new reply adds one
+    overlap = r.q("SELECT COUNT(*) FROM tree a JOIN tree b ON b.name_id = a.name_id AND (a.type, a.id) <> (b.type, b.id)"
+                  " WHERE a.lft < b.lft AND b.lft < a.rgt AND a.rgt < b.rgt")[0][0]
+    assert overlap == 0
+    deep = {x for x in after if x[0] == "todo" and x[1] in chain}
+    assert ("todo", chain[-1], f"todo:{chain[-2]}") in deep and len(deep) == len(chain)
     assert r.q("SELECT roster_id, desk_id FROM mail WHERE id = 2")[0] == (20, 11)
     assert r.q("SELECT status, assigned_id FROM todo WHERE id = 1")[0] == ("claimed", 11)
     assert r.q("SELECT desk_id, roster_id FROM score WHERE id = 900")[0] == (20, 20)

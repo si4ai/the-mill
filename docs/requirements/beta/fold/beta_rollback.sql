@@ -87,21 +87,28 @@ INSERT INTO push_queue (id, desk_id, kind, payload, outcome, created)
     JOIN @SRC@.letter_to t ON t.letter_id = p.letter_id AND t.desk_id = p.desk_id;
 
 -- 3. nested sets: discussion rooms (reply threads, by id), plans (by ord, id), then the came-from pairs.
---    Signed ord sorts as text once shifted to unsigned and zero-padded.
-CREATE TABLE rb_ns (tree BIGINT UNSIGNED NOT NULL, type VARCHAR(8) NOT NULL, id BIGINT UNSIGNED NOT NULL, path VARCHAR(3072) CHARACTER SET ascii NOT NULL, depth INT NOT NULL,
-  PRIMARY KEY (tree, type, id), KEY ix_path (tree, path(255)));
+--    A node's path is its ancestors' sibling ranks, 6 hex digits a level, so a string sort is preorder. MySQL sorts
+--    strings on their first max_sort_length bytes (1024): that is 170 levels; a deeper path fails ck_rb_depth
+--    instead of coming out of order (seen at M with 40-character levels past 25 deep).
+CREATE TABLE rb_rank (type VARCHAR(8) NOT NULL, id BIGINT UNSIGNED NOT NULL, k CHAR(6) CHARACTER SET ascii NOT NULL, PRIMARY KEY (type, id));
+INSERT INTO rb_rank
+  SELECT 'mail', l.id, LPAD(HEX(ROW_NUMBER() OVER (PARTITION BY IF(l.reply_to_id IS NULL, -CAST(l.room_id AS SIGNED), CAST(l.reply_to_id AS SIGNED)) ORDER BY l.id)), 6, '0')
+    FROM @SRC@.letter l JOIN rb_room r ON r.id = l.room_id AND r.kind = 'room';
+INSERT INTO rb_rank
+  SELECT 'todo', c.id, LPAD(HEX(ROW_NUMBER() OVER (PARTITION BY c.from_card_id ORDER BY c.ord, c.id)), 6, '0') FROM @SRC@.card c WHERE c.from_card_id IS NOT NULL;
+CREATE TABLE rb_ns (tree BIGINT UNSIGNED NOT NULL, type VARCHAR(8) NOT NULL, id BIGINT UNSIGNED NOT NULL, path VARCHAR(1100) CHARACTER SET ascii NOT NULL, depth INT NOT NULL,
+  PRIMARY KEY (tree, type, id), KEY ix_path (tree, path(255)), CONSTRAINT ck_rb_depth CHECK (LENGTH(path) <= 1020));
 INSERT INTO rb_ns
   WITH RECURSIVE t (tree, id, path, depth) AS (
-    SELECT r.nid, l.id, CAST(LPAD(l.id, 20, '0') AS CHAR(3072) CHARACTER SET ascii), 0
-      FROM @SRC@.letter l JOIN rb_room r ON r.id = l.room_id AND r.kind = 'room' WHERE l.reply_to_id IS NULL
-    UNION ALL SELECT t.tree, c.id, CONCAT(t.path, LPAD(c.id, 20, '0')), t.depth + 1 FROM t JOIN @SRC@.letter c ON c.reply_to_id = t.id)
+    SELECT r.nid, l.id, CAST(k.k AS CHAR(1100) CHARACTER SET ascii), 0
+      FROM @SRC@.letter l JOIN rb_room r ON r.id = l.room_id AND r.kind = 'room' JOIN rb_rank k ON k.type = 'mail' AND k.id = l.id WHERE l.reply_to_id IS NULL
+    UNION ALL SELECT t.tree, c.id, CONCAT(t.path, k.k), t.depth + 1 FROM t JOIN @SRC@.letter c ON c.reply_to_id = t.id JOIN rb_rank k ON k.type = 'mail' AND k.id = c.id)
   SELECT tree, 'mail', id, path, depth FROM t;
 INSERT INTO rb_ns
   WITH RECURSIVE t (tree, id, path, depth) AS (
-    SELECT 5 * @base + r.id, r.id, CAST(LPAD(r.id, 20, '0') AS CHAR(3072) CHARACTER SET ascii), 0 FROM @SRC@.card r
+    SELECT 5 * @base + r.id, r.id, CAST('000001' AS CHAR(1100) CHARACTER SET ascii), 0 FROM @SRC@.card r
      WHERE r.from_card_id IS NULL AND EXISTS (SELECT 1 FROM @SRC@.card k WHERE k.from_card_id = r.id)
-    UNION ALL SELECT t.tree, c.id, CONCAT(t.path, LPAD(CAST(c.ord + 9223372036854775808 AS UNSIGNED), 20, '0'), LPAD(c.id, 20, '0')), t.depth + 1
-      FROM t JOIN @SRC@.card c ON c.from_card_id = t.id)
+    UNION ALL SELECT t.tree, c.id, CONCAT(t.path, k.k), t.depth + 1 FROM t JOIN @SRC@.card c ON c.from_card_id = t.id JOIN rb_rank k ON k.type = 'todo' AND k.id = c.id)
   SELECT tree, 'todo', id, path, depth FROM t;
 INSERT INTO name (id, type, name) SELECT DISTINCT tree, 'tree', CONCAT('plan-', tree - 5 * @base) FROM rb_ns WHERE type = 'todo';
 INSERT INTO tree (name_id, type, id, lft, rgt)
@@ -122,4 +129,4 @@ INSERT IGNORE INTO human_member (human_id, name_id, created)
 INSERT INTO mill_invite (key_id, token_hash, label, created_by, created_at, ttl_seconds, expires_at, enabled_at, revoked_at)
   SELECT key_id, token_hash, label, created_by, created_at, ttl_seconds, expires_at, enabled_at, revoked_at FROM @SRC@.mill_invite;
 INSERT INTO mill_invite_join (key_id, party, party_id, created) SELECT key_id, party, party_id, created FROM @SRC@.mill_invite_join;
-DROP TABLE rb_ns, rb_room, rb_tag, rb_res;
+DROP TABLE rb_ns, rb_rank, rb_room, rb_tag, rb_res;
