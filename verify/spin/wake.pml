@@ -64,6 +64,11 @@
  *                the run says mill wake-done --lease TOKEN, and a token that is not
  *                the current lease's ends nothing (stale). 0 = no token (an older
  *                client): the done ends whatever lease is current.
+ *                The take's token rides on its POST (wake_body lease=); a 2xx
+ *                hands that token to the run it starts (pend), so a run picked
+ *                up after a newer lease began still holds its own, older token.
+ *   MUT_RUN_CURRENT  mutation of card 888: the run binds the lease current when
+ *                it starts, not the token its POST carried (must fail L01)
  */
 
 #ifndef N
@@ -157,13 +162,16 @@ bool stale_done = false;
 
 /* the receiver (the routine behind the webhook URL) */
 byte cf = 0;           /* POSTs failed in a row */
-byte runs = 0;         /* woken runs that have not connected yet */
+/* woken runs that have not connected yet, each with the lease token its POST
+   carried (FIFO: runs start in POST order) */
+chan pend = [MAXRUNS] of { byte };
 byte posts = 0;        /* every POST attempted, for the record */
 
 /* card 827 (proposal only) */
 bool chain = false;
 byte chain_left = 0;
 byte chain_gen = 0;    /* which failed wake the chain belongs to (see Retrier) */
+byte chain_tk = 0;     /* the lease token its retries carry (same idem, same body) */
 
 /* Hub.rooms[D]: which sessions sit; closed = kicked by a newer connect */
 bool seat[SESSIONS];
@@ -174,23 +182,30 @@ bool restarted = false;
 
 #define SITTING (seat[0] || (SESSIONS > 1 && seat[SESSIONS-1]))
 #define GATE_OPEN (gate_ep == 0 || gate_exp)
+/* a run's token matters only to wake-done (LEASE); without it every run
+   carries 0, which keeps the pre-886 searches (W14-W16, W19, W22, W24) small */
+#if LEASE
+#define RUNTK(t) (t)
+#else
+#define RUNTK(t) 0
+#endif
 
 /* One HTTP POST (wake.py _post_status). The receiver may fail it while the
    loss bound allows; success is always possible. A 2xx starts one run. */
-inline post(ok) {
+inline post(ok, tk) {
   posts++;
   if
   :: cf < MAXFAIL -> cf++; ok = false
-  :: true -> cf = 0; ok = true; if :: runs < MAXRUNS -> runs++ :: else -> skip fi
+  :: atomic { true -> cf = 0; ok = true; if :: nfull(pend) -> pend!RUNTK(tk) :: full(pend) -> skip fi }
   fi
 }
 
 /* wake.py _fire: POST once; a body with idem (every letter and hint wake has
    one, poke_key) retries a failure once, at once, with no delay. */
-inline fire(ok) {
-  post(ok);
+inline fire(ok, tk) {
+  post(ok, tk);
   if
-  :: !ok -> post(ok)
+  :: !ok -> post(ok, tk)
   :: else -> skip
   fi
 }
@@ -207,7 +222,7 @@ inline coalesce() {
 }
 
 /* wake.py post_desk, from the peek on. Steps between atomics interleave. */
-inline post_desk(ok, took) {
+inline post_desk(ok, took, tk) {
   took = false;
 #if HOLD1 && !defined(MUT_SPLIT_GATE)
   /* _coalesced(take=False): live lease -> record the item in the same hold */
@@ -218,7 +233,7 @@ inline post_desk(ok, took) {
      atomic {                     /* _coalesced(take=True): record, or start a lease */
        if
        :: !GATE_OPEN -> if :: trail != gate_ep -> trail = gate_ep :: else -> skip fi
-       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
+       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true; tk = gate_ep;
                        assert(since_ok); since_ok = false;
                        assert(!ONE_RUN || run_ok); run_ok = false;
                        firing++
@@ -226,11 +241,11 @@ inline post_desk(ok, took) {
      };
      if
      :: took ->
-        fire(ok);
+        fire(ok, tk);
         atomic {
           firing--;
 #if RETRY827
-          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++ :: else -> skip fi
+          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
 #endif
         }
      :: else -> skip
@@ -243,13 +258,13 @@ inline post_desk(ok, took) {
      /* check_url + public_host (625-632) assumed to pass: an armed, valid URL */
 #ifdef MUT_SPLIT_GATE
      if :: GATE_OPEN -> skip :: else -> goto coal fi;
-     atomic { ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
+     atomic { ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true; tk = gate_ep;
               assert(since_ok); since_ok = false;
               assert(!ONE_RUN || run_ok); run_ok = false; firing++ }
 #else
      atomic {                                                      /* _gate_take 636 */
        if
-       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
+       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true; tk = gate_ep;
                        assert(since_ok); since_ok = false;               /* one wake per lease */
                        assert(!ONE_RUN || run_ok); run_ok = false;       /* one run at a time */
                        firing++
@@ -259,12 +274,12 @@ inline post_desk(ok, took) {
 #endif
      if
      :: took ->
-        fire(ok);                                                   /* 648 */
+        fire(ok, tk);                                               /* 648 */
         atomic {
           firing--;
 #if RETRY827
           /* 827: a failed wake starts (or refreshes) the backoff chain */
-          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++ :: else -> skip fi
+          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
 #endif
         }
      :: else ->
@@ -279,9 +294,9 @@ coal:
 
 /* 832 fix, push.py ring_waiting: not sitting and a missed row that rings
    waits -> post_desk (window, wake_on and checks as for any wake). */
-inline ring_waiting(ok, took) {
+inline ring_waiting(ok, took, tk) {
   if
-  :: atomic { !SITTING && (queued & ~sent & RINGMASK) != 0 -> skip }; post_desk(ok, took)
+  :: atomic { !SITTING && (queued & ~sent & RINGMASK) != 0 -> skip }; post_desk(ok, took, tk)
   :: else -> skip
   fi
 }
@@ -289,6 +304,7 @@ inline ring_waiting(ok, took) {
 /* One letter or hint for D (push.py emit / fanout, outside a request tx). */
 proctype Emitter(byte i) {
   bool s, ok, took, got;
+  byte tk;
 #if ATOMIC_EMIT
   atomic {
 #endif
@@ -308,12 +324,12 @@ proctype Emitter(byte i) {
      /* _settle_row, off the loop: mark the row sent, or ring when no socket took it */
      if
      :: got -> atomic { sent = sent | (queued & BIT(i)) }
-     :: !got -> ring_waiting(ok, took)
+     :: !got -> ring_waiting(ok, took, tk)
      fi
 #else
      skip
 #endif
-  :: !s && RINGS(i) -> post_desk(ok, took)        /* 573-581 / 470-481 */
+  :: !s && RINGS(i) -> post_desk(ok, took, tk)        /* 573-581 / 470-481 */
   :: !s && !RINGS(i) -> skip                       /* a receipt never rings */
   fi;
   /* rec_push.put after the doorbell (587 / 489): the row is queued last. */
@@ -331,6 +347,7 @@ proctype Emitter(byte i) {
    window has run out; a stale one (another window took the gate) is a no-op. */
 proctype Timer() {
   bool ok, took;
+  byte tk;
 end_t:
   do
   :: atomic { trail != 0 && trail == gate_ep && gate_exp ->
@@ -338,11 +355,11 @@ end_t:
 #if LEASE
      /* _send_trailing(lease-expired): POST only when rows still wait */
      if
-     :: atomic { queued != 0 -> skip }; post_desk(ok, took)
+     :: atomic { queued != 0 -> skip }; post_desk(ok, took, tk)
      :: else -> skip                               /* wake=none reason=drained */
      fi
 #else
-     post_desk(ok, took)                           /* trailing=True, rows all queued */
+     post_desk(ok, took, tk)                       /* trailing=True, rows all queued */
 #endif
   :: atomic { trail != 0 && trail != gate_ep -> trail = 0 }
   od
@@ -363,11 +380,11 @@ end_c:
    they take no window. The delay is abstract (some time passes). */
 proctype Retrier() {
   bool ok;
-  byte g;
+  byte g, tk;
 end_r:
   do
-  :: atomic { chain && chain_left > 0 -> chain_left--; firing++; g = chain_gen };
-     fire(ok);
+  :: atomic { chain && chain_left > 0 -> chain_left--; firing++; g = chain_gen; tk = chain_tk };
+     fire(ok, tk);
      /* A retry ends only its own chain. Without the g check (MUT_827_NOGEN),
         a late answer to an old retry cancels the chain of a newer failed wake. */
      atomic { firing--;
@@ -417,7 +434,7 @@ inline deliver(s) {
    held-back items under the lock (TOKEN: only when the run's token is the
    current lease's, else stale: nothing ends, no POST); when the popped
    items belong to that lease and rows still wait, one trailing POST. */
-inline wake_done(ep, ok, took, t) {
+inline wake_done(ep, own, ok, took, t, tk) {
   atomic {
 #if TOKEN
     /* --lease TOKEN: a token that is not the current lease's ends nothing */
@@ -425,7 +442,8 @@ inline wake_done(ep, ok, took, t) {
     :: gate_ep != ep -> t = false
     :: else ->
 #endif
-    if :: gate_ep != 0 && !gate_exp && gate_ep != ep -> stale_done = true :: else -> skip fi;
+    /* ghost: own is the token this run's POST carried */
+    if :: gate_ep != 0 && !gate_exp && gate_ep != own -> stale_done = true :: else -> skip fi;
     t = (trail != 0 && trail == gate_ep);
     gate_ep = 0; gate_exp = false; trail = 0; since_ok = true; run_ok = true
 #if TOKEN
@@ -434,7 +452,7 @@ inline wake_done(ep, ok, took, t) {
   };
 #ifndef MUT_DONE_ANY
   if
-  :: atomic { t && queued != 0 -> skip }; post_desk(ok, took)   /* _send_trailing */
+  :: atomic { t && queued != 0 -> skip }; post_desk(ok, took, tk)   /* _send_trailing */
   :: else -> skip                                               /* none / drained */
   fi
 #else
@@ -443,11 +461,17 @@ inline wake_done(ep, ok, took, t) {
 }
 
 proctype Session(byte s) {
-  byte o, ep;
+  byte o, ep, own, tk;
   bool ok, took, t;
 end_s:
   do
-  :: atomic { runs > 0 && !seat[s] -> runs--; ep = gate_ep };
+  :: atomic { nempty(pend) && !seat[s] -> pend?own;
+#ifdef MUT_RUN_CURRENT
+                ep = gate_ep                 /* the lease current at run start */
+#else
+                ep = own                     /* wake.lease from the POST body */
+#endif
+              };
      /* one connect per shell call; MULTI lets the run make more than one */
      do
      :: /* Hub.add: check and sit with no await between (115-155) */
@@ -486,7 +510,7 @@ end_s:
         od;
         atomic { seat[s] = false; closed[s] = false };              /* Hub.discard */
 #if RING_ON_LEAVE
-        ring_waiting(ok, took);                                     /* 832: last leave */
+        ring_waiting(ok, took, tk);                                   /* 832: last leave */
 #endif
 #if MULTI
         if :: true -> skip :: true -> break fi                      /* another shell call? */
@@ -496,7 +520,7 @@ end_s:
      od;
 #if LEASE
      /* the run's last step: mill wake-done, or none (crash, old client) */
-     if :: wake_done(ep, ok, took, t) :: skip fi;
+     if :: wake_done(ep, own, ok, took, t, tk) :: skip fi;
 #endif
 refused:
      skip

@@ -21,14 +21,14 @@ run with weak fairness (`pan -a -f`): every process that can always move
 eventually moves. The receiver's choice to fail a POST is not covered by
 fairness; it is bounded by `MAXFAIL`, the most POSTs in a row it may fail.
 
-## Properties and results (models at commit 629c4f8, the head of PR #218, cards 887 and 888, on the card 886 lease from PR #216)
+## Properties and results (models at main e7b231b, PR #218 merged, cards 887 and 888, on the card 886 lease from PR #216)
 
 Wake path, one desk, two or three items:
 
 | Property | Result |
 | :--- | :--- |
 | One wake per lease: a second wake starts only after `mill wake-done` or the lease timeout (`wake_lease_s`, 900 s), never after a connect | proved (W01-W03, L03; W02 with one connect per run, more runs out of memory); fails on a mutation that splits the gate take (M01); **violated** by the pre-886 design, where a connect frees the gate while the run is still working and a second POST lands (L02, the storm) |
-| A wake-done ends only the lease that woke its own run | proved for runs that pass the token (L01, card 888): `mill wake-done --lease TOKEN` with a token that is not the current lease's ends nothing; **violated** for a done with no token, an older client (L05): it pops whatever lease is current, ending the newer run's lease early |
+| A wake-done ends only the lease that woke its own run | proved for runs that pass the token (L01, card 888): `mill wake-done --lease TOKEN` with a token that is not the current lease's ends nothing; **violated** for a done with no token, an older client (L05): it pops whatever lease is current, ending the newer run's lease early. The run's token is the one its POST carried; fails on a mutation where the run binds the lease current at its start (M07) |
 | No invalid end state (deadlock) | proved (W01-W03) |
 | No queued item is taken off the queue without reaching the desk | proved on main: one connect at a time (W04), a refused second connect, now the default (W06), a `--take` connect that supersedes (W05, W18, W21); the 831 fix alone with three items (W19); **violated** by the pre-831 order, take then send (W23) |
 | Every item is eventually delivered | proved with a perfect receiver (W07, card 887: the lease check and the record are one lock hold); **violated** by the #216 order, peek then a later record (W25); proved with emits atomic (W09, L04); fails on a mutation where wake-done sends no trailing POST (M06); proved for the 832 fix under the pre-886 gate (W14, W15) and with two connects (W22); **violated** when both POSTs of a wake fail (W08); **violated** by the pre-832 order, POST then queue (W24); fails on a mutation of the 832 fix that marks a row sent at hand-off (M04) |
@@ -126,19 +126,20 @@ main. W05 expects pass.
 `HOLD1` (card 887, F144a) and `TOKEN` (card 888, F144b), both in PR #218,
 default to `LEASE`. `HOLD1=0` is the #216 order (W25); `TOKEN=0` is a run
 that says `mill wake-done` with no `--lease`, as older clients do (L05). W07
-and L01 expect pass at the #218 head. W23 and W24 set the switches to 0 and must
+and L01 expect pass on main since #218 merged. The take's token rides on its
+POST (`wake_body(lease=...)`, from `_hold_or_take` in the same lock hold) and a
+2xx hands it to the run it starts, so a run picked up after a newer lease began
+holds its own older token and its done is stale (ends nothing). M07 binds the
+lease current at run start instead and must fail L01. W23 and W24 set the switches to 0 and must
 still fail, so the models still catch the old orders. A switch set to 0 is
 the pre-fix code, not an option on main.
 
 ## What is not modelled
 
-- Card 888: the run's token is the lease current when the run starts (the
-  model reads `gate_ep` as the run picks up its POST), not a value carried in
-  the POST body. A run started by an older lease's POST that is picked up
-  after a newer lease began would hold the newer token; the code would hold
-  the older one and its done would be stale.
 - Card 888: a stale done keeps its note for the next wake (`_NOTE`); notes
   are not modelled.
+- Card 888: woken runs start in the order their POSTs got a 2xx (a FIFO of
+  tokens); a receiver that starts runs out of order is not modelled.
 
 - Card 886: `mill wake-done` while the run's own connect still sits (the
   routine wrapper runs commands inside its connect): a trailing POST can go

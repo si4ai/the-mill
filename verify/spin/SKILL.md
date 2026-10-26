@@ -7,7 +7,7 @@ description: Model-check the mill wake path (push queue, webhook window, trailin
 
 ## Does my change touch the modelled code?
 
-Covered code (the sync commit is in `run.sh` as `SYNC`, currently 629c4f8):
+Covered code (the sync commit is in `run.sh` as `SYNC`, currently e7b231b):
 
 | Model | Code |
 | :--- | :--- |
@@ -44,7 +44,7 @@ are listed there as `violated`; they are findings, not passes.
    block per indivisible code step (one lock hold, one stored procedure).
 2. Run `run.sh`. Update an expectation only when the code change explains it
    (for example a fix that turns W07 into `pass`), and say so in the commit.
-3. Keep the mutations (M01-M06) failing; a mutation that passes means the
+3. Keep the mutations (M01-M07) failing; a mutation that passes means the
    property no longer guards anything.
 4. When the models describe the code at a new commit, move `SYNC` in
    `run.sh` and the commit named in README.md forward. Only then.

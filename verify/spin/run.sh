@@ -23,7 +23,7 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which these models were last confirmed to describe the code.
-SYNC=629c4f8
+SYNC=e7b231b
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
@@ -69,6 +69,7 @@ L03|wake|-DN=2 -DMAXFAIL=1|safety|pass|lease: no new POST while the last lease i
 L04|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|lease with emits atomic: done or timeout, every item delivered
 L05|wake|-DN=2 -DMAXFAIL=0 -DTOKEN=0|no_stale_done|violated|no token (older client): a run that outlives its lease ends the lease of the next run
 M06|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DMUT_DONE_ANY|live|violated|mutation of the lease: wake-done sends no trailing POST
+M07|wake|-DN=2 -DMAXFAIL=0 -DMUT_RUN_CURRENT|no_stale_done|violated|mutation of card 888: the run binds the lease current at its start, not the token its POST carried
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
 M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
