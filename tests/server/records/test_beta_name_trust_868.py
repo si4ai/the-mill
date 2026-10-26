@@ -10,7 +10,8 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
-H = {d: (c * 64)[:64] for d, c in (("adm", "a"), ("ann", "b"), ("bob", "c"), ("cat", "d"), ("dan", "e"))}
+H = {d: (c * 64)[:64] for d, c in (("adm", "a"), ("ann", "b"), ("bob", "c"), ("cat", "d"), ("dan", "e"),
+                                   ("eve", "f"), ("fay", "0"))}
 
 
 @pytest.fixture(scope="module")
@@ -180,18 +181,18 @@ def test_office_rename_by_admin_follows_id_1(cn):
 
 
 def test_f60_type_outside_roster_label_desk_refused(cn):
-    refused(cn, "type is roster, label or desk", "sp_name_retire", "adm", "tree", "any-tree")
+    refused(cn, "type is roster, label or desk", "sp_name_retire", "adm", None, "tree", "any-tree")
 
 
 @pytest.mark.parametrize("level", ["high", "limited"])
 def test_retire_plain_desk_refused(cn, trust, level):
     trust(level)
-    refused(cn, "Admin only: retire", "sp_name_retire", "ann", "label", "h-label")
+    refused(cn, "Admin only: retire", "sp_name_retire", "ann", None, "label", "h-label")
 
 
 @pytest.mark.parametrize("seed, text", [("Office", "cannot delete Office"), ("Admin", "cannot delete Admin")])
 def test_seeds_never_retired(cn, seed, text):
-    refused(cn, text, "sp_name_retire", "adm", "roster", seed)
+    refused(cn, text, "sp_name_retire", "adm", None, "roster", seed)
 
 
 def test_seeds_never_reclaimed(cn):
@@ -204,26 +205,57 @@ def test_hard_delete_refused(cn):
     assert "DELETE refused" in str(ei.value)
 
 
+def _held(c, desk, res):
+    d = nid(c, "desk", desk)
+    call(c, "sp_name_mint", desk, "res", res)
+    q(c, "INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", (d, nid(c, "res", res)))
+    hid = q(c, "SELECT id FROM hold WHERE resource_id = %s", (nid(c, "res", res),))[0][0]
+    q(c, "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('hold', %s, %s, 1, 'hold')", (hid, d))
+    q(c, "UPDATE seat SET delivery_mode = 'webhook', endpoint_url = 'http://x', endpoint_key = 'k' WHERE desk_id = %s", (d,))
+    return d, hid
+
+
+def _retired_shape(c, desk, hid, actor):
+    seat = q(c, "SELECT token_hash, endpoint_url, endpoint_key, delivery_mode, doing_id FROM seat WHERE desk_id = %s",
+             (desk,))[0]
+    assert seat[:4] == (None, None, None, "websocket")
+    assert q(c, "SELECT desk_id FROM hold WHERE id = %s", (hid,))[0][0] is None
+    assert row(c, desk)[2] == 1
+    # The focus ends with a clear row on the desk, and seat.doing_id names it (decision 2).
+    assert q(c, "SELECT desk_id, act, text FROM doing WHERE id = %s", (seat[4],)) == [(desk, "clear", "")]
+    # C5: the drop row is by the acting desk (self or Admin), never NULL, on the hold; the holder is the peer when
+    # another desk acted.
+    assert q(c, "SELECT desk_id, act, peer_id FROM doing WHERE on_type = 'hold' AND on_id = %s", (hid,)) == [
+        (actor, "drop", None if actor == desk else desk)]
+    assert q(c, "SELECT desk_id, act FROM activity WHERE type = 'hold' AND id = %s", (hid,)) == [(actor, "drop")]
+
+
 def test_retire_desk_clears_seat_and_frees_holds_f65_f135(cn):
-    cat = nid(cn, "desk", "cat")
-    call(cn, "sp_name_mint", "cat", "res", "lock-1")
-    r = nid(cn, "res", "lock-1")
-    q(cn, "INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", (cat, r))
-    hid = q(cn, "SELECT id FROM hold WHERE resource_id = %s", (r,))[0][0]
-    q(cn, "INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('hold', %s, %s, 1)", (hid, cat))
-    q(cn, "UPDATE seat SET delivery_mode = 'webhook', endpoint_url = 'http://x', endpoint_key = 'k' WHERE desk_id = %s", (cat,))
-    out = call(cn, "sp_name_retire", "adm", "desk", "cat")
+    cat, hid = _held(cn, "cat", "lock-1")
+    out = call(cn, "sp_name_retire", "adm", None, "desk", "cat")
     assert out[0][3] == "deleted" and out[0][4] == 1
-    seat = q(cn, "SELECT token_hash, endpoint_url, endpoint_key, delivery_mode FROM seat WHERE desk_id = %s", (cat,))[0]
-    assert seat == (None, None, None, "websocket")
-    assert q(cn, "SELECT desk_id FROM hold WHERE id = %s", (hid,))[0][0] is None
-    assert row(cn, cat)[2] == 1
+    _retired_shape(cn, cat, hid, nid(cn, "desk", "adm"))
+
+
+def test_desk_self_retire_with_own_hash_card_880(cn):
+    # Card 880 (F177): a desk retires itself with its own seat token hash, as sp_name_rename's p_by_hash.
+    eve, hid = _held(cn, "eve", "lock-eve")
+    out = call(cn, "sp_name_retire", "eve", H["eve"], "desk", "eve")
+    assert out[0][3] == "deleted" and out[0][4] == 1
+    _retired_shape(cn, eve, hid, eve)
+
+
+def test_desk_self_retire_wrong_hash_or_other_desk_refused(cn):
+    refused(cn, "Admin only: retire", "sp_name_retire", "fay", H["bob"], "desk", "fay")
+    refused(cn, "Admin only: retire", "sp_name_retire", "fay", H["fay"], "desk", "bob")
+    refused(cn, "Admin only: retire", "sp_name_retire", "fay", H["fay"], "label", "h-label")
+    assert row(cn, nid(cn, "desk", "fay"))[2] == 0
 
 
 def test_retired_name_not_reused_and_reclaim_same_id(cn):
     call(cn, "sp_name_mint", "adm", "label", "old-l")
     i = nid(cn, "label", "old-l")
-    call(cn, "sp_name_retire", "adm", "label", "old-l")
+    call(cn, "sp_name_retire", "adm", None, "label", "old-l")
     refused(cn, "name retired", "sp_name_mint", "adm", "label", "old-l")
     refused(cn, "name retired: mill reclaim first", "sp_name_rename", "adm", None, "label", "old-l", "new-l")
     refused(cn, "Admin only: reclaim", "sp_name_reclaim", "ann", "label", "old-l")
@@ -235,7 +267,7 @@ def test_reclaim_refused_while_a_live_seat_is_a_member(cn):
     call(cn, "sp_name_mint", "adm", "roster", "busy-r")
     r = nid(cn, "roster", "busy-r")
     q(cn, "INSERT INTO member (name_id, desk_id) VALUES (%s, %s)", (r, nid(cn, "desk", "bob")))
-    call(cn, "sp_name_retire", "adm", "roster", "busy-r")
+    call(cn, "sp_name_retire", "adm", None, "roster", "busy-r")
     refused(cn, "mill reset first", "sp_name_reclaim", "adm", "roster", "busy-r")
 
 

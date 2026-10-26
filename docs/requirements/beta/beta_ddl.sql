@@ -1,6 +1,7 @@
--- 29 tables. Wipe then apply.
--- BETA (0.8, card 868): main's tables.sql with the departures listed in BETA-CHANGES.md; 29 tables:
--- main's 22 plus todo_event, doing_now, vote, vote_option, vote_cast, glance_cache, sp_deploy.
+-- 22 tables. Wipe then apply.
+-- BETA (0.8, card 868): main's tables.sql with the departures listed in BETA-CHANGES.md; 22 tables, main's 22.
+-- No new table (the owner, 2026-10-26): doing is the history of card and hold moves, and seat.doing_id names a
+-- desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.
 -- name, member, activity, label, tree, watcher,
 -- mail, mail_to, tree_read, todo, seat, doing, hold, score, score_point, score_evidence,
@@ -97,8 +98,12 @@ CREATE TABLE IF NOT EXISTS seat (
   lan_ip          VARCHAR(45) CHARACTER SET ascii COLLATE ascii_bin NULL,
   time_connect    DATETIME(6) NULL,
   time_disconnect DATETIME(6) NULL,
+  -- BETA (the owner, 2026-10-26): the desk's focus, its newest focus row (act focus or clear; never a move row).
+  -- NULL until the desk's first doing row. fk_seat_doing is added after doing (the two tables reference each other).
+  doing_id        BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY idx_desk (desk_id),
+  KEY idx_doing (doing_id, desk_id),
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
@@ -128,11 +133,12 @@ CREATE TABLE IF NOT EXISTS activity (
   desk_id          BIGINT UNSIGNED       NULL,   -- BETA: NULL = the office itself (main wrote roster id 2, Admin, here)
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_activity_roster
-  weight           INT UNSIGNED NOT NULL DEFAULT 1,
-  n                SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  -- BETA (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
+  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   KEY idx_type (type, roster_id, updated),
+  KEY idx_updated (updated),   -- BETA (the owner, 2026-10-26): the newest list office-wide, a reverse index read
   KEY idx_desk (desk_id, type, updated),
   KEY idx_desk_updated (desk_id, updated),
   KEY idx_roster (roster_id, roster_kind, type, updated),
@@ -275,32 +281,15 @@ CREATE TABLE IF NOT EXISTS todo (
   CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- BETA (owner rule: pass with evidence; lab H5, RESULTS.md line 114): one status change of a todo, with its
--- evidence on ship and done. todo.status stays the current value; this is its history.
-CREATE TABLE IF NOT EXISTS todo_event (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  todo_id     BIGINT UNSIGNED NOT NULL,
-  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  desk_id     BIGINT UNSIGNED NOT NULL,
-  from_status ENUM('parked','open','claimed','shipped','done') NULL,
-  to_status   ENUM('parked','open','claimed','shipped','done') NOT NULL,
-  assigned_id BIGINT UNSIGNED NULL,
-  evidence    VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  PRIMARY KEY (id),
-  KEY idx_todo (todo_id, id),
-  KEY idx_desk (desk_id),
-  KEY idx_assigned (assigned_id),
-  CONSTRAINT ck_todo_event_evidence CHECK (evidence IS NULL OR to_status IN ('shipped','done')),
-  CONSTRAINT fk_todo_event_todo FOREIGN KEY (todo_id) REFERENCES todo (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_event_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_event_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 -- #818: what a desk is doing. Append-only: one row per entry, never overwritten.
 -- The desk's current doing is its newest row. on_* is the activity the entry
 -- is about (any type but doing); waiting_* is what it is blocked on (#822:
 -- a desk, letter, card or hold, plus the reason) as fields on this one row.
 -- No edge or link table: who is blocked on a desk is a read (mill_doing_now).
+-- BETA (the owner, 2026-10-26): doing is also the history of card and hold moves. act names the row: focus or clear
+-- is the desk's own focus (seat.doing_id names the newest); any other act is a move of the on_* item by desk_id,
+-- with peer_id the second desk of the move (the new volunteer of an assign, the previous one of a take-over).
+-- A move's from-state is the previous move row on the same item (idx_on, in id order). Card evidence is the text.
 CREATE TABLE IF NOT EXISTS doing (
   type          ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'doing',
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -314,25 +303,22 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_type  ENUM('mail','todo','hold','desk') NULL,
   waiting_id    BIGINT UNSIGNED NULL,
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'focus',
+  peer_id       BIGINT UNSIGNED NULL,   -- BETA: the second desk of a move; not waiting_* (that is what a focus is blocked on)
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk_created (desk_id, created),
-  KEY idx_on (on_type, on_id),
+  KEY idx_on (on_type, on_id, id),   -- BETA: an item's moves in id order, no filesort
   KEY idx_roster (roster_id, roster_kind),
-  UNIQUE KEY idx_id_desk (id, desk_id),   -- BETA: target of doing_now's composite FK
+  KEY idx_peer (peer_id),
+  UNIQUE KEY idx_id_desk (id, desk_id),   -- BETA: target of seat.fk_seat_doing (the desk's own row)
   CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- BETA (lab: A2 desk doing 4.6 -> 0.1 ms at M, RESULTS.md lines 20 and 56): the desk's current doing, kept by the
--- same procedure that appends the doing row. The composite FK keeps it on the desk's own row.
-CREATE TABLE IF NOT EXISTS doing_now (
-  desk_id     BIGINT UNSIGNED NOT NULL,
-  doing_id    BIGINT UNSIGNED NOT NULL,
-  PRIMARY KEY (desk_id),
-  KEY idx_doing (doing_id, desk_id),
-  CONSTRAINT fk_doing_now_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- BETA (the owner, 2026-10-26): seat.doing_id names the desk's own focus row; the composite FK keeps it on that desk.
+ALTER TABLE seat ADD CONSTRAINT fk_seat_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT;
 
 -- One lock per resource. desk_id NULL means free. Release nulls desk_id; the row stays.
 CREATE TABLE IF NOT EXISTS hold (
@@ -427,67 +413,10 @@ SELECT CURRENT_TIMESTAMP(6), NULL, 1, 'mill-desk.hint_drop', '', '0',
        'sit FIFO overflow: mill-perf op=ws.recv drop=1 in window; target 0'
   FROM DUAL
  WHERE NOT EXISTS (SELECT 1 FROM score WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'mill-desk.hint_drop');
-INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, weight, n, bytes)
-SELECT 'score', s.id, s.created, s.updated, s.desk_id, s.roster_id, 1, 1, NULL
+INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act, bytes)
+SELECT 'score', s.id, s.created, s.updated, s.desk_id, s.roster_id, 'create', NULL
 FROM score s
 WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop');
-
--- BETA (owner decision: a roster decides by vote, open / cast / close). One question a roster votes on; the
--- question is a mail on that roster. closed/outcome are set together by the close procedure.
-CREATE TABLE IF NOT EXISTS vote (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  desk_id     BIGINT UNSIGNED NOT NULL,
-  roster_id   BIGINT UNSIGNED NOT NULL,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_vote_roster
-  mail_id     BIGINT UNSIGNED NOT NULL,
-  question    VARCHAR(400) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  deadline    DATETIME(6) NOT NULL,
-  closed      DATETIME(6) NULL,
-  outcome     ENUM('decided','deadlock','no_show') NULL,
-  result_opt  TINYINT UNSIGNED NULL,
-  members_n   SMALLINT UNSIGNED NULL,
-  escalated   DATETIME(6) NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY idx_mail (mail_id),
-  KEY idx_roster_open (roster_id, roster_kind, closed, deadline),
-  KEY idx_desk (desk_id),
-  KEY idx_result (id, result_opt),
-  KEY idx_due (closed, deadline),
-  CONSTRAINT ck_vote_deadline CHECK (deadline > created),
-  CONSTRAINT ck_vote_closed CHECK ((closed IS NULL) = (outcome IS NULL) AND (closed IS NULL) = (members_n IS NULL)),
-  CONSTRAINT ck_vote_result CHECK ((outcome = 'decided') <=> (result_opt IS NOT NULL) OR (outcome IS NULL AND result_opt IS NULL)),
-  CONSTRAINT ck_vote_escalated CHECK (escalated IS NULL OR outcome IN ('deadlock','no_show')),
-  CONSTRAINT fk_vote_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_vote_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
-  CONSTRAINT fk_vote_mail FOREIGN KEY (mail_id) REFERENCES mail (id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
--- BETA: one option of a vote (label is option text, not a name row).
-CREATE TABLE IF NOT EXISTS vote_option (
-  vote_id     BIGINT UNSIGNED NOT NULL,
-  opt         TINYINT UNSIGNED NOT NULL,
-  label       VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  PRIMARY KEY (vote_id, opt),
-  UNIQUE KEY idx_label (vote_id, label),
-  CONSTRAINT ck_vote_option_opt CHECK (opt BETWEEN 1 AND 16),
-  CONSTRAINT fk_vote_option_vote FOREIGN KEY (vote_id) REFERENCES vote (id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-ALTER TABLE vote ADD CONSTRAINT fk_vote_result FOREIGN KEY (id, result_opt) REFERENCES vote_option (vote_id, opt);
-
--- BETA: one member's cast on a vote (a recast updates the row while the vote is open).
-CREATE TABLE IF NOT EXISTS vote_cast (
-  vote_id     BIGINT UNSIGNED NOT NULL,
-  desk_id     BIGINT UNSIGNED NOT NULL,
-  opt         TINYINT UNSIGNED NOT NULL,
-  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  note        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  PRIMARY KEY (vote_id, desk_id),
-  KEY idx_desk (desk_id),
-  KEY idx_opt (vote_id, opt),
-  CONSTRAINT fk_vote_cast_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_vote_cast_opt FOREIGN KEY (vote_id, opt) REFERENCES vote_option (vote_id, opt) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- One human. They hold the bearer. The host stores only the hash.
 -- directory_sub is the directory or IAM subject, when that door is on.
@@ -562,39 +491,6 @@ CREATE TABLE IF NOT EXISTS push_queue (
   CONSTRAINT fk_push_queue_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- BETA (lab: the glance over traces is 226 ms at M and 4.1 s at 10x history; cached 0.25 ms; RESULTS.md lines
--- 24-25, 52 and 57): the office glance, one row refreshed every 30 s (relaxed tier). No office-wide unread (owner rule).
-CREATE TABLE IF NOT EXISTS glance_cache (
-  id          TINYINT UNSIGNED NOT NULL DEFAULT 1,
-  at          DATETIME(6) NOT NULL,
-  refresh_us  INT UNSIGNED NOT NULL,
-  present     INT UNSIGNED NOT NULL,
-  held        INT UNSIGNED NOT NULL,
-  open_n      INT UNSIGNED NOT NULL,
-  claimed_n   INT UNSIGNED NOT NULL,
-  parked_n    INT UNSIGNED NOT NULL,
-  shipped_n   INT UNSIGNED NOT NULL,
-  done_n      INT UNSIGNED NOT NULL,
-  letters_1d  INT UNSIGNED NOT NULL,
-  card_moves_1d INT UNSIGNED NOT NULL,
-  doings_1d   INT UNSIGNED NOT NULL,
-  holds_1d    INT UNSIGNED NOT NULL,
-  points_1d   INT UNSIGNED NOT NULL,
-  open_votes  INT UNSIGNED NOT NULL,
-  PRIMARY KEY (id),
-  CONSTRAINT ck_glance_cache_one CHECK (id = 1)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
--- BETA (owner rule: SP version stamp, client warns or refuses on mismatch): one deploy of beta_sp.sql.
-CREATE TABLE IF NOT EXISTS sp_deploy (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  version     CHAR(15) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  file        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  by_user     VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT (CURRENT_USER()),
-  PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 DROP TRIGGER IF EXISTS activity_del_watchers;
 DROP TRIGGER IF EXISTS todo_no_delete_in_tree;
 DROP TRIGGER IF EXISTS mail_no_delete_in_tree;
@@ -605,8 +501,6 @@ DROP TRIGGER IF EXISTS doing_no_delete_in_tree;
 DROP TRIGGER IF EXISTS score_no_delete_in_tree;
 DROP TRIGGER IF EXISTS name_no_delete;
 DROP TRIGGER IF EXISTS name_fixed;
-DROP TRIGGER IF EXISTS vote_cast_open;
-DROP TRIGGER IF EXISTS vote_cast_change;
 
 DELIMITER //
 
@@ -681,29 +575,6 @@ BEGIN
   END IF;
   IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: mill reclaim first';
-  END IF;
-END //
-
--- BETA (vote): a cast comes from a member of the vote's roster, on an open vote, before its deadline.
-CREATE TRIGGER vote_cast_open BEFORE INSERT ON vote_cast
-FOR EACH ROW
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM vote v JOIN member m ON m.name_id = v.roster_id AND m.desk_id = NEW.desk_id
-                  WHERE v.id = NEW.vote_id) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'vote: not a member of this roster';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM vote WHERE id = NEW.vote_id AND closed IS NULL AND deadline > NEW.created) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'vote: closed';
-  END IF;
-END //
-CREATE TRIGGER vote_cast_change BEFORE UPDATE ON vote_cast
-FOR EACH ROW
-BEGIN
-  IF NEW.vote_id <> OLD.vote_id OR NEW.desk_id <> OLD.desk_id THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'vote: voter and vote are fixed';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM vote WHERE id = NEW.vote_id AND closed IS NULL AND deadline > NEW.created) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'vote: closed';
   END IF;
 END //
 

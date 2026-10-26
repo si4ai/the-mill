@@ -2574,10 +2574,10 @@ def _done_when(c: Book, card_id: int, project: str, need: str, raw: Any, owner: 
 
 
 def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """The office glance from the cached procedure: one cache row, newest 30 activity rows."""
-    from agent_coord.server.beta_client import read_cached_glance
+    """The office glance, computed live: one summary row, newest 30 activity rows."""
+    from agent_coord.server.beta_client import read_glance
 
-    return read_cached_glance(c._cn)
+    return read_glance(c._cn)
 
 
 _NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started")
