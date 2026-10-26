@@ -1,17 +1,13 @@
--- 0.8.0 name family and trust (card 868), from docs/requirements/beta/beta_sp.sql, on the beta tables.
+-- 0.8.0 (card 868): the name family with trust, from docs/requirements/beta/beta_sp.sql. Applied last in
+-- apply_order.txt, so its mill_desk_id replaces sp_cmd.sql's MILL_DESK_ID (same body).
 -- Public (EXECUTE to the app user): cmd_*, sp_name_*, mill_*. Internal helpers are b_* (never granted).
 -- sp_admin_set is granted to the host database user only (admin.md section 1: Admin grant is host loopback only).
 -- Trust: every procedure reads b_trust() itself and applies docs/requirements/admin.md sections 1-3; no guard reads an
--- app argument or a caller-set user variable. The level lives in the server's config.toml; the server re-creates
--- b_trust() from it at startup and on `mill trust` (records/trust_fn.py, schema-design.md section 9).
--- Ids are BIGINT UNSIGNED. There is no name history table: a lifecycle step changes the name row only.
--- No procedure starts, commits or rolls back; the caller owns the transaction; guards run before the first write;
--- the name row a decision depends on is read FOR UPDATE.
--- Differences from beta_sp.sql, to keep main's commands: MILL_DESK_ID (sp_cmd.sql) is the one desk-name function
--- (beta_sp.sql's mill_desk_id is the same routine name, so it is not redefined here); a desk retires itself with its
--- own seat (card 880), like rename; reclaim says a live name is live before the seed guard (main's
--- order); retiring a desk ends its doing and frees its holds with main's helpers
--- (mill_doing_clear, mill_hold_release_desk), so watchers follow and doing_now stays on the newest row.
+-- app argument or a caller-set user variable. The level lives in the server's config.toml (as on main); the server
+-- re-creates b_trust() from it at startup and on `mill trust` (docs/requirements/schema-design.md section 9).
+-- Ids are BIGINT UNSIGNED, as on main. There is no name history table: a lifecycle step changes the name row only.
+-- No procedure starts, commits or rolls back; the caller owns the transaction; guards run before the
+-- first write; the name row a decision depends on is read FOR UPDATE.
 -- Refusals: SIGNAL SQLSTATE 45000 with main's texts where main has one (sp_name.sql, catalog.py, guard.py).
 
 DELIMITER //
@@ -34,6 +30,9 @@ BEGIN
   IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'desk: not a seated desk'; END IF;
   RETURN v;
 END //
+DROP FUNCTION IF EXISTS mill_desk_id //
+CREATE FUNCTION mill_desk_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
+  RETURN (SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL) //
 -- A roster by name. Office is id 1 by name while no roster holds the name 'Office' (F92: Office follows id 1).
 DROP FUNCTION IF EXISTS mill_roster_id //
 CREATE FUNCTION mill_roster_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
@@ -134,39 +133,32 @@ BEGIN
   SELECT v_id AS id, TRIM(p_new) AS name, v_type AS name_type, 'renamed' AS op;
 END //
 
--- ---------- retire (admin.md sections 1 and 4; F65, F135; card 880) ----------
--- Admin at either trust. Exception: a desk retires itself when p_by_hash is its seat's token hash (card 880).
--- Soft: name.deleted. Office and Admin are never retired. A desk: its seat token and webhook are cleared, its
--- current doing ends (mill_doing_clear: an empty row, watchers follow, doing_now names it), and every hold it owns
--- is freed (mill_hold_release_desk), in this call.
+-- ---------- retire (admin.md sections 1 and 4; F65, F135) ----------
+-- Admin at either trust. Soft: name.deleted. Office and Admin are never retired. A desk: its seat token and
+-- webhook are cleared, its current doing ends, and every hold it owns is freed, in this call.
 DROP PROCEDURE IF EXISTS sp_name_retire //
-CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_by_hash CHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
+CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
-  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0;
-  DECLARE v_ts DATETIME(6); DECLARE v_doing BIGINT UNSIGNED; DECLARE v_roster BIGINT UNSIGNED; DECLARE v_self TINYINT DEFAULT 0;
+  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0; DECLARE v_doing BIGINT UNSIGNED;
+  IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: retire'; END IF;
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
-  IF v_type = 'desk' AND v_id = v_by AND p_by_hash IS NOT NULL
-     AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_by AND token_hash = p_by_hash) THEN SET v_self = 1; END IF;
-  IF NOT v_self AND NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: retire'; END IF;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   IF v_id = 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Office'; END IF;
   IF v_id = 2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Admin'; END IF;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name already retired'; END IF;
-  SET v_ts = MILL_NOW();
-  UPDATE name SET deleted = v_ts WHERE id = v_id;
+  UPDATE name SET deleted = NOW(6) WHERE id = v_id;
   IF v_type = 'desk' THEN
-    -- #608: a retired desk keeps no seat; #818: and its current doing ends, as on main (only a live seat ends it).
-    UPDATE seat SET token_hash = NULL, time_disconnect = v_ts WHERE desk_id = v_id AND token_hash IS NOT NULL;
-    IF ROW_COUNT() > 0 THEN
-      CALL mill_doing_clear(v_id, v_ts, v_doing, v_roster);
-    END IF;
-    -- #618: and no webhook wake.
-    UPDATE seat SET delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
+    UPDATE seat SET token_hash = NULL, time_disconnect = NOW(6),
+           delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
            endpoint_url = NULL, endpoint_key = NULL, wake_on = 'addressed'
-     WHERE desk_id = v_id AND endpoint_url IS NOT NULL;
-    -- Card 842: and no lock.
-    CALL mill_hold_release_desk(v_id, v_ts, v_released);
+     WHERE desk_id = v_id;
+    UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id SET a.updated = NOW(6) WHERE h.desk_id = v_id;
+    UPDATE hold SET desk_id = NULL WHERE desk_id = v_id;
+    SET v_released = ROW_COUNT();
+    INSERT INTO doing (desk_id, roster_id, text) VALUES (v_id, 1, ''); SET v_doing = LAST_INSERT_ID();
+    INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('doing', v_doing, v_id, 1);
+    INSERT INTO doing_now (desk_id, doing_id) VALUES (v_id, v_doing) AS x ON DUPLICATE KEY UPDATE doing_id = x.doing_id;
   END IF;
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op, v_released AS released;
 END //
@@ -182,9 +174,8 @@ BEGIN
   IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: reclaim'; END IF;
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
-  -- main's order: a live name says so first (Office and Admin are always live).
-  IF v_del IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name is live (not retired)'; END IF;
   IF v_id IN (1, 2) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot reclaim a seed (Office, Admin)'; END IF;
+  IF v_del IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name is live (not retired)'; END IF;
   IF EXISTS (SELECT 1 FROM seat WHERE token_hash IS NOT NULL AND token_hash <> ''
               AND (desk_id = v_id OR desk_id IN (SELECT desk_id FROM member WHERE name_id = v_id))) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: mill reset first, then mill reclaim';
@@ -231,7 +222,7 @@ END //
 DROP PROCEDURE IF EXISTS sp_admin_set //
 CREATE PROCEDURE sp_admin_set(IN p_by VARCHAR(64), IN p_desk VARCHAR(64), IN p_on TINYINT)
 BEGIN
-  DECLARE v BIGINT UNSIGNED DEFAULT NULLIF(MILL_DESK_ID(p_desk), 0); DECLARE v_by BIGINT UNSIGNED DEFAULT NULLIF(MILL_DESK_ID(p_by), 0);
+  DECLARE v BIGINT UNSIGNED DEFAULT mill_desk_id(p_desk); DECLARE v_by BIGINT UNSIGNED DEFAULT mill_desk_id(p_by);
   IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   SELECT id FROM name WHERE id = 2 FOR UPDATE;
   IF p_on THEN
