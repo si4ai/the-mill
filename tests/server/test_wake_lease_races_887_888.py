@@ -143,3 +143,52 @@ def test_wake_done_rpc_passes_the_token(monkeypatch) -> None:
     monkeypatch.setattr(wake, "lease_done", lambda cn, desk, note="", lease="": seen.append((desk, lease)) or "stale")
     out = rpc.HANDLERS["wake-done"](MagicMock(), {"verb": "wake-done", "lease": "tok"}, "the-mill", "away")
     assert seen == [("away", "tok")] and out["wake"] == "stale"
+
+
+def _gap(office, monkeypatch, between):
+    """Run `between` once after post_desk's take and before its POST body is
+    built (at the first queue read), and record the lease id each take stored."""
+    from agent_coord.server.records import push as rec_push
+
+    taken: list = []
+    real_new = wake._new_lease
+
+    def new_lease(desk, now):
+        got = real_new(desk, now)
+        taken.append(got if isinstance(got, str) else wake._EPOCH.get(desk))
+        return got
+
+    monkeypatch.setattr(wake, "_new_lease", new_lease)
+    real_pending = rec_push.pending
+    fired = {"n": 0}
+
+    def pending(cn, desk):
+        if fired["n"] == 0 and taken:
+            fired["n"] = 1
+            between()
+        return real_pending(cn, desk)
+
+    monkeypatch.setattr(rec_push, "pending", pending)
+    return taken
+
+
+def test_the_post_carries_its_own_lease_id_when_a_done_lands_after_the_take(office, monkeypatch) -> None:  # noqa: F811
+    taken = _gap(office, monkeypatch, lambda: wake.lease_done(office["cn"], "away"))
+    _letter(office, 1)
+    posts = _posts(office)
+    assert len(posts) == 1 and len(taken) == 1
+    assert posts[0]["wake"]["lease"] == taken[0]  # not null: the id the take stored
+
+
+def test_the_post_carries_its_own_lease_id_when_a_newer_take_lands_after_it(office, monkeypatch) -> None:  # noqa: F811
+    import time
+
+    def newer():
+        wake.lease_done(office["cn"], "away")
+        assert wake._gate_take("away", time.monotonic())
+
+    taken = _gap(office, monkeypatch, newer)
+    _letter(office, 1)
+    posts = _posts(office)
+    assert len(taken) == 2 and taken[0] != taken[1]
+    assert posts[0]["wake"]["lease"] == taken[0]  # its own lease, never the newer one

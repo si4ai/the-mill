@@ -578,12 +578,14 @@ _NOTE: dict[str, str] = {}
 _EPOCH: dict[str, str] = {}
 
 
-def _new_lease(desk: str, now: float) -> None:
-    """Start a lease. Caller holds _GATE_LOCK."""
+def _new_lease(desk: str, now: float) -> str:
+    """Start a lease and return its id. Caller holds _GATE_LOCK."""
     import uuid
 
+    token = uuid.uuid4().hex[:12]
     _GATE[desk] = now
-    _EPOCH[desk] = uuid.uuid4().hex[:12]
+    _EPOCH[desk] = token
+    return token
 
 
 def _gate_take(desk: str, now: float) -> bool:
@@ -665,25 +667,29 @@ def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | No
     return at if first else -1.0
 
 
-def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
-               *, take: bool = False) -> bool:
-    """One lock hold (F144a, card 887): when the desk holds a live lease, record
-    the item the lease holds back and return True. The first one in a lease
-    schedules the lease-end check (#669, F144); later ones only update the
-    latest item. No live lease: False, and with take=True a new lease starts in
-    the same hold, so a wake-done can never land between the check and the record."""
+def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
+                  *, take: bool) -> str | None:
+    """One lock hold (F144a, card 887). A live lease: record the item it holds back
+    and return "" (the first one in a lease schedules the lease-end check, #669).
+    No live lease: None, or with take=True start a lease in the same hold and
+    return its id, which the caller puts on its POST as is (F144b: never read
+    _EPOCH again, a done or a newer take may have changed it since)."""
     import time
 
     now = time.monotonic()
     with _GATE_LOCK:
         first = _hold_locked(desk, now, frame, hint_id, reason, room)
         if first is None:
-            if take:
-                _new_lease(desk, now)
-            return False
+            return _new_lease(desk, now) if take else None
     if first >= 0:
         _schedule(first + lease_s() - time.monotonic(), trail, desk, first)
-    return True
+    return ""
+
+
+def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None) -> bool:
+    """True when a live lease held the item back (recorded in the same lock hold
+    as the check, so a wake-done can never land between them; F144a)."""
+    return _hold_or_take(desk, frame, hint_id, reason, room, take=False) == ""
 
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
@@ -930,7 +936,8 @@ def post_desk(
     # unresolvable target takes no gate, so it never blocks the next valid wake.
     # Taken here (not peeked) so two threads racing past the peek send one POST;
     # the loser is recorded under the winner's lease in the same hold (card 887).
-    if _coalesced(desk, frame, hint_id, reason, room, take=True):
+    lease = _hold_or_take(desk, frame, hint_id, reason, room, take=True)
+    if not lease:
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
     from agent_coord.server.records import push as rec_push
@@ -942,7 +949,6 @@ def post_desk(
         reason = ADDRESSED
     with _GATE_LOCK:
         note = _NOTE.get(desk)
-        lease = _EPOCH.get(desk)
     body = wake_body(desk, frame, pending=pending, roster=desk_roster(cn, desk), reason=reason, room=room,
                      pending_count=pending_count, last_note=note, lease=lease)
     status, err = _fire(url, body,
