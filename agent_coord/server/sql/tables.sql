@@ -1,10 +1,10 @@
 -- 29 tables. Wipe then apply.
--- 0.8.0 schema (card 868): main's 0.7.18 tables with the departures in docs/requirements/beta/BETA-CHANGES.md; 29 tables:
+-- name, seat, member, activity, label, tree, watcher, mail, mail_to, tree_read, todo, todo_event,
+-- doing, doing_now, hold, score, score_point, score_evidence, vote, vote_option, vote_cast,
+-- human, human_desk, human_member, mill_invite, mill_invite_join, push_queue, glance_cache, sp_deploy.
+-- 0.8.0 schema (card 868): main's 0.7.18 tables with the departures in docs/requirements/beta/BETA-CHANGES.md;
 -- main's 22 plus todo_event, doing_now, vote, vote_option, vote_cast, glance_cache, sp_deploy.
--- Order: name, then seat (the desk kind table), then main's order.
--- name, member, activity, label, tree, watcher,
--- mail, mail_to, tree_read, todo, seat, doing, hold, score, score_point, score_evidence,
--- human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
+-- Order: name, then seat (the desk kind table), then main's order with the new tables placed among them.
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
