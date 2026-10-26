@@ -80,8 +80,7 @@ INSERT INTO label (type, id, name_id, ord)
 INSERT INTO push_queue (id, desk_id, kind, payload, outcome, created)
   SELECT p.id, p.desk_id, 'mail',
          JSON_OBJECT('id', l.id, 'kind', 'mail', 'body', l.body, 'sender', s.name, 'created', DATE_FORMAT(l.created, '%Y-%m-%d %H:%i:%s.%f'),
-                     'opened', NULL, 'receipt', t.receipt, 'mail_tos', (SELECT JSON_ARRAYAGG(d.name) FROM @SRC@.letter_to x JOIN @SRC@.desk d ON d.id = x.desk_id WHERE x.letter_id = l.id),
-                     'affiliation_id', NULL),
+                     'opened', NULL, 'receipt', t.receipt, 'mail_tos', (SELECT JSON_ARRAYAGG(d.name) FROM @SRC@.letter_to x JOIN @SRC@.desk d ON d.id = x.desk_id WHERE x.letter_id = l.id)),
          'missed', p.created
     FROM @SRC@.push p JOIN @SRC@.letter l ON l.id = p.letter_id JOIN @SRC@.desk s ON s.id = l.sender_id
     JOIN @SRC@.letter_to t ON t.letter_id = p.letter_id AND t.desk_id = p.desk_id;
