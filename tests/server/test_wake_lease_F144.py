@@ -203,7 +203,7 @@ def test_done_rpc_ends_the_callers_own_lease(monkeypatch) -> None:
     from agent_coord.server.api.mill import rpc
 
     seen: list = []
-    monkeypatch.setattr(wake, "lease_done", lambda cn, desk, note="": seen.append((desk, note)) or "none")
+    monkeypatch.setattr(wake, "lease_done", lambda cn, desk, note="", lease="": seen.append((desk, note)) or "none")
     book = MagicMock()
     out = rpc.HANDLERS["wake-done"](book, {"verb": "wake-done", "note": "wrapped up", "desk": "someone-else"}, "the-mill", "away")
     assert seen == [("away", "wrapped up")]

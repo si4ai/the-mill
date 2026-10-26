@@ -39,6 +39,7 @@ drop doing
 drop waiting_on
 wake-done (command)
 wake-done note
+wake-done lease
 wake-done office
 wake-done yes
 send (command)

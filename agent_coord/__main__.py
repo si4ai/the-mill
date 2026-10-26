@@ -542,7 +542,7 @@ def _build_parser() -> MillArgumentParser:
 
     dn = sub.add_parser(
         "wake-done",
-        help="end this woken run: mill wake-done [--note TEXT] (the last step of a webhook-woken run)",
+        help="end this woken run: mill wake-done [--lease ID] [--note TEXT] (the last step of a webhook-woken run)",
         description=(
             "F144: the office sends one webhook wake at a time. mill wake-done ends this desk's wake lease; "
             "letters that came during the run ring once more, carrying pending_count and the note. "
@@ -551,6 +551,8 @@ def _build_parser() -> MillArgumentParser:
         ),
     )
     dn.add_argument("--note", default="", help="one line for the next wake (last_note): what you did, what is next")
+    dn.add_argument("--lease", default="",
+                    help="the wake.lease token of the wake that started this run: a run that outlived its lease ends nothing")
 
     m = sub.add_parser(
         "send",
