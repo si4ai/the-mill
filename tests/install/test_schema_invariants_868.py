@@ -312,3 +312,35 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
                 cn.rollback()
     assert not right_refused, f"a right-kind id (or a wrong kind with an error other than FK 1452): {right_refused}"
     assert not wrong_ok, f"a wrong-kind name id was accepted: {wrong_ok}"
+
+
+def _declared_keys():
+    # (table, index) for every key the DDL text declares, with whether it is UNIQUE. PRIMARY is always declared.
+    import re
+
+    ddl = (ROOT / "docs" / "requirements" / "beta" / "beta_ddl.sql").read_text(encoding="utf-8")
+    out = {}
+    for t, body in re.findall(r"^CREATE TABLE IF NOT EXISTS (\w+) \((.*?)^\)", ddl, re.M | re.S):
+        for uniq, name in re.findall(r"^\s*(UNIQUE )?KEY (\w+) \(", body, re.M):
+            out[(t, name)] = bool(uniq)
+    return out
+
+
+def test_no_implicit_indexes_beyond_primary_and_unique(book):
+    # The owner (2026-10-25): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared in the
+    # DDL and named idx_*. An index MySQL creates for an FK (not declared in the DDL) is refused, so each FK must lead
+    # a PRIMARY, a UNIQUE or a declared idx_* key (F169).
+    cn, db = book
+    declared = _declared_keys()
+    got = {(t, i): nu for t, i, nu in _rows(
+        cn, "SELECT DISTINCT TABLE_NAME, INDEX_NAME, NON_UNIQUE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = %s",
+        (db,))}
+    fk_names = {(t, fk) for t, fk in _rows(
+        cn, "SELECT TABLE_NAME, CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = %s",
+        (db,))}
+    implicit = sorted(k for k in got if k[1] != "PRIMARY" and k not in declared)
+    assert not implicit, f"indexes MySQL created for an FK (not declared in the DDL): {implicit}"
+    assert not sorted(set(got) & fk_names), "an index named after an FK constraint"
+    badname = sorted(k for k, uniq in declared.items() if not uniq and not k[1].startswith("idx_"))
+    assert not badname, f"a declared non-unique key must be named idx_*: {badname}"
+    assert sorted(k for k in declared if k not in got) == [], "a declared key the book does not have"

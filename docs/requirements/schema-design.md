@@ -90,12 +90,16 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 - **Why.** The typed composite FK to `name (type, id)` made `name` the hub of every relation and cost a generated
   column plus an index per reference. seat gives desk columns the guarantee that matters most (a desk column cannot
   hold a roster id) with plain one-column FKs that reuse main's indexes. Counts on a fresh book, #199 head and now:
-  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 100 (88 before the kind check), generated type
+  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 89 (88 before the kind check), generated type
   columns 31 -> 0 (BETA-CHANGES.md, Kind tables). The kind check closes the gap the plain FKs left: a roster,
   label, tree or res column refuses a name id of another kind (F168).
-- **Cost.** Twelve `*_kind` columns (one byte each) and twelve CHECKs; twelve more indexes (`idx_id_type` plus
-  eleven that MySQL adds for the composite FKs, BETA-CHANGES.md). Whether a seat row is a desk name is still the
-  minting procedure's job (open question Q3).
+- **Indexes (the owner rule, 2026-10-25).** PRIMARY and UNIQUE keys are indexed by definition; every other index is
+  declared in the DDL and named idx_*. No index is implicit: an FK leads a PRIMARY, a UNIQUE or a declared idx_* key,
+  and MySQL creates none for it (BETA-CHANGES.md row 39, F169). Each kind column is folded into the key that leads with
+  its column; a PRIMARY or UNIQUE key extended by a constant kind column keeps the same uniqueness.
+- **Cost.** Twelve `*_kind` columns (one byte each) and twelve CHECKs; one more index (`idx_id_type`). A read on a
+  folded key adds `AND <x>_kind = '<kind>'` to use the whole key (MySQL does not read the CHECK as a constant).
+  Whether a seat row is a desk name is still the minting procedure's job (open question Q3).
 - **To change it.** A kind that gains data of its own, plus the owner's OK.
 
 ## 6. High / limited trust with Admin applies to every command, enforced in the procedures

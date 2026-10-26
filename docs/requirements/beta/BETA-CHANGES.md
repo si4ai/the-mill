@@ -6,7 +6,7 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 **proposed, needs the owner**. A diff to `tables.sql` or `beta_ddl.sql` must update this file, or
 `docs/requirements/schema-design.md` for a design change (test F160). Design: `docs/requirements/schema-design.md`.
 
-30 departures (rows 1-38; rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn). `beta_ddl.sql` keeps main's table order, except
+31 departures (rows 1-39; rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn). `beta_ddl.sql` keeps main's table order, except
 that seat, the desk kind table, comes right after name (row 37); new tables sit next to the main table they extend.
 
 | # | main (table.column / key) | beta | why | status |
@@ -49,6 +49,7 @@ that seat, the desk kind table, comes right after name (row 37); new tables sit 
 | 36 | (none) | ~~table `roster` (id = name.id, FK to `name (id)`) + seed rows 1 (Office), 2 (Admin), written by `b_name_mint`~~ | withdrawn: the owner rule (2026-10-25), a name kind gets its own table only if the thing has its own data; a roster has none, so the eight roster columns keep main's FK to `name (id)` (F167) | withdrawn |
 | 37 | table order: `seat` after `todo` | `seat` right after `name` (the desk kind table first) | kind tables: the desk columns of member, activity, mail and the rest FK to seat (desk_id), so seat is created before them | proposed, needs the owner |
 | 38 | `name` keys; the twelve single-kind name references (member.name_id, human_member.name_id; roster_id on activity, mail, todo, doing, score, vote; tree.name_id, tree_read.tree_id; label.name_id; hold.resource_id): `(col) REFERENCES name (id)` | `name` adds UNIQUE `idx_id_type` (id, type); each of the twelve tables adds a `<x>_kind` ENUM('desk','roster','label','tree','res') NOT NULL with DEFAULT and CHECK pinned to its kind, and its FK is `(col, <x>_kind) REFERENCES name (id, type)`, same constraint name and ON DELETE rule (human_member CASCADE, the rest RESTRICT); `seat.desk_id` stays `(desk_id) REFERENCES name (id)` | the owner's review (2026-10-25): the database refuses a wrong-kind name id (F168); UNIQUE only because MySQL 8.4 needs a unique key as an FK target (id is already the PK) | approved by the owner |
+| 39 | keys covering the FKs (1de63ea had 23 indexes MySQL created for FKs, not declared in the DDL) | folded: member PRIMARY (name_id, desk_id) -> (name_id, name_kind, desk_id); activity idx_roster (roster_id, type, updated) -> (roster_id, roster_kind, type, updated); label idx_label_ord (name_id, ord, created) -> (name_id, name_kind, ord, created); tree PRIMARY (name_id, type, id) -> (name_id, name_kind, type, id); mail idx_mail_roster (roster_id) -> (roster_id, roster_kind); tree_read idx_tree (tree_id) -> (tree_id, tree_kind); todo idx_roster (roster_id, status, updated) -> (roster_id, roster_kind, status, updated); hold UNIQUE idx_hold (resource_id) -> (resource_id, resource_kind); score UNIQUE idx_score_who (roster_id, desk_key, kpi) -> (roster_id, roster_kind, desk_key, kpi); vote idx_roster_open (roster_id, closed, deadline) -> (roster_id, roster_kind, closed, deadline); human_member idx_role (name_id, human_id) -> (name_id, name_kind, human_id). Declared: todo idx_updated (updated_id), idx_creator (creator_id), idx_assigned (assigned_id); todo_event idx_desk (desk_id), idx_assigned (assigned_id); doing idx_roster (roster_id, roster_kind); doing_now idx_doing (doing_id, desk_id); hold idx_desk (desk_id); score idx_desk (desk_id); vote idx_desk (desk_id), idx_result (id, result_opt); vote_cast idx_opt (vote_id, opt) | owner rule: no implicit indexes beyond PK/UNIQUE (2026-10-25); a kind column is constant, so a PRIMARY or UNIQUE key extended by it keeps the same uniqueness; an FK that leads a PRIMARY or UNIQUE key needs no idx_* | approved by the owner |
 
 ## Names (the owner decision 2026-10-24)
 
@@ -76,25 +77,30 @@ stay gone. The beta-only tables follow the same rule: `todo_event`, `vote` and `
 seat (desk_id), and `vote.roster_id` is kind-checked. f316ac0f (2026-10-24) had a `roster` kind table; the owner
 dropped it on 2026-10-25 (row 36).
 
-| measure (fresh book, information_schema) | main `tables.sql` (943b3c2) | dbef70f (before) | PR #199 head (5d350b9) | f316ac0f (roster table) | no roster table (a1cda5f) | kind-checked (now) |
-|---|---|---|---|---|---|---|
-| tables | 22 | 30 | 31 (with `office_setting`) | 30 (name_event out, roster in) | 29 (roster out) | 29 |
-| FKs, all | 35 | 48 | 49 | 47 | 46 | 46 |
-| FKs to `name` | 27 | 34 (33 typed (type, id) + name_event.name_id) | 35 | 6 (seat, roster; label, tree, tree_read, hold) | 13 (seat; 8 roster columns; label, tree, tree_read, hold) | 13 (seat plain; 12 kind-checked) |
-| FKs to `seat (desk_id)` / `roster (id)` | 0 / 0 | 0 / 0 | 0 / 0 | 19 / 8 | 19 / 0 | 19 / 0 |
-| indexes, all (incl. PRIMARY) | 68 | 115 | 117 | 89 | 88 | 100 |
-| secondary indexes | 46 | 85 | 86 | 59 | 59 | 71 |
-| indexes MySQL adds for an FK (named fk_*) | 6 | 36 | 37 | 12 | 12 | 23 |
-| kind columns (`*_kind`) / CHECK constraints | | | | | 0 / 7 | 12 / 19 |
-| generated `t_*` columns | 0 | 30 | 31 | 0 | 0 | 0 |
-| id columns BIGINT / INT UNSIGNED | 49 / 0 | | 1 / 66 | 64 / 0 (row 1 withdrawn) | 63 / 0 | 63 / 0 |
+| measure (fresh book, information_schema) | main `tables.sql` (943b3c2) | dbef70f (before) | PR #199 head (5d350b9) | f316ac0f (roster table) | no roster table (a1cda5f) | kind-checked (1de63ea) | explicit indexes (now) |
+|---|---|---|---|---|---|---|---|
+| tables | 22 | 30 | 31 (with `office_setting`) | 30 (name_event out, roster in) | 29 (roster out) | 29 | 29 |
+| FKs, all | 35 | 48 | 49 | 47 | 46 | 46 | 46 |
+| FKs to `name` | 27 | 34 (33 typed (type, id) + name_event.name_id) | 35 | 6 (seat, roster; label, tree, tree_read, hold) | 13 (seat; 8 roster columns; label, tree, tree_read, hold) | 13 (seat plain; 12 kind-checked) | 13 |
+| FKs to `seat (desk_id)` / `roster (id)` | 0 / 0 | 0 / 0 | 0 / 0 | 19 / 8 | 19 / 0 | 19 / 0 | 19 / 0 |
+| indexes, all (incl. PRIMARY) | 68 | 115 | 117 | 89 | 88 | 100 | 89 |
+| secondary indexes | 46 | 85 | 86 | 59 | 59 | 71 | 60 |
+| indexes MySQL adds for an FK (named fk_*) | 6 | 36 | 37 | 12 | 12 | 23 | 0 |
+| kind columns (`*_kind`) / CHECK constraints | | | | | 0 / 7 | 12 / 19 | 12 / 19 |
+| generated `t_*` columns | 0 | 30 | 31 | 0 | 0 | 0 | 0 |
+| id columns BIGINT / INT UNSIGNED | 49 / 0 | | 1 / 66 | 64 / 0 (row 1 withdrawn) | 63 / 0 | 63 / 0 | 63 / 0 |
 
-Indexes, now: 12 more than a1cda5f, not 1. One is `name.idx_id_type`; the other eleven are indexes MySQL adds on its
-own for a composite FK whose (col, `<x>_kind`) pair does not lead an existing key (fk_activity_roster, fk_hold_res,
-fk_human_member_name, fk_label_name, fk_mail_roster, fk_member_name, fk_score_roster, fk_todo_roster, fk_tree_name,
-fk_tree_read_tree, fk_vote_roster). Only `doing` already had one (fk_doing_roster), which now covers
-(roster_id, roster_kind). Adding each kind column to the existing key that leads with its column would avoid the
-eleven; not done, it changes keys the owner did not review.
+Indexes, now (row 39): 89, one more than a1cda5f (`name.idx_id_type`), and none of them implicit. At 1de63ea MySQL
+created 23 indexes for FKs (not declared in the DDL): 12 already at a1cda5f on desk and other FKs, and 11 for the new
+composite FKs. Row 39 folds each kind column into the PRIMARY, UNIQUE or idx_* key that leads with its column (9
+keys plus 2 PRIMARY keys) and declares an idx_* key for the 12 FKs no key covered (test F169).
+
+Reads on a folded key (measured with EXPLAIN on a fresh MySQL 8.4 book): the kind
+column now sits right after the referenced column, and MySQL does not read a CHECK as a constant. A read that
+filters only the column uses the first key part, so `label` by `ord` sorts with a filesort, and the score, member
+and tree key lookups become a lookup on the first column instead of the whole key. Adding `AND <x>_kind = '<kind>'`
+to the read restores the full key (no filesort; const lookups). Procedures ported onto this schema add that
+predicate to reads on these keys.
 
 Id width, measured on a throwaway book (MySQL 8.4, 200,000 letters: `mail`, `mail_to` and `activity` rows each,
 data + index after ANALYZE): BIGINT ids 102.3 MB, the same as main to the tenth; INT ids 81.2 MB (21% less).
@@ -111,7 +117,7 @@ multi-kind (type, id) composite reference (label, tree, watcher, doing.on_* / wa
 - Q3. Typing at the kind table: `seat.desk_id` FKs to `name (id)`, so only the minting procedure makes
   sure a seat row is a desk name (the app user is EXECUTE-only). The database could
   check it too with the row 38 pattern (`name.idx_id_type` is already there, so the cost is a `desk_kind`
-  column and CHECK on seat plus the index MySQL adds for the FK), or a BEFORE INSERT trigger. Not done: the owner
+  column and CHECK on seat, folded into its UNIQUE `idx_desk`), or a BEFORE INSERT trigger. Not done: the owner
   kept `seat.desk_id` a plain FK (2026-10-25).
 
 ### Drop when ported (main's guards the kind-checked FKs make redundant)
