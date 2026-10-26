@@ -7,11 +7,11 @@ description: Model-check the mill wake path (push queue, webhook window, trailin
 
 ## Does my change touch the modelled code?
 
-Covered code (the sync commit is in `run.sh` as `SYNC`, currently 1d9fffe):
+Covered code (the sync commit is in `run.sh` as `SYNC`, currently 39f2507):
 
 | Model | Code |
 | :--- | :--- |
-| `wake.pml` | `agent_coord/server/wake.py` (`_fire`, `_gate_open`, `_gate_take`, `gate_clear`, `_coalesced`, `trail`, `post_desk`); `agent_coord/server/push.py` (`emit`, `fanout`, `Hub.add`, `take_sync`, `connect_sync_frame`); `agent_coord/server/asgi.py` (`ws_endpoint`: add, sync, send; `_ws_handle_client_text` reply); `agent_coord/server/records/push.py`; `agent_coord/server/sql/sp_push.sql`; `agent_coord/client/ws.py` (busy seat, card 834) |
+| `wake.pml` | `agent_coord/server/wake.py` (`_fire`, `_gate_open`, `_gate_take`, `lease_synced`, `_coalesced`, `_send_trailing`, `trail`, `lease_done`, `post_desk`); `agent_coord/server/api/mill/rpc.py` (`_h_wake_done`); `agent_coord/server/push.py` (`emit`, `fanout`, `Hub.add`, `take_sync`, `connect_sync_frame`); `agent_coord/server/asgi.py` (`ws_endpoint`: add, sync, send; `_ws_handle_client_text` reply); `agent_coord/server/records/push.py`; `agent_coord/server/sql/sp_push.sql`; `agent_coord/client/ws.py` (busy seat, card 834) |
 | `holds.pml` | `agent_coord/server/sql/sp_hold.sql`; `agent_coord/server/records/hold.py`; `agent_coord/server/api/mill/rpc.py` (`_h_hold`, `_h_drop`); `agent_coord/client/http.py` (`_refused_hold`); `agent_coord/server/sql/sp_join.sql` (`mill_join_reset`) and `sp_name.sql` (`mill_name_delete`), which free a desk's holds (card 842) |
 
 `run.sh` prints `note: covered code changed since SYNC` when any covered file differs.
@@ -44,7 +44,7 @@ are listed there as `violated`; they are findings, not passes.
    block per indivisible code step (one lock hold, one stored procedure).
 2. Run `run.sh`. Update an expectation only when the code change explains it
    (for example a fix that turns W07 into `pass`), and say so in the commit.
-3. Keep the mutations (M01-M04) failing; a mutation that passes means the
+3. Keep the mutations (M01-M06) failing; a mutation that passes means the
    property no longer guards anything.
 4. When the models describe the code at a new commit, move `SYNC` in
    `run.sh` and the commit named in README.md forward. Only then.

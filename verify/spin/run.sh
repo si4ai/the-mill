@@ -23,12 +23,12 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which these models were last confirmed to describe the code.
-SYNC=1d9fffe
+SYNC=39f2507
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
 agent_coord/server/api/mill/rpc.py agent_coord/client/http.py
-agent_coord/client/ws.py agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_name.sql"
+agent_coord/client/ws.py agent_coord/__main__.py agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_name.sql"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$ROOT" ] && git -C "$ROOT" cat-file -e "$SYNC^{commit}" 2>/dev/null; then
   # shellcheck disable=SC2086
@@ -38,30 +38,35 @@ fi
 
 # id | model | defines | mode | expect | what it shows
 CHECKS='
-W01|wake|-DN=2 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|one wake per window; no invalid end state (main)
-W02|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|same, three items
+W01|wake|-DN=2 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|one wake per lease; no invalid end state (main)
+W02|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=0 -DMULTI=0|safety|pass|same, three items, one connect per run (more runs out of memory)
 W03|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1|safety|pass|same, two connects of the desk
-W04|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=2|no_loss|pass|no taken row is lost, one connect at a time
+W04|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=0 -DMULTI=0|no_loss|pass|no taken row is lost, one connect at a time, three items
 W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0|no_loss|pass|main (831 fix shipped): a superseded connect (--take) loses no rows
 W06|wake|-DN=2 -DSESSIONS=2 -DREFUSE=1 -DMAXFAIL=0|no_loss|pass|connect -r (4409) never supersedes, so nothing is lost
-W07|wake|-DN=2 -DMAXFAIL=0|live|pass|main (832 fix shipped): perfect receiver, every item delivered
+W07|wake|-DN=2 -DMAXFAIL=0|live|violated|FINDING (card 886): peek sees the lease, wake-done ends it, _coalesced finds none: no POST
 W08|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1|live|violated|EXPECTED: both POSTs fail, no later try (current main)
 W09|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|no loss and no races: every item delivered
 W10|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DRECEIPT=1|live|violated|BY DESIGN: a receipt never rings; it waits for a connect
-W11|wake|-DN=2 -DMAXFAIL=2 -DRESTART=1|safety|violated|minor: a wall restart forgets the window; a 2nd POST inside 120 s
+W11|wake|-DN=2 -DMAXFAIL=2 -DRESTART=1|safety|violated|minor: a wall restart forgets the window; a 2nd POST inside the lease
 W12|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|card 827: up to 5 lost POSTs in a row, delivered
 W13|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=6|live|violated|card 827: 6 in a row outlast the 6 POSTs of the budget
-W14|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|fix 832: queue first, mark sent after a live send, ring on leave: no strand
-W15|wake|-DN=3 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|same, three items
-W16|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|827 + fix 832, real interleaving, lossy receiver
+W14|wake|-DN=2 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|pre-886 gate, fix 832: queue first, mark sent after a live send, ring on leave: no strand
+W15|wake|-DN=3 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|same, three items
+W16|wake|-DN=2 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|827 + fix 832, real interleaving, lossy receiver
 W17|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=255|live|violated|EXPECTED: a receiver down forever; no bounded retry helps
 W18|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1|no_loss|pass|fix 831: read, send, then delete: a superseded connect loses nothing
-W19|wake|-DN=3 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=0 -DRING_ON_LEAVE=0|no_loss|pass|fix 831 alone, three items, a lossy receiver (both fixes at N=3: the search ran out of memory)
+W19|wake|-DN=3 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=0 -DRING_ON_LEAVE=0|no_loss|pass|fix 831 alone, three items, a lossy receiver (both fixes at N=3: the search ran out of memory)
 W20|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|safety|pass|both fixes: still one wake per window, no invalid end state
 W21|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|no_loss|pass|both fixes, two connects: nothing lost
-W22|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|live|pass|both fixes, two connects: every item delivered
+W22|wake|-DN=2 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|live|pass|both fixes, two connects, pre-886 gate: every item delivered
 W23|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=0|no_loss|violated|pre-831 order (take, then send): a superseded connect loses taken rows
-W24|wake|-DN=2 -DMAXFAIL=0 -DPUTFIRST=0 -DRING_ON_LEAVE=0|live|violated|pre-832 order (POST, then queue): perfect receiver, still stranded
+W24|wake|-DN=2 -DLEASE=0 -DMAXFAIL=0 -DPUTFIRST=0 -DRING_ON_LEAVE=0|live|violated|pre-832 order (POST, then queue): perfect receiver, still stranded
+L01|wake|-DN=2 -DMAXFAIL=0|no_stale_done|violated|FINDING (card 886): a run that outlives its lease says done and ends the lease of the next run
+L02|wake|-DN=2 -DMAXFAIL=1 -DLEASE=0 -DMULTI=1 -DONE_RUN=1|safety|violated|pre-886 design: a connect frees the gate mid-run, a second POST lands (the storm)
+L03|wake|-DN=2 -DMAXFAIL=1|safety|pass|lease: no new POST while the last lease is held (done or timeout ends it)
+L04|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|lease with emits atomic (W07 race hidden): done or timeout, every item delivered
+M06|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DMUT_DONE_ANY|live|violated|mutation of the lease: wake-done sends no trailing POST
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
 M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
@@ -93,7 +98,7 @@ while IFS='|' read -r id model defs mode expect what; do
     spin $defs -a "$model.pml" > spin.txt 2>&1 || exit 3
     case "$mode" in
       safety) flags="-DNOCLAIM -DSAFETY"; run="-m$DEPTH";;
-      no_loss|mutex) flags="-DSAFETY"; run="-m$DEPTH -N $mode";;
+      no_loss|mutex|no_stale_done) flags="-DSAFETY"; run="-m$DEPTH -N $mode";;
       live) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N all_delivered";;
       starve) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N no_starve0";;
       np) flags="-DNP -DNOCLAIM -DNFAIR=3"; run="-l -f -m$DEPTH";;
