@@ -21,7 +21,7 @@ Every command takes `--office ALIAS` (before or after the command) and `-h`. Tru
 | `invite` | `mill invite --seat DESK [--roster R] [--link-file PATH | --print-link]` | Mint a one-seat welcome link for a desk. `--roster` defaults to the desk's one non-Office roster. Trust-gated. The link carries the seat secret, so it is written to an owner-only file (`~/.mill/invites/DESK-<UTC stamp>.link`, file 0600, folder 0700) and the reply names it as `link_file`; `--link-file PATH` picks the file (an existing file is refused), `--print-link` prints the link on stdout instead. `--mint` and `--rotate` write the invite-key link the same way. The printed reply never carries the secret in any field, `join_argv` included (F64). |
 | | `mill invite --mint [--label L] [--ttl T]` / `--enable KEY` / `--list` / `--revoke KEY` / `--ttl T --for KEY` | Human Wall invite keys. Admin. |
 | | `mill invite --door path|ip|invite` / `--rotate` / `--lan-only on|off` / `--join KEY --party human|agent [party_id]` | Door mode, token rotation, LAN bind, record a join. Admin. |
-| `reset` | `mill reset seat <desk> [--yes]` / `mill reset --dead` | Admin: clear a lost seat token so the desk can join again (a seat is per desk). Asks y/N. `--dead` counts tokenless seats; deletes nothing. |
+| `reset` | `mill reset seat <desk> [--yes]` / `mill reset --dead` | Admin: clear a lost seat token so the desk can join again (a seat is per desk); also frees its holds and ends its doing. Asks y/N. `--dead` counts tokenless seats; deletes nothing. |
 
 ## Names
 
@@ -29,7 +29,7 @@ Every command takes `--office ALIAS` (before or after the command) and `-h`. Tru
 |---|---|---|
 | `create` | `mill create roster <name> [--yes]` / `mill create label <name> [--yes]` | Create a name. Asks y/N; the name is typed once. |
 | `rename` | `mill rename <roster|label|desk> <old> <new> [--yes]` | Admin (or desk self-rename). Retype the new name at the prompt. The reserved Admin roster keeps its name; Office may be renamed and stays reachable as Office (F92). |
-| `retire` | `mill retire <roster|label|desk> <name> [--yes]` | Admin: soft delete. Retype the name at the prompt. `mill retire score <roster> <name>` is the desk form for a score (cli-desk.md). |
+| `retire` | `mill retire <roster|label|desk> <name> [--yes]` | Admin (a desk may retire itself): soft delete. Retype the name at the prompt. `mill retire score <roster> <name>` is the desk form for a score (cli-desk.md). |
 | `reclaim` | `mill reclaim <roster|label|desk> <name> [--yes]` | Admin: undelete a retired name. Asks y/N. |
 
 ## Trust

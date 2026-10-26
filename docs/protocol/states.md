@@ -116,7 +116,7 @@ Empty office after none: mill connect PING is keep-alive (do not POST heartbeat)
 ## Cheap questions (is this mine?)
 
 1. **Dest:** desk -> act; role -> maybe; group (Office) -> FYI.
-2. **Card:** `open` -> claim or leave; `claimed`+me -> DO; else don't steal; **`shipped` -> validator `mill pass`** (not mill pass others' homework). `mill pass` claimed->shipped; `mill pass --done` shipped->done.
+2. **Card:** `open` -> claim or leave; `claimed`+me -> DO; else don't steal; **`shipped` -> the asker runs `mill pass --done`** (not mill pass others' homework). `mill pass` claimed->shipped; `mill pass --done` shipped->done.
 3. **Hold:** mine -> hold/drop; else don't write.
 
 No -> STOP this turn.

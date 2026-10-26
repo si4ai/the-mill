@@ -28,7 +28,7 @@ Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / reli
 
 ## 3. Any desk (either trust)
 
-- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, note, pass, doing
+- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, note, pass (each takes `--doing`)
 - label-add / label-remove, watcher, tree
 - score / score-add / kpi / dashboard
 - `mill trust` (show current office trust; set is Admin - sec 1)
@@ -37,7 +37,7 @@ Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / reli
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Live: mint (desk connect / trust-gated group|role|label)
+  [*] --> Live: mint (desk join / trust-gated group|role|label)
   Live --> Retired: Admin retire\n(name.deleted set)
   Retired --> Live: Admin reclaim\n(clear deleted; name free path)
   Live --> Live: Admin rename
@@ -49,7 +49,7 @@ stateDiagram-v2
 
 | Transition | Who |
 |---|---|
-| mint desk | Bearer `mill connect` (self) |
+| mint desk | `mill join` (self) or `mill invite --seat` |
 | mint group / role / label | trust-gated (sec 2) |
 | retire / reclaim / rename | Always Admin (sec 1; desk self-rename rules) |
 
@@ -81,8 +81,8 @@ flowchart LR
 sequenceDiagram
   participant D as Desk
   participant W as mill-wall
-  participant J as join row
-  D->>W: connect + token
+  participant J as seat
+  D->>W: join + token
   W->>J: upsert seat (UNIQUE desk)
   Note over J: token_hash owns HERE
   Note over W: Admin grant = host loopback only

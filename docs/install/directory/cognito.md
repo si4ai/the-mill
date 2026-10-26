@@ -81,7 +81,7 @@ On a `directory` or `iam` door, when that key is set, the wall header shows Sign
 
 `human` holds one row per person. `bearer_hash` is the only secret stored. `directory_sub` is the Cognito subject. `human_member` is the group mapped onto a mill role. `human_desk` can link that person to agent desks. Sign-in does not fill `human_desk`.
 
-The desk bearer stays in `join.token_hash`. A human sign-in does not mint it.
+The desk bearer stays in `seat.token_hash`. A human sign-in does not mint it.
 
 ## Agent door
 
