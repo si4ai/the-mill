@@ -41,7 +41,7 @@ BEGIN
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
-  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), LENGTH(IFNULL(p_body, '')));
+  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, 'create', LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_status AS status;
@@ -87,7 +87,7 @@ BEGIN
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
-  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), LENGTH(IFNULL(p_body, '')));
+  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, 'create', LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   SELECT id INTO v_lock FROM activity
    WHERE type = p_parent_type AND id = p_parent_id
@@ -106,7 +106,7 @@ BEGIN
   END IF;
   IF v_name IS NULL THEN
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
   END IF;
@@ -119,7 +119,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM tree WHERE name_id = v_name LIMIT 1) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree parent not found';
     END IF;
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
     SELECT rgt INTO v_r FROM tree
@@ -180,7 +180,7 @@ BEGIN
          END,
          body = IFNULL(p_body, body)
    WHERE id = p_id;
-  CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), LENGTH(p_body));
+  CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, 'note', LENGTH(p_body));
   CALL mill_watcher_roster('todo', p_id, v_proj, v_desk);
   IF v_vol IS NOT NULL THEN
     CALL mill_watcher_put('todo', p_id, v_vol);
@@ -204,8 +204,6 @@ BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_aff BIGINT UNSIGNED;
   DECLARE v_created DATETIME(6);
-  DECLARE v_weight INT UNSIGNED;
-  DECLARE v_n SMALLINT UNSIGNED;
   DECLARE v_bytes INT UNSIGNED;
   DECLARE v_has INT;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -220,15 +218,13 @@ BEGIN
     SET v_has = 0;
     SELECT COUNT(*) INTO v_has FROM activity WHERE type = 'todo' AND id = p_id;
     IF v_has > 0 THEN
-      SELECT desk_id, roster_id, created, weight, n, bytes
-        INTO v_desk, v_aff, v_created, v_weight, v_n, v_bytes
+      SELECT desk_id, roster_id, created, bytes
+        INTO v_desk, v_aff, v_created, v_bytes
         FROM activity WHERE type = 'todo' AND id = p_id;
     ELSE
       SELECT roster_id INTO v_aff FROM todo WHERE id = p_id;
       SET v_desk = MILL_NAME_GET('desk', p_desk);
       SET v_created = v_ts;
-      SET v_weight = MILL_WEIGHT('todo');
-      SET v_n = 1;
       SET v_bytes = NULL;
     END IF;
     CALL mill_tree_detach('todo', p_id);
@@ -237,13 +233,13 @@ BEGIN
     DELETE FROM todo WHERE id = p_id;  -- todo_no_delete_in_tree still guards
     IF v_desk IS NOT NULL THEN
       INSERT INTO activity (
-        type, id, created, updated, deleted, desk_id, roster_id, weight, n, bytes
+        type, id, created, updated, deleted, desk_id, roster_id, act, bytes
       ) VALUES (
-        'todo', p_id, IFNULL(v_created, v_ts), v_ts, v_ts, v_desk, v_aff,
-        IFNULL(v_weight, 1), IFNULL(v_n, 1), v_bytes
+        'todo', p_id, IFNULL(v_created, v_ts), v_ts, v_ts, v_desk, v_aff, 'remove', v_bytes
       )
       ON DUPLICATE KEY UPDATE
         deleted = IFNULL(deleted, v_ts),
+        act = 'remove',
         updated = v_ts;
     END IF;
   END IF;
@@ -282,9 +278,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'retire todo: card is already retired';
   END IF;
-  INSERT INTO activity (type, id, created, updated, deleted, desk_id, roster_id, weight, n, bytes)
-  VALUES ('todo', p_id, v_ts, v_ts, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), 1, NULL)
-  ON DUPLICATE KEY UPDATE deleted = v_ts, updated = v_ts;
+  INSERT INTO activity (type, id, created, updated, deleted, desk_id, roster_id, act, bytes)
+  VALUES ('todo', p_id, v_ts, v_ts, v_ts, v_desk, v_proj, 'retire', NULL)
+  ON DUPLICATE KEY UPDATE deleted = v_ts, updated = v_ts, desk_id = v_desk, act = 'retire';
   UPDATE todo SET updated = v_ts, updated_id = v_desk WHERE id = p_id;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'retired' AS op;

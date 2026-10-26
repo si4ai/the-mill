@@ -1,5 +1,7 @@
 -- Activity is the record of mail, todo, join, hold, and score.
--- mill_activity_put upserts that row: first write n=1, later writes n=n+1.
+-- mill_activity_put upserts that row (0.8.0: one row per item, its latest move: act by desk_id at updated).
+-- p_act: the move (activity.act, the list in docs/requirements/beta/BETA-CHANGES.md). NULL keeps the row's act and
+-- desk (a tree parent touch is not a move by anyone; a new row then says create).
 -- p_id = payload id (mail.id, todo.id, ...). No AUTO_INCREMENT on activity.
 -- p_bytes = last payload UTF-8 byte length (mail/todo body); NULL if none.
 -- p_project NULL keeps the row's roster: a tree parent touch passes NULL (card 841).
@@ -26,21 +28,20 @@ CREATE PROCEDURE mill_activity_put(
   IN p_ts      DATETIME(6),
   IN p_desk    BIGINT UNSIGNED,
   IN p_project BIGINT UNSIGNED,
-  IN p_weight  INT,
+  IN p_act     VARCHAR(16),
   IN p_bytes   INT UNSIGNED
 )
 BEGIN
   IF p_id IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill_activity_put: id required';
   END IF;
-  INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n, bytes)
-  VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_weight, MILL_WEIGHT(p_type)), 1, p_bytes)
+  INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes)
+  VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_act, 'create'), p_bytes)
   ON DUPLICATE KEY UPDATE
     updated = p_ts,
-    desk_id = p_desk,
+    desk_id = IF(p_act IS NULL, desk_id, p_desk),
     roster_id = IFNULL(p_project, roster_id),
-    weight = IFNULL(p_weight, weight),
-    n = n + 1,
+    act = IFNULL(p_act, act),
     bytes = IFNULL(p_bytes, bytes);
 END //
 

@@ -30,13 +30,7 @@ Tables in `agent_coord/server/sql/tables.sql`. Indexes: PRIMARY and UNIQUE keys 
 | `label` | N-N tags `(type, id, name_id)`. `name_id` is a label name. You label activities. |
 | `mill_invite` | door keys |
 | `mill_invite_join` | who used an invite |
-| `todo_event` | one status change of a todo (0.8.0): `from_status`, `to_status`, `desk_id` who moved it, `assigned_id`, and `evidence` on a ship or done step only (CHECK). `todo.status` is the current value; this is its history. |
-| `doing_now` | the desk's current doing (0.8.0): PK `desk_id`, `doing_id` its newest `doing` row. The FK `(doing_id, desk_id)` keeps it on the desk's own row. |
-| `vote` | one question a roster votes on (0.8.0); the question is a mail on that roster (`mail_id`). `closed`, `outcome` and `members_n` are set together when it closes. |
-| `vote_option` | one answer of a vote: PK `(vote_id, opt)`, `opt` 1 to 16, UNIQUE `(vote_id, label)`. |
-| `vote_cast` | one desk's answer: PK `(vote_id, desk_id)`, `opt`, `note`. |
-| `glance_cache` | the office glance, one row (`id` 1), refreshed every 30 s (0.8.0). No office-wide unread. |
-| `sp_deploy` | one deploy of the routines: `version`, `file`, `created`, `by_user` (0.8.0). |
+| `doing` moves | 0.8.0 has no new table (the owner, 2026-10-26). `doing.act` says what a row is: `focus` or `clear` is a desk's own `--doing` (its newest one is `seat.doing_id`); any other act is a move on the item `(on_type, on_id)` by that desk: a card's status or volunteer change, a hold take or drop. `peer_id` is a move's second desk. A card's evidence is the text of its `ship` or `done` row. `activity.act` is the item's latest move, by `activity.desk_id`. The act list is in `docs/requirements/beta/BETA-CHANGES.md`. |
 
 `updated` on `activity` moves. Each new mail, todo, doing, hold, and score row inserts its activity row with the id that table just allocated. A name write does not insert an activity row. The write chart is [../requirements/activity.md](../requirements/activity.md).
 
@@ -53,8 +47,8 @@ classDiagram
     desk_id
     updated
     deleted
-    weight
-    n
+    act
+    bytes
   }
   mail .. activity : same (type, id), no FK
   todo .. activity : same (type, id), no FK

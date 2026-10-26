@@ -57,7 +57,7 @@ BEGIN
           note = IFNULL(p_note, note)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   -- F2: soft-deleted score on upsert revives. Clear activity.deleted here only
   -- (never in mill_activity_put; that would resurrect mail/todo on any touch).
   UPDATE activity SET deleted = NULL, updated = v_ts
@@ -116,7 +116,7 @@ BEGIN
           note = IFNULL(p_note, note)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_admin, v_office, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_admin, v_office, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -259,7 +259,7 @@ BEGIN
            WHERE sp.score_id = v_id ORDER BY sp.created DESC, sp.id DESC LIMIT 1) n
       SET s.value = LEFT(CAST(n.value AS CHAR), 64), s.note = n.note
     WHERE s.id = v_id;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
@@ -324,7 +324,7 @@ BEGIN
           unit = IFNULL(p_unit, unit)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
@@ -549,7 +549,7 @@ BEGIN
         );
       ELSE
         SET v_id = LAST_INSERT_ID();
-        CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, NULL, NULL);
+        CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
       END IF;
     END IF;
     SET v_bytes = IFNULL(p_req, 0) + IFNULL(p_resp, 0);
@@ -652,7 +652,7 @@ BEGIN
         );
       ELSE
         SET v_id = LAST_INSERT_ID();
-        CALL mill_activity_put('score', v_id, v_ts, v_office, v_office, NULL, NULL);
+        CALL mill_activity_put('score', v_id, v_ts, v_office, v_office, 'score', NULL);
       END IF;
     END IF;
     SET v_hour = STR_TO_DATE(

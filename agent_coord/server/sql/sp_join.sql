@@ -164,7 +164,7 @@ BEGIN
       UPDATE name SET n = n + 1 WHERE id = @v_role;
     END IF;
   END IF;
-  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
   CALL mill_watcher_put('doing', v_id, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_desk AS owner;
@@ -185,7 +185,7 @@ BEGIN
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_desk AS owner, 'clocked-out' AS op;
@@ -215,7 +215,7 @@ BEGIN
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
     -- Keep the ended entry's activity roster (not 1/Office).
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, 'focus', NULL);
   END IF;
   -- Card 842: a reset desk owns no lock. Free its holds like a drop would.
   IF v_desk IS NOT NULL THEN
@@ -296,7 +296,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill connect: desk has not joined';
   END IF;
   CALL mill_doing_anchor(v_desk, '', v_id);
-  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
 END //
@@ -317,7 +317,7 @@ BEGIN
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
     CALL mill_doing_anchor(v_desk, '', v_id);
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
@@ -342,7 +342,7 @@ BEGIN
   END IF;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     CALL mill_doing_anchor(v_desk, '', v_id);
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_up AS up;
@@ -364,7 +364,7 @@ BEGIN
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     CALL mill_doing_anchor(v_desk, '', v_id);
     IF IFNULL(p_ip, '') <> '' THEN
-      CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+      CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
     END IF;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;

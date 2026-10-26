@@ -47,7 +47,7 @@ BEGIN
     VALUES (v_ts, v_desk, v_res);
     SET v_id = LAST_INSERT_ID();
     SET v_held = v_desk;
-    CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, MILL_WEIGHT('hold'), NULL);
+    CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
     CALL mill_watcher_put('hold', v_id, v_desk);
     SET v_ok = 1;
   ELSEIF v_held IS NULL THEN
@@ -57,7 +57,7 @@ BEGIN
     SET v_n = ROW_COUNT();
     IF v_n = 1 THEN
       SET v_held = v_desk;
-      CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, MILL_WEIGHT('hold'), NULL);
+      CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
       CALL mill_watcher_put('hold', v_id, v_desk);
       SET v_ok = 1;
     ELSE
@@ -101,7 +101,7 @@ BEGIN
   SET v_gone = ROW_COUNT();
   IF v_gone = 1 THEN
     -- NULL roster: keep the hold's activity roster (not 1/Office).
-    CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, NULL, NULL);
+    CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, 'drop', NULL);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;
@@ -109,7 +109,7 @@ END //
 
 -- Card 842: free every hold one desk owns (reset, retire). The caller owns the
 -- transaction. Each freed hold's activity row is stamped the way a drop stamps
--- it (updated, desk, n + 1; roster kept). p_n = holds freed.
+-- it (updated, desk, act drop; roster kept). p_n = holds freed.
 CREATE PROCEDURE mill_hold_release_desk(
   IN p_desk BIGINT UNSIGNED,
   IN p_ts   DATETIME(6),
@@ -117,7 +117,7 @@ CREATE PROCEDURE mill_hold_release_desk(
 )
 BEGIN
   UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
-     SET a.updated = p_ts, a.desk_id = p_desk, a.n = a.n + 1
+     SET a.updated = p_ts, a.desk_id = p_desk, a.act = 'drop'
    WHERE h.desk_id = p_desk;
   UPDATE hold SET desk_id = NULL, updated = p_ts WHERE desk_id = p_desk;
   SET p_n = ROW_COUNT();

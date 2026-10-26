@@ -16,14 +16,26 @@
 --   keys_kinds  name idx_id_type, doing idx_id_desk, the 11 kind columns of the kind-checked FKs, then every
 --               key 0.8.0 changes or adds on main's tables (each kind column folded into the key that leads
 --               with its column; a declared idx_* key for each FK no key covers), one ALTER per table.
---   tables      the 7 new tables (todo_event, doing_now, vote, vote_option, vote_cast, glance_cache, sp_deploy).
---   todo_event  each todo.evidence becomes one todo_event row; then todo.evidence is dropped.
---   doing_now   the newest doing row per desk (created, then id: mill_doing_now's order).
+--   columns     no new table (the owner, 2026-10-26): activity.act, doing.act (one list), doing.peer_id and
+--               seat.doing_id, with their keys (activity idx_updated, doing idx_on (on_type, on_id, id), idx_peer,
+--               seat idx_doing).
+--   acts        each main row's act: a doing row with text is focus, an empty one on an item is finish (main's
+--               mill_doing_finish row), any other empty one is clear; activity says its item's latest move (a card's
+--               from its status, a doing row's own act, a hold taken or free, a letter send, a score score).
+--   moves       every card gets one move row in doing, its first: by updated_id at updated, act from the status
+--               (open create, parked park, claimed claim, or assign when the volunteer is another desk, shipped
+--               ship, done done), peer_id the volunteer, text the evidence byte for byte (or empty). Then
+--               todo.evidence is dropped. Evidence over 512 characters is refused by the preflight: where longer
+--               evidence goes is pending the owner.
+--   doing_id    seat.doing_id = the desk's newest focus row (focus or clear; created, then id: mill_doing_now's
+--               order). A desk whose newest row is a finish row names the focus row that row ended.
+--   drop_cols   activity.weight and activity.n go (the owner, 2026-10-26: reply bytes measure token use).
 --   fks         the 15 desk FKs on main's tables move to seat (desk_id); the 11 roster, label, tree and res
---               FKs become kind-checked (col, kind) -> name (id, type). One ALTER per table to drop, one to add.
+--               FKs become kind-checked (col, kind) -> name (id, type); doing.fk_doing_peer and seat.fk_seat_doing
+--               are added. One ALTER per table to drop, one to add.
 --               Then the indexes MySQL made for main's FKs (named after the FK) go: the owner rule is that only
 --               PRIMARY and UNIQUE keys are implicit, and every other index is a declared idx_* key.
--- Triggers, the routine reload and the sp_deploy stamp are migrate.py's (they read the pack's files).
+-- Triggers and the routine reload are migrate.py's (they read the pack's files).
 -- Each DML step runs in one transaction, so a kill leaves it done or not done.
 
 DROP PROCEDURE IF EXISTS mill_migrate_080_exec;
@@ -39,6 +51,7 @@ DROP FUNCTION IF EXISTS mill_migrate_080_idx;
 DROP FUNCTION IF EXISTS mill_migrate_080_tbl;
 DROP FUNCTION IF EXISTS mill_migrate_080_fk_has;
 DROP FUNCTION IF EXISTS mill_migrate_080_fk_ok;
+DROP FUNCTION IF EXISTS mill_migrate_080_cols_ok;
 
 DELIMITER //
 
@@ -61,6 +74,15 @@ CREATE FUNCTION mill_migrate_080_idx(p_t VARCHAR(64), p_i VARCHAR(64)) RETURNS V
 BEGIN
   RETURN (SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS
            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_t AND INDEX_NAME = p_i);
+END //
+
+-- 1 when every column of the comma-separated list is on the table (a key on a column a later step adds waits).
+CREATE FUNCTION mill_migrate_080_cols_ok(p_t VARCHAR(64), p_cols VARCHAR(255)) RETURNS TINYINT
+  NOT DETERMINISTIC READS SQL DATA
+BEGIN
+  RETURN (SELECT COUNT(*) FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_t AND FIND_IN_SET(COLUMN_NAME, p_cols))
+         = LENGTH(p_cols) - LENGTH(REPLACE(p_cols, ',', '')) + 1;
 END //
 
 CREATE FUNCTION mill_migrate_080_fk_has(p_t VARCHAR(64), p_name VARCHAR(64)) RETURNS TINYINT
@@ -106,8 +128,8 @@ BEGIN
   INSERT INTO m080_pf (chk, action, n) VALUES (p_chk, p_action, @m080_n);
 END //
 
--- The FKs on main's tables that change: 15 desk FKs to seat, 11 kind-checked FKs to name (id, type).
--- The 4 new tables bring their own FKs (CREATE TABLE in step tables).
+-- The FKs on main's tables that change or come: 15 desk FKs to seat, 11 kind-checked FKs to name (id, type),
+-- doing's peer FK to seat and seat's focus FK to doing (id, desk_id).
 CREATE PROCEDURE mill_migrate_080_fk_list()
 BEGIN
   DROP TEMPORARY TABLE IF EXISTS m080_fk;
@@ -142,7 +164,9 @@ BEGIN
     ('doing',        'fk_doing_roster',      'roster_id,roster_kind',     'name', 'id,type', 'RESTRICT'),
     ('hold',         'fk_hold_res',          'resource_id,resource_kind', 'name', 'id,type', 'RESTRICT'),
     ('score',        'fk_score_roster',      'roster_id,roster_kind',     'name', 'id,type', 'RESTRICT'),
-    ('human_member', 'fk_human_member_name', 'name_id,name_kind',         'name', 'id,type', 'CASCADE');
+    ('human_member', 'fk_human_member_name', 'name_id,name_kind',         'name', 'id,type', 'CASCADE'),
+    ('doing',        'fk_doing_peer',        'peer_id',                   'seat', 'desk_id', 'RESTRICT'),
+    ('seat',         'fk_seat_doing',        'doing_id,desk_id',          'doing', 'id,desk_id', 'RESTRICT');
 END //
 
 -- Read only: one row per check (chk, action, n). Nothing in the book changes.
@@ -186,11 +210,11 @@ BEGIN
     '(SELECT s.roster_id, s.kpi FROM score s LEFT JOIN name n ON n.id = s.desk_id
        WHERE s.desk_id IS NULL OR n.type <> ''desk'' GROUP BY s.roster_id, s.kpi HAVING COUNT(*) > 1) g');
   IF mill_migrate_080_col('todo', 'evidence') THEN
-    -- refuse: evidence on a card that is not shipped or done (cmd_pass clears it on a step back);
-    -- todo_event's CHECK keeps evidence to shipped and done.
-    CALL mill_migrate_080_check('todo_evidence_status', 'refuse',
-      'todo WHERE evidence IS NOT NULL AND status NOT IN (''shipped'', ''done'')');
-    CALL mill_migrate_080_check('todo_evidence', 'fix', 'todo WHERE evidence IS NOT NULL');
+    -- refuse: evidence longer than doing.text (512 characters). Where longer evidence goes is pending the owner
+    -- (widen doing.text or a column of its own); nothing is cut.
+    CALL mill_migrate_080_check('todo_evidence_long', 'refuse', 'todo WHERE CHAR_LENGTH(evidence) > 512');
+    -- fix: every card gets its one move row (step moves).
+    CALL mill_migrate_080_check('todo_moves', 'fix', 'todo');
   END IF;
 
   -- fix: what the steps change.
@@ -199,11 +223,13 @@ BEGIN
   CALL mill_migrate_080_check('watcher_roster', 'fix', 'watcher x JOIN name n ON n.id = x.desk_id WHERE n.type = ''roster''');
   CALL mill_migrate_080_check('activity_desk_null', 'fix', 'activity x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
   CALL mill_migrate_080_check('score_desk_null', 'fix', 'score x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
-  IF mill_migrate_080_tbl('doing_now') THEN
-    CALL mill_migrate_080_check('doing_now', 'fix',
-      '(SELECT DISTINCT d.desk_id FROM doing d WHERE NOT EXISTS (SELECT 1 FROM doing_now w WHERE w.desk_id = d.desk_id)) g');
+  IF mill_migrate_080_col('seat', 'doing_id') AND mill_migrate_080_col('doing', 'act') THEN
+    CALL mill_migrate_080_check('seat_doing_id', 'fix',
+      '(SELECT DISTINCT d.desk_id FROM doing d JOIN seat s ON s.desk_id = d.desk_id
+         WHERE s.doing_id IS NULL AND d.act IN (''focus'', ''clear'')) g');
   ELSE
-    CALL mill_migrate_080_check('doing_now', 'fix', '(SELECT DISTINCT desk_id FROM doing) g');
+    CALL mill_migrate_080_check('seat_doing_id', 'fix',
+      '(SELECT DISTINCT desk_id FROM doing WHERE text <> '''' OR on_type IS NULL) g');
   END IF;
 
   -- schema: what the schema steps still have to do (metadata only).
@@ -219,12 +245,12 @@ BEGIN
        AND (TABLE_NAME, COLUMN_NAME) IN (('member', 'name_kind'), ('activity', 'roster_kind'), ('label', 'name_kind'),
             ('tree', 'name_kind'), ('mail', 'roster_kind'), ('tree_read', 'tree_kind'), ('todo', 'roster_kind'),
             ('doing', 'roster_kind'), ('hold', 'resource_kind'), ('score', 'roster_kind'), ('human_member', 'name_kind')))),
-    ('schema_tables', 'schema', 7 - (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME IN ('todo_event', 'doing_now', 'vote', 'vote_option', 'vote_cast', 'glance_cache', 'sp_deploy'))
-       + IF(mill_migrate_080_tbl('vote') AND NOT mill_migrate_080_fk_has('vote', 'fk_vote_result'), 1, 0)),
+    ('schema_columns', 'schema', 4 - mill_migrate_080_col('activity', 'act') - mill_migrate_080_col('doing', 'act')
+       - mill_migrate_080_col('doing', 'peer_id') - mill_migrate_080_col('seat', 'doing_id')
+       + mill_migrate_080_col('activity', 'weight') + mill_migrate_080_col('activity', 'n')),
     ('schema_todo_evidence', 'schema', mill_migrate_080_col('todo', 'evidence')),
-    ('schema_triggers', 'schema', 3 - (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
-       AND TRIGGER_NAME IN ('name_fixed', 'vote_cast_open', 'vote_cast_change'))
+    ('schema_triggers', 'schema', 1 - (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
+       AND TRIGGER_NAME IN ('name_fixed'))
        + (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
            AND TRIGGER_NAME = 'name_no_delete' AND ACTION_STATEMENT NOT LIKE '%sp_name_retire%'));
   CALL mill_migrate_080_fk_list();
@@ -260,6 +286,10 @@ BEGIN
   );
   INSERT INTO m080_key VALUES
     ('activity',     'idx_roster',      'KEY',     'roster_id,roster_kind,type,updated'),
+    ('activity',     'idx_updated',     'KEY',     'updated'),
+    ('doing',        'idx_on',          'KEY',     'on_type,on_id,id'),
+    ('doing',        'idx_peer',        'KEY',     'peer_id'),
+    ('seat',         'idx_doing',       'KEY',     'doing_id,desk_id'),
     ('doing',        'idx_roster',      'KEY',     'roster_id,roster_kind'),
     ('hold',         'idx_desk',        'KEY',     'desk_id'),
     ('hold',         'idx_hold',        'UNIQUE',  'resource_id,resource_kind'),
@@ -278,6 +308,7 @@ BEGIN
 END //
 
 -- A key in m080_key whose columns differ is dropped and added in the same ALTER, so an FK it serves is never uncovered.
+-- A key on a column a later step adds (step columns) waits for that step.
 -- Adds the number of tables changed to @m080_rows.
 CREATE PROCEDURE mill_migrate_080_keys()
 BEGIN
@@ -302,7 +333,8 @@ BEGIN
              REPLACE(k.cols, ',', '`, `'), '`)') ORDER BY k.idx SEPARATOR ', ')
       INTO v_alter
       FROM m080_key k
-     WHERE k.tbl = v_t AND IFNULL(mill_migrate_080_idx(k.tbl, k.idx), '') <> k.cols;
+     WHERE k.tbl = v_t AND IFNULL(mill_migrate_080_idx(k.tbl, k.idx), '') <> k.cols
+       AND mill_migrate_080_cols_ok(k.tbl, k.cols);
     IF v_alter IS NOT NULL THEN
       CALL mill_migrate_080_exec(CONCAT('ALTER TABLE `', v_t, '` ', v_alter));
       SET @m080_rows = @m080_rows + 1;
@@ -474,140 +506,94 @@ BEGIN
     END IF;
     CALL mill_migrate_080_keys();
 
-  ELSEIF p_step = 'tables' THEN
+  ELSEIF p_step = 'columns' THEN
     -- Same shape as tables.sql (test_migrate_080_book compares the two through information_schema).
-    CREATE TABLE IF NOT EXISTS todo_event (
-      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      todo_id     BIGINT UNSIGNED NOT NULL,
-      created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-      desk_id     BIGINT UNSIGNED NOT NULL,
-      from_status ENUM('parked','open','claimed','shipped','done') NULL,
-      to_status   ENUM('parked','open','claimed','shipped','done') NOT NULL,
-      assigned_id BIGINT UNSIGNED NULL,
-      evidence    VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-      PRIMARY KEY (id),
-      KEY idx_todo (todo_id, id),
-      KEY idx_desk (desk_id),
-      KEY idx_assigned (assigned_id),
-      CONSTRAINT ck_todo_event_evidence CHECK (evidence IS NULL OR to_status IN ('shipped','done')),
-      CONSTRAINT fk_todo_event_todo FOREIGN KEY (todo_id) REFERENCES todo (id) ON DELETE RESTRICT,
-      CONSTRAINT fk_todo_event_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-      CONSTRAINT fk_todo_event_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    CREATE TABLE IF NOT EXISTS doing_now (
-      desk_id     BIGINT UNSIGNED NOT NULL,
-      doing_id    BIGINT UNSIGNED NOT NULL,
-      PRIMARY KEY (desk_id),
-      KEY idx_doing (doing_id, desk_id),
-      CONSTRAINT fk_doing_now_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    CREATE TABLE IF NOT EXISTS vote (
-      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-      desk_id     BIGINT UNSIGNED NOT NULL,
-      roster_id   BIGINT UNSIGNED NOT NULL,
-      roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),
-      mail_id     BIGINT UNSIGNED NOT NULL,
-      question    VARCHAR(400) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      deadline    DATETIME(6) NOT NULL,
-      closed      DATETIME(6) NULL,
-      outcome     ENUM('decided','deadlock','no_show') NULL,
-      result_opt  TINYINT UNSIGNED NULL,
-      members_n   SMALLINT UNSIGNED NULL,
-      escalated   DATETIME(6) NULL,
-      PRIMARY KEY (id),
-      UNIQUE KEY idx_mail (mail_id),
-      KEY idx_roster_open (roster_id, roster_kind, closed, deadline),
-      KEY idx_due (closed, deadline),
-      KEY idx_desk (desk_id),
-      KEY idx_result (id, result_opt),
-      CONSTRAINT ck_vote_deadline CHECK (deadline > created),
-      CONSTRAINT ck_vote_closed CHECK ((closed IS NULL) = (outcome IS NULL) AND (closed IS NULL) = (members_n IS NULL)),
-      CONSTRAINT ck_vote_result CHECK ((outcome = 'decided') <=> (result_opt IS NOT NULL) OR (outcome IS NULL AND result_opt IS NULL)),
-      CONSTRAINT ck_vote_escalated CHECK (escalated IS NULL OR outcome IN ('deadlock','no_show')),
-      CONSTRAINT fk_vote_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-      CONSTRAINT fk_vote_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
-      CONSTRAINT fk_vote_mail FOREIGN KEY (mail_id) REFERENCES mail (id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    CREATE TABLE IF NOT EXISTS vote_option (
-      vote_id     BIGINT UNSIGNED NOT NULL,
-      opt         TINYINT UNSIGNED NOT NULL,
-      label       VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      PRIMARY KEY (vote_id, opt),
-      UNIQUE KEY idx_label (vote_id, label),
-      CONSTRAINT ck_vote_option_opt CHECK (opt BETWEEN 1 AND 16),
-      CONSTRAINT fk_vote_option_vote FOREIGN KEY (vote_id) REFERENCES vote (id) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    IF NOT mill_migrate_080_fk_has('vote', 'fk_vote_result') THEN
-      ALTER TABLE vote ADD CONSTRAINT fk_vote_result FOREIGN KEY (id, result_opt) REFERENCES vote_option (vote_id, opt);
+    IF NOT mill_migrate_080_col('activity', 'act') THEN
+      ALTER TABLE activity ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'create' AFTER roster_kind;
       SET @m080_rows = @m080_rows + 1;
     END IF;
-    CREATE TABLE IF NOT EXISTS vote_cast (
-      vote_id     BIGINT UNSIGNED NOT NULL,
-      desk_id     BIGINT UNSIGNED NOT NULL,
-      opt         TINYINT UNSIGNED NOT NULL,
-      created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-      note        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-      PRIMARY KEY (vote_id, desk_id),
-      KEY idx_desk (desk_id),
-      KEY idx_opt (vote_id, opt),
-      CONSTRAINT fk_vote_cast_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-      CONSTRAINT fk_vote_cast_opt FOREIGN KEY (vote_id, opt) REFERENCES vote_option (vote_id, opt) ON DELETE RESTRICT
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    CREATE TABLE IF NOT EXISTS glance_cache (
-      id          TINYINT UNSIGNED NOT NULL DEFAULT 1,
-      at          DATETIME(6) NOT NULL,
-      refresh_us  INT UNSIGNED NOT NULL,
-      present     INT UNSIGNED NOT NULL,
-      held        INT UNSIGNED NOT NULL,
-      open_n      INT UNSIGNED NOT NULL,
-      claimed_n   INT UNSIGNED NOT NULL,
-      parked_n    INT UNSIGNED NOT NULL,
-      shipped_n   INT UNSIGNED NOT NULL,
-      done_n      INT UNSIGNED NOT NULL,
-      letters_1d  INT UNSIGNED NOT NULL,
-      card_moves_1d INT UNSIGNED NOT NULL,
-      doings_1d   INT UNSIGNED NOT NULL,
-      holds_1d    INT UNSIGNED NOT NULL,
-      points_1d   INT UNSIGNED NOT NULL,
-      open_votes  INT UNSIGNED NOT NULL,
-      PRIMARY KEY (id),
-      CONSTRAINT ck_glance_cache_one CHECK (id = 1)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-    CREATE TABLE IF NOT EXISTS sp_deploy (
-      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      version     CHAR(15) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      file        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-      by_user     VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT (CURRENT_USER()),
-      PRIMARY KEY (id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    IF NOT mill_migrate_080_col('doing', 'act') THEN
+      ALTER TABLE doing ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'focus' AFTER waiting_why;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    IF NOT mill_migrate_080_col('doing', 'peer_id') THEN
+      ALTER TABLE doing ADD COLUMN peer_id BIGINT UNSIGNED NULL AFTER act;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    IF NOT mill_migrate_080_col('seat', 'doing_id') THEN
+      ALTER TABLE seat ADD COLUMN doing_id BIGINT UNSIGNED NULL AFTER time_disconnect;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    CALL mill_migrate_080_keys();
 
-  ELSEIF p_step = 'todo_event' THEN
+  ELSEIF p_step = 'acts' THEN
+    -- Before step moves, so every doing row here is main's (act still focus, clear or finish). updated = updated:
+    -- setting the act is not an edit of the item (ON UPDATE CURRENT_TIMESTAMP must not fire).
+    START TRANSACTION;
+    UPDATE doing SET act = IF(text <> '', 'focus', IF(on_type IS NOT NULL, 'finish', 'clear'))
+     WHERE act IN ('focus', 'clear', 'finish')
+       AND act <> IF(text <> '', 'focus', IF(on_type IS NOT NULL, 'finish', 'clear'));
+    SET @m080_rows = ROW_COUNT();
+    IF mill_migrate_080_col('todo', 'evidence') THEN
+      UPDATE activity a JOIN todo t ON a.type = 'todo' AND a.id = t.id
+         SET a.act = ELT(FIELD(t.status, 'open', 'parked', 'claimed', 'shipped', 'done'), 'create', 'park',
+                         IF(t.assigned_id <=> t.updated_id, 'claim', 'assign'), 'ship', 'done'),
+             a.updated = a.updated
+       WHERE a.act = 'create';
+      SET @m080_rows = @m080_rows + ROW_COUNT();
+    END IF;
+    UPDATE activity a JOIN doing d ON a.type = 'doing' AND a.id = d.id
+       SET a.act = d.act, a.updated = a.updated WHERE a.act = 'create';
+    SET @m080_rows = @m080_rows + ROW_COUNT();
+    UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
+       SET a.act = IF(h.desk_id IS NULL, 'drop', 'hold'), a.updated = a.updated WHERE a.act = 'create';
+    SET @m080_rows = @m080_rows + ROW_COUNT();
+    UPDATE activity SET act = IF(type = 'mail', 'send', 'score'), updated = updated
+     WHERE type IN ('mail', 'score') AND act = 'create';
+    SET @m080_rows = @m080_rows + ROW_COUNT();
+    COMMIT;
+
+  ELSEIF p_step = 'moves' THEN
     IF mill_migrate_080_col('todo', 'evidence') THEN
       START TRANSACTION;
+      -- A card that has a move row already (a kill after this commit, before the drop) gets none again.
       CALL mill_migrate_080_exec(
-        'INSERT INTO todo_event (todo_id, created, desk_id, from_status, to_status, assigned_id, evidence)
-         SELECT t.id, t.updated, t.updated_id, NULL, t.status, t.assigned_id, t.evidence
+        'INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
+         SELECT t.updated, t.updated_id, t.roster_id, IFNULL(t.evidence, ''''), ''todo'', t.id,
+                ELT(FIELD(t.status, ''open'', ''parked'', ''claimed'', ''shipped'', ''done''), ''create'', ''park'',
+                    IF(t.assigned_id <=> t.updated_id, ''claim'', ''assign''), ''ship'', ''done''),
+                t.assigned_id
            FROM todo t
-          WHERE t.evidence IS NOT NULL
-            AND NOT EXISTS (SELECT 1 FROM todo_event e WHERE e.todo_id = t.id AND e.evidence = t.evidence)
+          WHERE NOT EXISTS (SELECT 1 FROM doing d WHERE d.on_type = ''todo'' AND d.on_id = t.id
+                              AND d.act NOT IN (''focus'', ''clear'', ''finish''))
           ORDER BY t.id');
       SET @m080_rows = ROW_COUNT();
       COMMIT;
       ALTER TABLE todo DROP COLUMN evidence;
     END IF;
 
-  ELSEIF p_step = 'doing_now' THEN
+  ELSEIF p_step = 'doing_id' THEN
     START TRANSACTION;
-    INSERT INTO doing_now (desk_id, doing_id)
-    SELECT x.desk_id, x.id
-      FROM (SELECT d.desk_id, d.id,
-                   ROW_NUMBER() OVER (PARTITION BY d.desk_id ORDER BY d.created DESC, d.id DESC) AS rn
-              FROM doing d) x
-     WHERE x.rn = 1 AND NOT EXISTS (SELECT 1 FROM doing_now w WHERE w.desk_id = x.desk_id);
+    UPDATE seat s JOIN (
+      SELECT x.desk_id, x.id FROM (
+        SELECT d.desk_id, d.id,
+               ROW_NUMBER() OVER (PARTITION BY d.desk_id ORDER BY d.created DESC, d.id DESC) AS rn
+          FROM doing d WHERE d.act IN ('focus', 'clear')) x
+       WHERE x.rn = 1) f ON f.desk_id = s.desk_id
+       SET s.doing_id = f.id, s.updated = s.updated
+     WHERE s.doing_id IS NULL;
     SET @m080_rows = ROW_COUNT();
     COMMIT;
+
+  ELSEIF p_step = 'drop_cols' THEN
+    IF mill_migrate_080_col('activity', 'weight') THEN
+      ALTER TABLE activity DROP COLUMN weight;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    IF mill_migrate_080_col('activity', 'n') THEN
+      ALTER TABLE activity DROP COLUMN n;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
 
   ELSEIF p_step = 'fks' THEN
     CALL mill_migrate_080_fk_list();

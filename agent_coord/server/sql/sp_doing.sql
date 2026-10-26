@@ -131,7 +131,7 @@ BEGIN
                    waiting_type = IF(v_wid IS NULL, NULL, p_w_type), waiting_id = v_wid,
                    waiting_why = IF(v_wid IS NULL, NULL, NULLIF(p_w_why, ''))
    WHERE id = v_id;
-  CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, IF(p_text = '', 'clear', 'focus'), NULL);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS created, v_desk AS desk_id, v_roster AS roster_id;
 END //
@@ -168,7 +168,7 @@ BEGIN
     SET v_ts = MILL_NOW();
     CALL mill_doing_insert(v_desk, v_roster, '', v_ts, v_id);
     UPDATE doing SET on_type = p_on_type, on_id = p_on_id WHERE id = v_id;
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, 'finish', NULL);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
