@@ -3564,19 +3564,19 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     return {"ok": True, "state": "handled", "ids": ids}
 
 
-def _h_done(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """mill done [--note TEXT] (F144): the calling desk's woken run is finished.
+def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill wake-done [--note TEXT] (F144): the calling desk's woken run is finished.
     Ends that desk's own wake lease; held-back items ring once with the note."""
     from agent_coord.server import wake
 
     if not owner:
-        raise CoordError("done: owner required")
+        raise CoordError("wake-done: owner required")
     got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""))
     return {"ok": True, "desk": owner, "wake": got}
 
 
 HANDLERS = {
-    "done": _h_done,
+    "wake-done": _h_wake_done,
     "inbox": _h_inbox,
     "todo": _h_todo,
     "session": _h_session,

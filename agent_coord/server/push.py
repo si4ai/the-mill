@@ -764,7 +764,7 @@ def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
         _bc_log(f"hold own err desk={desk} err={e}")
         holds = []
     # F144: a sync does not end the desk's wake lease. A routine run connects once
-    # per shell call; only mill done or the lease timeout lets the next item POST.
+    # per shell call; only mill wake-done or the lease timeout lets the next item POST.
     # The sync did hand over what was held back, so those no longer count.
     try:
         from agent_coord.server.wake import lease_synced

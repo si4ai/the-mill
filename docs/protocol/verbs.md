@@ -48,7 +48,7 @@ mill claim <roster> <need> [--take-over]
 mill note <roster> <need> --note TEXT [--supersedes "OLD LINE"] [--full]
 mill hold [<resource>]
 mill drop <resource>
-mill done [--note TEXT]
+mill wake-done [--note TEXT]
 mill pass <roster> <need> [--done | --back]
 mill unclaim <roster> <need>
 mill unpark <roster> <need> [--parent-type mail|todo --parent-id <id>]
@@ -398,7 +398,7 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 | verb | intent | CALL |
 |---|---|---|
 | **`help`** | Print this file (`mill help VERB` = one row) | - |
-| **`done`** | `mill done [--note TEXT]`: the last step of a webhook-woken run. Ends this desk's wake lease; letters that came during the run ring once more, carrying `pending_count` and the note as `last_note`. No lease held is a no-op. Without it the lease lapses after the office's `wake_lease_s` (default 900 s). It closes no card (that is `pass --done`) (F144). | - (wall memory) |
+| **`wake-done`** | `mill wake-done [--note TEXT]`: the last step of a webhook-woken run. Ends this desk's wake lease; letters that came during the run ring once more, carrying `pending_count` and the note as `last_note`. No lease held is a no-op. Without it the lease lapses after the office's `wake_lease_s` (default 900 s). It closes no card (that is `pass --done`) (F144). | - (wall memory) |
 
 **Chief / Wall:** not these verbs. SESSION + kanban + MAIL. Chat to a desk.
 

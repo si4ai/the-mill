@@ -7,7 +7,7 @@ dropped the window and the next letter POSTed again: a storm of overlapping runs
 
 Now a POST takes a wake lease for that desk. A connect sync does not end it.
 While it is held, new items wait in the push queue and post nothing. The run
-ends it with `mill done [--note TEXT]`; then the wall sends exactly one trailing
+ends it with `mill wake-done [--note TEXT]`; then the wall sends exactly one trailing
 wake carrying pending_count (distinct items held back) and the run's note. A run
 that never says done (a crash, or a client older than the verb) loses the lease
 after wake_lease_s (default 900 s): the window-end timer sends the one trailing
@@ -205,24 +205,24 @@ def test_done_rpc_ends_the_callers_own_lease(monkeypatch) -> None:
     seen: list = []
     monkeypatch.setattr(wake, "lease_done", lambda cn, desk, note="": seen.append((desk, note)) or "none")
     book = MagicMock()
-    out = rpc.HANDLERS["done"](book, {"verb": "done", "note": "wrapped up", "desk": "someone-else"}, "the-mill", "away")
+    out = rpc.HANDLERS["wake-done"](book, {"verb": "wake-done", "note": "wrapped up", "desk": "someone-else"}, "the-mill", "away")
     assert seen == [("away", "wrapped up")]
     assert out["ok"] is True and out["wake"] == "none"
 
 
-def test_mill_done_sends_the_note() -> None:
+def test_mill_wake_done_sends_the_note() -> None:
     from agent_coord.__main__ import _build_parser
     from agent_coord.client.outbound import COMMANDS, body_from_args
 
-    args = _build_parser().parse_args(["done", "--note", "handled 1"])
+    args = _build_parser().parse_args(["wake-done", "--note", "handled 1"])
     with patch("agent_coord.client.tokens.resolve_desk_owner", lambda _x: "away"):
         body = body_from_args(args)
-    assert body["verb"] == "done" and body["note"] == "handled 1"
-    assert "done" in COMMANDS
+    assert body["verb"] == "wake-done" and body["note"] == "handled 1"
+    assert "wake-done" in COMMANDS
 
 
-def test_mill_done_takes_no_card() -> None:
+def test_mill_wake_done_takes_no_card() -> None:
     from agent_coord.__main__ import _build_parser
 
     with pytest.raises(SystemExit):
-        _build_parser().parse_args(["done", "the-mill", "some-need"])
+        _build_parser().parse_args(["wake-done", "the-mill", "some-need"])

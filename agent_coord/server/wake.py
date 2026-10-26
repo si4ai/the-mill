@@ -8,7 +8,7 @@ it resolves to must be public. Redirects are never followed.
 
 A POST is a doorbell, and it takes a wake lease for that desk (F144): one
 woken run at a time. A connect sync does not end the lease (a routine run
-connects once per shell call); the run ends it with `mill done [--note TEXT]`,
+connects once per shell call); the run ends it with `mill wake-done [--note TEXT]`,
 or it lapses after lease_s() seconds (wake_lease_s, default 900) when the run
 crashed or its client predates done. While it is held, new items post nothing.
 Every hint and letter stays in the desk's push queue as missed either way, so
@@ -482,7 +482,7 @@ def wake_body(
     test); wake.room is the room name, or null off a room.
 
     F144: pending_count is how many items the last lease held back (0 on a
-    fresh wake); last_note is the note the last run left with mill done, or null.
+    fresh wake); last_note is the note the last run left with mill wake-done, or null.
     """
     from agent_coord.server.mill_json import stamp_mill
 
@@ -507,7 +507,7 @@ def wake_body(
             if test
             else f"mill connect -r {desk}: the sync line hands over every waiting hint and letter, "
             "and this desk's routes walk them. A busy answer means another session has the seat "
-            "and gets these letters: stop. Last step of the run: mill done --note TEXT "
+            "and gets these letters: stop. Last step of the run: mill wake-done --note TEXT "
             "(one wake at a time; letters that came meanwhile ring once after it)"
         ),
     }
@@ -569,7 +569,7 @@ _GATE_LOCK = threading.Lock()
 # #669: desk -> the lease its held-back items belong to (the gate time), the
 # latest of them and the distinct item keys, for the one trailing POST.
 _TRAIL: dict[str, dict[str, Any]] = {}
-# F144: desk -> the note its last run left with mill done, for the next wake.
+# F144: desk -> the note its last run left with mill wake-done, for the next wake.
 _NOTE: dict[str, str] = {}
 
 
@@ -592,7 +592,7 @@ def _gate_open(desk: str, now: float) -> bool:
 
 def gate_clear(desk: str) -> None:
     """Drop the desk's lease and held-back items with no trailing POST (an Admin
-    reset, a test). A connect sync no longer calls this (F144): mill done does."""
+    reset, a test). A connect sync no longer calls this (F144): mill wake-done does."""
     d = str(desk or "").strip()
     with _GATE_LOCK:
         _GATE.pop(d, None)
@@ -711,7 +711,7 @@ def _clean_note(raw: Any) -> str:
 
 
 def lease_done(cn, desk: str, note: str = "") -> str:
-    """mill done (F144): the woken run is finished. Ends this desk's lease; when
+    """mill wake-done (F144): the woken run is finished. Ends this desk's lease; when
     items were held back and still wait, sends exactly one trailing wake with
     pending_count and the note. sent | error | none. A second done is a no-op."""
     import time
@@ -838,7 +838,7 @@ def post_desk(
     with rows it never got live; unsent: a live frame found no socket). The log
     line ends reason=RING.
 
-    trailing (#669, F144): trailing (after mill done) or lease-expired: the one
+    trailing (#669, F144): trailing (after mill wake-done) or lease-expired: the one
     POST for items the lease held back; every item is already in the queue, so
     pending is the queue size, pending_count the distinct items held back, and
     the log line ends reason=TRAILING.

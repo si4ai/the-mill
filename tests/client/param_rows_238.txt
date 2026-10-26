@@ -37,10 +37,10 @@ drop office
 drop yes
 drop doing
 drop waiting_on
-done (command)
-done note
-done office
-done yes
+wake-done (command)
+wake-done note
+wake-done office
+wake-done yes
 send (command)
 send to
 send to_desk
