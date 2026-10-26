@@ -15,7 +15,7 @@
 -- label and tree keep their FKs to activity: they point at a timeline row that already exists.
 -- Every mill FK to name is RESTRICT, and name_no_delete refuses a hard DELETE (retire stamps name.deleted).
 -- name.n = desk count for a roster.
--- member is N-N only. name_id is a roster. There is no kind column. Not an activity type.
+-- member is N-N only. name_id is a roster, pinned by name_kind (kind-checked FK). Not an activity type.
 
 --
 -- 0.8.0. Three rules place every relation (owner rules; reads far outnumber writes). All three are main's:
@@ -30,8 +30,10 @@
 -- 0.8.0. Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data.
 -- seat (desk_id, kind id = name.id) is the desk kind: it holds the desk's token, wake and connect data, so every desk
 -- column FKs to seat (desk_id) and a desk column cannot hold a roster id. A roster, label, tree or res has no data of
--- its own (a roster's detail is name.n, as on main), so it has no kind table and its columns reference name (id) as on
--- main. seat rows are written only by the minting procedure, with the desk's name row.
+-- its own (a roster's detail is name.n, as on main), so it has no kind table; its columns carry a <x>_kind column
+-- pinned by DEFAULT and CHECK and reference name (id, type), so they cannot hold a name of another kind.
+-- Indexes (owner rule): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared here and
+-- named idx_*, so MySQL creates no index for an FK. seat rows are written only by the minting procedure.
 -- Name lifecycle (docs/requirements/admin.md sections 1, 2, 4; rows F60, F65, F92, F135), in beta_sp.sql sp_name_*:
 --   mint     a desk mints itself at connect; a roster, role or label (first-use label too) is minted by any seated
 --            desk under high trust and only by Admin under limited trust; a plan (tree) or resource by any desk.
@@ -110,7 +112,7 @@ CREATE TABLE IF NOT EXISTS member (
   name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (name_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_member_name
   desk_id     BIGINT UNSIGNED NOT NULL,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (name_id, desk_id),
+  PRIMARY KEY (name_id, name_kind, desk_id),
   KEY idx_desk (desk_id, name_id),
   CONSTRAINT fk_member_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
   CONSTRAINT fk_member_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
@@ -133,7 +135,7 @@ CREATE TABLE IF NOT EXISTS activity (
   KEY idx_type (type, roster_id, updated),
   KEY idx_desk (desk_id, type, updated),
   KEY idx_desk_updated (desk_id, updated),
-  KEY idx_roster (roster_id, type, updated),
+  KEY idx_roster (roster_id, roster_kind, type, updated),
   -- roster_id is required. 1 = Office. A missing roster is Office, so every row is counted.
   -- A name row is not deleted. Retire stamps name.deleted, and this id keeps pointing at it.
   CONSTRAINT fk_activity_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
@@ -152,7 +154,7 @@ CREATE TABLE IF NOT EXISTS label (
   ord         SMALLINT UNSIGNED NOT NULL DEFAULT 65535,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (type, id, name_id),
-  KEY idx_label_ord (name_id, ord, created),
+  KEY idx_label_ord (name_id, name_kind, ord, created),
   CONSTRAINT fk_label_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE CASCADE,
   CONSTRAINT fk_label_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -167,7 +169,7 @@ CREATE TABLE IF NOT EXISTS tree (
   id       BIGINT UNSIGNED NOT NULL,
   lft      INT UNSIGNED NOT NULL,
   rgt      INT UNSIGNED NOT NULL,
-  PRIMARY KEY (name_id, type, id),
+  PRIMARY KEY (name_id, name_kind, type, id),
   UNIQUE KEY idx_lft (name_id, lft),
   UNIQUE KEY idx_rgt (name_id, rgt),
   KEY idx_type_lft (type, lft),
@@ -203,7 +205,7 @@ CREATE TABLE IF NOT EXISTS mail (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, created),
-  KEY idx_mail_roster (roster_id),
+  KEY idx_mail_roster (roster_id, roster_kind),
   CONSTRAINT fk_mail_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -237,7 +239,7 @@ CREATE TABLE IF NOT EXISTS tree_read (
   last_id  BIGINT UNSIGNED NOT NULL,
   updated  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (desk_id, tree_id),
-  KEY idx_tree (tree_id),
+  KEY idx_tree (tree_id, tree_kind),
   CONSTRAINT fk_tree_read_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id, tree_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -263,7 +265,10 @@ CREATE TABLE IF NOT EXISTS todo (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_status (status, updated),
-  KEY idx_roster (roster_id, status, updated),
+  KEY idx_roster (roster_id, roster_kind, status, updated),
+  KEY idx_updated (updated_id),
+  KEY idx_creator (creator_id),
+  KEY idx_assigned (assigned_id),
   CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_updated FOREIGN KEY (updated_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_creator FOREIGN KEY (creator_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
@@ -283,6 +288,8 @@ CREATE TABLE IF NOT EXISTS todo_event (
   evidence    VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   PRIMARY KEY (id),
   KEY idx_todo (todo_id, id),
+  KEY idx_desk (desk_id),
+  KEY idx_assigned (assigned_id),
   CONSTRAINT ck_todo_event_evidence CHECK (evidence IS NULL OR to_status IN ('shipped','done')),
   CONSTRAINT fk_todo_event_todo FOREIGN KEY (todo_id) REFERENCES todo (id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_event_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
@@ -311,6 +318,7 @@ CREATE TABLE IF NOT EXISTS doing (
   UNIQUE KEY idx_id (id),
   KEY idx_desk_created (desk_id, created),
   KEY idx_on (on_type, on_id),
+  KEY idx_roster (roster_id, roster_kind),
   UNIQUE KEY idx_id_desk (id, desk_id),   -- 0.8.0: target of doing_now's composite FK
   CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
@@ -322,6 +330,7 @@ CREATE TABLE IF NOT EXISTS doing_now (
   desk_id     BIGINT UNSIGNED NOT NULL,
   doing_id    BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (desk_id),
+  KEY idx_doing (doing_id, desk_id),
   CONSTRAINT fk_doing_now_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -336,7 +345,8 @@ CREATE TABLE IF NOT EXISTS hold (
   resource_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'res' CHECK (resource_kind = 'res'),   -- 0.8.0: pins the name kind for fk_hold_res
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
-  UNIQUE KEY idx_hold (resource_id),
+  UNIQUE KEY idx_hold (resource_id, resource_kind),
+  KEY idx_desk (desk_id),
   CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id, resource_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -360,7 +370,8 @@ CREATE TABLE IF NOT EXISTS score (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   desk_key    BIGINT UNSIGNED AS (IFNULL(desk_id, 0)) STORED,   -- 0.8.0: one office-wide row per kpi (NULL is not unique)
-  UNIQUE KEY idx_score_who (roster_id, desk_key, kpi),
+  UNIQUE KEY idx_score_who (roster_id, roster_kind, desk_key, kpi),
+  KEY idx_desk (desk_id),
   CONSTRAINT fk_score_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
   CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -439,7 +450,9 @@ CREATE TABLE IF NOT EXISTS vote (
   escalated   DATETIME(6) NULL,
   PRIMARY KEY (id),
   UNIQUE KEY idx_mail (mail_id),
-  KEY idx_roster_open (roster_id, closed, deadline),
+  KEY idx_roster_open (roster_id, roster_kind, closed, deadline),
+  KEY idx_desk (desk_id),
+  KEY idx_result (id, result_opt),
   KEY idx_due (closed, deadline),
   CONSTRAINT ck_vote_deadline CHECK (deadline > created),
   CONSTRAINT ck_vote_closed CHECK ((closed IS NULL) = (outcome IS NULL) AND (closed IS NULL) = (members_n IS NULL)),
@@ -471,6 +484,7 @@ CREATE TABLE IF NOT EXISTS vote_cast (
   note        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
   PRIMARY KEY (vote_id, desk_id),
   KEY idx_desk (desk_id),
+  KEY idx_opt (vote_id, opt),
   CONSTRAINT fk_vote_cast_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_vote_cast_opt FOREIGN KEY (vote_id, opt) REFERENCES vote_option (vote_id, opt) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -506,7 +520,7 @@ CREATE TABLE IF NOT EXISTS human_member (
   name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (name_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_human_member_name
   created   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (human_id, name_id),
-  KEY idx_role (name_id, human_id),
+  KEY idx_role (name_id, name_kind, human_id),
   CONSTRAINT fk_human_member_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE,
   CONSTRAINT fk_human_member_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

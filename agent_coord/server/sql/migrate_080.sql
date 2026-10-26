@@ -13,18 +13,25 @@
 --   desk_null   activity.desk_id and score.desk_id may be NULL (the office); a value that is not a desk
 --               (main wrote roster 2, Admin, for system rows, and the roster for roster-owned scores) is NULL.
 --   score_key   score.desk_key (IFNULL(desk_id, 0)) and idx_score_who on (roster_id, desk_key, kpi).
---   keys_kinds  name idx_id_type, doing idx_id_desk, and the 11 kind columns of the kind-checked FKs.
+--   keys_kinds  name idx_id_type, doing idx_id_desk, the 11 kind columns of the kind-checked FKs, then every
+--               key 0.8.0 changes or adds on main's tables (each kind column folded into the key that leads
+--               with its column; a declared idx_* key for each FK no key covers), one ALTER per table.
 --   tables      the 7 new tables (todo_event, doing_now, vote, vote_option, vote_cast, glance_cache, sp_deploy).
 --   todo_event  each todo.evidence becomes one todo_event row; then todo.evidence is dropped.
 --   doing_now   the newest doing row per desk (created, then id: mill_doing_now's order).
 --   fks         the 15 desk FKs on main's tables move to seat (desk_id); the 11 roster, label, tree and res
 --               FKs become kind-checked (col, kind) -> name (id, type). One ALTER per table to drop, one to add.
+--               Then the indexes MySQL made for main's FKs (named after the FK) go: the owner rule is that only
+--               PRIMARY and UNIQUE keys are implicit, and every other index is a declared idx_* key.
 -- Triggers, the routine reload and the sp_deploy stamp are migrate.py's (they read the pack's files).
 -- Each DML step runs in one transaction, so a kill leaves it done or not done.
 
 DROP PROCEDURE IF EXISTS mill_migrate_080_exec;
 DROP PROCEDURE IF EXISTS mill_migrate_080_check;
 DROP PROCEDURE IF EXISTS mill_migrate_080_fk_list;
+DROP PROCEDURE IF EXISTS mill_migrate_080_key_list;
+DROP PROCEDURE IF EXISTS mill_migrate_080_keys;
+DROP PROCEDURE IF EXISTS mill_migrate_080_fk_idx_drop;
 DROP PROCEDURE IF EXISTS mill_migrate_080_preflight;
 DROP PROCEDURE IF EXISTS mill_migrate_080_step;
 DROP FUNCTION IF EXISTS mill_migrate_080_col;
@@ -204,7 +211,8 @@ BEGIN
     ('schema_activity_desk', 'schema', (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
        AND COLUMN_NAME = 'desk_id' AND TABLE_NAME IN ('activity', 'score') AND IS_NULLABLE = 'NO')),
     ('schema_desk_key', 'schema', 1 - mill_migrate_080_col('score', 'desk_key')
-       + IF(IFNULL(mill_migrate_080_idx('score', 'idx_score_who'), '') = 'roster_id,desk_key,kpi', 0, 1)),
+       + IF(IFNULL(mill_migrate_080_idx('score', 'idx_score_who'), '')
+            IN ('roster_id,desk_key,kpi', 'roster_id,roster_kind,desk_key,kpi'), 0, 1)),
     ('schema_keys', 'schema', IF(IFNULL(mill_migrate_080_idx('name', 'idx_id_type'), '') = 'id,type', 0, 1)
        + IF(IFNULL(mill_migrate_080_idx('doing', 'idx_id_desk'), '') = 'id,desk_id', 0, 1)),
     ('schema_kind_cols', 'schema', 11 - (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
@@ -224,9 +232,111 @@ BEGIN
    WHERE NOT mill_migrate_080_fk_ok(f.tbl, f.name, f.cols, f.ref, f.refcols, f.rule_);
   INSERT INTO m080_pf (chk, action, n) VALUES ('schema_fks', 'schema', v_fk);
   DROP TEMPORARY TABLE IF EXISTS m080_fk;
+  -- keys 0.8.0 changes or adds (a kind column it needs not there yet counts as to do), and indexes named after an FK.
+  CALL mill_migrate_080_key_list();
+  INSERT INTO m080_pf (chk, action, n)
+    SELECT 'schema_key_shape', 'schema', COUNT(*) FROM m080_key k
+     WHERE IFNULL(mill_migrate_080_idx(k.tbl, k.idx), '') <> k.cols;
+  DROP TEMPORARY TABLE IF EXISTS m080_key;
+  INSERT INTO m080_pf (chk, action, n)
+    SELECT 'schema_fk_index', 'schema', COUNT(DISTINCT s.TABLE_NAME, s.INDEX_NAME)
+      FROM information_schema.STATISTICS s
+      JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+        ON r.CONSTRAINT_SCHEMA = s.TABLE_SCHEMA AND r.TABLE_NAME = s.TABLE_NAME AND r.CONSTRAINT_NAME = s.INDEX_NAME
+     WHERE s.TABLE_SCHEMA = DATABASE();
 
   SELECT chk, action, n FROM m080_pf ORDER BY action, chk;
   DROP TEMPORARY TABLE IF EXISTS m080_pf;
+END //
+
+-- The keys 0.8.0 changes or adds on main's tables (tables.sql is the source; the migrated-equals-fresh test checks
+-- it), in the temporary table m080_key.
+CREATE PROCEDURE mill_migrate_080_key_list()
+BEGIN
+  DROP TEMPORARY TABLE IF EXISTS m080_key;
+  CREATE TEMPORARY TABLE m080_key (
+    tbl VARCHAR(64) NOT NULL, idx VARCHAR(64) NOT NULL, kind VARCHAR(8) NOT NULL, cols VARCHAR(255) NOT NULL,
+    PRIMARY KEY (tbl, idx)
+  );
+  INSERT INTO m080_key VALUES
+    ('activity',     'idx_roster',      'KEY',     'roster_id,roster_kind,type,updated'),
+    ('doing',        'idx_roster',      'KEY',     'roster_id,roster_kind'),
+    ('hold',         'idx_desk',        'KEY',     'desk_id'),
+    ('hold',         'idx_hold',        'UNIQUE',  'resource_id,resource_kind'),
+    ('human_member', 'idx_role',        'KEY',     'name_id,name_kind,human_id'),
+    ('label',        'idx_label_ord',   'KEY',     'name_id,name_kind,ord,created'),
+    ('mail',         'idx_mail_roster', 'KEY',     'roster_id,roster_kind'),
+    ('member',       'PRIMARY',         'PRIMARY', 'name_id,name_kind,desk_id'),
+    ('score',        'idx_desk',        'KEY',     'desk_id'),
+    ('score',        'idx_score_who',   'UNIQUE',  'roster_id,roster_kind,desk_key,kpi'),
+    ('todo',         'idx_assigned',    'KEY',     'assigned_id'),
+    ('todo',         'idx_creator',     'KEY',     'creator_id'),
+    ('todo',         'idx_roster',      'KEY',     'roster_id,roster_kind,status,updated'),
+    ('todo',         'idx_updated',     'KEY',     'updated_id'),
+    ('tree',         'PRIMARY',         'PRIMARY', 'name_id,name_kind,type,id'),
+    ('tree_read',    'idx_tree',        'KEY',     'tree_id,tree_kind');
+END //
+
+-- A key in m080_key whose columns differ is dropped and added in the same ALTER, so an FK it serves is never uncovered.
+-- Adds the number of tables changed to @m080_rows.
+CREATE PROCEDURE mill_migrate_080_keys()
+BEGIN
+  DECLARE v_done INT DEFAULT 0;
+  DECLARE v_t VARCHAR(64);
+  DECLARE v_alter TEXT;
+  DECLARE v_cur CURSOR FOR SELECT DISTINCT tbl FROM m080_key ORDER BY tbl;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+  CALL mill_migrate_080_key_list();
+  OPEN v_cur;
+  key_loop: LOOP
+    FETCH v_cur INTO v_t;
+    IF v_done THEN
+      LEAVE key_loop;
+    END IF;
+    SELECT GROUP_CONCAT(CONCAT(
+             IF(mill_migrate_080_idx(k.tbl, k.idx) IS NULL, '',
+                IF(k.kind = 'PRIMARY', 'DROP PRIMARY KEY, ', CONCAT('DROP INDEX `', k.idx, '`, '))),
+             CASE k.kind WHEN 'PRIMARY' THEN 'ADD PRIMARY KEY (`'
+                         WHEN 'UNIQUE' THEN CONCAT('ADD UNIQUE KEY `', k.idx, '` (`')
+                         ELSE CONCAT('ADD KEY `', k.idx, '` (`') END,
+             REPLACE(k.cols, ',', '`, `'), '`)') ORDER BY k.idx SEPARATOR ', ')
+      INTO v_alter
+      FROM m080_key k
+     WHERE k.tbl = v_t AND IFNULL(mill_migrate_080_idx(k.tbl, k.idx), '') <> k.cols;
+    IF v_alter IS NOT NULL THEN
+      CALL mill_migrate_080_exec(CONCAT('ALTER TABLE `', v_t, '` ', v_alter));
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+  END LOOP;
+  CLOSE v_cur;
+  DROP TEMPORARY TABLE IF EXISTS m080_key;
+END //
+
+-- Indexes named after an FK (MySQL made them for main's FKs, or for an FK no declared key covered) are not declared
+-- in tables.sql, so they go. Runs after the FK step: every FK is then covered by a declared key. Adds the count.
+CREATE PROCEDURE mill_migrate_080_fk_idx_drop()
+BEGIN
+  DECLARE v_done INT DEFAULT 0;
+  DECLARE v_t VARCHAR(64);
+  DECLARE v_i VARCHAR(64);
+  DECLARE v_cur CURSOR FOR
+    SELECT DISTINCT s.TABLE_NAME, s.INDEX_NAME
+      FROM information_schema.STATISTICS s
+      JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+        ON r.CONSTRAINT_SCHEMA = s.TABLE_SCHEMA AND r.TABLE_NAME = s.TABLE_NAME AND r.CONSTRAINT_NAME = s.INDEX_NAME
+     WHERE s.TABLE_SCHEMA = DATABASE()
+     ORDER BY 1, 2;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+  OPEN v_cur;
+  idx_loop: LOOP
+    FETCH v_cur INTO v_t, v_i;
+    IF v_done THEN
+      LEAVE idx_loop;
+    END IF;
+    CALL mill_migrate_080_exec(CONCAT('ALTER TABLE `', v_t, '` DROP INDEX `', v_i, '`'));
+    SET @m080_rows = @m080_rows + 1;
+  END LOOP;
+  CLOSE v_cur;
 END //
 
 -- One step by name. @m080_rows: rows (or schema objects) it changed.
@@ -292,7 +402,8 @@ BEGIN
         DROP INDEX idx_score_who,
         ADD UNIQUE KEY idx_score_who (roster_id, desk_key, kpi);
       SET @m080_rows = 1;
-    ELSEIF IFNULL(mill_migrate_080_idx('score', 'idx_score_who'), '') <> 'roster_id,desk_key,kpi' THEN
+    ELSEIF IFNULL(mill_migrate_080_idx('score', 'idx_score_who'), '')
+           NOT IN ('roster_id,desk_key,kpi', 'roster_id,roster_kind,desk_key,kpi') THEN
       ALTER TABLE score DROP INDEX idx_score_who, ADD UNIQUE KEY idx_score_who (roster_id, desk_key, kpi);
       SET @m080_rows = 1;
     END IF;
@@ -361,6 +472,7 @@ BEGIN
         CHECK (name_kind = 'roster') AFTER name_id;
       SET @m080_rows = @m080_rows + 1;
     END IF;
+    CALL mill_migrate_080_keys();
 
   ELSEIF p_step = 'tables' THEN
     -- Same shape as tables.sql (test_migrate_080_book compares the two through information_schema).
@@ -375,6 +487,8 @@ BEGIN
       evidence    VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
       PRIMARY KEY (id),
       KEY idx_todo (todo_id, id),
+      KEY idx_desk (desk_id),
+      KEY idx_assigned (assigned_id),
       CONSTRAINT ck_todo_event_evidence CHECK (evidence IS NULL OR to_status IN ('shipped','done')),
       CONSTRAINT fk_todo_event_todo FOREIGN KEY (todo_id) REFERENCES todo (id) ON DELETE RESTRICT,
       CONSTRAINT fk_todo_event_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
@@ -384,6 +498,7 @@ BEGIN
       desk_id     BIGINT UNSIGNED NOT NULL,
       doing_id    BIGINT UNSIGNED NOT NULL,
       PRIMARY KEY (desk_id),
+      KEY idx_doing (doing_id, desk_id),
       CONSTRAINT fk_doing_now_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     CREATE TABLE IF NOT EXISTS vote (
@@ -402,8 +517,10 @@ BEGIN
       escalated   DATETIME(6) NULL,
       PRIMARY KEY (id),
       UNIQUE KEY idx_mail (mail_id),
-      KEY idx_roster_open (roster_id, closed, deadline),
+      KEY idx_roster_open (roster_id, roster_kind, closed, deadline),
       KEY idx_due (closed, deadline),
+      KEY idx_desk (desk_id),
+      KEY idx_result (id, result_opt),
       CONSTRAINT ck_vote_deadline CHECK (deadline > created),
       CONSTRAINT ck_vote_closed CHECK ((closed IS NULL) = (outcome IS NULL) AND (closed IS NULL) = (members_n IS NULL)),
       CONSTRAINT ck_vote_result CHECK ((outcome = 'decided') <=> (result_opt IS NOT NULL) OR (outcome IS NULL AND result_opt IS NULL)),
@@ -433,6 +550,7 @@ BEGIN
       note        VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
       PRIMARY KEY (vote_id, desk_id),
       KEY idx_desk (desk_id),
+      KEY idx_opt (vote_id, opt),
       CONSTRAINT fk_vote_cast_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
       CONSTRAINT fk_vote_cast_opt FOREIGN KEY (vote_id, opt) REFERENCES vote_option (vote_id, opt) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -519,6 +637,7 @@ BEGIN
     END LOOP;
     CLOSE v_fk;
     DROP TEMPORARY TABLE IF EXISTS m080_fk;
+    CALL mill_migrate_080_fk_idx_drop();
 
   ELSE
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'migrate_080: unknown step';
