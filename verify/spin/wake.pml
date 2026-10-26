@@ -72,13 +72,13 @@
 #define RESTART 0
 #endif
 #ifndef PUTFIRST
-#define PUTFIRST 0
+#define PUTFIRST 1
 #endif
 #ifndef RING_ON_LEAVE
-#define RING_ON_LEAVE 0
+#define RING_ON_LEAVE 1
 #endif
 #ifndef ACK_AFTER_SEND
-#define ACK_AFTER_SEND 0
+#define ACK_AFTER_SEND 1
 #endif
 #ifndef MAXRUNS
 #define MAXRUNS 2

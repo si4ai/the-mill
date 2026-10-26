@@ -23,11 +23,12 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which these models were last confirmed to describe the code.
-SYNC=d1c1ae5
+SYNC=1d9fffe
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
-agent_coord/server/api/mill/rpc.py agent_coord/client/http.py"
+agent_coord/server/api/mill/rpc.py agent_coord/client/http.py
+agent_coord/client/ws.py agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_name.sql"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$ROOT" ] && git -C "$ROOT" cat-file -e "$SYNC^{commit}" 2>/dev/null; then
   # shellcheck disable=SC2086
@@ -41,9 +42,9 @@ W01|wake|-DN=2 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|one wake per window; no inva
 W02|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|same, three items
 W03|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1|safety|pass|same, two connects of the desk
 W04|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=2|no_loss|pass|no taken row is lost, one connect at a time
-W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0|no_loss|violated|FINDING: a superseded connect loses the rows its sync already took
+W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0|no_loss|pass|main (831 fix shipped): a superseded connect (--take) loses no rows
 W06|wake|-DN=2 -DSESSIONS=2 -DREFUSE=1 -DMAXFAIL=0|no_loss|pass|connect -r (4409) never supersedes, so nothing is lost
-W07|wake|-DN=2 -DMAXFAIL=0|live|violated|FINDING: perfect receiver, still stranded (row queued after the wake)
+W07|wake|-DN=2 -DMAXFAIL=0|live|pass|main (832 fix shipped): perfect receiver, every item delivered
 W08|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1|live|violated|EXPECTED: both POSTs fail, no later try (current main)
 W09|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|no loss and no races: every item delivered
 W10|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DRECEIPT=1|live|violated|BY DESIGN: a receipt never rings; it waits for a connect
@@ -55,10 +56,12 @@ W15|wake|-DN=3 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|same, three 
 W16|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|827 + fix 832, real interleaving, lossy receiver
 W17|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=255|live|violated|EXPECTED: a receiver down forever; no bounded retry helps
 W18|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1|no_loss|pass|fix 831: read, send, then delete: a superseded connect loses nothing
-W19|wake|-DN=3 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1|no_loss|pass|same, three items, a lossy receiver
+W19|wake|-DN=3 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=0 -DRING_ON_LEAVE=0|no_loss|pass|fix 831 alone, three items, a lossy receiver (both fixes at N=3: the search ran out of memory)
 W20|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|safety|pass|both fixes: still one wake per window, no invalid end state
 W21|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|no_loss|pass|both fixes, two connects: nothing lost
 W22|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|live|pass|both fixes, two connects: every item delivered
+W23|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=0|no_loss|violated|pre-831 order (take, then send): a superseded connect loses taken rows
+W24|wake|-DN=2 -DMAXFAIL=0 -DPUTFIRST=0 -DRING_ON_LEAVE=0|live|violated|pre-832 order (POST, then queue): perfect receiver, still stranded
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
 M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
@@ -72,7 +75,10 @@ H07|holds|-DDESKS=2 -DPOLICY=2|np|pass|one global lock order: no deadlock or liv
 H08|holds|-DDESKS=3 -DPOLICY=2|np|pass|same, 3 desks
 H09|holds|-DDESKS=2 -DPOLICY=2|starve|violated|FINDING: no queue: a desk can lose every race (starvation)
 H10|holds|-DDESKS=2 -DPOLICY=2 -DROUNDS=1|starve|pass|finite work: every desk gets its locks
-H11|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1|np|violated|FINDING: no TTL: a dead desk keeps its holds forever
+H11|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1|np|violated|FINDING: no TTL: a dead desk nobody resets keeps its holds forever
+H12|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|np|pass|card 842: reset or retire of a dead desk frees its holds; the others progress
+H13|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|mutex|pass|card 842: the release keeps mutual exclusion
+M05|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1 -DMUT_RESET_KEEPS|np|violated|mutation of card 842: reset that keeps the holds leaves the others stuck
 M03|holds|-DDESKS=2 -DPOLICY=0 -DMUT_HOLD_NOLOCK|mutex|violated|mutation: no FOR UPDATE breaks mutual exclusion
 '
 
@@ -105,6 +111,9 @@ while IFS='|' read -r id model defs mode expect what; do
   if [ $rc -ne 0 ]; then echo "$id: spin or cc failed (rc $rc), see $d"; fail=1; continue; fi
   if grep -qE "max search depth too small|out of memory|BITSTATE" "$d/pan.txt"; then
     echo "$id: search not exhaustive, see $d/pan.txt"; fail=1; fi
+  # pan killed (e.g. by the OOM killer) prints no result line: a tool failure, not a violation.
+  if ! grep -q "errors: [0-9]" "$d/pan.txt"; then
+    echo "$id: pan gave no result (killed?), see $d/pan.txt"; fail=1; continue; fi
   if grep -q "errors: 0" "$d/pan.txt"; then got=pass; else got=violated; fi
   states=$(grep -m1 "states, stored" "$d/pan.txt" | awk '{print $1}')
   depth=$(grep -m1 "depth reached" "$d/pan.txt" | sed 's/.*depth reached \([0-9]*\).*/\1/')

@@ -1,24 +1,24 @@
 ---
 name: verify-spin-wake-holds
-description: Model-check the mill wake path (push queue, webhook window, trailing POST, connect sync, seat rule) and mill hold/drop with SPIN. Use when a change touches agent_coord/server/wake.py, push.py, the /ws handler in asgi.py, records/push.py, sp_push.sql, sp_hold.sql, records/hold.py or the hold/drop handlers, or when someone asks whether the mill can deadlock, livelock or lose a wake.
+description: Model-check the mill wake path (push queue, webhook window, trailing POST, connect sync, seat rule) and mill hold/drop with SPIN. Use when a change touches agent_coord/server/wake.py, push.py, the /ws handler in asgi.py, records/push.py, sp_push.sql, sp_hold.sql, records/hold.py, the hold/drop handlers, client/ws.py, or the reset and retire routines in sp_join.sql and sp_name.sql, or when someone asks whether the mill can deadlock, livelock or lose a wake.
 ---
 
 # Verify the wake path and holds with SPIN
 
 ## Does my change touch the modelled code?
 
-Covered code (the sync commit is in `run.sh` as `SYNC`, currently d1c1ae5):
+Covered code (the sync commit is in `run.sh` as `SYNC`, currently 1d9fffe):
 
 | Model | Code |
 | :--- | :--- |
-| `wake.pml` | `agent_coord/server/wake.py` (`_fire`, `_gate_open`, `_gate_take`, `gate_clear`, `_coalesced`, `trail`, `post_desk`); `agent_coord/server/push.py` (`emit`, `fanout`, `Hub.add`, `take_sync`, `connect_sync_frame`); `agent_coord/server/asgi.py` (`ws_endpoint`: add, sync, send; `_ws_handle_client_text` reply); `agent_coord/server/records/push.py`; `agent_coord/server/sql/sp_push.sql` |
-| `holds.pml` | `agent_coord/server/sql/sp_hold.sql`; `agent_coord/server/records/hold.py`; `agent_coord/server/api/mill/rpc.py` (`_h_hold`, `_h_drop`); `agent_coord/client/http.py` (`_refused_hold`) |
+| `wake.pml` | `agent_coord/server/wake.py` (`_fire`, `_gate_open`, `_gate_take`, `gate_clear`, `_coalesced`, `trail`, `post_desk`); `agent_coord/server/push.py` (`emit`, `fanout`, `Hub.add`, `take_sync`, `connect_sync_frame`); `agent_coord/server/asgi.py` (`ws_endpoint`: add, sync, send; `_ws_handle_client_text` reply); `agent_coord/server/records/push.py`; `agent_coord/server/sql/sp_push.sql`; `agent_coord/client/ws.py` (busy seat, card 834) |
+| `holds.pml` | `agent_coord/server/sql/sp_hold.sql`; `agent_coord/server/records/hold.py`; `agent_coord/server/api/mill/rpc.py` (`_h_hold`, `_h_drop`); `agent_coord/client/http.py` (`_refused_hold`); `agent_coord/server/sql/sp_join.sql` (`mill_join_reset`) and `sp_name.sql` (`mill_name_delete`), which free a desk's holds (card 842) |
 
 `run.sh` prints `note: covered code changed since SYNC` when any covered file differs.
 
 ## Run
 
-    verify/spin/run.sh            # every check, about a minute
+    verify/spin/run.sh            # every check, about two and a half minutes
     verify/spin/run.sh W07        # one check, with its trail
     verify/spin/run.sh --strict   # any violation fails
 
