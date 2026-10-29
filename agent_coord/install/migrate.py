@@ -882,9 +882,8 @@ def _ensure_todo_done_when(cn) -> list[str]:
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER body"
             )
             applied.append("todo.done_when")
-        # 0.8.0: evidence is the text of a card's move row in doing (doing.act); a migrated book must not get the
-        # column back.
-        if not _column_exists(cur, "todo", "evidence") and not _column_exists(cur, "doing", "act"):
+        # 0.8.0: evidence is doing.evidence on a card's move row; a migrated book must not get todo.evidence back.
+        if not _column_exists(cur, "todo", "evidence") and not _column_exists(cur, "doing", "evidence"):
             cur.execute(
                 "ALTER TABLE todo ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4"
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER done_when"
@@ -1241,7 +1240,7 @@ _REFUSE_080: dict[str, str] = {
     "kind_human_member": "human_member.name_id holds a name that is not a roster",
     "score_collapse": "two scores of one roster and kpi would both become the office's (desk NULL); retire or rename one",
     "todo_evidence_long": (
-        "a card's evidence is longer than 512 characters (doing.text); where longer evidence goes is pending the owner"
+        "a card's evidence is longer than 2000 characters (doing.evidence / EVIDENCE_MAX); nothing is cut"
     ),
 }
 

@@ -140,3 +140,40 @@ def test_an_items_moves_read_in_id_order_with_no_filesort(book):
            " ORDER BY id DESC LIMIT 1")
     plan = json.dumps(_plan(cn, sql))
     assert '"key": "idx_on"' in plan and '"using_filesort": true' not in plan, plan
+
+
+def test_doing_evidence_is_nullable_2000_and_null_on_focus(book):
+    """F187: doing.evidence VARCHAR(2000) NULL; focus/clear/finish keep it NULL (the owner, 2026-10-26)."""
+    import time
+    cn, db = book
+    col = q(
+        cn,
+        "SELECT COLUMN_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS"
+        " WHERE TABLE_SCHEMA=%s AND TABLE_NAME='doing' AND COLUMN_NAME='evidence'",
+        (db,),
+    )
+    assert col == [("varchar(2000)", "YES", 2000)], col
+    n = 0
+
+    def _desk():
+        nonlocal n
+        n += 1
+        name = f"ev-desk-{n}-{time.time_ns()}"
+        q(cn, "INSERT INTO name (type, name) VALUES ('desk', %s)", (name,))
+        a = q(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (name,))[0][0]
+        q(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (a,))
+        return a
+
+    a = _desk()
+    # CHECK: a focus row cannot carry evidence
+    with pytest.raises(mysql.connector.Error):
+        q(cn, "INSERT INTO doing (desk_id, text, act, evidence) VALUES (%s, 'x', 'focus', 'no')", (a,))
+    cn.rollback()
+    a = _desk()
+    q(cn, "INSERT INTO doing (desk_id, text, act, evidence) VALUES (%s, 'x', 'focus', NULL)", (a,))
+    q(cn, "INSERT INTO doing (desk_id, text, act, on_type, on_id, evidence)"
+          " VALUES (%s, '', 'ship', 'todo', 1, %s)", (a, "e" * 2000))
+    with pytest.raises(mysql.connector.Error):
+        q(cn, "INSERT INTO doing (desk_id, text, act, on_type, on_id, evidence)"
+              " VALUES (%s, '', 'ship', 'todo', 2, %s)", (a, "e" * 2001))
+    cn.rollback()

@@ -16,17 +16,17 @@
 --   keys_kinds  name idx_id_type, doing idx_id_desk, the 11 kind columns of the kind-checked FKs, then every
 --               key 0.8.0 changes or adds on main's tables (each kind column folded into the key that leads
 --               with its column; a declared idx_* key for each FK no key covers), one ALTER per table.
---   columns     no new table (the owner, 2026-10-26): activity.act, doing.act (one list), doing.peer_id and
---               seat.doing_id, with their keys (activity idx_updated, doing idx_on (on_type, on_id, id), idx_peer,
---               seat idx_doing).
+--   columns     no new table (the owner, 2026-10-26): activity.act, doing.act (one list), doing.peer_id,
+--               doing.evidence (VARCHAR(2000) NULL, move rows only) and seat.doing_id, with their keys
+--               (activity idx_updated, doing idx_on (on_type, on_id, id), idx_peer, seat idx_doing).
 --   acts        each main row's act: a doing row with text is focus, an empty one on an item is finish (main's
 --               mill_doing_finish row), any other empty one is clear; activity says its item's latest move (a card's
 --               from its status, a doing row's own act, a hold taken or free, a letter send, a score score).
 --   moves       every card gets one move row in doing, its first: by updated_id at updated, act from the status
 --               (open create, parked park, claimed claim, or assign when the volunteer is another desk, shipped
---               ship, done done), peer_id the volunteer, text the evidence byte for byte (or empty). Then
---               todo.evidence is dropped. Evidence over 512 characters is refused by the preflight: where longer
---               evidence goes is pending the owner.
+--               ship, done done), peer_id the volunteer, evidence the card's evidence byte for byte (or NULL),
+--               text empty. Then todo.evidence is dropped. Evidence over 2000 characters is refused by the
+--               preflight (EVIDENCE_MAX; nothing is cut).
 --   doing_id    seat.doing_id = the desk's newest focus row (focus or clear; created, then id: mill_doing_now's
 --               order). A desk whose newest row is a finish row names the focus row that row ended.
 --   drop_cols   activity.weight and activity.n go (the owner, 2026-10-26: reply bytes measure token use).
@@ -210,9 +210,8 @@ BEGIN
     '(SELECT s.roster_id, s.kpi FROM score s LEFT JOIN name n ON n.id = s.desk_id
        WHERE s.desk_id IS NULL OR n.type <> ''desk'' GROUP BY s.roster_id, s.kpi HAVING COUNT(*) > 1) g');
   IF mill_migrate_080_col('todo', 'evidence') THEN
-    -- refuse: evidence longer than doing.text (512 characters). Where longer evidence goes is pending the owner
-    -- (widen doing.text or a column of its own); nothing is cut.
-    CALL mill_migrate_080_check('todo_evidence_long', 'refuse', 'todo WHERE CHAR_LENGTH(evidence) > 512');
+    -- refuse: evidence longer than doing.evidence / EVIDENCE_MAX (2000 characters); nothing is cut.
+    CALL mill_migrate_080_check('todo_evidence_long', 'refuse', 'todo WHERE CHAR_LENGTH(evidence) > 2000');
     -- fix: every card gets its one move row (step moves).
     CALL mill_migrate_080_check('todo_moves', 'fix', 'todo');
   END IF;
@@ -245,8 +244,9 @@ BEGIN
        AND (TABLE_NAME, COLUMN_NAME) IN (('member', 'name_kind'), ('activity', 'roster_kind'), ('label', 'name_kind'),
             ('tree', 'name_kind'), ('mail', 'roster_kind'), ('tree_read', 'tree_kind'), ('todo', 'roster_kind'),
             ('doing', 'roster_kind'), ('hold', 'resource_kind'), ('score', 'roster_kind'), ('human_member', 'name_kind')))),
-    ('schema_columns', 'schema', 4 - mill_migrate_080_col('activity', 'act') - mill_migrate_080_col('doing', 'act')
-       - mill_migrate_080_col('doing', 'peer_id') - mill_migrate_080_col('seat', 'doing_id')
+    ('schema_columns', 'schema', 5 - mill_migrate_080_col('activity', 'act') - mill_migrate_080_col('doing', 'act')
+       - mill_migrate_080_col('doing', 'peer_id') - mill_migrate_080_col('doing', 'evidence')
+       - mill_migrate_080_col('seat', 'doing_id')
        + mill_migrate_080_col('activity', 'weight') + mill_migrate_080_col('activity', 'n')),
     ('schema_todo_evidence', 'schema', mill_migrate_080_col('todo', 'evidence')),
     ('schema_triggers', 'schema', 1 - (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
@@ -520,6 +520,19 @@ BEGIN
       ALTER TABLE doing ADD COLUMN peer_id BIGINT UNSIGNED NULL AFTER act;
       SET @m080_rows = @m080_rows + 1;
     END IF;
+    IF NOT mill_migrate_080_col('doing', 'evidence') THEN
+      ALTER TABLE doing ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL AFTER peer_id;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    -- CHECK: focus/clear/finish keep evidence NULL (the owner, 2026-10-26).
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+       WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'doing' AND CONSTRAINT_NAME = 'chk_doing_evidence'
+    ) THEN
+      ALTER TABLE doing ADD CONSTRAINT chk_doing_evidence
+        CHECK (evidence IS NULL OR act NOT IN ('focus', 'clear', 'finish'));
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
     IF NOT mill_migrate_080_col('seat', 'doing_id') THEN
       ALTER TABLE seat ADD COLUMN doing_id BIGINT UNSIGNED NULL AFTER time_disconnect;
       SET @m080_rows = @m080_rows + 1;
@@ -558,11 +571,11 @@ BEGIN
       START TRANSACTION;
       -- A card that has a move row already (a kill after this commit, before the drop) gets none again.
       CALL mill_migrate_080_exec(
-        'INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
-         SELECT t.updated, t.updated_id, t.roster_id, IFNULL(t.evidence, ''''), ''todo'', t.id,
+        'INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id, evidence)
+         SELECT t.updated, t.updated_id, t.roster_id, '''', ''todo'', t.id,
                 ELT(FIELD(t.status, ''open'', ''parked'', ''claimed'', ''shipped'', ''done''), ''create'', ''park'',
                     IF(t.assigned_id <=> t.updated_id, ''claim'', ''assign''), ''ship'', ''done''),
-                t.assigned_id
+                t.assigned_id, t.evidence
            FROM todo t
           WHERE NOT EXISTS (SELECT 1 FROM doing d WHERE d.on_type = ''todo'' AND d.on_id = t.id
                               AND d.act NOT IN (''focus'', ''clear'', ''finish''))
