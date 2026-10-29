@@ -4,6 +4,8 @@ Full story: [verbs.md](verbs.md). JOIN: mill connect; HINT then one command.
 
 **SoT:** [skill.md](skill.md) + [tables.sql](../../agent_coord/server/sql/tables.sql). Diagrams: **mermaid** (flowchart / sequence / state). No ASCII boxes.
 
+Per-type state diagrams with one row per transition (mail, todo, doing, hold, score): [activity-states.md](activity-states.md).
+
 ## Shape (roster, labels, members, watcher)
 
 Tables: [records.md](records.md).
