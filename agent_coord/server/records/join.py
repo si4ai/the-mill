@@ -90,7 +90,7 @@ def set_lan_ip(cn, desk: str, ip: str) -> None:
 
 
 def touch(cn, project: str, desk: str) -> list[dict]:
-    """Bump the seat and the current doing's activity; no new entry (#635, #818)."""
+    """Bump the seat; no doing row and no activity bump (#635, #818; 0.8.0 heartbeats)."""
     from agent_coord.server.records.name import bare
 
     desk_b = bare(desk, CONST_DESK) if desk else ""

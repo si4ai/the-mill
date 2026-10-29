@@ -705,7 +705,8 @@ def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str,
     if roster:
         out["project_id"] = roster
     if text and not ended:
-        out.update({"doing": text, "on": on, "age": _age(r.get("age_s"))})
+        # 0.8.0 wall read contract: every doing entry carries its act (a focus row here).
+        out.update({"doing": text, "on": on, "age": _age(r.get("age_s")), "act": str(r.get("act") or "focus")})
         head = f'{who}: doing "{text}"' + (f" on {on}" if on else "") + f" ({out['age']})"
         # #822: what this entry is blocked on (fields on its own doing row).
         wait = _waiting_view(r.get("waiting_type"), r.get("waiting_id"), r.get("waiting_name"), r.get("waiting_why"))
@@ -722,7 +723,8 @@ def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str,
         last_text = str(r.get("last_text") or "")
         if last_text:
             out["last"] = {"doing": last_text, "on": _item(r.get("last_on_type"), r.get("last_on_id")),
-                           "age": _age(r.get("last_age_s")), "ended_by": r.get("ended_by")}
+                           "age": _age(r.get("last_age_s")), "ended_by": r.get("ended_by"),
+                           "act": str(r.get("act") or "focus")}
         head = f"{who}: idle" + (f" {out['idle']}" if out.get("idle") else "")
         if last_text:
             head += f' (last: "{last_text}"' + (f" on {out['last']['on']}" if out["last"]["on"] else "") + ")"
@@ -806,6 +808,7 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
             "at": str(r.get("created") or "")[:19],
             "doing": str(r.get("text") or ""),
             "on": _item(r.get("on_type"), r.get("on_id")),
+            "act": str(r.get("act") or "focus"),
             "roster": _stored(r.get("roster") or ""),
             "ended": how is not None,
             "ended_by": how,
@@ -2210,6 +2213,9 @@ def _card_refusal(code: str, roster: str, need: str) -> str:
         else "who-may: pass --back is the asker or the volunteer; the card's asker does not resolve, so only the volunteer may",
         "who_may_done_when": "who-may: done-when is the asker or Admin",
         "done_when_done": f"done-when: {need} is done; nothing changed",
+        "deleted": f"card: {roster}/{need} is retired; reclaim it before moving it",
+        "unpark_status": f"unpark: {roster}/{need} is not parked; nothing changed",
+        "assign_guard": f"assign: {roster}/{need} must be open with no volunteer",
     }
     return texts.get(kind, f"{kind}: refused")
 
@@ -2457,6 +2463,12 @@ def _h_unpark(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         raise CoordError(
             "unpark: todo has no TREE parent; pass --parent-type and --parent-id to attach it"
         )
+    st = rec_todo.normalize_status(str(hit.get("status") or ""), default="open")
+    if st != "parked":
+        # SP also refuses under the card lock (F186); this is the desk-facing line.
+        if st == "open":
+            return {"ok": True, "need": need, "status": "open"}  # no-op
+        raise CoordError(f"unpark: {project}/{need} is {st}; nothing changed")
     rec_todo.update(c._cn, tid, _stored(owner or ""), status="open")
     rec = {"ok": True, "need": need, "status": "open"}
     _poke(c, "todo", tid, "unpark", owner=owner)

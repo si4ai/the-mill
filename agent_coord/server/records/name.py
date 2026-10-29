@@ -192,9 +192,9 @@ def _by(by: str) -> str:
 
 
 def retire(cn, name: str, kind: str = "", *, by: str, by_hash: str | None = None) -> list[dict]:
-    # sp_name_retire is Admin only (the reviewed spec, beta_sp.sql); by_hash is kept for callers and not sent.
+    # Card 880: Admin, or the desk itself with its own seat token hash (sp_name_retire checks it, as rename does).
     k, bare_name = pair(name, kind)
-    return call(cn, "sp_name_retire", [_by(by), k, bare_name])
+    return call(cn, "sp_name_retire", [_by(by), by_hash, k, bare_name])
 
 
 def rename(cn, old: str, new: str, kind: str = "", *, by: str, by_hash: str | None = None) -> list[dict]:

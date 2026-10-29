@@ -48,8 +48,8 @@ BEGIN
   IF p_part = 'agents' THEN
     SELECT
       IFNULL(dsk.name, '') AS owner, IFNULL(dsk.type, '') AS owner_type,
-      IFNULL((SELECT g.text FROM doing g WHERE g.desk_id = h.desk_id
-              ORDER BY g.created DESC, g.id DESC LIMIT 1), '') AS doing,
+      -- 0.8.0: the desk's focus is seat.doing_id (a focus or clear row), never a move row.
+      IFNULL((SELECT g.text FROM doing g WHERE g.id = h.doing_id), '') AS doing,
       IF(h.time_connect IS NOT NULL AND (h.time_disconnect IS NULL OR h.time_connect >= h.time_disconnect), 1, 0) AS alive,
       IFNULL(h.lan_ip, '') AS lan_ip,
       '' AS roster_id,
@@ -156,8 +156,10 @@ BEGIN
       DATE_FORMAT(a.updated, '%Y-%m-%dT%H:%i:%s') AS at,
       IFNULL(dn.name, '') AS owner, IFNULL(dn.type, '') AS owner_type,
       IFNULL(an.name, '') AS roster_id, IFNULL(an.type, '') AS roster_id_type,
-      a.weight AS weight,
-      a.n AS n
+      a.act AS act,
+      a.act AS state,
+      a.bytes AS bytes,
+      1 AS items
     FROM activity a
     LEFT JOIN name dn ON dn.id = a.desk_id
     LEFT JOIN name an ON an.id = a.roster_id

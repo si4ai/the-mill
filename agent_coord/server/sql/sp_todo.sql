@@ -22,6 +22,7 @@ BEGIN
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_move BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -42,7 +43,9 @@ BEGIN
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
-  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, 'create', LENGTH(IFNULL(p_body, '')));
+  -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
+  CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
+  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, IF(p_status = 'parked', 'park', 'create'), LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_status AS status;
@@ -68,6 +71,7 @@ BEGIN
   DECLARE v_r INT UNSIGNED;
   DECLARE v_n INT;
   DECLARE v_lock BIGINT UNSIGNED;
+  DECLARE v_move BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -88,7 +92,9 @@ BEGIN
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
-  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, 'create', LENGTH(IFNULL(p_body, '')));
+  -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
+  CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
+  CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, IF(p_status = 'parked', 'park', 'create'), LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   SELECT id INTO v_lock FROM activity
    WHERE type = p_parent_type AND id = p_parent_id
@@ -135,8 +141,11 @@ BEGIN
   SELECT v_id AS id, v_ts AS updated, p_status AS status, v_name AS name_id, v_r AS lft;
 END //
 
--- One card write. A status change appends its todo_event row (0.8.0); p_evidence is kept on a
--- change to shipped or done. mill_todo_update is this with no evidence; cmd_pass passes it.
+-- One card write. 0.8.0 (the owner, 2026-10-26): it reads the old status and volunteer FOR UPDATE, and every
+-- status change or volunteer change (a take-over, an assign with no status change) appends one move row by the
+-- acting desk (mill_doing_move): act from the old and new state (BETA-CHANGES.md, the act list), peer_id the
+-- second desk, text the evidence on a ship or done. A write with no move (a body edit) is act note, no row.
+-- mill_todo_update is this with no evidence; cmd_pass passes it.
 CREATE PROCEDURE mill_todo_write(
   IN p_id        BIGINT UNSIGNED,
   IN p_desk      VARCHAR(64),
@@ -151,6 +160,13 @@ BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_vol BIGINT UNSIGNED;
   DECLARE v_was VARCHAR(8);
+  DECLARE v_now VARCHAR(8);
+  DECLARE v_old_vol BIGINT UNSIGNED;
+  DECLARE v_new_vol BIGINT UNSIGNED;
+  DECLARE v_act VARCHAR(16);
+  DECLARE v_peer BIGINT UNSIGNED;
+  DECLARE v_ev VARCHAR(2000);
+  DECLARE v_move BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -164,7 +180,31 @@ BEGIN
     WHEN p_volunteer = '-' THEN NULL
     ELSE MILL_NAME_GET('desk', p_volunteer)
   END;
-  SELECT roster_id, status INTO v_proj, v_was FROM todo WHERE id = p_id;
+  -- Lock order (deadlock pairs, F183): the acting desk's seat, then the card, as retire (name, seat, hold)
+  -- and the focus writers (seat) do, so a pass never waits on a seat while holding the card.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
+  SELECT roster_id, status, assigned_id INTO v_proj, v_was, v_old_vol FROM todo WHERE id = p_id FOR UPDATE;
+  IF v_was IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo: no such card';
+  END IF;
+  -- F186 (Auditor T04): a retired card moves under no lock on find; refuse under the card lock.
+  IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
+  END IF;
+  -- F186 (Auditor T02): unpark is parked -> open with the volunteer kept. Any other status with
+  -- volunteer kept and status open is refused here (assign/claim/unclaim go through cmd_*).
+  IF NULLIF(p_status, '') = 'open' AND (p_volunteer IS NULL OR p_volunteer = '')
+     AND v_was NOT IN ('parked', 'open') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:unpark_status';
+  END IF;
+  -- F186 (Auditor T03): assign (claimed + a peer volunteer) checks open/claimed and no volunteer under the lock.
+  IF NULLIF(p_status, '') = 'claimed'
+     AND p_volunteer IS NOT NULL AND p_volunteer NOT IN ('', '-')
+     AND NOT (MILL_NAME_GET('desk', p_volunteer) <=> v_desk)
+     AND (v_was NOT IN ('open', 'claimed') OR v_old_vol IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:assign_guard';
+  END IF;
   -- #818 D2: claimed_at is first, so it reads the old status and volunteer
   -- (MySQL assigns left to right). A claim, a new volunteer or a step back to
   -- claimed stamps it; leaving claimed clears it; anything else keeps it.
@@ -186,7 +226,43 @@ BEGIN
          END,
          body = IFNULL(p_body, body)
    WHERE id = p_id;
-  CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, 'note', LENGTH(p_body));
+  SELECT status, assigned_id INTO v_now, v_new_vol FROM todo WHERE id = p_id;
+  -- The act names the move so the fold rebuilds the card (BETA-CHANGES.md, the act list; F175): read in id
+  -- order, back folds done to shipped, and shipped to claimed with a volunteer or open without.
+  SET v_act = CASE
+    WHEN v_now = v_was THEN
+      CASE WHEN v_new_vol <=> v_old_vol THEN NULL
+           WHEN v_new_vol IS NULL THEN 'unclaim'
+           WHEN v_new_vol <=> v_desk THEN 'claim'
+           ELSE 'assign' END
+    WHEN v_now = 'shipped' THEN IF(v_was = 'done', 'back', 'ship')
+    WHEN v_now = 'done' THEN 'done'
+    WHEN v_now = 'parked' THEN 'park'
+    WHEN v_was = 'shipped' AND ((v_now = 'claimed' AND v_new_vol <=> v_old_vol AND v_new_vol IS NOT NULL)
+                                OR (v_now = 'open' AND v_new_vol IS NULL AND v_old_vol IS NULL)) THEN 'back'
+    WHEN v_now = 'claimed' THEN IF(v_new_vol <=> v_desk, 'claim', 'assign')
+    WHEN v_now = 'open' AND v_was = 'parked' THEN 'unpark'
+    WHEN v_now = 'open' THEN 'unclaim'
+    ELSE NULL
+  END;
+  SET v_peer = CASE v_act
+    WHEN 'assign' THEN v_new_vol
+    WHEN 'claim' THEN v_old_vol
+    WHEN 'unclaim' THEN v_old_vol
+    ELSE NULL
+  END;
+  IF v_act IS NOT NULL THEN
+    -- Evidence rides on ship and done; a done with none carries the ship's (main's todo.evidence rule).
+    SET v_ev = IF(v_act IN ('ship', 'done'), NULLIF(TRIM(p_evidence), ''), NULL);
+    IF v_act = 'done' AND v_ev IS NULL THEN
+      SET v_ev = (SELECT NULLIF(e.text, '') FROM doing e
+                   WHERE e.on_type = 'todo' AND e.on_id = p_id AND e.act NOT IN ('focus', 'clear', 'finish')
+                   ORDER BY e.id DESC LIMIT 1);
+      SET v_ev = IF(v_was = 'shipped', v_ev, NULL);
+    END IF;
+    CALL mill_doing_move(v_desk, v_proj, 'todo', p_id, v_act, v_peer, v_ev, v_ts, v_move);
+  END IF;
+  CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, IFNULL(v_act, 'note'), LENGTH(p_body));
   CALL mill_watcher_roster('todo', p_id, v_proj, v_desk);
   IF v_vol IS NOT NULL THEN
     CALL mill_watcher_put('todo', p_id, v_vol);
@@ -195,7 +271,7 @@ BEGIN
   SELECT p_id AS id, v_ts AS updated;
 END //
 
--- Public: same arguments and result as on main; a status change writes its todo_event row.
+-- Public: same arguments and result as on main; a move writes its move row in doing.
 CREATE PROCEDURE mill_todo_update(
   IN p_id        BIGINT UNSIGNED,
   IN p_desk      VARCHAR(64),
@@ -248,8 +324,7 @@ BEGIN
     CALL mill_tree_detach('todo', p_id);
     -- activity_del_watchers fires only on a hard activity delete, so drop watchers here.
     DELETE FROM watcher WHERE type = 'todo' AND id = p_id;
-    -- 0.8.0: the card's status history goes with it (fk_todo_event_todo is RESTRICT).
-    DELETE FROM todo_event WHERE todo_id = p_id;
+    -- 0.8.0: the card's move rows in doing stay (doing is append-only history, no FK to todo).
     DELETE FROM todo WHERE id = p_id;  -- todo_no_delete_in_tree still guards
     -- 0.8.0: an office touch leaves activity.desk_id NULL, so a stored row is stamped either way.
     IF v_has > 0 OR v_desk IS NOT NULL THEN
@@ -342,8 +417,10 @@ BEGIN
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
-         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
+         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -378,8 +455,10 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
-         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
+         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -426,8 +505,10 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest status event's (todo_event.idx_todo)
-         (SELECT e.evidence FROM todo_event e WHERE e.todo_id = t.id ORDER BY e.id DESC LIMIT 1) AS evidence
+         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id

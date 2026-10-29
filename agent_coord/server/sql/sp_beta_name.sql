@@ -133,32 +133,49 @@ BEGIN
   SELECT v_id AS id, TRIM(p_new) AS name, v_type AS name_type, 'renamed' AS op;
 END //
 
--- ---------- retire (admin.md sections 1 and 4; F65, F135) ----------
--- Admin at either trust. Soft: name.deleted. Office and Admin are never retired. A desk: its seat token and
--- webhook are cleared, its current doing ends, and every hold it owns is freed, in this call.
+-- ---------- retire (admin.md sections 1 and 4; F65, F135; card 880) ----------
+-- Admin at either trust. Exception (card 880): a desk retires itself when p_by_hash is its seat's token hash, as in
+-- sp_name_rename. Soft: name.deleted. Office and Admin are never retired. A desk: its seat token and webhook are
+-- cleared, its focus ends (a 'clear' row that seat.doing_id then names), and every hold it owns is freed, in this
+-- call. Each freed hold gets a 'drop' row by the ACTING desk (the desk itself or Admin; never NULL), with the holder
+-- as peer_id when another desk acted, and its activity row says 'drop' by that desk. Lock order: name, seat, hold.
 DROP PROCEDURE IF EXISTS sp_name_retire //
-CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
+CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_by_hash CHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
-  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0; DECLARE v_doing BIGINT UNSIGNED;
-  IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: retire'; END IF;
+  DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0;
+  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_self TINYINT DEFAULT 0; DECLARE v_now DATETIME(6) DEFAULT NOW(6);
+  DECLARE v_tok CHAR(64);
+  -- Lock order: name, then seat. F186 (Auditor N01): the self-retire token check is under the seat lock
+  -- with target = caller, so a reset that clears the token in between refuses.
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   IF v_id = 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Office'; END IF;
   IF v_id = 2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Admin'; END IF;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name already retired'; END IF;
-  UPDATE name SET deleted = NOW(6) WHERE id = v_id;
   IF v_type = 'desk' THEN
-    UPDATE seat SET token_hash = NULL, time_disconnect = NOW(6),
+    SELECT doing_id, token_hash INTO v_doing, v_tok FROM seat WHERE desk_id = v_id FOR UPDATE;
+    IF p_by_hash IS NOT NULL AND v_by = v_id AND v_tok IS NOT NULL AND v_tok = p_by_hash THEN
+      SET v_self = 1;
+    END IF;
+  END IF;
+  IF NOT v_self AND NOT b_is_admin(v_by) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: retire (a desk retires only itself, with its own seat)';
+  END IF;
+  UPDATE name SET deleted = v_now WHERE id = v_id;
+  IF v_type = 'desk' THEN
+    SELECT COUNT(*) INTO v_released FROM hold WHERE desk_id = v_id FOR UPDATE;
+    INSERT INTO doing (created, desk_id, roster_id, act, on_type, on_id, peer_id)
+      SELECT v_now, v_by, 1, 'drop', 'hold', h.id, NULLIF(v_id, v_by) FROM hold h WHERE h.desk_id = v_id ORDER BY h.id;
+    UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
+       SET a.updated = v_now, a.desk_id = v_by, a.act = 'drop' WHERE h.desk_id = v_id;
+    UPDATE hold SET desk_id = NULL WHERE desk_id = v_id;
+    INSERT INTO doing (created, desk_id, roster_id, act, text) VALUES (v_now, v_id, 1, 'clear', ''); SET v_doing = LAST_INSERT_ID();
+    INSERT INTO activity (type, id, created, updated, desk_id, roster_id, act) VALUES ('doing', v_doing, v_now, v_now, v_id, 1, 'clear');
+    UPDATE seat SET token_hash = NULL, time_disconnect = v_now, doing_id = v_doing,
            delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
            endpoint_url = NULL, endpoint_key = NULL, wake_on = 'addressed'
      WHERE desk_id = v_id;
-    UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id SET a.updated = NOW(6) WHERE h.desk_id = v_id;
-    UPDATE hold SET desk_id = NULL WHERE desk_id = v_id;
-    SET v_released = ROW_COUNT();
-    INSERT INTO doing (desk_id, roster_id, text) VALUES (v_id, 1, ''); SET v_doing = LAST_INSERT_ID();
-    INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('doing', v_doing, v_id, 1);
-    INSERT INTO doing_now (desk_id, doing_id) VALUES (v_id, v_doing) AS x ON DUPLICATE KEY UPDATE doing_id = x.doing_id;
   END IF;
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op, v_released AS released;
 END //
