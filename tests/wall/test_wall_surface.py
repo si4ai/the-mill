@@ -44,7 +44,7 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow321",
+    "boot.js": "wow322",
     "board.css": "wow319",
     "lazy.js": "wow321",
     "shell.css": "wow269",
@@ -56,10 +56,10 @@ LAZY_PINS = (
     "/floor/map-paint.js?v=wow319",
     "/admin/invite.js?v=wow280",
     "/mail/mail-paint.js?v=wow321",
-    "/score/score-paint.js?v=wow321",
-    "/floor/floor-paint.js?v=wow319",
+    "/score/score-paint.js?v=wow322",
+    "/floor/floor-paint.js?v=wow322",
     "/todo/todo-paint.js?v=wow321",
-    "/doing/doing-paint.js?v=wow319",
+    "/doing/doing-paint.js?v=wow322",
     "/session/desk-paint.js?v=wow321",
     "/session/service-paint.js?v=wow321",
     "/lists/lists-paint.js?v=wow321",

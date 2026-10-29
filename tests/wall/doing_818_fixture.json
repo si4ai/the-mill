@@ -165,7 +165,8 @@
    "on": "todo-2",
    "roster": "the-mill",
    "ended": false,
-   "ended_by": null
+   "ended_by": null,
+   "act": "focus"
   },
   {
    "id": 12,
@@ -175,7 +176,8 @@
    "on": "todo-2",
    "roster": "the-mill",
    "ended": true,
-   "ended_by": "newer"
+   "ended_by": "newer",
+   "act": "focus"
   },
   {
    "id": 9,
@@ -185,7 +187,8 @@
    "on": "todo-2",
    "roster": "the-mill",
    "ended": true,
-   "ended_by": "finished"
+   "ended_by": "finished",
+   "act": "focus"
   },
   {
    "id": 7,
@@ -195,7 +198,8 @@
    "on": "todo-2",
    "roster": "the-mill",
    "ended": true,
-   "ended_by": "cleared"
+   "ended_by": "cleared",
+   "act": "focus"
   },
   {
    "id": 13,
@@ -205,7 +209,8 @@
    "on": "todo-1",
    "roster": "the-mill",
    "ended": false,
-   "ended_by": null
+   "ended_by": null,
+   "act": "focus"
   },
   {
    "id": 11,
@@ -214,6 +219,49 @@
    "doing": "skill.md doing bullet",
    "on": "todo-3",
    "roster": "the-mill",
+   "ended": true,
+   "ended_by": "finished",
+   "act": "focus"
+  },
+  {
+   "id": 9001,
+   "desk": "builder",
+   "at": "2026-10-23 01:00:00",
+   "doing": "",
+   "on": "todo-1",
+   "act": "claim",
+   "ended": true,
+   "ended_by": "finished"
+  },
+  {
+   "id": 9002,
+   "desk": "builder",
+   "at": "2026-10-23 02:00:00",
+   "doing": "",
+   "on": "todo-1",
+   "act": "ship",
+   "evidence": "stage 1 landed",
+   "ended": true,
+   "ended_by": "finished"
+  },
+  {
+   "id": 9003,
+   "desk": "builder",
+   "at": "2026-10-23 02:30:00",
+   "doing": "",
+   "on": "todo-1",
+   "act": "done",
+   "evidence": "accepted on review",
+   "ended": true,
+   "ended_by": "finished"
+  },
+  {
+   "id": 9004,
+   "desk": "builder",
+   "at": "2026-10-23 03:00:00",
+   "doing": "",
+   "on": "todo-1",
+   "act": "back",
    "ended": true,
    "ended_by": "finished"
   }

@@ -192,13 +192,24 @@ function wallDoingTrailHtml(key) {
   return `<span class="dt-head">Doing</span>` +
     (older ? `<span class="dt-more">${esc(older + " older not shown")}</span>` : "") +
     rows.map(function (e) {
-      const how = e.ended_by ? String(e.ended_by) : (e.ended ? "ended" : "current");
-      return `<span class="dt-row">` +
+      /* #897 rule-doing-focus: a move row is never "current". #899 paints act. */
+      const act = String(e.act || "").trim();
+      const isFocus = !act || (typeof wallActIsFocus === "function" ? wallActIsFocus(act) : (act === "focus" || act === "clear" || act === "finish"));
+      const actBit = act ? (typeof wallActLabel === "function" ? wallActLabel(act) : act) : "";
+      let how;
+      if (!isFocus) how = actBit || "move";
+      else if (e.ended_by) how = String(e.ended_by);
+      else if (e.ended) how = "ended";
+      else how = "current";
+      const ev = e.evidence != null && String(e.evidence) ? String(e.evidence) : "";
+      return `<span class="dt-row${isFocus ? "" : " dt-move"}" data-act="${esc(act)}">` +
         `<span class="dt-at">${esc(e.at ? dt(e.at).slice(5, 16) : "")}</span> ` +
         (byDesk ? "" : `<b class="dt-desk">${esc(millName("desk", e.desk || ""))}</b> `) +
+        (actBit ? `<span class="dt-act">${esc(actBit)}</span> ` : "") +
         `<span class="dt-text">${esc(e.doing || "")}</span>` +
         (byDesk && e.on ? ` <span class="dt-on">${esc("on " + e.on)}</span>` : "") +
-        ` <span class="doing-ended" data-ended-by="${esc(e.ended_by || "")}">${esc(how)}</span>` +
+        (ev ? ` <span class="dt-evidence">${esc(ev)}</span>` : "") +
+        ` <span class="doing-ended" data-ended-by="${esc(isFocus ? (e.ended_by || "") : "")}">${esc(how)}</span>` +
         `</span>`;
     }).join("");
 }
@@ -297,3 +308,12 @@ function wallDoingGo(item) {
   }, true);
 })();
 var WALL_UI_DEFAULT_DOING_PAINT = "WALL_UI_DEFAULT_DOING_PAINT";
+
+/* #898 rule-card-evidence: newest ship/done evidence on a card trail; back clears it. */
+function wallDoingCardEvidence(item) {
+  const key = String(item || "");
+  const got = window.WALL_DOING && window.WALL_DOING.trails && window.WALL_DOING.trails[key];
+  if (!got || got.state !== "ok") return "";
+  if (typeof wallCardEvidenceFromTrail === "function") return wallCardEvidenceFromTrail(got.rows || []);
+  return "";
+}
