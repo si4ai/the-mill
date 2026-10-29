@@ -85,7 +85,10 @@ def beta_apply_order() -> list[Path]:
     glance = SQL_DIR / "sp_glance.sql"  # lane C's new file; apply_order.txt is lane A's
     if glance.is_file() and glance not in order:
         order.append(glance)
-    order.append(BETA_DIR / "beta_sp.sql")
+    # beta_sp overlays pack SPs for the proposal DDL only. When tables.sql is
+    # already 0.8.0, pack SPs (sp_beta_name last in apply_order) are the source.
+    if beta_ddl_path().resolve() != (SQL_DIR / "tables.sql").resolve():
+        order.append(BETA_DIR / "beta_sp.sql")
     order.append(_TMP / "zz_seat_shim.sql")
     return order
 
@@ -100,17 +103,36 @@ def _fail_not_skip(real):
     return run
 
 
+_PLUGIN = False
+
+
 def install() -> None:
     from agent_coord.install import migrate
 
     if getattr(migrate, "_lane_c_beta", False):
         return
+    migrate._lane_c_beta_prev = (migrate.sql_apply_order, migrate._apply_stmt)
     migrate.sql_apply_order = beta_apply_order
     migrate._apply_stmt = _fail_not_skip(migrate._apply_stmt)
     migrate._lane_c_beta = True
 
 
+def uninstall() -> None:
+    """Restore pack apply_order so modules like book_schema_parity stay on tip SQL."""
+    from agent_coord.install import migrate
+
+    if not getattr(migrate, "_lane_c_beta", False):
+        return
+    prev = getattr(migrate, "_lane_c_beta_prev", None)
+    if prev:
+        migrate.sql_apply_order, migrate._apply_stmt = prev
+    migrate._lane_c_beta = False
+    migrate._lane_c_beta_prev = None
+
+
 def pytest_configure(config):  # plugin hook: -p tests.server.records.lane_c_beta
+    global _PLUGIN
+    _PLUGIN = True
     install()
 
 
@@ -128,22 +150,26 @@ def make_book(prefix: str):
     kw.pop("database", None)
     kw["autocommit"] = True
     try:
-        adm = mysql.connector.connect(**kw)
-    except Exception as exc:
-        pytest.skip(f"mysql not answering: {exc}")
-    cur = adm.cursor()
-    cur.execute(f"DROP DATABASE IF EXISTS `{db}`")
-    cur.execute(f"CREATE DATABASE `{db}` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci")
-    cur.close()
-    adm.close()
-    saved = os.environ.pop("AGENT_COORD_DATABASE", None)
-    try:
-        cn = connect(db)
+        try:
+            adm = mysql.connector.connect(**kw)
+        except Exception as exc:
+            pytest.skip(f"mysql not answering: {exc}")
+        cur = adm.cursor()
+        cur.execute(f"DROP DATABASE IF EXISTS `{db}`")
+        cur.execute(f"CREATE DATABASE `{db}` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci")
+        cur.close()
+        adm.close()
+        saved = os.environ.pop("AGENT_COORD_DATABASE", None)
+        try:
+            cn = connect(db)
+        finally:
+            if saved is not None:
+                os.environ["AGENT_COORD_DATABASE"] = saved
+        apply(cn, wipe=True)
+        return cn, db
     finally:
-        if saved is not None:
-            os.environ["AGENT_COORD_DATABASE"] = saved
-    apply(cn, wipe=True)
-    return cn, db
+        if not _PLUGIN:
+            uninstall()
 
 
 def drop_book(cn, db: str) -> None:
