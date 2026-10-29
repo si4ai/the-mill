@@ -187,8 +187,9 @@ def test_reply_doing_links_the_letter_replied_to_and_a_plain_reply_ends_it(w):
     w.ok(["reply", str(mid), "--body-file", str(w.body)])
     view = w.me()
     assert view["doing"] == "" and "idle" in view
-    assert view["last"] == {"doing": "answering the ask", "on": f"mail-{mid}", "age": view["last"]["age"],
-                            "ended_by": "finished"}
+    # 0.8.0: last carries act (focus); a plain reply still ends it as finished.
+    assert view["last"]["doing"] == "answering the ask" and view["last"]["on"] == f"mail-{mid}"
+    assert view["last"]["ended_by"] == "finished" and view["last"].get("act") == "focus"
 
 
 def test_mark_never_ends_a_doing(w):
@@ -617,4 +618,5 @@ def test_drop_doing_replaces_the_hold_doing_and_stays_current(w):
     assert view["doing"] == "handing the file over" and view["on"] == hid
     rows = _hist(w, ME)
     assert rows[0]["doing"] == "handing the file over" and rows[0]["ended"] is False
-    assert rows[1]["doing"] == "editing the file" and rows[1]["ended_by"] == "newer"
+    # 0.8.0: the desk's own drop move ends the prior focus as finished (F174/F186), not newer.
+    assert rows[1]["doing"] == "editing the file" and rows[1]["ended_by"] == "finished"

@@ -69,7 +69,8 @@ BEGIN
           WHERE node.type = 'todo' AND node.id = p_card), ':noparent', ''));
 END //
 
--- 'sp-' and the first 12 hex of this pack's SQL stamp (MILL_SQL_STAMP, #614).
+-- The book's routines answer this pack's SQL stamp: 'sp-' and its first 12 hex (MILL_SQL_STAMP, #614).
+-- (0.8.0 has no sp_deploy table: the owner, 2026-10-26.)
 CREATE FUNCTION mill_sp_version() RETURNS CHAR(15) CHARSET ascii
   NOT DETERMINISTIC
   READS SQL DATA
@@ -80,14 +81,16 @@ BEGIN
   RETURN IF(v IS NULL, NULL, CONCAT('sp-', LEFT(v, 12)));
 END //
 
--- mill_todo_update inside the caller's transaction: @mill_req_tx is set for the
--- call and put back after it, also when it fails.
+-- mill_todo_write inside the caller's transaction: @mill_req_tx is set for the
+-- call and put back after it, also when it fails. p_evidence rides on the
+-- status change's move row in doing (0.8.0).
 CREATE PROCEDURE mill_card_write(
-  IN p_card   BIGINT UNSIGNED,
-  IN p_desk   BIGINT UNSIGNED,
-  IN p_status VARCHAR(16),
-  IN p_vol    VARCHAR(64),
-  IN p_body   VARCHAR(4096)
+  IN p_card     BIGINT UNSIGNED,
+  IN p_desk     BIGINT UNSIGNED,
+  IN p_status   VARCHAR(16),
+  IN p_vol      VARCHAR(64),
+  IN p_body     VARCHAR(4096),
+  IN p_evidence VARCHAR(2000)
 )
 BEGIN
   DECLARE v_saved INT DEFAULT @mill_req_tx;
@@ -99,7 +102,7 @@ BEGIN
   END;
   SELECT name INTO v_name FROM name WHERE id = p_desk;
   SET @mill_req_tx = 1;
-  CALL mill_todo_update(p_card, v_name, p_status, IF(p_vol = '=', v_name, p_vol), p_body);
+  CALL mill_todo_write(p_card, v_name, p_status, IF(p_vol = '=', v_name, p_vol), p_body, p_evidence);
   SET @mill_req_tx = v_saved;
 END //
 
@@ -122,11 +125,17 @@ BEGIN
   DECLARE v_vname VARCHAR(64);
   DECLARE v_held VARCHAR(64);
   DECLARE v_msg VARCHAR(128);
+  DECLARE v_seat BIGINT UNSIGNED;
+  -- Lock order (F183): seat then card.
+  SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
   SELECT t.status, t.assigned_id, n.name INTO v_st, v_vol, v_vname
     FROM todo t LEFT JOIN name n ON n.id = t.assigned_id
    WHERE t.id = p_card FOR UPDATE;
   IF v_st IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'claim: no such card';
+  END IF;
+  IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_card AND deleted IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
   END IF;
   -- Another desk's volunteer, or '' (none, or this desk).
   SET v_held = IF(v_vol IS NOT NULL AND NOT (v_vol <=> p_desk), v_vname, '');
@@ -140,7 +149,7 @@ BEGIN
   IF v_msg IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
-  CALL mill_card_write(p_card, p_desk, 'claimed', '=', p_body);
+  CALL mill_card_write(p_card, p_desk, 'claimed', '=', p_body, NULL);
   SELECT p_card AS card, 'claimed' AS status, NULLIF(v_held, '') AS prior_volunteer;
 END //
 
@@ -153,9 +162,14 @@ BEGIN
   DECLARE v_st VARCHAR(8);
   DECLARE v_vol BIGINT UNSIGNED;
   DECLARE v_msg VARCHAR(128);
+  DECLARE v_seat BIGINT UNSIGNED;
+  SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
   SELECT status, assigned_id INTO v_st, v_vol FROM todo WHERE id = p_card FOR UPDATE;
   IF v_st IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'unclaim: no such card';
+  END IF;
+  IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_card AND deleted IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
   END IF;
   SET v_msg = MILL_CARD_MOVES('unclaim', v_st, p_card);
   IF v_msg IS NULL AND v_vol IS NOT NULL AND p_desk IS NOT NULL AND v_vol <> p_desk THEN
@@ -164,15 +178,16 @@ BEGIN
   IF v_msg IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
-  CALL mill_card_write(p_card, p_desk, 'open', '-', NULL);
+  CALL mill_card_write(p_card, p_desk, 'open', '-', NULL, NULL);
   SELECT p_card AS card, 'open' AS status;
 END //
 
 -- L1: cmd_pass(p_desk, p_card, p_step, p_evidence) -> card, status, was.
 -- ship: claimed -> shipped, the volunteer. done: shipped -> done, the asker or Admin
 -- (the volunteer when the asker does not resolve). back: done -> shipped, shipped ->
--- claimed (open with no volunteer), the asker or the volunteer. Evidence: ship sets
--- todo.evidence, done keeps it unless given, any step back clears it.
+-- claimed (open with no volunteer), the asker or the volunteer. Evidence (0.8.0: on the
+-- step's move row text in doing): ship keeps what it is given, done keeps it or the ship's when
+-- none is given, any step back has none. Result evidence: the card's newest move row's, if a ship or done.
 CREATE PROCEDURE cmd_pass(
   IN p_desk     BIGINT UNSIGNED,
   IN p_card     BIGINT UNSIGNED,
@@ -186,11 +201,16 @@ BEGIN
   DECLARE v_next VARCHAR(8);
   DECLARE v_msg VARCHAR(128);
   DECLARE v_ev VARCHAR(2000) DEFAULT NULLIF(TRIM(p_evidence), '');
+  DECLARE v_seat BIGINT UNSIGNED;
+  SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
   SELECT t.status, t.assigned_id, an.id, an.name INTO v_st, v_vol, v_ask, v_askname
     FROM todo t LEFT JOIN name an ON an.id = t.creator_id
    WHERE t.id = p_card FOR UPDATE;
   IF v_st IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'pass: no such card';
+  END IF;
+  IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_card AND deleted IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
   END IF;
   IF p_step = 'ship' THEN
     IF v_st = 'shipped' THEN SET v_msg = 'card:already_shipped';
@@ -221,15 +241,16 @@ BEGIN
   IF v_msg IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
-  CALL mill_card_write(p_card, p_desk, v_next, '', NULL);
-  UPDATE todo
-     SET evidence = CASE
-           WHEN p_step = 'ship' THEN v_ev
-           WHEN p_step = 'done' THEN IFNULL(v_ev, evidence)
-           ELSE NULL
-         END
-   WHERE id = p_card;
-  SELECT p_card AS card, v_next AS status, v_st AS was, (SELECT evidence FROM todo WHERE id = p_card) AS evidence;
+  IF p_step = 'done' AND v_ev IS NULL THEN
+    SET v_ev = (SELECT d.evidence FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act = 'ship'
+           ORDER BY d.id DESC LIMIT 1);
+  END IF;
+  CALL mill_card_write(p_card, p_desk, v_next, '', NULL, IF(p_step = 'back', NULL, v_ev));
+  SELECT p_card AS card, v_next AS status, v_st AS was,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence;
 END //
 
 -- L1: cmd_card_accept(p_desk, p_card, p_done_when) -> card, done_when. The asker or
@@ -320,7 +341,10 @@ BEGIN
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type,
          sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
-         t.done_when, t.evidence
+         t.done_when,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
     FROM todo t
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = t.roster_id
     LEFT JOIN name an ON an.id = t.roster_id

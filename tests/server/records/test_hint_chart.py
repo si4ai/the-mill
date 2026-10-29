@@ -32,6 +32,7 @@ _spec.loader.exec_module(_hint_check)
 check_frame = _hint_check.check_frame
 
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import make_admin
 
 TEST_DB = throwaway_db("mill_records_test")
 
@@ -212,6 +213,7 @@ def test_label_retire_does_not_push_a_name_hint(cn) -> None:
         mp.setattr("agent_coord.server.admin.catalog.require_admin", lambda *a, **k: None)
         mp.setattr(push.HUB, "rooms", {desk(alice): {object()}})
         mp.setattr(push.HUB, "notify", capture)
+        make_admin(cn, alice)  # 0.8.0: sp_name_retire checks the acting desk is Admin
         rpc._h_retire(
             Book(cn),
             {"verb": "retire", "slug": "chart2", "confirm": "chart2", "yes": True},

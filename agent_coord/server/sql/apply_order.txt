@@ -20,3 +20,4 @@ sp_hold.sql
 sp_score.sql
 sp_tree.sql
 sp_floor_scope.sql
+sp_beta_name.sql

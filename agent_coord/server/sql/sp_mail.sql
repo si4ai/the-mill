@@ -268,7 +268,7 @@ BEGIN
   END IF;
   INSERT INTO mail (desk_id, roster_id, body) VALUES (v_desk, v_proj, p_body);
   SET v_id = LAST_INSERT_ID();
-  CALL mill_activity_put('mail', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('mail'), LENGTH(IFNULL(p_body, '')));
+  CALL mill_activity_put('mail', v_id, v_ts, v_desk, v_proj, 'send', LENGTH(IFNULL(p_body, '')));
   SET v_to = IFNULL(p_dst, '');
   SET v_to_type = IFNULL(NULLIF(TRIM(p_dst_type), ''), 'desk');
   IF v_to = '' OR v_to = '*' OR v_to = p_project THEN
@@ -319,7 +319,7 @@ BEGIN
       SET MESSAGE_TEXT = 'mail: only the sender or an Admin desk may change this letter';
   END IF;
   UPDATE mail SET body = IFNULL(p_body, body) WHERE id = p_id;
-  CALL mill_activity_put('mail', p_id, v_ts, v_desk, v_proj, MILL_WEIGHT('mail'), LENGTH(p_body));
+  CALL mill_activity_put('mail', p_id, v_ts, v_desk, v_proj, 'note', LENGTH(p_body));
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
 END //

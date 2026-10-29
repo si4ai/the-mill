@@ -97,7 +97,7 @@ def test_score_delete_keeps_card_and_evidence(cn) -> None:
     )
     desk_before = scalar(cn, "SELECT desk_id FROM activity WHERE type='score' AND id=%s", (sid,))
     aff_before = scalar(cn, "SELECT roster_id FROM activity WHERE type='score' AND id=%s", (sid,))
-    n_before = scalar(cn, "SELECT n FROM activity WHERE type='score' AND id=%s", (sid,))
+    act_before = scalar(cn, "SELECT act FROM activity WHERE type='score' AND id=%s", (sid,))
     score.delete(cn, sid, "sk_desk")
     assert scalar(cn, "SELECT id FROM score WHERE id=%s", (sid,)) == sid
     assert scalar(cn, "SELECT COUNT(*) FROM score_evidence WHERE score_id=%s", (sid,)) == 2
@@ -105,7 +105,7 @@ def test_score_delete_keeps_card_and_evidence(cn) -> None:
     assert stamp is not None
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='score' AND id=%s", (sid,)) == desk_before
     assert scalar(cn, "SELECT roster_id FROM activity WHERE type='score' AND id=%s", (sid,)) == aff_before
-    assert scalar(cn, "SELECT n FROM activity WHERE type='score' AND id=%s", (sid,)) == n_before
+    assert scalar(cn, "SELECT act FROM activity WHERE type='score' AND id=%s", (sid,)) == act_before
     # second delete keeps the first stamp
     score.delete(cn, sid, "sk_desk")
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) == stamp

@@ -869,8 +869,8 @@ def _ensure_mail_to_asked(cn) -> list[str]:
 
 
 def _ensure_todo_done_when(cn) -> list[str]:
-    """#867 (0.7.18): todo.done_when and todo.evidence, additive NULL columns.
-    Rollback: ALTER TABLE todo DROP COLUMN done_when, DROP COLUMN evidence."""
+    """#867: todo.done_when. 0.8.0: no todo.evidence shim (evidence lives on doing move rows;
+    migrate_080 carries cloud-office evidence; the owner 2026-10-29: no old-field aliases)."""
     applied: list[str] = []
     cur = cn.cursor()
     try:
@@ -882,12 +882,6 @@ def _ensure_todo_done_when(cn) -> list[str]:
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER body"
             )
             applied.append("todo.done_when")
-        if not _column_exists(cur, "todo", "evidence"):
-            cur.execute(
-                "ALTER TABLE todo ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4"
-                " COLLATE utf8mb4_0900_ai_ci NULL AFTER done_when"
-            )
-            applied.append("todo.evidence")
         if applied:
             cn.commit()
     finally:
@@ -985,6 +979,9 @@ def _ensure_score_one_name(cn) -> list[str]:
     cur = cn.cursor()
     try:
         if not (_table_exists(cur, "score") and _table_exists(cur, "score_point")):
+            return applied
+        # 0.8.0: a roster-owned score is desk NULL (migrate_080 step desk_null), never desk = roster.
+        if _column_exists(cur, "score", "desk_key"):
             return applied
         cur.execute(
             "SELECT s.id, s.roster_id, s.kpi, s.value,"
@@ -1203,6 +1200,216 @@ def apply_doing_818(cn) -> list[str]:
     return [DOING_818]
 
 
+MIGRATE_080 = "migrate_080.sql"
+# Steps in order. Each checks the book first, so a run after a kill at any point does only what is left.
+STEPS_080: tuple[str, ...] = (
+    "seat", "watcher", "desk_null", "score_key", "keys_kinds", "columns", "acts", "moves", "doing_id", "drop_cols", "fks",
+    "triggers",
+)
+# Preflight checks that refuse the run, with what they mean. Nothing in the book changes before the refusal.
+_REFUSE_080: dict[str, str] = {
+    "desk_seat": "seat.desk_id holds a name that is not a desk",
+    "desk_member": "member.desk_id holds a name that is not a desk",
+    "desk_mail": "mail.desk_id holds a name that is not a desk",
+    "desk_mail_to": "mail_to.desk_id holds a name that is not a desk",
+    "desk_tree_read": "tree_read.desk_id holds a name that is not a desk",
+    "desk_todo": "todo.updated_id, creator_id or assigned_id holds a name that is not a desk",
+    "desk_doing": "doing.desk_id holds a name that is not a desk",
+    "desk_hold": "hold.desk_id holds a name that is not a desk",
+    "desk_score_point": "score_point.desk_id holds a name that is not a desk",
+    "desk_human_desk": "human_desk.desk_id holds a name that is not a desk",
+    "desk_push_queue": "push_queue.desk_id holds a name that is not a desk",
+    "desk_watcher": "watcher.desk_id holds a label, tree or res name",
+    "kind_member": "member.name_id holds a name that is not a roster",
+    "kind_activity": "activity.roster_id holds a name that is not a roster",
+    "kind_label": "label.name_id holds a name that is not a label",
+    "kind_tree": "tree.name_id holds a name that is not a tree",
+    "kind_mail": "mail.roster_id holds a name that is not a roster",
+    "kind_tree_read": "tree_read.tree_id holds a name that is not a tree",
+    "kind_todo": "todo.roster_id holds a name that is not a roster",
+    "kind_doing": "doing.roster_id holds a name that is not a roster",
+    "kind_hold": "hold.resource_id holds a name that is not a res",
+    "kind_score": "score.roster_id holds a name that is not a roster",
+    "kind_human_member": "human_member.name_id holds a name that is not a roster",
+    "score_collapse": "two scores of one roster and kpi would both become the office's (desk NULL); retire or rename one",
+    "todo_evidence_long": (
+        "a card's evidence is longer than 2000 characters (doing.evidence / EVIDENCE_MAX); nothing is cut"
+    ),
+}
+
+
+class Migrate080Refused(RuntimeError):
+    """The preflight found data no step can fix. The book is unchanged."""
+
+    def __init__(self, refuse: dict[str, int]):
+        self.refuse = dict(refuse)
+        lines = "; ".join(f"{k}={n} ({_REFUSE_080.get(k, k)})" for k, n in sorted(self.refuse.items()))
+        super().__init__(
+            f"migrate to the 0.8.0 schema refused, nothing was changed: {lines}. "
+            f"Fix those rows, then run {SQL_FIX} again."
+        )
+
+
+def _perf_on() -> bool:
+    """mill-perf lines for this migration. MILL_PERF=0 (or off/false/no) turns them off."""
+    import os
+
+    return (os.environ.get("MILL_PERF") or "").strip().lower() not in ("0", "off", "false", "no")
+
+
+def _lock_status(cur) -> tuple[int, int]:
+    cur.execute("SHOW GLOBAL STATUS WHERE Variable_name IN ('Innodb_row_lock_waits', 'Innodb_row_lock_time')")
+    got = {str(k): int(v or 0) for k, v in cur.fetchall()}
+    return got.get("Innodb_row_lock_waits", 0), got.get("Innodb_row_lock_time", 0)
+
+
+def _timed_080(cn, op: str, fn, timings: dict | None):
+    """Run fn(cur) -> rows. With perf on: one mill-perf line (ms, rows, lock waits, outcome); off: no reads, no line."""
+    import time
+
+    on = _perf_on()
+    cur = cn.cursor()
+    try:
+        w0 = _lock_status(cur) if on else (0, 0)
+        t0 = time.perf_counter()
+        try:
+            rows = fn(cur)
+        except Exception as e:
+            if on:
+                from agent_coord.server.push import perf_log
+
+                perf_log(f"migrate.080.{op}", (time.perf_counter() - t0) * 1000.0, ok=0, err=str(e)[:160])
+            raise
+        ms = (time.perf_counter() - t0) * 1000.0
+        if timings is not None:
+            timings[op] = ms
+        if on:
+            from agent_coord.server.push import perf_log
+
+            w1 = _lock_status(cur)
+            perf_log(f"migrate.080.{op}", ms, rows=rows, lock_waits=w1[0] - w0[0], lock_ms=w1[1] - w0[1], ok=1)
+        return rows
+    finally:
+        cur.close()
+
+
+def _helpers_080(cn, *, create: bool) -> None:
+    """Create (or drop) the mill_migrate_080_* routines. They never stay in a finished book."""
+    stmts = split_script((sql_dir() / MIGRATE_080).read_text(encoding="utf-8-sig"))
+    cur = cn.cursor()
+    try:
+        for stmt in stmts:
+            if create or stmt.lstrip().upper().startswith("DROP "):
+                cur.execute(stmt)
+        cn.commit()
+    finally:
+        cur.close()
+
+
+def _preflight_rows(cur) -> list[tuple[str, str, int]]:
+    cur.execute("CALL mill_migrate_080_preflight()")
+    rows = [(str(c), str(a), int(n)) for c, a, n in cur.fetchall()]
+    while cur.nextset():
+        if cur.with_rows:
+            cur.fetchall()
+    return rows
+
+
+def _report_080(rows: list[tuple[str, str, int]]) -> dict[str, Any]:
+    refuse = {c: n for c, a, n in rows if a == "refuse" and n}
+    fix = {c: n for c, a, n in rows if a == "fix"}
+    schema = {c: n for c, a, n in rows if a == "schema" and n}
+    pending = bool(schema) or any(fix.values())
+    return {"pending": pending, "refuse": refuse, "fix": fix, "schema": schema}
+
+
+def _is_main_book(cn) -> bool:
+    cur = cn.cursor()
+    try:
+        return _table_exists(cur, "activity") and _table_exists(cur, "name")
+    finally:
+        cur.close()
+
+
+def preflight_080(cn) -> dict[str, Any]:
+    """Read only: what the 0.8.0 migration would change (fix), still has to build (schema) and refuses on
+    (refuse). The helper routines are dropped again, so the book is as it was."""
+    if not _is_main_book(cn):
+        return {"pending": False, "refuse": {}, "fix": {}, "schema": {}}
+    _helpers_080(cn, create=True)
+    try:
+        holder: dict[str, list] = {}
+
+        def run(cur) -> int:
+            holder["rows"] = _preflight_rows(cur)
+            return len(holder["rows"])
+
+        _timed_080(cn, "preflight", run, None)
+        return _report_080(holder["rows"])
+    finally:
+        _helpers_080(cn, create=False)
+
+
+def _triggers_080(cur) -> int:
+    """The triggers of tables.sql (drop, then create), as a fresh book has them."""
+    n = 0
+    for stmt in split_script(schema_path().read_text(encoding="utf-8-sig")):
+        low = stmt.lstrip().lower()
+        if low.startswith("drop trigger") or low.startswith("create trigger"):
+            cur.execute(stmt)
+            n += low.startswith("create trigger")
+    return n
+
+
+def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None) -> list[str]:
+    """0.8.0 schema on a main book (migrate_080.sql). Preflight first: refuse (Migrate080Refused) before any
+    change; nothing pending is a no-op ([]). stop_after ends the run after that step, as a kill would (tests)."""
+    if stop_after is not None and stop_after not in STEPS_080:
+        raise ValueError(f"unknown 0.8.0 step: {stop_after}")
+    if not _is_main_book(cn):
+        return []
+    _helpers_080(cn, create=True)
+    holder: dict[str, list] = {}
+
+    def pre(cur) -> int:
+        holder["rows"] = _preflight_rows(cur)
+        return len(holder["rows"])
+
+    try:
+        _timed_080(cn, "preflight", pre, timings)
+        rep = _report_080(holder["rows"])
+    except Exception:
+        _helpers_080(cn, create=False)
+        raise
+    if rep["refuse"]:
+        _helpers_080(cn, create=False)
+        raise Migrate080Refused(rep["refuse"])
+    if not rep["pending"]:
+        _helpers_080(cn, create=False)
+        return []
+    applied: list[str] = []
+    for step in STEPS_080:
+        if step == "triggers":
+            _helpers_080(cn, create=False)
+            n = _timed_080(cn, step, _triggers_080, timings)
+            cn.commit()
+        else:
+            def run(cur, step=step) -> int:
+                cur.execute("CALL mill_migrate_080_step(%s)", (step,))
+                while cur.nextset():
+                    if cur.with_rows:
+                        cur.fetchall()
+                cur.execute("SELECT @m080_rows")
+                return int((cur.fetchone() or (0,))[0] or 0)
+
+            n = _timed_080(cn, step, run, timings)
+            cn.commit()
+        applied.append(f"migrate_080:{step}({n})")
+        if step == stop_after:
+            break
+    return applied
+
+
 SQL_FIX = "mill install sql --apply"
 _STAMP_FN = "MILL_SQL_STAMP"
 
@@ -1404,6 +1611,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_activity_roster(cn))
             # After the routine reload: retire goes through mill_score_delete.
             applied.extend(_ensure_score_one_name(cn))
+            # 0.8.0 schema last: every step above leaves a main-shape (0.7.18) book.
+            applied.extend(apply_080(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])

@@ -44,7 +44,7 @@ BEGIN
   IF v_type IS NULL OR v_id = 0 OR v_type NOT IN ('mail','todo','doing','hold','score') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree node requires a payload';
   END IF;
-  CALL mill_activity_put(v_type, v_id, v_ts, 1, NULL, MILL_WEIGHT(v_type), NULL);
+  CALL mill_activity_put(v_type, v_id, v_ts, 1, NULL, NULL, NULL);
   INSERT INTO tree (name_id, type, id, lft, rgt)
   VALUES (v_name, v_type, v_id, 1, 2);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -88,7 +88,7 @@ BEGIN
   END IF;
   IF v_name IS NULL THEN
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
   END IF;
@@ -100,7 +100,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM tree WHERE name_id = v_name LIMIT 1) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree parent not found';
     END IF;
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
     SELECT rgt INTO v_r FROM tree

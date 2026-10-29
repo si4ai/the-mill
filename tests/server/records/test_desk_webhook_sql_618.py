@@ -14,6 +14,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import call, rows_done, scalar_done
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -90,7 +91,7 @@ def test_reset_and_retire_forget_the_webhook(cn):
     _seat(cn, "fx618-d6")
     rec_join.wake_arm(cn, "fx618-d6", URL, KEY)
     with patch("agent_coord.server.admin.catalog.require_admin", lambda cn, desk: None):
-        catalog.retire(cn, "admin-desk", {"slug": "fx618-d6", "confirm": "fx618-d6", "yes": True, "name_type": "desk"})
+        catalog.retire(cn, admin_desk(cn, "admin-desk"), {"slug": "fx618-d6", "confirm": "fx618-d6", "yes": True, "name_type": "desk"})
     cn.commit()
     key = scalar_done(
         cn,

@@ -17,6 +17,7 @@ from agent_coord.server.admin import catalog as admin_cat
 from agent_coord.server.admin.guard import ADMIN_ROSTER_ID, is_human_admin, is_role_admin
 from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -61,7 +62,7 @@ def book(cn):
 @pytest.mark.parametrize("spelling", ADMIN_SPELLINGS)
 def test_sql_rename_admin_roster_refused(cn, book, spelling):
     with pytest.raises(mysql.connector.Error) as ei:
-        rec_name.rename(cn, spelling, "r722-new", "roster")
+        rec_name.rename(cn, spelling, "r722-new", "roster", by=admin_desk(cn))
     assert "cannot rename Admin" in str(ei.value)
     assert _name_of(cn, ADMIN_ROSTER_ID) == "Admin"
 
@@ -77,15 +78,15 @@ def test_handler_rename_admin_roster_refused(cn, book, spelling):
 
 def test_rename_onto_reserved_name_refused(cn, book):
     with pytest.raises(mysql.connector.Error) as ei:
-        rec_name.rename(cn, "r722-room", "admin", "roster")
+        rec_name.rename(cn, "r722-room", "admin", "roster", by=admin_desk(cn))
     assert "name in use" in str(ei.value)
     assert _name_of(cn, ADMIN_ROSTER_ID) == "Admin"
 
 
 def test_other_roster_rename_still_works(cn, book):
-    rows = rec_name.rename(cn, "r722-room", "r722-room2", "roster")
+    rows = rec_name.rename(cn, "r722-room", "r722-room2", "roster", by=admin_desk(cn))
     assert rows and rows[0].get("op") == "renamed"
-    rec_name.rename(cn, "r722-room2", "r722-room", "roster")
+    rec_name.rename(cn, "r722-room2", "r722-room", "roster", by=admin_desk(cn))
 
 
 def test_guards_follow_roster_id_2_not_the_name(cn, book):
