@@ -25,6 +25,7 @@ BEGIN
   DECLARE v_ok TINYINT DEFAULT 1;
   DECLARE v_move BIGINT UNSIGNED;
   DECLARE v_tok CHAR(64);
+  DECLARE v_disc DATETIME(6);
   DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN SET v_id = NULL; SET v_held = NULL; END;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -41,8 +42,9 @@ BEGIN
   -- Lock order (F183): the taking desk's seat first, then the hold, as retire (name, seat, hold) does.
   -- F186 (spin D07): re-check a live token under the seat lock so a retire that commits after
   -- auth cannot still take a hold.
-  SELECT id, token_hash INTO v_move, v_tok FROM seat WHERE desk_id = v_desk FOR UPDATE;
-  IF v_tok IS NULL THEN
+  SELECT id, token_hash, time_disconnect INTO v_move, v_tok, v_disc FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  -- F186 (spin D07): a reset or retired desk (token cleared, disconnect stamped) cannot take a hold.
+  IF v_tok IS NULL AND v_disc IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold: desk has no live seat';
   END IF;
   SET v_move = NULL;
@@ -99,6 +101,7 @@ BEGIN
   DECLARE v_move BIGINT UNSIGNED;
   DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_tok CHAR(64);
+  DECLARE v_disc DATETIME(6);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -110,8 +113,8 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
-  SELECT id, token_hash INTO v_move, v_tok FROM seat WHERE desk_id = v_desk FOR UPDATE;
-  IF v_tok IS NULL THEN
+  SELECT id, token_hash, time_disconnect INTO v_move, v_tok, v_disc FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  IF v_tok IS NULL AND v_disc IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold: desk has no live seat';
   END IF;
   UPDATE hold

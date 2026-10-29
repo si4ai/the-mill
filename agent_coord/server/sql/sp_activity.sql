@@ -123,7 +123,7 @@ CREATE PROCEDURE mill_activity_select(
   IN p_limit INT
 )
 BEGIN
-  SELECT a.type, a.id, a.created, a.updated, a.desk_id, a.roster_id, a.weight, a.n, a.bytes,
+  SELECT a.type, a.id, a.created, a.updated, a.desk_id, a.roster_id, a.act, a.bytes,
          ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type,
          CASE
            WHEN a.deleted IS NOT NULL THEN 'deleted'
@@ -184,7 +184,7 @@ BEGIN
     a.type,
     a.desk_id,
     a.roster_id,
-    SUM(a.n) AS n,
+    COUNT(*) AS items,
     ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type,
     ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
   FROM activity a
@@ -236,7 +236,7 @@ BEGIN
   ELSEIF v_grain = 'min' AND v_kind = 'role' THEN
     SELECT
       CAST(DATE_FORMAT(a.updated, '%Y-%m-%d %H:%i:00') AS DATETIME(6)) AS updated,
-      a.type, a.desk_id, a.roster_id, SUM(a.n) AS n,
+      a.type, a.desk_id, a.roster_id, COUNT(*) AS items,
       ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
     FROM member m
     JOIN activity a
@@ -250,7 +250,7 @@ BEGIN
   ELSEIF v_grain = 'min' AND v_kind = 'lan' THEN
     SELECT
       CAST(DATE_FORMAT(a.updated, '%Y-%m-%d %H:%i:00') AS DATETIME(6)) AS updated,
-      a.type, a.desk_id, a.roster_id, SUM(a.n) AS n,
+      a.type, a.desk_id, a.roster_id, COUNT(*) AS items,
       ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
     FROM seat j
     JOIN activity a
@@ -359,7 +359,9 @@ BEGIN
     recent.updated,
     recent.type,
     recent.id,
-    recent.n,
+    recent.act,
+    1 AS items,
+    recent.bytes,
     recent.desk_id,
     dn.name AS desk, dn.type AS desk_type,
     recent.roster_id,
@@ -391,7 +393,7 @@ BEGIN
        AND j.lan_ip = p_id
   ) d
   JOIN LATERAL (
-    SELECT a.type, a.id, a.updated, a.deleted, a.desk_id, a.roster_id, a.n
+    SELECT a.type, a.id, a.updated, a.deleted, a.desk_id, a.roster_id, a.act, a.bytes
       FROM activity a
      WHERE a.desk_id = d.desk_id
      ORDER BY a.updated DESC, a.type, a.id

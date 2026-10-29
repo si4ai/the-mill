@@ -19,7 +19,8 @@ def test_beta_files_live_under_docs_not_the_pack():
         assert (BETA / name).is_file(), name
         assert not (SQL / name).exists(), f"{name} under server/sql ships in the wheel"
     order = (SQL / "apply_order.txt").read_text(encoding="utf-8")
-    assert "beta" not in order
+    # 0.8.0: sp_beta_name.sql is the reviewed name family in the pack; the proposal files stay under docs/.
+    assert "beta_ddl" not in order and "beta_sp" not in order
 
 
 # The owner (2026-10-26): the glance is computed live (no glance_cache), and its reply keeps the keys the client
