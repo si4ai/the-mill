@@ -246,7 +246,7 @@ DROP PROCEDURE IF EXISTS sp_admin_set //
 CREATE PROCEDURE sp_admin_set(IN p_by VARCHAR(64), IN p_desk VARCHAR(64), IN p_on TINYINT)
 BEGIN
   DECLARE v BIGINT UNSIGNED DEFAULT mill_desk_id(p_desk); DECLARE v_by BIGINT UNSIGNED DEFAULT mill_desk_id(p_by);
-  IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
+  IF IFNULL(v, 0) = 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   SELECT id FROM name WHERE id = 2 FOR UPDATE;
   IF p_on THEN
     INSERT IGNORE INTO member (name_id, desk_id) VALUES (2, v);

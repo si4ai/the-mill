@@ -32,7 +32,12 @@ BEGIN
 END //
 DROP FUNCTION IF EXISTS mill_desk_id //
 CREATE FUNCTION mill_desk_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
-  RETURN (SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL) //
+BEGIN
+  IF p_name IS NULL OR TRIM(p_name) = '' THEN
+    RETURN NULL;
+  END IF;
+  RETURN IFNULL((SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL), 0);
+END //
 -- A roster by name. Office is id 1 by name while no roster holds the name 'Office' (F92: Office follows id 1).
 DROP FUNCTION IF EXISTS mill_roster_id //
 CREATE FUNCTION mill_roster_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
@@ -235,7 +240,7 @@ DROP PROCEDURE IF EXISTS sp_admin_set //
 CREATE PROCEDURE sp_admin_set(IN p_by VARCHAR(64), IN p_desk VARCHAR(64), IN p_on TINYINT)
 BEGIN
   DECLARE v BIGINT UNSIGNED DEFAULT mill_desk_id(p_desk); DECLARE v_by BIGINT UNSIGNED DEFAULT mill_desk_id(p_by);
-  IF v IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
+  IF IFNULL(v, 0) = 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
   SELECT id FROM name WHERE id = 2 FOR UPDATE;
   IF p_on THEN
     INSERT IGNORE INTO member (name_id, desk_id) VALUES (2, v);
