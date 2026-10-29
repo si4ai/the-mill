@@ -1,13 +1,13 @@
-"""0.8.0 lane B (card 868, F168): card, doing and name procedures on the beta book.
+"""0.8.0 lane B (card 868, F168, F174): card, doing and name procedures on the beta book.
 
-The book is the beta schema (todo_event, doing_now, seat as the desk kind table,
+The book is the 0.8.0 schema (doing move rows, seat.doing_id, seat as the desk kind table,
 the kind-checked name FKs). Each test names one ported behavior:
 
-- todo_event: one row per card status change, evidence on ship and done; the
-  card's `evidence` is the newest event's.
-- doing_now: after every doing write path it names the desk's newest doing row
-  (ORDER BY created DESC, id DESC), clear and finish rows included.
-- name verbs: retire, rename, reclaim and mint go through sp_name_*; main's
+- card moves: every status or volunteer change is one doing move row by the acting desk
+  (act, peer_id, text = the evidence on ship and done); the card's `evidence` is read from them.
+- seat.doing_id: after every focus write path it names the desk's newest focus row
+  (act focus or clear, ORDER BY created DESC, id DESC), never a move row.
+- name commands: retire, rename, reclaim and mint go through sp_name_*; main's
   mill_name_delete / _rename / _reclaim are not in the book.
 - trust: the procedures read b_trust(); init_trust_fn re-creates it.
 """
@@ -53,15 +53,17 @@ def book(cn):
 
 
 def _events(cn, card: int) -> list[tuple]:
+    """The card's move rows in id order: (act, peer, text, acting desk)."""
     rows = rows_done(
         cn,
-        "SELECT e.from_status, e.to_status, an.name AS assigned, e.evidence, dn.name AS desk"
-        " FROM todo_event e JOIN name dn ON dn.id = e.desk_id"
-        " LEFT JOIN name an ON an.id = e.assigned_id"
-        " WHERE e.todo_id = %s ORDER BY e.id",
+        "SELECT g.act, pn.name AS peer, g.text, dn.name AS desk"
+        " FROM doing g JOIN name dn ON dn.id = g.desk_id"
+        " LEFT JOIN name pn ON pn.id = g.peer_id"
+        " WHERE g.on_type = 'todo' AND g.on_id = %s AND g.act NOT IN ('focus', 'clear', 'finish')"
+        " ORDER BY g.id",
         (card,),
     )
-    return [(r["from_status"], r["to_status"], r["assigned"], r["evidence"], r["desk"]) for r in rows]
+    return [(r["act"], r["peer"], r["text"], r["desk"]) for r in rows]
 
 
 def _card(cn, body: str) -> int:
@@ -79,17 +81,17 @@ def _pass(cn, desk: str, card: int, step: str, ev=None) -> dict:
     return rows[-1]
 
 
-# ---------- todo_event ----------
+# ---------- card move rows ----------
 
 def test_new_card_writes_its_first_event(book):
     card = _card(book, "lb-ev-new")
-    assert _events(book, card) == [(None, "open", None, None, ANN)]
+    assert _events(book, card) == [("create", None, "", ANN)]
 
 
 def test_parked_card_first_event_is_parked(book):
     rows = rec_todo.insert(book, ROSTER, ANN, "parked", '{"slug": "lb-ev-park"}')
     book.commit()
-    assert _events(book, int(rows[-1]["id"])) == [(None, "parked", None, None, ANN)]
+    assert _events(book, int(rows[-1]["id"])) == [("park", None, "", ANN)]
 
 
 def test_claim_ship_done_back_write_events_with_evidence(book):
@@ -104,11 +106,11 @@ def test_claim_ship_done_back_write_events_with_evidence(book):
     got = _pass(book, ANN, card, "back", None)
     assert got["evidence"] is None
     assert _events(book, card) == [
-        (None, "open", None, None, ANN),
-        ("open", "claimed", BOB, None, BOB),
-        ("claimed", "shipped", BOB, "sha abc123", BOB),
-        ("shipped", "done", BOB, "sha abc123", ANN),
-        ("done", "shipped", BOB, None, ANN),
+        ("create", None, "", ANN),
+        ("claim", None, "", BOB),
+        ("ship", None, "sha abc123", BOB),
+        ("done", None, "sha abc123", ANN),
+        ("back", None, "", ANN),
     ]
 
 
@@ -150,26 +152,30 @@ def test_deleting_a_card_with_history_works(book):
     rec_todo.delete(book, card, ANN)
     book.commit()
     assert scalar_done(book, "SELECT COUNT(*) FROM todo WHERE id = %s", (card,)) == 0
-    assert _events(book, card) == []
+    # doing is append-only history with no FK to todo: the move rows stay
+    assert [e[0] for e in _events(book, card)] == ["create", "claim"]
 
 
-def test_attached_card_touches_its_parent_as_the_office(book):
+def test_attached_card_touch_keeps_the_parents_latest_move(book):
     parent = _card(book, "lb-att-parent")
     rows = rec_todo.insert_attached(book, ROSTER, ANN, "open", '{"slug": "lb-att-child"}', "todo", parent)
     book.commit()
     child = int(rows[-1]["id"])
-    assert _events(book, child) == [(None, "open", None, None, ANN)]
-    # main wrote roster id 1 into the parent's activity desk; beta's desk column is a seat, so NULL
-    assert scalar_done(book, "SELECT desk_id FROM activity WHERE type='todo' AND id=%s", (parent,)) is None
+    assert _events(book, child) == [("create", None, "", ANN)]
+    # main wrote roster id 1 into the parent's activity desk. 0.8.0: activity.act is the latest move and
+    # desk_id who made it; a tree touch is not a move, so the parent keeps its filer's create.
+    row = rows_done(book, "SELECT desk_id, act FROM activity WHERE type='todo' AND id=%s", (parent,))[0]
+    assert (row["desk_id"], row["act"]) == (_desk_id(book, ANN), "create")
 
 
-# ---------- doing_now ----------
+# ---------- seat.doing_id ----------
 
 def _newest(cn, desk: str):
     return scalar_done(
         cn,
         "SELECT g.id FROM doing g JOIN name d ON d.id = g.desk_id"
-        " WHERE d.type='desk' AND d.name=%s ORDER BY g.created DESC, g.id DESC LIMIT 1",
+        " WHERE d.type='desk' AND d.name=%s AND g.act IN ('focus', 'clear')"
+        " ORDER BY g.created DESC, g.id DESC LIMIT 1",
         (desk,),
     )
 
@@ -177,7 +183,7 @@ def _newest(cn, desk: str):
 def _now_row(cn, desk: str):
     return scalar_done(
         cn,
-        "SELECT dn.doing_id FROM doing_now dn JOIN name d ON d.id = dn.desk_id"
+        "SELECT dn.doing_id FROM seat dn JOIN name d ON d.id = dn.desk_id"
         " WHERE d.type='desk' AND d.name=%s",
         (desk,),
     )
@@ -189,12 +195,16 @@ def _same(cn, desk: str):
     assert _now_row(cn, desk) == newest
 
 
-def test_doing_now_follows_every_write_path(book):
+def test_seat_doing_id_follows_every_write_path(book):
+    """Validator check 2 (F181). Mutant: mill_doing_insert skips the UPDATE seat; this fails."""
     desk = "lb080-dn"
     _seat(book, desk)
-    _same(book, desk)  # join: the anchor row
+    _same(book, desk)  # join: its focus (or clear) row
     card = _card(book, "lb-dn-card")
     rec_doing.put(book, desk, "working on it", "todo", card)
+    book.commit()
+    _same(book, desk)
+    call(book, "cmd_claim", [_desk_id(book, desk), card, 0, "", None])  # a move row: seat.doing_id stays
     book.commit()
     _same(book, desk)
     rec_doing.finish(book, desk, "todo", card)
@@ -213,7 +223,7 @@ def test_doing_now_follows_every_write_path(book):
     _same(book, desk)
 
 
-def test_doing_now_after_retire_names_the_clear_row(book):
+def test_seat_doing_id_after_retire_names_the_clear_row(book):
     desk = "lb080-dn-ret"
     _seat(book, desk)
     rec_doing.put(book, desk, "busy", "todo", _card(book, "lb-dn-ret"))
@@ -221,8 +231,8 @@ def test_doing_now_after_retire_names_the_clear_row(book):
     rec_name.retire(book, desk, "desk", by=ADMIN)
     book.commit()
     _same(book, desk)
-    text = scalar_done(book, "SELECT text FROM doing WHERE id = %s", (_now_row(book, desk),))
-    assert text == ""
+    row = rows_done(book, "SELECT text, act FROM doing WHERE id = %s", (_now_row(book, desk),))[0]
+    assert (row["text"], row["act"]) == ("", "clear")
 
 
 def test_doing_now_read_reports_a_cleared_entry(book):
@@ -361,18 +371,15 @@ def test_admin_set_unknown_desk_is_name_not_found(book):
     assert "name not found" in str(ei.value)
 
 
-# ---------- sp_deploy ----------
+# ---------- sp version (no sp_deploy table; the owner, 2026-10-26) ----------
 
-def test_sp_version_reads_the_newest_deploy_stamp(book):
-    cur = book.cursor()
-    try:
-        cur.execute("INSERT INTO sp_deploy (version, file) VALUES ('sp-0123456789ab', 'apply_order.txt')")
-    finally:
-        cur.close()
-    book.commit()
-    assert scalar_done(book, "SELECT mill_sp_version()") == "sp-0123456789ab"
-    rows = call(book, "mill_hello", ["sp-0123456789ab", "warn"])
-    assert rows[-1]["status"] == "ok"
+def test_sp_version_reads_the_pack_stamp_with_no_deploy_table(book):
+    assert scalar_done(
+        book,
+        "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sp_deploy'",
+    ) == 0
+    got = scalar_done(book, "SELECT mill_sp_version()")
+    assert got is None or (got.startswith("sp-") and len(got) == 15)
 
 
 # ---------- trust function ----------
