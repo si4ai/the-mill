@@ -8,12 +8,12 @@ in which the steps of the model can interleave, inside the stated bounds.
 
 | File | What it models |
 | :--- | :--- |
-| `wake.pml` | the wake path: push queue, webhook POST, the 120 s window, the trailing POST (#669), the one immediate retry, connect sync, the seat rule (supersede, `-r` 4409); plus card 827's proposed backoff retry, and the fixes for cards 831 and 832 (shipped; their switches default on) |
+| `wake.pml` | the wake path: push queue, webhook POST, the wake lease (card 886: ended by `mill wake-done` or its timeout, not by a connect), the trailing POST (#669), the one immediate retry, connect sync, the seat rule (supersede, `-r` 4409); plus card 827's proposed backoff retry, and the fixes for cards 831 and 832 (shipped; their switches default on) |
 | `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal |
 | `run.sh` | runs every check with fixed flags, compares each result with its expectation, exits nonzero on any difference or tool error (`--strict`: on any violation) |
 | `SKILL.md` | how the next agent tells whether a change touches the modelled code, reruns the checks, and updates the models |
 
-Run: `verify/spin/run.sh` (about two and a half minutes; needs `spin` 6.5.x and a C
+Run: `verify/spin/run.sh` (about three and a half minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
 compiler). One check with its trail: `verify/spin/run.sh W07`.
 
 All searches are exhaustive (no `-DBITSTATE`, no depth cut). Liveness checks
@@ -21,16 +21,17 @@ run with weak fairness (`pan -a -f`): every process that can always move
 eventually moves. The receiver's choice to fail a POST is not covered by
 fairness; it is bounded by `MAXFAIL`, the most POSTs in a row it may fail.
 
-## Properties and results (models at commit 1d9fffe)
+## Properties and results (models at commit 629c4f8, the head of PR #218, cards 887 and 888, on the card 886 lease from PR #216)
 
 Wake path, one desk, two or three items:
 
 | Property | Result |
 | :--- | :--- |
-| One wake per window: a second wake starts only after 120 s or a connect | proved (W01-W03); fails on a mutation that splits the gate take (M01) |
+| One wake per lease: a second wake starts only after `mill wake-done` or the lease timeout (`wake_lease_s`, 900 s), never after a connect | proved (W01-W03, L03; W02 with one connect per run, more runs out of memory); fails on a mutation that splits the gate take (M01); **violated** by the pre-886 design, where a connect frees the gate while the run is still working and a second POST lands (L02, the storm) |
+| A wake-done ends only the lease that woke its own run | proved for runs that pass the token (L01, card 888): `mill wake-done --lease TOKEN` with a token that is not the current lease's ends nothing; **violated** for a done with no token, an older client (L05): it pops whatever lease is current, ending the newer run's lease early |
 | No invalid end state (deadlock) | proved (W01-W03) |
 | No queued item is taken off the queue without reaching the desk | proved on main: one connect at a time (W04), a refused second connect, now the default (W06), a `--take` connect that supersedes (W05, W18, W21); the 831 fix alone with three items (W19); **violated** by the pre-831 order, take then send (W23) |
-| Every item is eventually delivered | proved on main with a receiver that never fails (W07, W14, W15) and with two connects (W22); **violated** when both POSTs of a wake fail (W08); **violated** by the pre-832 order, POST then queue (W24); fails on a mutation of the 832 fix that marks a row sent at hand-off (M04) |
+| Every item is eventually delivered | proved with a perfect receiver (W07, card 887: the lease check and the record are one lock hold); **violated** by the #216 order, peek then a later record (W25); proved with emits atomic (W09, L04); fails on a mutation where wake-done sends no trailing POST (M06); proved for the 832 fix under the pre-886 gate (W14, W15) and with two connects (W22); **violated** when both POSTs of a wake fail (W08); **violated** by the pre-832 order, POST then queue (W24); fails on a mutation of the 832 fix that marks a row sent at hand-off (M04) |
 | Both fixes keep one wake per window and add no invalid end state | proved (W20) |
 | Card 827 retry, bounded at 2 retries (6 POSTs) | proved when at most 5 POSTs in a row fail (W12, W16); violated at 6 (W13) and for a receiver down forever (W17) |
 
@@ -47,6 +48,22 @@ Holds, two or three desks each needing two locks in a cycle:
 | A dead desk's holds | **violated** while nobody resets it (H11): no TTL; proved once someone runs `mill reset` or `mill retire` on it (H12), and the release keeps mutual exclusion (H13); fails on a mutation where reset keeps the holds (M05) |
 
 ## Findings in the code's words
+
+Findings 9 and 10 came with the wake lease (card 886, PR #216). PR #218 fixes both (cards 887 and 888); W25 and L05 keep the old orders failing.
+
+9. **Fixed by card 887 (`HOLD1`). Done between the peek and the trail (W25, was W07).** `post_desk` reads
+   `_gate_open` under the lock, releases it, and later calls `_coalesced`,
+   which takes the lock again and returns when `_GATE` has no entry. If the
+   run's `mill wake-done` lands in between, `lease_done` pops the lease with
+   no held-back items (so no trailing POST), and `_coalesced` then finds no
+   lease and records nothing. The row waits in the queue with no wake until
+   another item or connect comes. Before 886 the same gap closed itself,
+   because the connect that cleared the gate read the queue in the same sync.
+10. **Fixed by card 888 (`TOKEN`) for runs that pass `--lease`. A stale wake-done (L05, was L01).** `lease_done` pops `_GATE[desk]` whatever
+   lease is there. A run that takes longer than the lease (900 s) and says
+   done after a newer wake went out ends that newer run's lease: the next
+   item POSTs while the newer run is still working, which is the overlap the
+   lease exists to stop. Long passes outlive 900 s in practice.
 
 Findings 1 to 3 are fixed on main (cards 831 and 832); they are kept as
 the record of what W23 and W24 still catch.
@@ -85,7 +102,7 @@ the record of what W23 and W24 still catch.
    failed wake. Bounded retries prove delivery only under a bounded-loss
    assumption: fewer lost POSTs in a row than the budget has POSTs.
 6. **Wall restart (W11).** `_GATE`, `_TRAIL` and the timer threads are memory
-   only: a restart can send a second POST inside 120 s, and drops a pending
+   only: a restart can send a second POST inside the lease, and drops a pending
    trailing POST (rows survive in `push_queue`).
 7. **Receipts never ring (W10).** By design (push.py 573); a receipt waits
    for the desk's next connect.
@@ -97,13 +114,39 @@ the record of what W23 and W24 still catch.
 
 ## The fix switches and current main
 
+`LEASE` (card 886, PR #216) defaults to 1, and `MULTI` (a run connects once
+per shell call) follows it. `LEASE=0` is the pre-886 gate, cleared by every
+connect sync; W14-W16, W19, W22 and W24 pin it, since they check the 831 and
+832 fixes on their own. L02 keeps the pre-886 storm failing.
+
 `ACK_AFTER_SEND` (card 831, #168) and `PUTFIRST` + `RING_ON_LEAVE` (card 832,
 #169) shipped in 0.7.16, and their defaults are 1: the plain checks describe
-main. W05 and W07 now expect pass. W23 and W24 set the switches to 0 and must
+main. W05 expects pass.
+
+`HOLD1` (card 887, F144a) and `TOKEN` (card 888, F144b), both in PR #218,
+default to `LEASE`. `HOLD1=0` is the #216 order (W25); `TOKEN=0` is a run
+that says `mill wake-done` with no `--lease`, as older clients do (L05). W07
+and L01 expect pass at the #218 head. W23 and W24 set the switches to 0 and must
 still fail, so the models still catch the old orders. A switch set to 0 is
 the pre-fix code, not an option on main.
 
 ## What is not modelled
+
+- Card 888: the run's token is the lease current when the run starts (the
+  model reads `gate_ep` as the run picks up its POST), not a value carried in
+  the POST body. A run started by an older lease's POST that is picked up
+  after a newer lease began would hold the newer token; the code would hold
+  the older one and its done would be stale.
+- Card 888: a stale done keeps its note for the next wake (`_NOTE`); notes
+  are not modelled.
+
+- Card 886: `mill wake-done` while the run's own connect still sits (the
+  routine wrapper runs commands inside its connect): a trailing POST can go
+  out to a desk that is sitting. The model says done after the last leave.
+- Card 886: `pending_count`, `last_note` and the note redaction: they shape
+  the POST body and decide no POST. `lease_synced` only resets that count.
+- Card 886 with three items and more than one connect per run: out of memory
+  on the run host; W02 and W04 run three items with one connect per run.
 
 - Time beyond "the window has ended or not"; the 30-day expiry sweep.
 - A crash between a commit and its `after_commit` pokes (push.py 421, 550):
