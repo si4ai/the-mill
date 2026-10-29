@@ -152,10 +152,10 @@ Unchanged entirely: `mill_invite`, `mill_invite_join` (no id columns, no referen
 
 ## Not in any book yet
 
-- `uc_a6_glance`: `agent_coord/server/beta_client.py` (`read_glance`, behind `mill glance`) calls it, and
-  `beta_sp.sql` does not define it (lane C of 0.8.0 does, computed live). Until a book does, the glance refuses
-  with "glance: the glance is not installed" (test `test_glance_refuses_when_the_read_is_missing`). Test F166
-  fails if the client calls a procedure that is neither defined in a book nor listed here.
+(none) Lane C of 0.8.0 defines `uc_a6_glance` in `agent_coord/server/sql/sp_glance.sql`, listed in
+`apply_order.txt`. A book without that procedure still refuses with "glance: the glance is not installed"
+(test `test_glance_refuses_when_the_read_is_missing`). Test F166 fails if the client calls a procedure
+that is neither defined in a book nor listed here.
 
 ## The act list (activity.act and doing.act)
 

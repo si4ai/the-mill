@@ -82,11 +82,9 @@ def beta_apply_order() -> list[Path]:
         name = line.strip()
         if name and not name.startswith("#") and name not in _SKIP:
             order.append(SQL_DIR / name)
-    glance = SQL_DIR / "sp_glance.sql"  # lane C's new file; apply_order.txt is lane A's
-    if glance.is_file() and glance not in order:
-        order.append(glance)
     # beta_sp overlays pack SPs for the proposal DDL only. When tables.sql is
     # already 0.8.0, pack SPs (sp_beta_name last in apply_order) are the source.
+    # sp_glance.sql is in apply_order.txt (F191); do not append it here.
     if beta_ddl_path().resolve() != (SQL_DIR / "tables.sql").resolve():
         order.append(BETA_DIR / "beta_sp.sql")
     order.append(_TMP / "zz_seat_shim.sql")

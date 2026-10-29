@@ -210,7 +210,6 @@ BEGIN
   END IF;
 
   SET v_name = NULL;
-  SET v_office = NULL;
   SET v_office = 1;  -- Office is id 1 (kind FK enforces roster; no type guard)
   IF v_kind = 'project' THEN
     SELECT id INTO v_name FROM name WHERE type = 'roster' AND name = p_id AND deleted IS NULL LIMIT 1;
