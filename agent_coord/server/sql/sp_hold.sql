@@ -39,7 +39,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
   -- Lock order (F183): the taking desk's seat first, then the hold, as retire (name, seat, hold) does.
-  -- F186 (Auditor D07): re-check a live token under the seat lock so a retire that commits after
+  -- F186 (spin D07): re-check a live token under the seat lock so a retire that commits after
   -- auth cannot still take a hold.
   SELECT id, token_hash INTO v_move, v_tok FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_tok IS NULL THEN

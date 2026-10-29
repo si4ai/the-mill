@@ -146,7 +146,7 @@ BEGIN
   DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0;
   DECLARE v_doing BIGINT UNSIGNED; DECLARE v_self TINYINT DEFAULT 0; DECLARE v_now DATETIME(6) DEFAULT NOW(6);
   DECLARE v_tok CHAR(64);
-  -- Lock order: name, then seat. F186 (Auditor N01): the self-retire token check is under the seat lock
+  -- Lock order: name, then seat. F186 (spin N01): the self-retire token check is under the seat lock
   -- with target = caller, so a reset that clears the token in between refuses.
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;

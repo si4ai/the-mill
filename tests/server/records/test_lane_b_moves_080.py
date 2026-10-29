@@ -442,7 +442,7 @@ def test_card_pass_and_doing_finish_never_deadlock(book):
     assert _pair(book, ship, finish) == []
 
 
-# ---------- F186 Auditor guards ----------
+# ---------- F186 spin guards ----------
 
 def test_unpark_of_a_claimed_card_is_refused(book):
     card = _card(book, "mv-unpark-bad")

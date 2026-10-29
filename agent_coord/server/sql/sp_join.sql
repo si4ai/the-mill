@@ -157,7 +157,7 @@ BEGIN
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_PUT('roster', p_project);
   SET v_desk = MILL_NAME_PUT('desk', p_desk);
-  -- F186 (Auditor N03): hold the name row while writing the seat so a concurrent retire
+  -- F186 (spin N03): hold the name row while writing the seat so a concurrent retire
   -- cannot leave a retired desk with a fresh token.
   SELECT id INTO v_desk FROM name WHERE id = v_desk FOR UPDATE;
   IF (SELECT deleted FROM name WHERE id = v_desk) IS NOT NULL THEN

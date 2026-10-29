@@ -188,17 +188,17 @@ BEGIN
   IF v_was IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo: no such card';
   END IF;
-  -- F186 (Auditor T04): a retired card moves under no lock on find; refuse under the card lock.
+  -- F186 (spin T04): a retired card moves under no lock on find; refuse under the card lock.
   IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
   END IF;
-  -- F186 (Auditor T02): unpark is parked -> open with the volunteer kept. Any other status with
+  -- F186 (spin T02): unpark is parked -> open with the volunteer kept. Any other status with
   -- volunteer kept and status open is refused here (assign/claim/unclaim go through cmd_*).
   IF NULLIF(p_status, '') = 'open' AND (p_volunteer IS NULL OR p_volunteer = '')
      AND v_was NOT IN ('parked', 'open') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:unpark_status';
   END IF;
-  -- F186 (Auditor T03): assign (claimed + a peer volunteer) checks open/claimed and no volunteer under the lock.
+  -- F186 (spin T03): assign (claimed + a peer volunteer) checks open/claimed and no volunteer under the lock.
   IF NULLIF(p_status, '') = 'claimed'
      AND p_volunteer IS NOT NULL AND p_volunteer NOT IN ('', '-')
      AND NOT (MILL_NAME_GET('desk', p_volunteer) <=> v_desk)

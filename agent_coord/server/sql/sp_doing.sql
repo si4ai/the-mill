@@ -127,7 +127,7 @@ BEGIN
   SET v_roster = IFNULL((SELECT roster_id FROM activity WHERE type = p_on_type AND id = p_on_id), 1);
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
-  -- F186 (Auditor D07): seat lock + live token. A retired desk (token cleared, time_disconnect set)
+  -- F186 (spin D07): seat lock + live token. A retired desk (token cleared, time_disconnect set)
   -- must not write a focus after its retire.
   UPDATE seat SET updated = v_ts WHERE desk_id = v_desk AND token_hash IS NOT NULL;
   IF ROW_COUNT() = 0 THEN
