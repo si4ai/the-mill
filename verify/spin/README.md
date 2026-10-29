@@ -131,102 +131,68 @@ the pre-fix code, not an option on main.
 - Both fixes with three items and two connects: the search ran out of memory
   on the run host; W19 checks the 831 fix alone at that size.
 
-## 0.8.0 activities: mail, todo, doing, hold, score, name (draft)
+## 0.8.0 activities: mail, todo, doing, hold, score, name
 
 Models at the design in `docs/requirements/beta/activity-states-080.md` (PR #226,
-c2a91f9) and the release/0.8.0 lane B code it changes (PR #224, ac136b8, plus the
-lane B copy of `sp_beta_name.sql` with the card 880 self-retire, not yet pushed).
-The change pass that writes the 0.8.0 procedures had not landed when these were
-written, so where the design adds a rule (move rows, `seat.doing_id`, the act) the
-model follows the design, and where the code already decides (guards, lock order,
-transactions) it follows the code. Re-pin `SYNC_080` and `DOC_080` in `run.sh` when
-the lanes land. Transitions are keyed on their ids (T4, D8, H5, ...): an act is
-stored as its transition id, not its spelling.
+`DOC_080` = c2a91f9) and the release/0.8.0 lane B code (PR #224, `SYNC_080` =
+413cdb8). Where a F183/F186 fix has landed, the switch defaults to the fixed
+code and a `-DSwitch=0` (or `MUT_*`) row keeps the old shape failing. Transitions
+are keyed on their ids (T4, D8, H5, ...): an act is stored as its transition id,
+not its spelling. T8 is a real edge from claimed and from open-with-volunteer;
+the assignee on an assign lives in the move row's `peer_id`; a no-op unclaim or
+self re-claim writes no row.
 
-Run time for the 0.8.0 checks: about four and a half minutes; D01 and D06 each need about
-2.7 GB (compressed states, `-DCOLLAPSE`). Desk 0 with two shells and three
-commands each ran out of memory on the run host (15 GB), so D01, D05 and D06 use
-two shells by two commands, and the rest one shell by three.
+Run time for the 0.8.0 checks: about four and a half minutes; D01 and D06 each
+need about 2.7 GB (compressed states, `-DCOLLAPSE`). Desk 0 with two shells and
+three commands each ran out of memory on the run host (15 GB), so D01, D05 and
+D06 use two shells by two commands, and the rest one shell by three.
 
 | Property | Result |
 | :--- | :--- |
-| Card: one move row per status or volunteer change, and replaying the move rows gives `todo.status` and the volunteer (invariants 3, 5, 6) | proved for cards made in 0.8.0 (T01); fails when the write reads the old status before the lock (M08) or logs only status changes, as the #214 draft did (M09) |
-| Card: the activity act is the act of the last committed step (invariant 4) | proved (T06); fails when the act lands after the lock (M10) |
-| Card: every committed move is an edge of the design table | **violated** by unpark with no status guard (T02), by assign's unlocked guard (T03), and by a move on a card retired after `find` (T04); proved with all three guards under the card lock (T05) |
-| Card: migrated history replays (invariant 6) | **violated** when the seed row of a shipped or done card has no volunteer (T07); proved with it (T08) |
+| Card: one move row per status or volunteer change, and replaying the move rows gives `todo.status` and the volunteer (invariants 3, 5, 6) | proved at 413cdb8 (T01, T06); fails when the write reads the old status before the lock (M08) or logs only status changes (M09) |
+| Card: the activity act is the act of the last committed step (invariant 4) | proved (T05); fails when the act lands after the lock (M10) |
+| Card: every committed move is an edge of the design table (T8 from open with a volunteer included) | proved with the F186 guards under the card lock (T01); fails on the pre-F186 mutants: unpark (T02), assign unlocked (T03), no deleted check (T04) |
+| Card: migrated history replays (invariant 6) | proved: the seed row's `peer_id` carries the volunteer (T06); fails without it (T07) |
 | Desk focus: `seat.doing_id` is the newest focus row, a move never moves it, and a desk's doing writes do not interleave (invariants 1, 2, 11) | proved (D01, D02); fails without the seat lock (M11) or when a move row moves the focus (M12) |
 | Holds: the holder matches its move rows, one row per take, drop and freed hold (invariants 3, 10) | proved (D01, D02); mutual exclusion itself is H01-H02 and M03 |
-| Finish fires only on the focus item, and a pass or drop on the focus item without `--doing` ends it (invariant 12) | proved (D01, D02); fails with the 0.7.19 newest-row test (M13) |
-| A finish ends only the focus current at its move | **violated** with the finish as its own transaction, as the code runs it (D05); proved in one transaction with the move (D06) |
-| The derived end skips move rows | proved (D01, D02); fails with the 0.7.19 `mill_doing_end` rule, any empty row on the item (M14) |
-| Heartbeats write no doing row and no activity (invariant 13) | proved (D01, D02); fails with the lane B anchor row and bump (M15) |
+| A pass or drop on the focus item without `--doing` ends that entry on read; no finish row (invariant 12) | proved (D01, D02, D06); fails with a second-transaction finish row (D05) or the 0.7.19 newest-row test (M13) |
+| The derived end skips empty move rows as ends | proved (D01, D02); fails with the 0.7.19 `mill_doing_end` rule (M14) |
+| Heartbeats write no doing row and no activity (invariant 13) | proved (D01, D02); fails with the pre-0.8.0 anchor row and bump (M15) |
 | Retire is complete at its commit (invariant 15) | proved (D01, D02); fails when retire frees no hold (M16) |
-| A retired desk stays clean after its retire | **violated** (D07): a request authenticated before the retire commits a take or a focus after it; proved with the token re-checked under the seat lock, seat first (D08) |
-| No lock cycle | **violated** (D03): take or drop locks hold then seat, reset and retire lock seat then holds; proved with the seat first on hold paths (D04) |
-| Mail: the first open is kept, opening leaves activity alone, one receipt per recipient row (invariants 7, 8) | proved for the 0.8.0 design (E01); **violated** by the code at ac136b8 and 0.7.19: re-stamp (E02), two receipts from two concurrent opens (E03), activity bump (E04); fails when `ROW_COUNT()` counts matched rows (M17) |
+| A retired desk stays clean after its retire | proved with the live-token re-check under the seat lock (D08); fails without it (D07) |
+| No lock cycle | proved with seat-then-hold (D04); fails on the pre-F183 hold-then-seat order (D03) |
+| Mail: the first open is kept, opening leaves activity alone, one receipt per recipient row (invariants 7, 8) | proved at 413cdb8 (E01: `FOR UPDATE` + IFNULL, no activity bump); fails on the 0.7.19 / unlocked-read mutants (E02, E03, E04, M17) |
 | Score: act is the last step, retired iff the last step was S5, no doing rows | proved (S01); fails when S6 leaves `deleted` set (M18) |
-| Only Admin, or the desk itself with its current token, retires a desk; Office and Admin never; reclaim is Admin only (invariant 14) | **violated** with the self check as a plain read (N01); proved under the seat lock (N02); fails when the self check forgets target = caller (M19) or reclaim forgets Admin (M20) |
-| A retired desk holds no seat token | **violated** (N03): join checks the name on a plain read; proved when join waits on the name row (N04) |
+| Only Admin, or the desk itself with its current token, retires a desk; Office and Admin never; reclaim is Admin only (invariant 14) | proved under the seat lock (N01); fails on the plain-read mutant (N02) and when the self check forgets target = caller (M19) or reclaim forgets Admin (M20) |
+| A retired desk holds no seat token | **still open** (N03): join checks the name on a plain read in `MILL_NAME_PUT`; proved when join waits on the name row (N04) |
 | Reachability goals | reachable: filed -> claimed -> shipped -> done (R01), a hold desk 0 -> free -> desk 1 (R02), a desk idle -> active -> waiting -> idle (R03). Each is a "never" rule expected to be violated |
 
-### 0.8.0 findings in the code's words
+### 0.8.0 findings at 413cdb8
 
-Line numbers are at lane B ac136b8 unless named otherwise.
+Line numbers are at lane B 413cdb8. Fixed findings keep a pre-fix mutant that
+must stay `violated`.
 
-11. **D8, D9: finish is a second transaction (D05).** Without `--doing`,
-    `_run_command` runs the handler, which commits, and then `_doing_finish`
-    calls `mill_doing_finish` in its own transaction (rpc.py 998-1011, 922-948).
-    A `--doing` on the same item from another shell of the desk, in between,
-    is then ended by the earlier pass or drop. A failure of the finish is
-    logged, and the move stands with the focus still active.
-12. **Lock order (D03).** The design locks the hold row, then the seat, for a
-    take or a drop; `mill_join_reset` (sp_join.sql 206-238) and `sp_name_retire`
-    (sp_beta_name.sql 143-172) lock the seat, then the desk's hold rows through
-    `mill_hold_release_desk` (sp_hold.sql 113-124, `idx_desk`). A drop or take
-    by a desk while Admin resets or retires it is an InnoDB deadlock; one side
-    rolls back.
-13. **A retired desk gets a hold or a focus after its retire (D07).** The
-    request authenticates its token, then writes; `mill_doing_put`'s joined
-    check (sp_doing.sql 101) passes after a reset or retire because
-    `time_disconnect` is set, and the hold take has no token check.
-14. **T3 unpark has no status guard (T02).** `_h_unpark` (rpc.py 2432-2462, the
-    same on main) calls `mill_todo_update(status open)` on any card; the
-    volunteer stays, and `cmd_pass` ships an open card that has a volunteer
-    (sp_cmd.sql 207-208).
-15. **T5 assign guards an unlocked read (T03).** `_h_assign` (rpc.py 2141-2163)
-    checks status and volunteer on `find`'s read, then writes claimed and the
-    assignee without a lock-held check; a claim or a pass in between is
-    overwritten.
-16. **T4-T11 move a retired card (T04).** `find` is an unlocked read and
-    `cmd_claim`, `cmd_unclaim` and `cmd_pass` do not check `activity.deleted`
-    under the card lock (sp_cmd.sql 120-239).
-17. **Migration seed (T07).** A seed row for a shipped or done card does not
-    give its volunteer back under the replay rule (claimed, took_over and
-    assigned set the volunteer). The seed row must carry it, or invariant 6
-    starts after the seed.
-18. **N2 self check is a plain read (N01).** `sp_name_retire` checks the
-    caller's token with `EXISTS (SELECT ... FROM seat ...)` (sp_beta_name.sql
-    149-151) before it locks the seat; a reset that commits in between does
-    not stop a self-retire with the revoked token. Minor.
-19. **Join of a retired name (N03).** `MILL_NAME_PUT` refuses a retired name on
-    a plain read (fn_name.sql 61-85); a retire that commits before the join's
-    seat write leaves a retired desk with a live token, and reclaim then says
-    the name is in use.
-20. **Receipts (E03).** `mill_mail_open` reads `v_prev` with a plain read and
-    decides the receipt from `ROW_COUNT()` (sp_opened.sql 27-47). With the
-    re-stamp of 0.7.19 and lane B, two concurrent opens both push a receipt.
-    The 0.8.0 `IFNULL` closes it only while `ROW_COUNT()` counts changed rows
-    (the connector does not set `CLIENT_FOUND_ROWS`); `opened IS NULL` in the
-    UPDATE's WHERE would not depend on that (M17).
+| Id | Status at 413cdb8 | Notes |
+| :--- | :--- | :--- |
+| D03 lock order | **fixed** (F183) | take/drop and card writes lock seat then item; mutant D03 (`HOLD_SEAT_FIRST=0`) |
+| D05 finish split | **fixed** (F186) | `mill_doing_finish` writes no row; the move ends the entry on read; mutant D05 (`FINISH_SPLIT=1`) |
+| D07 post-retire take/focus | **fixed** (F186) | live token re-checked under the seat lock; mutant D07 (`LIVE_CHECK=0`) |
+| T02 unpark guard | **fixed** (F186) | `card:unpark_status` under the card lock; mutant T02 |
+| T03 assign locked | **fixed** (F186) | `card:assign_guard` under the card lock; mutant T03 |
+| T04 deleted guard | **fixed** (F186) | `card:deleted` under the card lock; mutant T04 |
+| T07 migration seed | **fixed** | seed row `peer_id` = volunteer; mutant T07 (`SEED_VOL=0`) |
+| N01 self check | **fixed** (F186) | token check under the seat lock with target = caller; mutant N02 |
+| E03 receipts | **fixed** | `FOR UPDATE` + first-open kept; mutants E03, M17 (`OPEN_LOCKED=0`) |
+| N03 join of a retired name | **still open** | `MILL_NAME_PUT` (fn_name.sql 75-84) is still a plain read; N03 expects `violated` |
 
 ### 0.8.0 switches
 
-Each switch named in a check is set to the code at ac136b8 by default where the
-code decides (`FINISH_SPLIT=1`, `HOLD_SEAT_FIRST=0`, `LIVE_CHECK=0`,
-`ASSIGN_LOCKED=0`, `UNPARK_GUARD=0`, `DELETED_GUARD=0`, `SELF_LOCK=0`,
-`JOIN_NAME_LOCK=0`) and to the design where only the design decides
-(`FIRST_OPEN=1`, `QUIET_OPEN=1`). Setting a code switch to 1 models a fix, not
-the code.
+Defaults match the code at 413cdb8:
+
+`FINISH_SPLIT=0`, `HOLD_SEAT_FIRST=1`, `LIVE_CHECK=1`, `ASSIGN_LOCKED=1`,
+`UNPARK_GUARD=1`, `DELETED_GUARD=1`, `SEED_VOL=1`, `SELF_LOCK=1`,
+`FIRST_OPEN=1`, `QUIET_OPEN=1`, `OPEN_LOCKED=1`. `JOIN_NAME_LOCK=0` (still open).
+Setting a fixed switch to 0 is the pre-fix mutant, not an option on the pin.
 
 ### 0.8.0: what is not modelled
 
@@ -238,10 +204,7 @@ the code.
 - More than one hold per desk in H5, a pass of several cards with `--doing`, the
   `--waiting-on` target checks, D7 (a reply under the focus letter, derived, no
   row), the derived `cleared` read, watchers, roster and bytes on activity.
-- No-op writes: a claim of a card the desk already holds, unclaim or unpark of an
-  open card. The model writes no row and no act for them; the design does not say.
-- Where an `assigned` row keeps the assignee (the actor is the row's desk).
-- T15, S7 and M9 (no CLI path), clock-out (not wired), join with a doing text,
-  votes (none in 0.8.0).
+- T15, S7 and M9 (no CLI path), clock-out as its own CLI path, join with a doing
+  text, votes (none in 0.8.0).
 - Card statuses in `doing.pml` (any card move succeeds there; `todo.pml` has the
   guards).

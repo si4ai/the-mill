@@ -5,39 +5,37 @@
  * Sources:
  *   design  docs/requirements/beta/activity-states-080.md (PR #226, c2a91f9), sections doing,
  *           hold, seat focus and name retire; the Builder's handoff (lock order, invariants)
- *   code    release/0.8.0 lane B (PR #224, ac136b8), and the box copy of sp_beta_name.sql:
+ *   code    release/0.8.0 lane B (PR #224, 413cdb8), and the box copy of sp_beta_name.sql:
  *     api/mill/rpc.py   _run_command: with --doing the command and its doing row are one
- *                       request transaction; without --doing a pass or drop runs
- *                       _doing_finish after the command has committed, in its own
- *                       transaction (rec_doing.finish -> mill_doing_finish), and a failure
- *                       there is logged, not undone
- *     sp_doing.sql      mill_doing_put (joined check: token_hash or time_disconnect set),
- *                       mill_doing_finish, mill_doing_end (derived end)
- *     sp_join.sql       mill_join_upsert (D1), mill_join_reset (seat, mill_doing_clear,
- *                       mill_hold_release_desk), the heartbeat procedures (anchor row + bump)
- *     sp_hold.sql       mill_hold_upsert (hold row FOR UPDATE), mill_hold_delete,
- *                       mill_hold_release_desk (UPDATE hold ... WHERE desk_id = D, idx_desk)
- *     sp_beta_name.sql  sp_name_retire: name row FOR UPDATE, seat, mill_doing_clear only when
- *                       the seat had a token, mill_hold_release_desk
+ *                       request transaction; without --doing a pass or drop still calls
+ *                       _doing_finish after the command, but mill_doing_finish writes no
+ *                       row (F186): the ship, done or drop move ends the entry on read
+ *     sp_doing.sql      mill_doing_put (seat lock + live token, F186), mill_doing_finish
+ *                       (no row; reads seat.doing_id), mill_doing_end (ship/done/drop)
+ *     sp_join.sql       mill_join_upsert (D1), mill_join_reset (seat, clear, release holds),
+ *                       heartbeats (connect, touch, socket, lan): seat.updated only
+ *     sp_hold.sql       mill_hold_upsert / _delete: seat then hold (F183), live token (F186)
+ *     sp_todo.sql       mill_todo_write: seat then card (F183)
+ *     sp_beta_name.sql  sp_name_retire: name, seat (self check under the seat lock, F186),
+ *                       holds; clear + drop rows
  *
- * The 0.8.0 rules modelled (design): a focus row (joined, focused, finished, cleared)
- * moves seat.doing_id; a move row (a todo or hold act) never does. Every doing write
- * takes the desk's seat row lock, inserts, and moves seat.doing_id for a focus row.
- * Hold paths lock the hold row, then the seat (handoff: "hold row, then the holder's
- * seat row"); card paths lock the card row, then the seat; reset and retire lock the
- * seat, then the desk's hold rows. Heartbeats write the seat row only.
+ * The 0.8.0 rules modelled (code at 413cdb8): a focus row (joined, focused, cleared)
+ * moves seat.doing_id; a move row never does. Every doing write takes the desk's seat
+ * row lock first. Hold and card paths lock the seat, then the item; reset and retire
+ * lock the seat, then the desk's hold rows. Heartbeats write the seat row only. A pass
+ * or drop without --doing writes no finish row: the move ends the entry on read.
  *
  * Model: desk 0 has SHELLS0 shells (concurrent commands of one desk), desk 1 one shell;
  * one card, one hold, one letter; an Admin that resets or retires desk 0 once. Each
  * transaction is its lock steps (blocking, as InnoDB waits) then one atomic step that
  * writes and commits. A request authenticates its token first, in its own step.
  *
- * Switches (default = the code at ac136b8 where it decides, else the design):
- *   FINISH_SPLIT     1: D8/D9's finish row is a second transaction after the move (code)
- *                    0: the move row and the finish row commit together
- *   HOLD_SEAT_FIRST  0: hold paths lock hold, then seat (handoff); 1: seat, then hold
- *   LIVE_CHECK       0: a doing write checks only that the desk has joined (code)
- *                    1: under the seat lock it checks the request's token is the seat's
+ * Switches (default = the code at 413cdb8; 0 keeps the pre-F183/F186 shape as a mutant):
+ *   FINISH_SPLIT     0: no finish row; the move ends the entry on read (code)
+ *                    1: a finish row in a second transaction after the move (pre-F186)
+ *   HOLD_SEAT_FIRST  1: hold paths lock seat, then hold (code); 0: hold, then seat
+ *   LIVE_CHECK       1: under the seat lock the request's token is the seat's (code)
+ *                    0: a doing write checks only that the desk has joined
  *   CHECK_FIN        assert a finish ends only the focus that was current at its move
  *   SHELLS0, K       shells of desk 0 (default 2), commands per shell (default 2)
  * Mutations (each must fail its check):
@@ -45,7 +43,7 @@
  *   MUT_MOVE_FOCUS       a move row moves seat.doing_id
  *   MUT_FINISH_NEWEST    finish tests the desk's newest row (0.7.19), not the focus row
  *   MUT_END_ANY_EMPTY    the derived end counts any empty row on the item (0.7.19 mill_doing_end)
- *   MUT_HEARTBEAT_BUMP   a heartbeat writes an anchor row and bumps activity (code at ac136b8)
+ *   MUT_HEARTBEAT_BUMP   a heartbeat writes an anchor row and bumps activity (pre-0.8.0)
  *   MUT_RETIRE_KEEPS     retire frees no hold
  */
 
@@ -56,13 +54,13 @@
 #define K 2
 #endif
 #ifndef FINISH_SPLIT
-#define FINISH_SPLIT 1
+#define FINISH_SPLIT 0
 #endif
 #ifndef HOLD_SEAT_FIRST
-#define HOLD_SEAT_FIRST 0
+#define HOLD_SEAT_FIRST 1
 #endif
 #ifndef LIVE_CHECK
-#define LIVE_CHECK 0
+#define LIVE_CHECK 1
 #endif
 
 #define FREE 255
@@ -153,8 +151,9 @@ inline move_row(md, mtext, mon) {
 #define ENDED(x) (false)
 #endif
 
-/* D8/D9 finish: under the seat lock, an empty focus row on the item when the focus row
- * (seat.doing_id) has text and is on the item. */
+/* Pre-F186 finish row (FINISH_SPLIT=1 mutant): under the seat lock, an empty focus row
+ * on the item when seat.doing_id has text and is on the item. At 413cdb8 finish writes
+ * no row; end_by_move marks the derived end instead. */
 inline finish(xd, xon) {
 #ifdef MUT_FINISH_NEWEST
   if :: n_text[xd] && n_on[xd] == xon ->
@@ -170,6 +169,26 @@ inline finish(xd, xon) {
   fi;
   /* the focus that was on the item at the move, still current, has ended */
   if :: fver[xd] == mvfocus && due -> assert(!f_text[xd]) :: else -> skip fi
+}
+
+/* 413cdb8: the ship, done or drop move ends the focus entry on read; no finish row. */
+inline end_by_move(xd, xon) {
+#ifdef MUT_FINISH_NEWEST
+  if :: n_text[xd] && n_on[xd] == xon ->
+#else
+  if :: f_text[xd] && f_on[xd] == xon ->
+#endif
+     assert(f_on[xd] == xon);                            /* invariant 12 */
+#ifdef CHECK_FIN
+     assert(fver[xd] == mvfocus);                        /* the focus current at the move */
+#endif
+     STAGE(if
+     :: xd == 0 && fstage == 2 -> fstage = 3
+     :: xd == 0 && fstage == 1 -> fstage = 3
+     :: else -> skip
+     fi)
+  :: else -> skip
+  fi
 }
 
 /* The live check under the seat lock (LIVE_CHECK=1): the request's token is the seat's. */
@@ -244,7 +263,7 @@ proctype Shell(byte d) {
                STAGE(if :: hstage == 1 && d == 0 -> hstage = 2 :: else -> skip fi);
                if
                :: doing -> focus_row(d, true, ON_HOLD, false); due = false
-               :: !doing && !FINISH_SPLIT -> finish(d, ON_HOLD); due = false
+               :: !doing && !FINISH_SPLIT -> end_by_move(d, ON_HOLD); due = false
                :: else -> skip
                fi
             :: else -> pend = FREE
@@ -253,13 +272,13 @@ proctype Shell(byte d) {
             holdlk = FREE; if :: seatlk[d] == _pid -> seatlk[d] = FREE :: else -> skip fi
           }
           if
-          :: due && FINISH_SPLIT ->                         /* _doing_finish: its own transaction */
+          :: due && FINISH_SPLIT ->                         /* pre-F186: finish row in its own TX */
              acq(seatlk[d]);
              atomic { finish(d, ON_HOLD); check_all(); seatlk[d] = FREE }
           :: else -> skip
           fi
-       /* T4 claim --doing / T7 unclaim / T8 pass [--doing]; D8 finish (card row, then seat) */
-       :: acq(cardlk); acq(seatlk[d]);
+       /* T4 claim --doing / T7 unclaim / T8 pass [--doing]; seat then card (F183) */
+       :: acq(seatlk[d]); acq(cardlk);
           atomic {
             due = false;
             if
@@ -272,7 +291,7 @@ proctype Shell(byte d) {
                   move_row(d, ev, ON_CARD);
                   if
                   :: doing -> focus_row(d, true, ON_CARD, false); due = false
-                  :: !doing && !FINISH_SPLIT -> finish(d, ON_CARD); due = false
+                  :: !doing && !FINISH_SPLIT -> end_by_move(d, ON_CARD); due = false
                   :: else -> skip
                   fi
                fi

@@ -3,33 +3,28 @@
  *
  * Sources (0.8.0 design and the code it changes):
  *   design  docs/requirements/beta/activity-states-080.md (PR #226, c2a91f9), section todo
- *   code    release/0.8.0 lane B (PR #224, ac136b8):
+ *   code    release/0.8.0 lane B (PR #224, 413cdb8):
  *     sp_cmd.sql     cmd_claim (card row FOR UPDATE, claimed_by / stale_prior refusals),
  *                    cmd_unclaim (FOR UPDATE, who-may), cmd_pass (FOR UPDATE; ship, done, back)
  *     sp_todo.sql    mill_todo_write (one card write), mill_todo_retire / _reclaim (FOR UPDATE)
- *     api/mill/rpc.py _h_assign: find + _card_moves + volunteer check on an unlocked read,
- *                    then a blind mill_todo_update(status claimed, volunteer D)
- *                    _h_unpark: find, tree-parent check, then mill_todo_update(status open):
- *                    no status guard
- *                    find (records/todo.py): an unlocked read; the card SPs do not
- *                    re-check activity.deleted under the card lock
+ *     api/mill/rpc.py _h_assign / _h_unpark call mill_todo_update; the guards live in
+ *                    mill_todo_write under the card lock (F186). find is still an unlocked
+ *                    read; the SPs re-check activity.deleted under the card lock.
  *
- * The 0.8.0 rule modelled for the card write (design, not yet in code at ac136b8):
- * under the card row lock the write reads the old status and volunteer, writes the
- * new ones, and appends one move row on the card when the status or the volunteer
- * changed, with the move's act; the card's activity row takes the same act and the
- * actor. T12-T14 set the act and write no move row. Acts are keyed on transition ids
- * (act T4 = "claimed", ...), not on their spellings.
+ * The 0.8.0 card write (code at 413cdb8): under the seat lock then the card lock the
+ * write reads the old status and volunteer, writes the new ones, and appends one move
+ * row when the status or the volunteer changed, with the move's act; peer_id holds the
+ * assignee on an assign (T5), the prior volunteer on a claim or unclaim. A no-op
+ * (unclaim of an open card with no volunteer, or a self re-claim) writes no row and
+ * leaves activity.act alone. T12-T14 set the act and write no move row. T8 is a real
+ * edge from claimed or from open-with-volunteer. Acts are keyed on transition ids.
  *
- * A move row stores its act, the actor, and, for T4, T5 and T6, the volunteer it set
- * (for T5 the assignee is not the actor; the design does not say where that is kept).
- *
- * Switches (1 = the fix or the design, 0 = the code at ac136b8):
- *   ASSIGN_LOCKED  T5's guard (open, no volunteer) runs under the card lock (default 0)
- *   UNPARK_GUARD   T3 moves only a parked card, under the card lock (default 0)
- *   DELETED_GUARD  card SPs refuse a retired card under the card lock (default 0)
+ * Switches (1 = the code at 413cdb8, 0 = the pre-F186 shape kept as a mutant):
+ *   ASSIGN_LOCKED  T5's guard (open or claimed, no volunteer) under the card lock (default 1)
+ *   UNPARK_GUARD   T3 moves only a parked card, under the card lock (default 1)
+ *   DELETED_GUARD  card SPs refuse a retired card under the card lock (default 1)
  *   MIGRATED       the card starts in any status from the 0.8.0 migration, with one seed row
- *   SEED_VOL       the seed row carries the card's volunteer (default 0)
+ *   SEED_VOL       the seed row's peer_id carries the card's volunteer (default 1)
  *   CHECK_EDGES    assert each committed move is an edge of the design's todo table
  *   K              commands per desk (default 3)
  * Mutations (each must fail its check):
@@ -42,19 +37,19 @@
 #define K 3
 #endif
 #ifndef ASSIGN_LOCKED
-#define ASSIGN_LOCKED 0
+#define ASSIGN_LOCKED 1
 #endif
 #ifndef UNPARK_GUARD
-#define UNPARK_GUARD 0
+#define UNPARK_GUARD 1
 #endif
 #ifndef DELETED_GUARD
-#define DELETED_GUARD 0
+#define DELETED_GUARD 1
 #endif
 #ifndef MIGRATED
 #define MIGRATED 0
 #endif
 #ifndef SEED_VOL
-#define SEED_VOL 0
+#define SEED_VOL 1
 #endif
 
 #define DESKS 2          /* desk 0 is the asker (todo.creator_id) */
@@ -111,10 +106,10 @@ inline replay(ra, rrv) {
 #define EDGE(a, was, wasvol, d) ( \
   (a == T3 && was == PARKED && st == OPEN) || \
   (a == T4 && was == OPEN && st == CLAIMED && vol == d) || \
-  (a == T5 && was == OPEN && st == CLAIMED) || \
+  (a == T5 && (was == OPEN || (was == CLAIMED && wasvol == FREE)) && st == CLAIMED) || \
   (a == T6 && was == CLAIMED && wasvol != d && wasvol != FREE && st == CLAIMED && vol == d) || \
   (a == T7 && was == CLAIMED && st == OPEN && vol == FREE) || \
-  (a == T8 && was == CLAIMED && st == SHIPPED) || \
+  (a == T8 && (was == CLAIMED || (was == OPEN && wasvol != FREE)) && st == SHIPPED) || \
   (a == T9 && was == SHIPPED && st == DONE) || \
   (a == T10 && was == DONE && st == SHIPPED) || \
   (a == T11 && was == SHIPPED && ((vol != FREE && st == CLAIMED) || (vol == FREE && st == OPEN))))
@@ -143,9 +138,12 @@ inline write(wd, wa, wnst, wnvol, wrv) {
 #ifdef CHECK_EDGES
     assert(!(st != was || vol != wasvol) || (EDGE(wa, was, wasvol, wd) && !retired));
 #endif
-    /* invariant 3: a T1-T11 step that changes the card writes exactly one move row */
+    /* invariant 3: a T1-T11 step that changes the card writes exactly one move row;
+     * a no-op unclaim or self re-claim (st and vol unchanged) writes none. */
     assert((st != was || vol != wasvol) == (nrows == n0 + 1));
     assert((st == was && vol == wasvol) == (nrows == n0));
+    /* T5: peer_id on the move row is the assignee (wrv); inv 6 reads it as the volunteer */
+    assert(wa != T5 || wrv == wnvol);
     assert(rst == st);          /* invariant 5 */
     assert(rvol == vol);        /* invariant 6 */
     if
@@ -212,8 +210,8 @@ proctype Desk(byte d) {
 #if ASSIGN_LOCKED
        lock(d);
        if
-       :: (DELETED_GUARD && retired) || !(st == OPEN) || vol != FREE -> lk = FREE
-       :: else -> write(d, T5, CLAIMED, tgt, tgt)
+       :: (DELETED_GUARD && retired) || !(st == OPEN || st == CLAIMED) || vol != FREE -> lk = FREE
+       :: else -> write(d, T5, CLAIMED, tgt, tgt)           /* peer_id = tgt (assignee) */
        fi
 #else
        if
@@ -232,7 +230,7 @@ proctype Desk(byte d) {
        lock(d);
        if :: DELETED_GUARD && retired -> lk = FREE :: else -> write(d, T3, OPEN, vol, vol) fi
 #endif
-    /* pass (cmd_pass, ship): claimed (or open with a volunteer) -> shipped, by the volunteer */
+    /* pass (cmd_pass, ship): T8 claimed -> shipped, or open with a volunteer -> shipped */
     :: !gret -> lock(d);
        if
        :: LIVE && (st == CLAIMED || (st == OPEN && vol != FREE)) && (vol == d || (vol == FREE && d == 0)) ->

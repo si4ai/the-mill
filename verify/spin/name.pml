@@ -5,11 +5,10 @@
  *   design  docs/requirements/beta/activity-states-080.md (PR #226, c2a91f9), section seat
  *           focus and name retire; the Builder's handoff, invariant 14
  *   code    the box copy of lane B's sp_beta_name.sql (card 880 self-retire; not yet pushed;
- *           the pushed lane B head ac136b8 is Admin only):
- *     sp_name_retire   name row FOR UPDATE; self check = target is the caller AND
- *                      EXISTS (SELECT 1 FROM seat WHERE desk_id = caller AND token_hash = hash),
- *                      a plain read; else Admin; Office (1) and Admin (2) never; then
- *                      UPDATE seat SET token_hash = NULL ... (the seat row lock)
+ *           the pushed lane B head 413cdb8 is Admin only):
+ *     sp_name_retire   name row FOR UPDATE; seat FOR UPDATE; self check = target is the
+ *                      caller AND token_hash = hash under the seat lock (F186); else Admin;
+ *                      Office (1) and Admin (2) never; then clear the token
  *     sp_name_reclaim  Admin; name row FOR UPDATE; refused while a live seat is that desk
  *                      (a plain EXISTS read)
  *     sp_join.sql      mill_join_upsert: MILL_NAME_PUT refuses a retired name on a plain read
@@ -20,9 +19,10 @@
  * each retire themselves, try to retire the other, try to reclaim, and join again. Each
  * request first authenticates its token (rpc), in its own step.
  *
- * Switches (1 = a fix, 0 = the code):
- *   SELF_LOCK       the self check reads the seat FOR UPDATE, with the seat write (default 0)
- *   JOIN_NAME_LOCK  join reads the name row with a lock that waits for a retire (default 0)
+ * Switches (1 = the code at 413cdb8 for SELF_LOCK; JOIN_NAME_LOCK still open):
+ *   SELF_LOCK       the self check reads the seat FOR UPDATE, with the seat write (default 1)
+ *   JOIN_NAME_LOCK  join reads the name row with a lock that waits for a retire (default 0;
+ *                   still open at 413cdb8: MILL_NAME_PUT is a plain read)
  *   K               requests per process (default 2)
  * Mutations:
  *   MUT_SELF_ANY     the self check forgets "target is the caller": any seated desk retires any desk
@@ -33,7 +33,7 @@
 #define K 2
 #endif
 #ifndef SELF_LOCK
-#define SELF_LOCK 0
+#define SELF_LOCK 1
 #endif
 #ifndef JOIN_NAME_LOCK
 #define JOIN_NAME_LOCK 0

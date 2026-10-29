@@ -38,9 +38,9 @@ fi
 
 # The 0.8.0 activity models (todo, doing, mail, score, name) describe the design in
 # docs/requirements/beta/activity-states-080.md at DOC_080 and the release/0.8.0 lane B
-# code at SYNC_080 (draft, before the change pass). Move both when the change pass lands.
+# code at SYNC_080. Move both when the change pass lands a new head.
 DOC_080=c2a91f9
-SYNC_080=ac136b8
+SYNC_080=413cdb8
 COVERED_080="agent_coord/server/sql/sp_todo.sql agent_coord/server/sql/sp_cmd.sql
 agent_coord/server/sql/sp_doing.sql agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_hold.sql
 agent_coord/server/sql/sp_opened.sql agent_coord/server/sql/sp_score.sql agent_coord/server/sql/sp_beta_name.sql
@@ -48,7 +48,7 @@ agent_coord/server/sql/fn_name.sql agent_coord/server/api/mill/rpc.py"
 if [ -n "$ROOT" ] && git -C "$ROOT" cat-file -e "$SYNC_080^{commit}" 2>/dev/null; then
   # shellcheck disable=SC2086
   changed=$(cd "$ROOT" && git diff --name-only "$SYNC_080" -- $COVERED_080 | tr '\n' ' ')
-  [ -n "$changed" ] && echo "note: 0.8.0 covered code in this checkout differs from lane B at $SYNC_080 (expected until the lanes land): $changed- recheck todo, doing, mail, score, name"
+  [ -n "$changed" ] && echo "note: 0.8.0 covered code in this checkout differs from lane B at $SYNC_080: $changed- recheck todo, doing, mail, score, name"
 fi
 
 # id | model | defines | mode | expect | what it shows
@@ -95,47 +95,46 @@ H12|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|np|pass|card 842: reset or reti
 H13|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|mutex|pass|card 842: the release keeps mutual exclusion
 M05|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1 -DMUT_RESET_KEEPS|np|violated|mutation of card 842: reset that keeps the holds leaves the others stuck
 M03|holds|-DDESKS=2 -DPOLICY=0 -DMUT_HOLD_NOLOCK|mutex|violated|mutation: no FOR UPDATE breaks mutual exclusion
-T01|todo||inv|pass|0.8.0 todo T1-T14, code guards: invariants 3, 5, 6 at every card write (2 desks, 3 commands each)
-T02|todo|-DCHECK_EDGES -DASSIGN_LOCKED=1 -DDELETED_GUARD=1|inv|violated|FINDING T3: unpark has no status guard; a claimed, shipped or done card goes open
-T03|todo|-DCHECK_EDGES -DUNPARK_GUARD=1 -DDELETED_GUARD=1|inv|violated|FINDING T5: assign checks an unlocked read, then writes blind: it overwrites a claim made in between
-T04|todo|-DCHECK_EDGES -DUNPARK_GUARD=1 -DASSIGN_LOCKED=1|inv|violated|FINDING T4-T11: no deleted check under the card lock: a card retired after find still moves
-T05|todo|-DCHECK_EDGES -DUNPARK_GUARD=1 -DASSIGN_LOCKED=1 -DDELETED_GUARD=1|inv|pass|the three guards under the card lock: every committed move is an edge of the design table
-T06|todo||ltl:act_last|pass|invariant 4: activity.act is the act of the last committed step
-T07|todo|-DMIGRATED=1|inv|violated|FINDING migration: a seed row for a shipped or done card does not carry its volunteer (invariant 6)
-T08|todo|-DMIGRATED=1 -DSEED_VOL=1|inv|pass|migration with the volunteer on the seed row: invariants 3, 5, 6 hold
+T01|todo|-DCHECK_EDGES|inv|pass|0.8.0 todo at 413cdb8: every committed move is an edge (guards under the card lock; T8 from open with a volunteer)
+T02|todo|-DCHECK_EDGES -DUNPARK_GUARD=0|inv|violated|mutation (pre-F186): unpark has no status guard; a claimed, shipped or done card goes open
+T03|todo|-DCHECK_EDGES -DASSIGN_LOCKED=0|inv|violated|mutation (pre-F186): assign checks an unlocked read, then writes blind
+T04|todo|-DCHECK_EDGES -DDELETED_GUARD=0|inv|violated|mutation (pre-F186): no deleted check under the card lock
+T05|todo||ltl:act_last|pass|invariant 4: activity.act is the act of the last committed step
+T06|todo|-DMIGRATED=1|inv|pass|migration seed carries the volunteer in peer_id (invariants 3, 5, 6)
+T07|todo|-DMIGRATED=1 -DSEED_VOL=0|inv|violated|mutation: a seed row for a shipped or done card without its volunteer
 R01|todo||ltl:reach_card|violated|REACHABLE (goal 1): filed -> claimed -> shipped -> done
 M08|todo|-DMUT_WAS_NOLOCK|inv|violated|mutation: the card write reads the old status before the lock (invariant 5)
 M09|todo|-DMUT_STATUS_ONLY|inv|violated|mutation (#214 draft filter): no move row for a volunteer change (invariant 3)
 M10|todo|-DMUT_ACT_LATE|ltl:act_last|violated|mutation: the activity act lands after the card lock is released (invariant 4)
-D01|doing||inv|pass|0.8.0 doing, holds, reset, retire: invariants 1, 2, 3, 10-13, 15 at commit (desk 0: 2 shells x 2 commands)
+D01|doing||inv|pass|0.8.0 doing, holds, reset, retire at 413cdb8: invariants 1, 2, 3, 10-13, 15 at commit (desk 0: 2 shells x 2 commands)
 D02|doing|-DSHELLS0=1 -DK=3|inv|pass|same, desk 0: 1 shell x 3 commands
-D03|doing|-DSHELLS0=1 -DK=3|safety|violated|FINDING lock order: take or drop (hold, then seat) vs reset or retire (seat, then holds) deadlock
-D04|doing|-DSHELLS0=1 -DK=3 -DHOLD_SEAT_FIRST=1|safety|pass|hold paths lock the seat first: no deadlock
-D05|doing|-DCHECK_FIN|inv|violated|FINDING D8/D9: the finish is a second transaction; it can end a focus written after the move
-D06|doing|-DCHECK_FIN -DFINISH_SPLIT=0|inv|pass|move row and finish row in one transaction: a finish ends only the focus current at its move
-D07|doing|-DSHELLS0=1 -DK=3|ltl:retire_clean|violated|FINDING invariant 15 after N1: a request authenticated before the retire takes a hold or sets a focus after it
-D08|doing|-DSHELLS0=1 -DK=3 -DLIVE_CHECK=1 -DHOLD_SEAT_FIRST=1|ltl:retire_clean|pass|the token re-checked under the seat lock, seat first: a retired desk stays clean
+D03|doing|-DSHELLS0=1 -DK=3 -DHOLD_SEAT_FIRST=0|safety|violated|mutation (pre-F183): take or drop (hold, then seat) vs reset or retire (seat, then holds) deadlock
+D04|doing|-DSHELLS0=1 -DK=3|safety|pass|hold paths lock the seat first: no deadlock
+D05|doing|-DCHECK_FIN -DFINISH_SPLIT=1|inv|violated|mutation (pre-F186): the finish is a second transaction; it can end a focus written after the move
+D06|doing|-DCHECK_FIN|inv|pass|no finish row: the move ends only the focus current at its move (invariant 12)
+D07|doing|-DSHELLS0=1 -DK=3 -DLIVE_CHECK=0|ltl:retire_clean|violated|mutation (pre-F186): a request authenticated before the retire takes a hold or sets a focus after it
+D08|doing|-DSHELLS0=1 -DK=3|ltl:retire_clean|pass|the token re-checked under the seat lock, seat first: a retired desk stays clean
 R02|doing|-DSHELLS0=1 -DK=3 -DREACH|ltl:reach_hold|violated|REACHABLE (goal 2): a hold passes desk 0 -> free -> desk 1
 R03|doing|-DSHELLS0=1 -DK=3 -DREACH|ltl:reach_focus|violated|REACHABLE (goal 3): desk 0 idle -> active -> waiting -> idle
 M11|doing|-DSHELLS0=1 -DK=3 -DMUT_NO_SEATLOCK|inv|violated|mutation: a focus write without the seat lock points seat.doing_id at an older row (invariants 1, 11)
 M12|doing|-DSHELLS0=1 -DK=3 -DMUT_MOVE_FOCUS|inv|violated|mutation: a move row moves the focus (invariant 2)
-M13|doing|-DSHELLS0=1 -DK=3 -DMUT_FINISH_NEWEST|inv|violated|mutation (0.7.19 test): finish reads the newest row, the move row: a drop never finishes (invariant 12)
+M13|doing|-DSHELLS0=1 -DK=3 -DFINISH_SPLIT=1 -DMUT_FINISH_NEWEST|inv|violated|mutation (0.7.19 test): finish reads the newest row, the move row: a drop never finishes (invariant 12)
 M14|doing|-DSHELLS0=1 -DK=3 -DMUT_END_ANY_EMPTY|inv|violated|mutation (0.7.19 mill_doing_end): an empty move row on the item reads as finished
-M15|doing|-DSHELLS0=1 -DK=3 -DMUT_HEARTBEAT_BUMP|inv|violated|mutation (lane B at ac136b8): a heartbeat writes an anchor row and bumps activity (invariant 13)
+M15|doing|-DSHELLS0=1 -DK=3 -DMUT_HEARTBEAT_BUMP|inv|violated|mutation (pre-0.8.0): a heartbeat writes an anchor row and bumps activity (invariant 13)
 M16|doing|-DSHELLS0=1 -DK=3 -DMUT_RETIRE_KEEPS|inv|violated|mutation: retire frees no hold (invariant 15)
-E01|mail||safety|pass|0.8.0 mail: first open kept, opening leaves activity alone, one receipt per row (invariants 7, 8)
-E02|mail|-DFIRST_OPEN=0|safety|violated|0.7.19 and lane B at ac136b8: a second open re-stamps opened (invariant 7)
-E03|mail|-DFIRST_OPEN=0 -DSKIP_INV7|safety|violated|FINDING 0.7.19 and lane B: two concurrent opens both read v_prev NULL and push two receipts
-E04|mail|-DQUIET_OPEN=0|safety|violated|0.7.19 and lane B at ac136b8: an open bumps the activity of the letter (invariant 8)
-M17|mail|-DMUT_RC_MATCHED|safety|violated|mutation: ROW_COUNT counts matched rows: the 0.8.0 open pushes two receipts
+E01|mail||safety|pass|0.8.0 mail at 413cdb8: first open kept, opening leaves activity alone, one receipt per row (invariants 7, 8)
+E02|mail|-DFIRST_OPEN=0|safety|violated|mutation (0.7.19): a second open re-stamps opened (invariant 7)
+E03|mail|-DOPEN_LOCKED=0 -DFIRST_OPEN=0 -DSKIP_INV7|safety|violated|mutation (pre-F186): two concurrent opens both read v_prev NULL and push two receipts
+E04|mail|-DQUIET_OPEN=0|safety|violated|mutation (0.7.19): an open bumps the activity of the letter (invariant 8)
+M17|mail|-DOPEN_LOCKED=0 -DMUT_RC_MATCHED|safety|violated|mutation: unlocked v_prev + matched-row ROW_COUNT allows two receipts even with IFNULL
 S01|score||safety|pass|0.8.0 score S1-S6, Wall writer included: act is the last step, retired iff the last step was S5, no doing rows
 M18|score|-DMUT_REVIVE_KEEPS|safety|violated|mutation: S6 leaves activity.deleted set
-N01|name||safety|violated|FINDING N2: the self check is a plain read; a reset in between, and a revoked token still retires the desk
-N02|name|-DSELF_LOCK=1|safety|pass|self check under the seat lock: only Admin or the desk with its current token retires it (invariant 14)
-N03|name|-DSELF_LOCK=1|ltl:retired_no_token|violated|FINDING D1 vs N1: join checks the name on a plain read; a retire in between leaves a retired desk with a token
-N04|name|-DSELF_LOCK=1 -DJOIN_NAME_LOCK=1|ltl:retired_no_token|pass|join waits on the name row: a retired desk holds no token
-M19|name|-DSELF_LOCK=1 -DMUT_SELF_ANY|safety|violated|mutation: the self check forgets target = caller (invariant 14)
-M20|name|-DSELF_LOCK=1 -DMUT_RECLAIM_ANY|safety|violated|mutation: reclaim forgets the Admin check
+N01|name||safety|pass|self check under the seat lock: only Admin or the desk with its current token retires it (invariant 14)
+N02|name|-DSELF_LOCK=0|safety|violated|mutation (pre-F186): the self check is a plain read; a reset in between, and a revoked token still retires the desk
+N03|name||ltl:retired_no_token|violated|FINDING (still open at 413cdb8): join checks the name on a plain read; a retire in between leaves a retired desk with a token
+N04|name|-DJOIN_NAME_LOCK=1|ltl:retired_no_token|pass|join waits on the name row: a retired desk holds no token
+M19|name|-DMUT_SELF_ANY|safety|violated|mutation: the self check forgets target = caller (invariant 14)
+M20|name|-DMUT_RECLAIM_ANY|safety|violated|mutation: reclaim forgets the Admin check
 '
 
 fail=0; n=0; t0=$(date +%s)
