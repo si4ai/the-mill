@@ -61,29 +61,31 @@ END //
 
 -- 0.8.0: the one writer of a move row (the owner, 2026-10-26): a card status or volunteer change, or a hold take
 -- or drop, by the acting desk p_desk on (p_on_type, p_on_id), with the act, the second desk (p_peer) and the
--- evidence (p_text). It locks the acting desk's seat row first, as mill_doing_insert does, and never touches
+-- evidence (p_evidence). It locks the acting desk's seat row first, as mill_doing_insert does, and never touches
 -- seat.doing_id: a move is not a focus. The item's own activity row carries the act (the caller's put).
--- A text over 512 characters is refused, never cut: where longer evidence goes is pending the owner.
+-- Evidence over EVIDENCE_MAX (2000) is refused, never cut (the owner, 2026-10-26: doing.evidence).
 CREATE PROCEDURE mill_doing_move(
-  IN  p_desk    BIGINT UNSIGNED,
-  IN  p_roster  BIGINT UNSIGNED,
-  IN  p_on_type VARCHAR(8),
-  IN  p_on_id   BIGINT UNSIGNED,
-  IN  p_act     VARCHAR(16),
-  IN  p_peer    BIGINT UNSIGNED,
-  IN  p_text    VARCHAR(2000),
-  IN  p_ts      DATETIME(6),
-  OUT p_id      BIGINT UNSIGNED
+  IN  p_desk     BIGINT UNSIGNED,
+  IN  p_roster   BIGINT UNSIGNED,
+  IN  p_on_type  VARCHAR(8),
+  IN  p_on_id    BIGINT UNSIGNED,
+  IN  p_act      VARCHAR(16),
+  IN  p_peer     BIGINT UNSIGNED,
+  IN  p_evidence VARCHAR(4096),
+  IN  p_ts       DATETIME(6),
+  OUT p_id       BIGINT UNSIGNED
 )
 BEGIN
   DECLARE v_seat BIGINT UNSIGNED;
-  IF CHAR_LENGTH(IFNULL(p_text, '')) > 512 THEN
+  IF CHAR_LENGTH(IFNULL(p_evidence, '')) > 2000 THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'evidence: over 512 characters; where longer evidence goes is pending the owner';
+      SET MESSAGE_TEXT = 'evidence: over 2000 characters (EVIDENCE_MAX); refused, nothing changed';
   END IF;
   SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
-  INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
-  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), IFNULL(p_text, ''), p_on_type, p_on_id, p_act, NULLIF(p_peer, p_desk));
+  -- text stays empty on move rows; ship/done evidence lives in evidence (NULL when none).
+  INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id, evidence)
+  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), '', p_on_type, p_on_id, p_act, NULLIF(p_peer, p_desk),
+          NULLIF(p_evidence, ''));
   SET p_id = LAST_INSERT_ID();
 END //
 

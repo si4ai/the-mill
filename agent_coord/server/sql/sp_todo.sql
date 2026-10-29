@@ -144,7 +144,7 @@ END //
 -- One card write. 0.8.0 (the owner, 2026-10-26): it reads the old status and volunteer FOR UPDATE, and every
 -- status change or volunteer change (a take-over, an assign with no status change) appends one move row by the
 -- acting desk (mill_doing_move): act from the old and new state (BETA-CHANGES.md, the act list), peer_id the
--- second desk, text the evidence on a ship or done. A write with no move (a body edit) is act note, no row.
+-- second desk, evidence on a ship or done. A write with no move (a body edit) is act note, no row.
 -- mill_todo_update is this with no evidence; cmd_pass passes it.
 CREATE PROCEDURE mill_todo_write(
   IN p_id        BIGINT UNSIGNED,
@@ -255,8 +255,8 @@ BEGIN
     -- Evidence rides on ship and done; a done with none carries the ship's (main's todo.evidence rule).
     SET v_ev = IF(v_act IN ('ship', 'done'), NULLIF(TRIM(p_evidence), ''), NULL);
     IF v_act = 'done' AND v_ev IS NULL THEN
-      SET v_ev = (SELECT NULLIF(e.text, '') FROM doing e
-                   WHERE e.on_type = 'todo' AND e.on_id = p_id AND e.act NOT IN ('focus', 'clear', 'finish')
+      SET v_ev = (SELECT e.evidence FROM doing e
+                   WHERE e.on_type = 'todo' AND e.on_id = p_id AND e.act = 'ship'
                    ORDER BY e.id DESC LIMIT 1);
       SET v_ev = IF(v_was = 'shipped', v_ev, NULL);
     END IF;
@@ -417,8 +417,8 @@ BEGIN
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
@@ -455,8 +455,8 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
@@ -505,8 +505,8 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's text when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t

@@ -4,7 +4,7 @@ The book is the 0.8.0 schema (doing move rows, seat.doing_id, seat as the desk k
 the kind-checked name FKs). Each test names one ported behavior:
 
 - card moves: every status or volunteer change is one doing move row by the acting desk
-  (act, peer_id, text = the evidence on ship and done); the card's `evidence` is read from them.
+  (act, peer_id, evidence on ship and done); the card's `evidence` is read from them.
 - seat.doing_id: after every focus write path it names the desk's newest focus row
   (act focus or clear, ORDER BY created DESC, id DESC), never a move row.
 - name commands: retire, rename, reclaim and mint go through sp_name_*; main's
@@ -53,17 +53,17 @@ def book(cn):
 
 
 def _events(cn, card: int) -> list[tuple]:
-    """The card's move rows in id order: (act, peer, text, acting desk)."""
+    """The card's move rows in id order: (act, peer, evidence, acting desk)."""
     rows = rows_done(
         cn,
-        "SELECT g.act, pn.name AS peer, g.text, dn.name AS desk"
+        "SELECT g.act, pn.name AS peer, IFNULL(g.evidence, '') AS evidence, dn.name AS desk"
         " FROM doing g JOIN name dn ON dn.id = g.desk_id"
         " LEFT JOIN name pn ON pn.id = g.peer_id"
         " WHERE g.on_type = 'todo' AND g.on_id = %s AND g.act NOT IN ('focus', 'clear', 'finish')"
         " ORDER BY g.id",
         (card,),
     )
-    return [(r["act"], r["peer"], r["text"], r["desk"]) for r in rows]
+    return [(r["act"], r["peer"], r["evidence"], r["desk"]) for r in rows]
 
 
 def _card(cn, body: str) -> int:

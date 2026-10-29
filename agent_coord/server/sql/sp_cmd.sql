@@ -242,13 +242,13 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   IF p_step = 'done' AND v_ev IS NULL THEN
-    SET v_ev = (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act NOT IN ('focus', 'clear', 'finish')
+    SET v_ev = (SELECT d.evidence FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act = 'ship'
            ORDER BY d.id DESC LIMIT 1);
   END IF;
   CALL mill_card_write(p_card, p_desk, v_next, '', NULL, IF(p_step = 'back', NULL, v_ev));
   SELECT p_card AS card, v_next AS status, v_st AS was,
-         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence;
 END //
@@ -342,7 +342,7 @@ BEGIN
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type,
          sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
-         (SELECT IF(d.act IN ('ship', 'done'), NULLIF(d.text, ''), NULL) FROM doing d
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence
     FROM todo t

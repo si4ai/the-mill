@@ -13,7 +13,7 @@ seat first and never deadlock.
 F184 (Validator check 6): a re-open keeps the first opened time and pushes one receipt; opening a
 letter and the heartbeats (connect, touch, socket, LAN) leave activity and doing unchanged.
 F185: hold take and drop write move rows, a refresh writes none, reset's drop rows name the acting
-desk; evidence over 512 characters is refused (where longer evidence goes is pending the owner).
+desk; evidence over 2000 characters (EVIDENCE_MAX) is refused.
 """
 from __future__ import annotations
 
@@ -214,15 +214,17 @@ def test_hold_refresh_writes_no_row_and_reset_drops_by_the_acting_desk(book):
     assert (last["act"], last["desk_id"], last["peer_id"]) == ("drop", _id(book, desk), None)
 
 
-def test_evidence_over_512_is_refused_pending_the_owner(book):
+def test_evidence_over_2000_is_refused(book):
     card = _card(book, "mv-long")
     _claim(book, BOB, card)
     with pytest.raises(mysql.connector.Error) as ei:
-        _pass(book, BOB, card, "ship", "x" * 513)
+        _pass(book, BOB, card, "ship", "x" * 2001)
     book.rollback()
-    assert "pending the owner" in str(ei.value)
+    msg = str(ei.value)
+    assert ("2000" in msg or "EVIDENCE_MAX" in msg or "Data too long" in msg), msg
     assert _card_now(book, card)[0] == "claimed"
-    assert _pass(book, BOB, card, "ship", "\u00e9" * 512)["evidence"] == "\u00e9" * 512
+    # EVIDENCE_MAX fits; focus rows keep evidence NULL (checked via schema / F187).
+    assert _pass(book, BOB, card, "ship", "\u00e9" * 2000)["evidence"] == "\u00e9" * 2000
 
 
 def test_a_desk_cannot_retire_another_desk_with_its_own_seat(book):
