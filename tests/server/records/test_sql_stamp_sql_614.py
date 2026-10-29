@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from agent_coord.install import migrate
+from agent_coord.server.records import apply
+from agent_coord.server.records.db import rows_done, scalar_done
 
 pytestmark = pytest.mark.sql
 
@@ -49,3 +51,67 @@ def test_install_sql_apply_runs_ensure_and_verifies(cn):
     out = migrate.install_sql(cn, apply=True)
     assert out["ok"] is True and out["applied"] is True
     assert migrate.sql_state(cn)["ok"] is True
+
+
+def _x(cn, sql: str, args: tuple = ()) -> None:
+    cur = cn.cursor()
+    try:
+        cur.execute(sql, args)
+    finally:
+        cur.close()
+
+
+def test_h_sql_state_flags_a_missing_or_changed_routine(cn):
+    """A routine dropped or changed by hand after ensure is not this pack's SQL.
+
+    F117 sql_state rules: ensure reloads whenever sql_state is not ok, and
+    sql_state is not ok while a shipped routine is missing or the routines
+    differ from the fingerprint the last finished ensure stamped.
+    """
+    apply(cn, wipe=True)
+    migrate.ensure(cn)
+    assert migrate.sql_state(cn)["ok"] is True
+    _x(cn, "DROP FUNCTION IF EXISTS MILL_SCORE_DOC_ADD")
+    cn.commit()
+    st = migrate.sql_state(cn)
+    assert st["ok"] is False and "mill_score_doc_add" in st["routines"].lower()
+    migrate.ensure(cn)
+    assert migrate.sql_state(cn)["ok"] is True
+    _x(cn, "DROP PROCEDURE IF EXISTS mill_floor_scope_load")
+    _x(cn, "CREATE PROCEDURE mill_floor_scope_load() SELECT 1")
+    cn.commit()
+    assert migrate.sql_state(cn)["ok"] is False
+    migrate.ensure(cn)
+    assert migrate.sql_state(cn)["ok"] is True
+
+
+def test_i_a_book_whose_routines_name_a_missing_definer_converges(cn):
+    """A dump restored on another server keeps DEFINER = a user that is not
+    there; calling the stamp then fails with 1449. ensure must read that as
+    unstamped and reload, not crash before the reload. F117 definer rule.
+    """
+    apply(cn, wipe=True)
+    migrate.ensure(cn)
+    gone = "`gone_818`@`localhost`"
+    redefined = 0
+    for r in rows_done(cn, "SELECT ROUTINE_TYPE AS t, ROUTINE_NAME AS n FROM information_schema.ROUTINES"
+                           " WHERE ROUTINE_SCHEMA = DATABASE()"):
+        rtype, name = r["t"], r["n"]
+        ddl = rows_done(cn, f"SHOW CREATE {rtype} `{name}`")[0][f"Create {rtype.title()}"]
+        rest = ddl.partition(f" {rtype} ")[2]
+        try:
+            _x(cn, f"DROP {rtype} `{name}`")
+            _x(cn, f"CREATE DEFINER={gone} {rtype} {rest}")
+        except Exception as e:  # no SET_USER_ID here: the case cannot be built
+            if getattr(e, "errno", None) in (1227, 1044):
+                pytest.skip("this server user cannot create routines for another definer")
+            raise
+        redefined += 1
+    cn.commit()
+    assert redefined > 2
+    st = migrate.sql_state(cn)
+    assert st["ok"] is False
+    migrate.ensure(cn)
+    assert migrate.sql_state(cn)["ok"] is True
+    assert scalar_done(cn, "SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE()"
+                           " AND DEFINER = 'gone_818@localhost'") == 0

@@ -153,8 +153,8 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False, 
         ev = f"evidence {i} \u00e9\u2713 \U0001f600" if st in ("shipped", "done") and i % 2 == 0 else None
         if i == 7:  # evidence on a card a step back left claimed: carried as it is (0.8.0 has no CHECK on it)
             ev = "kept after a step back"
-        if i == 10:  # a long evidence that fits doing.evidence (EVIDENCE_MAX 2000; 4-byte ones)
-            ev = "\U0001f600" * 500
+        if i == 10:  # evidence at EVIDENCE_MAX (2000 chars); a 1000-char mutant refuses this card
+            ev = "x" * 2000
         if i == 15 and long_evidence:  # over EVIDENCE_MAX refuses the migrate (nothing is cut)
             ev = "x" * 2001
         dw = f"done when {i}" if i % 3 == 0 else None
