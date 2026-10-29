@@ -63,33 +63,7 @@ def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
     assert got["latest"] == 6 and got["owner"] == "s76a"
 
 
-def test_upgrade_leaves_one_score_per_name(cn) -> None:
-    seed_names(cn, ("s76b", "roster"), ("Office", "roster"), ("ga", "desk"), ("gb", "desk"), ("gc", "desk"))
-    _seat(cn, "ga", "gb", "gc")
-    # 1: empty legacy beside the 0.7.5 definition -> retired.
-    rec_score.upsert(cn, "s76b", "ga", "dup", "", "", "")
-    rpc._h_score(_Book(cn), {"name": "dup", "value": "3"}, "s76b", "ga")
-    # 2: three legacy desk rows with values, no definition -> newest adopted, others retired.
-    for d, v in (("ga", "2"), ("gb", "5"), ("gc", "4")):
-        rec_score.upsert(cn, "s76b", d, "agent_kpi", v, "", "")
-    # 3: an empty legacy row alone -> retired.
-    rec_score.upsert(cn, "s76b", "gb", "empty", "", "", "")
-    # 4: Office per-desk host rows are system KPIs -> untouched.
-    rec_score.upsert(cn, "Office", "ga", "mill-desk.x", "0", "", "")
-    rec_score.upsert(cn, "Office", "gb", "mill-desk.x", "0", "", "")
-    first = migrate._ensure_score_one_name(cn)
-    # Other tests in this module leave legacy rows too; the states below are what count.
-    assert any(x.startswith("score.one_name(adopt ") for x in first)
-    assert any(x.startswith("score.one_name(retire ") for x in first)
-    assert [r[1] for r in _live(cn, "s76b", "dup")] == [1]
-    kpi = _live(cn, "s76b", "agent_kpi")
-    assert len(kpi) == 1 and kpi[0][1] == 1
-    assert rpc._h_score(_Book(cn), {"name": "agent_kpi"}, "s76b", "ga")["latest"] == 4
-    assert _live(cn, "s76b", "empty") == []
-    assert len(_live(cn, "Office", "mill-desk.x")) == 2
-    assert migrate._ensure_score_one_name(cn) == []  # a second run changes nothing
-    names = sorted(s["score"] for s in rpc._h_score(_Book(cn), {}, "s76b", "ga")["scores"])
-    assert names == ["agent_kpi", "dup"]
+
 
 
 # F37

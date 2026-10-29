@@ -1,64 +1,56 @@
--- Beta 0.8.0: the office glance (`mill glance`). One cached row in glance_cache, refreshed
--- when it is older than 30 seconds (relaxed tier), plus the newest 30 activity rows.
--- No office-wide unread (owner rule). The client shapes both sets (beta_client.py).
+-- Beta 0.8.0: the office glance (`mill glance`), computed live on each read (the owner, 2026-10-26).
+-- No glance_cache table, no open_votes, no office-wide unread. Two result sets: the glance row,
+-- then the newest 30 live activity rows. The client shapes both (beta_client.py; F176).
 
 DROP PROCEDURE IF EXISTS mill_glance_refresh;
 DROP PROCEDURE IF EXISTS uc_a6_glance_cached;
+DROP PROCEDURE IF EXISTS uc_a6_glance;
 
 DELIMITER //
 
--- A row younger than p_max_s stays. Callers at the same moment both write the row; the last write stays.
--- A fresh row is left as it is. Two callers at once both write the row; the last one stays.
-CREATE PROCEDURE mill_glance_refresh(IN p_max_s INT)
+CREATE PROCEDURE uc_a6_glance()
 BEGIN
   DECLARE v_now DATETIME(6);
   DECLARE v_t0 DATETIME(6);
   DECLARE v_day DATETIME(6);
-  DECLARE v_max INT;
+  DECLARE v_us INT UNSIGNED;
   SET v_now = MILL_NOW();
-  SET v_max = GREATEST(IFNULL(p_max_s, 30), 0);
-  IF NOT EXISTS (SELECT 1 FROM glance_cache
-                  WHERE id = 1 AND at >= v_now - INTERVAL v_max SECOND) THEN
-    SET v_t0 = SYSDATE(6);
-    SET v_day = v_now - INTERVAL 1 DAY;
-    REPLACE INTO glance_cache (id, at, refresh_us, present, held, open_n, claimed_n, parked_n,
-                              shipped_n, done_n, letters_1d, card_moves_1d, doings_1d,
-                              holds_1d, points_1d, open_votes)
-    SELECT 1, v_now, 0,
-           (SELECT COUNT(*) FROM seat j JOIN name d ON d.id = j.desk_id AND d.deleted IS NULL
-             WHERE j.time_connect IS NOT NULL
-               AND (j.time_disconnect IS NULL OR j.time_connect >= j.time_disconnect)),
-           (SELECT COUNT(*) FROM hold WHERE desk_id IS NOT NULL),
-           IFNULL(SUM(t.status = 'open'), 0),
-           IFNULL(SUM(t.status = 'claimed'), 0),
-           IFNULL(SUM(t.status = 'parked'), 0),
-           IFNULL(SUM(t.status = 'shipped'), 0),
-           IFNULL(SUM(t.status = 'done'), 0),
-           (SELECT COUNT(*) FROM mail WHERE created >= v_day),
-           (SELECT COUNT(*) FROM todo_event WHERE created >= v_day),
-           (SELECT COUNT(*) FROM doing WHERE created >= v_day),
-           (SELECT COUNT(*) FROM activity WHERE type = 'hold' AND updated >= v_day),
-           (SELECT COUNT(*) FROM score_point WHERE created >= v_day),
-           (SELECT COUNT(*) FROM vote WHERE closed IS NULL)
-      FROM todo t
-      LEFT JOIN activity a ON a.type = 'todo' AND a.id = t.id
-     WHERE a.deleted IS NULL;
-    UPDATE glance_cache
-       SET refresh_us = LEAST(TIMESTAMPDIFF(MICROSECOND, v_t0, SYSDATE(6)), 4294967295)
-     WHERE id = 1;
-  END IF;
-END //
+  SET v_t0 = SYSDATE(6);
+  SET v_day = v_now - INTERVAL 1 DAY;
+  SET v_us = LEAST(TIMESTAMPDIFF(MICROSECOND, v_t0, SYSDATE(6)), 4294967295);
 
--- Two result sets: the glance row, then the newest 30 live activity rows
--- (seq 1 = newest; kind letter, card, doing, hold or score; desk NULL = the office).
--- Each kind reads its newest 30 ids from the activity primary key, so the read stays
--- small at any history size; the 30 newest by time are taken from those.
-CREATE PROCEDURE uc_a6_glance_cached()
-BEGIN
-  CALL mill_glance_refresh(30);
-  SELECT id, at, refresh_us, present, held, open_n, claimed_n, parked_n, shipped_n, done_n,
-         letters_1d, card_moves_1d, doings_1d, holds_1d, points_1d, open_votes
-    FROM glance_cache WHERE id = 1;
+  SELECT
+    1 AS id,
+    v_now AS at,
+    v_us AS refresh_us,
+    (SELECT COUNT(*) FROM seat j JOIN name d ON d.id = j.desk_id AND d.deleted IS NULL
+      WHERE j.time_connect IS NOT NULL
+        AND (j.time_disconnect IS NULL OR j.time_connect >= j.time_disconnect)) AS present,
+    (SELECT COUNT(*) FROM hold WHERE desk_id IS NOT NULL) AS held,
+    (SELECT COUNT(*) FROM todo t
+       JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NULL
+      WHERE t.status = 'open') AS open_n,
+    (SELECT COUNT(*) FROM todo t
+       JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NULL
+      WHERE t.status = 'claimed') AS claimed_n,
+    (SELECT COUNT(*) FROM todo t
+       JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NULL
+      WHERE t.status = 'parked') AS parked_n,
+    (SELECT COUNT(*) FROM todo t
+       JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NULL
+      WHERE t.status = 'shipped') AS shipped_n,
+    (SELECT COUNT(*) FROM todo t
+       JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NULL
+      WHERE t.status = 'done') AS done_n,
+    (SELECT COUNT(*) FROM mail WHERE created >= v_day) AS letters_1d,
+    -- 0.8.0: card moves live in doing (todo_event removed).
+    (SELECT COUNT(*) FROM doing
+      WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')
+        AND created >= v_day) AS card_moves_1d,
+    (SELECT COUNT(*) FROM doing WHERE created >= v_day) AS doings_1d,
+    (SELECT COUNT(*) FROM activity WHERE type = 'hold' AND updated >= v_day) AS holds_1d,
+    (SELECT COUNT(*) FROM score_point WHERE created >= v_day) AS points_1d;
+
   SELECT ROW_NUMBER() OVER (ORDER BY r.updated DESC, r.type, r.id DESC) AS seq,
          r.updated AS at,
          CASE r.type WHEN 'mail' THEN 'letter' WHEN 'todo' THEN 'card' ELSE r.type END AS kind,

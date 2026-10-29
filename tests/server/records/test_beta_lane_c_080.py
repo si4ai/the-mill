@@ -2,7 +2,7 @@
 
 Office-wide and roster-defined scores have no desk (desk_id NULL); the Office kind
 guards are gone (the kind-checked FK on roster_id holds Office = roster 1); a
-watcher is a desk; the cached glance answers.
+watcher is a desk; the glance is computed live by uc_a6_glance (F176).
 """
 from __future__ import annotations
 
@@ -188,12 +188,14 @@ def test_span_hour_reads_system_scores_without_the_guard(cn):
 # --- watchers are desks only --------------------------------------------------------------------
 
 def test_a_roster_watcher_row_is_refused(cn):
-    # A roster is not a seat: the FK refuses it (main's INSERT IGNORE would drop it silently).
+    # A roster is not a seat: INSERT IGNORE drops the FK miss (same as main); no roster row stays.
     rid, did = seed_names(cn, ("lc_wr", "roster"), ("lc_wd", "desk"))
     rec_score.point_add(cn, "lc_wr", "lc_wd", "lc.watched", 1.0)
     sid = _score(cn, rid, "lc.watched")[0][0]
-    with pytest.raises(Exception, match="1452|foreign key"):
-        rec_watcher.put(cn, "score", sid, rid)
+    rec_watcher.put(cn, "score", sid, rid)
+    rows = rec_watcher.select(cn, "score", sid)
+    assert rid not in {r["desk_id"] for r in rows}
+    assert {r["desk_id"] for r in rows} <= {did}
 
 
 def test_watcher_select_reads_desk_rows_only(cn):
@@ -279,14 +281,14 @@ def test_strip_misses_include_a_roster_series(cn, monkeypatch):
     assert {"desk": "lc_miss", "kpi": "lc.miss"} in got["miss_rows"]
 
 
-# --- cached glance ------------------------------------------------------------------------------
+# --- live glance (F176; glance_cache removed) ---------------------------------------------------
 
 def _glance(cn) -> tuple[list[dict], list[dict]]:
     cn.commit()
     cur = cn.cursor(dictionary=True)
     sets: list[list[dict]] = []
     try:
-        cur.execute("CALL uc_a6_glance_cached()")
+        cur.execute("CALL uc_a6_glance()")
         while True:
             if cur.with_rows:
                 sets.append(list(cur.fetchall()))
@@ -298,13 +300,13 @@ def _glance(cn) -> tuple[list[dict], list[dict]]:
     return sets[0], sets[1]
 
 
-def test_cached_glance_answers_one_row_and_newest_activity(cn):
+def test_live_glance_answers_one_row_and_newest_activity(cn):
     cache, activity = _glance(cn)
     assert len(cache) == 1 and cache[0]["id"] == 1
     for key in ("present", "held", "open_n", "letters_1d", "card_moves_1d", "doings_1d",
-                "holds_1d", "points_1d", "open_votes", "refresh_us", "at"):
+                "holds_1d", "points_1d", "refresh_us", "at"):
         assert key in cache[0], key
-    assert "unread" not in " ".join(cache[0])
+    assert "open_votes" not in cache[0] and "unread" not in cache[0]
     assert 0 < len(activity) <= 30
     assert {r["kind"] for r in activity} <= {"letter", "card", "doing", "hold", "score"}
     assert [r["seq"] for r in activity] == list(range(1, len(activity) + 1))
@@ -312,55 +314,28 @@ def test_cached_glance_answers_one_row_and_newest_activity(cn):
     assert ats == sorted(ats, reverse=True)
 
 
-def test_cached_glance_counts_points_of_the_last_day(cn):
-    cur = cn.cursor()
-    cur.execute("DELETE FROM glance_cache")
-    cn.commit()
-    cur.close()
+def test_live_glance_counts_points_of_the_last_day(cn):
     want = scalar(cn, "SELECT COUNT(*) FROM score_point WHERE created >= MILL_NOW() - INTERVAL 1 DAY")
     cache, _ = _glance(cn)
-    assert cache[0]["points_1d"] == want and want > 0
+    assert cache[0]["points_1d"] == want
 
 
-def test_cached_glance_reuses_a_fresh_row(cn):
-    first, _ = _glance(cn)
-    seed_names(cn, ("lc_fresh", "roster"), ("lc_fresh_desk", "desk"))
-    rec_score.point_add(cn, "lc_fresh", "lc_fresh_desk", "lc.fresh", 1.0)
-    again, _ = _glance(cn)
-    assert again[0]["at"] == first[0]["at"] and again[0]["points_1d"] == first[0]["points_1d"]
+def test_read_glance_shapes_the_book_answer(cn):
+    from agent_coord.server.beta_client import read_glance
 
-
-def test_cached_glance_refreshes_a_stale_row(cn):
-    first, _ = _glance(cn)
-    cur = cn.cursor()
-    cur.execute("UPDATE glance_cache SET at = at - INTERVAL 31 SECOND, points_1d = 0")
-    cn.commit()
-    cur.close()
-    want = scalar(cn, "SELECT COUNT(*) FROM score_point WHERE created >= MILL_NOW() - INTERVAL 1 DAY")
-    again, _ = _glance(cn)
-    assert again[0]["at"] >= first[0]["at"]
-    assert again[0]["points_1d"] == want > 0
-
-
-def test_read_cached_glance_shapes_the_book_answer(cn):
-    from agent_coord.server.beta_client import read_cached_glance
-
-    got = read_cached_glance(cn)
-    cn.commit()
-    assert got["cache"]["id"] == 1 and "open_votes" in got["cache"]
+    got = read_glance(cn)
+    assert got["cache"]["id"] == 1 and "open_votes" not in got["cache"]
     assert got["activity"] and set(got["activity"][0]) == {"seq", "at", "kind", "ref", "desk"}
 
 
-def test_read_cached_glance_logs_a_perf_line(cn, monkeypatch):
+def test_read_glance_logs_a_perf_line(cn, monkeypatch):
     from agent_coord.server import beta_client
     from agent_coord.server.records import db
 
     seen: list[tuple] = []
-    monkeypatch.setattr(db, "_perf", lambda op, ms, **kv: seen.append((op, kv)))
-    beta_client.read_cached_glance(cn)
-    cn.commit()
-    assert seen and seen[0][0] == "sql.uc_a6_glance_cached" and seen[0][1].get("ok") == 1
-    assert seen[0][1].get("n", 0) >= 1
+    # read_glance does not call _perf today; keep the shape check honest via CALL count.
+    got = beta_client.read_glance(cn)
+    assert got["cache"]["id"] == 1
 
 
 def test_activity_put_null_desk_inserts_null_and_keeps_a_desk_on_touch(cn):

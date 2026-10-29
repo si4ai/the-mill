@@ -374,7 +374,9 @@ BEGIN
     SET v_one = IFNULL(MILL_NAME_GET('desk', p_desk), 0);
   END IF;
   SET v_off = (GREATEST(IFNULL(p_page, 1), 1) - 1) * GREATEST(IFNULL(p_size, 50), 1);
-  SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id, g.act,
+  -- 0.8.0 Wall (letter 3227): desk history stays focus entries; on=ITEM also
+  -- returns that item's move rows (act + evidence) so the card trail is whole.
+  SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id, g.act, g.evidence,
          g.waiting_type, g.waiting_id, g.waiting_why, ro.name AS roster,
          (SELECT wn.name FROM name wn WHERE g.waiting_type = 'desk' AND wn.id = g.waiting_id) AS waiting_name,
          mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) AS ended_at,
@@ -386,10 +388,15 @@ BEGIN
     FROM doing g
     JOIN name d ON d.id = g.desk_id
     JOIN name ro ON ro.id = g.roster_id
-   WHERE g.act = 'focus' AND g.text <> '' AND g.on_type IS NOT NULL
+   WHERE g.on_type IS NOT NULL
+     AND (
+       (IFNULL(p_on_type, '') = '' AND g.act = 'focus' AND g.text <> '')
+       OR (IFNULL(p_on_type, '') <> '' AND g.on_type = p_on_type AND g.on_id = p_on_id
+           AND ((g.act = 'focus' AND g.text <> '')
+                OR g.act NOT IN ('focus', 'clear')))
+     )
      AND (v_one IS NULL OR g.desk_id = v_one)
      AND (p_since IS NULL OR g.created >= p_since)
-     AND (IFNULL(p_on_type, '') = '' OR (g.on_type = p_on_type AND g.on_id = p_on_id))
    ORDER BY g.created DESC, g.id DESC
    LIMIT v_off, p_size;
 END //

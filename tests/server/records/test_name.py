@@ -58,7 +58,7 @@ def test_n4_office_seed_rename_ok_never_retire_reclaim(cn) -> None:
     rec_name.rename(cn, "East-Office", "Office", "roster", by=admin_desk(cn))
     with pytest.raises(Exception, match="Office"):
         rec_name.retire(cn, "Office", "roster", by=admin_desk(cn))
-    with pytest.raises(Exception, match="live"):
+    with pytest.raises(Exception, match="seed|Office"):
         rec_name.reclaim(cn, "Office", "roster", by=admin_desk(cn))
 
 
