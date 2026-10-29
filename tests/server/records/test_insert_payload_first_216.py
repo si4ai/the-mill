@@ -177,7 +177,7 @@ def test_deleted_id_is_not_reused(cn) -> None:
     card = int(rec_todo.insert(cn, "unit", "a", "open", "gone soon")[0]["id"])
     _exec(cn, "DELETE FROM watcher WHERE type='todo' AND id=%s", (card,))
     _exec(cn, "DELETE FROM activity WHERE type='todo' AND id=%s", (card,))
-    _exec(cn, "DELETE FROM todo_event WHERE todo_id=%s", (card,))  # 0.8.0: RESTRICT to todo
+    # 0.8.0: no todo_event; doing holds card history
     _exec(cn, "DELETE FROM todo WHERE id=%s", (card,))
     nxt = int(rec_todo.insert(cn, "unit", "a", "open", "after")[0]["id"])
     assert nxt > card

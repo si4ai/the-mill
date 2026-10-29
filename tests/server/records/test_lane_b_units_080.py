@@ -40,8 +40,8 @@ def test_fk_refusal_names_what_was_wrong_not_the_book(constraint, what):
 
 
 def test_check_refusal_names_the_check():
-    line = fk_refusal(_Err(3819, "Check constraint 'ck_todo_event_evidence' is violated."))
-    assert line == "refused: ck_todo_event_evidence does not hold; nothing changed"
+    line = fk_refusal(_Err(3819, "Check constraint 'chk_doing_evidence' is violated."))
+    assert line == "refused: chk_doing_evidence does not hold; nothing changed"
 
 
 def test_other_errors_are_not_mapped():

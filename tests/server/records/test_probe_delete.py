@@ -72,15 +72,8 @@ def _card(cn, project: str, desk: str, need: str) -> int:
 
 
 def _card_0630(cn, project: str, desk: str, need: str) -> int:
-    """A card as the 0.6.30 delete saw it: no todo_event rows (0.8.0 table, RESTRICT to todo)."""
-    tid = _card(cn, project, desk, need)
-    cur = cn.cursor()
-    try:
-        cur.execute("DELETE FROM todo_event WHERE todo_id = %s", (tid,))
-        cn.commit()
-    finally:
-        cur.close()
-    return tid
+    """A card as the 0.6.30 delete saw it (0.8.0: no todo_event table; doing holds history)."""
+    return _card(cn, project, desk, need)
 
 
 def _score(cn, project: str, desk: str, kpi: str) -> int:
@@ -282,7 +275,7 @@ def test_todo_with_no_activity_row_is_stamped(cn) -> None:
 
 
 def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
-    """#185: activity's key is (type, id), so claim, note, and pass bump n on one row."""
+    """#185: activity's key is (type, id), so claim, note, and pass keep one row (no n column)."""
     tid = _card(cn, FIX, "pd_me", "pd-history")
     todo.update(cn, tid, "pd_me", status="claimed", volunteer="pd_me")
     rpc._h_note(_Book(cn), {"need": "pd-history", "note": "noted"}, FIX, "pd_me")
@@ -290,7 +283,7 @@ def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
     todo.update(cn, tid, "pd_me", status="done")
     assert scalar(cn, "SELECT status FROM todo WHERE id=%s", (tid,)) == "done"
     assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='todo' AND id=%s", (tid,)) == 1
-    assert int(scalar(cn, "SELECT n FROM activity WHERE type='todo' AND id=%s", (tid,)) or 0) >= 2
+    assert scalar(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None
     out = _probe(cn, "pd_me", "todo", tid)
     assert out["state"] == "deleted"
     _assert_deleted(cn, "todo", tid)

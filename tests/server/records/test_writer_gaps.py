@@ -126,7 +126,7 @@ def test_mail_insert_ids_never_reused(cn) -> None:
     b = int(mail.insert(cn, "wg_p", "wg_d", "wg_r", "two")[0]["id"])
     assert b > a
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='mail' AND id=%s", (b,)) is None
-    assert scalar(cn, "SELECT n FROM activity WHERE type='mail' AND id=%s", (b,)) == 1
+    assert scalar(cn, "SELECT act FROM activity WHERE type='mail' AND id=%s", (b,)) is not None
     # Checks stay on for the whole call (#205, #216).
     assert int(scalar(cn, "SELECT @@SESSION.foreign_key_checks")) == 1
 
@@ -287,4 +287,4 @@ def test_todo_delete_requires_desk(cn) -> None:
     todo.delete(cn, tid, "wg_tother")
     # stamp only: activity.desk_id is not rewritten to the deleting desk
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='todo' AND id=%s", (tid,)) == desk
-    assert scalar(cn, "SELECT n FROM activity WHERE type='todo' AND id=%s", (tid,)) == 1
+    assert scalar(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None
