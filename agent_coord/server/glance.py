@@ -409,9 +409,8 @@ def _office_scores(cn) -> dict[str, tuple]:
         cn,
         "SELECT s.kpi, s.value, s.target, s.updated "
         "FROM score s "
-        "JOIN name a ON a.id = s.roster_id "
-        "JOIN name d ON d.id = s.desk_id "
-        f"WHERE a.id = {OFFICE_ROSTER_ID} AND d.id = {ADMIN_ROSTER_ID} "
+        # Beta 0.8.0: an office score has no desk (desk_id NULL; main used the Admin roster id).
+        f"WHERE s.roster_id = {OFFICE_ROSTER_ID} AND s.desk_id IS NULL "
         "/* glance:office-scores */",
     )
     out: dict[str, tuple] = {}
@@ -531,9 +530,7 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
         cn,
         "SELECT e.value FROM score s "
         "JOIN score_evidence e ON e.score_id = s.id "
-        "JOIN name a ON a.id = s.roster_id "
-        "JOIN name d ON d.id = s.desk_id "
-        f"WHERE s.kpi = 'wall' AND a.id = {OFFICE_ROSTER_ID} AND d.id = {OFFICE_ROSTER_ID} "
+        f"WHERE s.kpi = 'wall' AND s.roster_id = {OFFICE_ROSTER_ID} AND s.desk_id IS NULL "
         "AND e.`timestamp` = STR_TO_DATE("
         "CONCAT('1970-01-01 ', LPAD(HOUR(NOW()), 2, '0'), ':00:00'), '%Y-%m-%d %H:%i:%s') "
         "AND e.taken = CURDATE() "

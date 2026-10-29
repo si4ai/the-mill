@@ -802,7 +802,7 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
         ends = [(r.get("ended_at"), "finished"), (r.get("cleared_at"), "cleared"), (r.get("replaced_at"), "newer")]
         hit = [(at, by) for at, by in ends if at is not None]
         how = min(hit, key=lambda x: x[0])[1] if hit else None
-        entries.append({
+        entry = {
             "id": int(r["id"]),
             "desk": _stored(r.get("desk") or ""),
             "at": str(r.get("created") or "")[:19],
@@ -814,7 +814,11 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
             "ended_by": how,
             **({"waiting_on": w} if (w := _waiting_view(r.get("waiting_type"), r.get("waiting_id"),
                                                         r.get("waiting_name"), r.get("waiting_why"))) else {}),
-        })
+        }
+        # 0.8.0 Wall (letter 3227): move rows carry doing.evidence on the card trail.
+        if r.get("evidence"):
+            entry["evidence"] = str(r["evidence"])
+        entries.append(entry)
     return {"history": entries, "page": block}
 
 

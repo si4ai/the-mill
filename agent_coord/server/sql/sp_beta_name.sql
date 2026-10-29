@@ -1,5 +1,5 @@
 -- 0.8.0 (card 868): the name family with trust, from docs/requirements/beta/beta_sp.sql. Applied last in
--- apply_order.txt, so its mill_desk_id replaces sp_cmd.sql's MILL_DESK_ID (same body).
+-- apply_order.txt, so its mill_desk_id replaces sp_cmd.sql's MILL_DESK_ID (same contract: NULL empty, 0 unknown).
 -- Public (EXECUTE to the app user): cmd_*, sp_name_*, mill_*. Internal helpers are b_* (never granted).
 -- sp_admin_set is granted to the host database user only (admin.md section 1: Admin grant is host loopback only).
 -- Trust: every procedure reads b_trust() itself and applies docs/requirements/admin.md sections 1-3; no guard reads an
@@ -31,8 +31,14 @@ BEGIN
   RETURN v;
 END //
 DROP FUNCTION IF EXISTS mill_desk_id //
+-- Same contract as sp_cmd.sql MILL_DESK_ID: NULL for no name, 0 for a name the book does not hold.
 CREATE FUNCTION mill_desk_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA
-  RETURN (SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL) //
+BEGIN
+  IF p_name IS NULL OR TRIM(p_name) = '' THEN
+    RETURN NULL;
+  END IF;
+  RETURN IFNULL((SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name) AND deleted IS NULL), 0);
+END //
 -- A roster by name. Office is id 1 by name while no roster holds the name 'Office' (F92: Office follows id 1).
 DROP FUNCTION IF EXISTS mill_roster_id //
 CREATE FUNCTION mill_roster_id(p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED READS SQL DATA

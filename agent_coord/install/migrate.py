@@ -869,8 +869,8 @@ def _ensure_mail_to_asked(cn) -> list[str]:
 
 
 def _ensure_todo_done_when(cn) -> list[str]:
-    """#867 (0.7.18): todo.done_when and todo.evidence, additive NULL columns.
-    Rollback: ALTER TABLE todo DROP COLUMN done_when, DROP COLUMN evidence."""
+    """#867: todo.done_when. 0.8.0: no todo.evidence shim (evidence lives on doing move rows;
+    migrate_080 carries cloud-office evidence; the owner 2026-10-29: no old-field aliases)."""
     applied: list[str] = []
     cur = cn.cursor()
     try:
@@ -882,13 +882,6 @@ def _ensure_todo_done_when(cn) -> list[str]:
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER body"
             )
             applied.append("todo.done_when")
-        # 0.8.0: evidence is doing.evidence on a card's move row; a migrated book must not get todo.evidence back.
-        if not _column_exists(cur, "todo", "evidence") and not _column_exists(cur, "doing", "evidence"):
-            cur.execute(
-                "ALTER TABLE todo ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4"
-                " COLLATE utf8mb4_0900_ai_ci NULL AFTER done_when"
-            )
-            applied.append("todo.evidence")
         if applied:
             cn.commit()
     finally:

@@ -512,3 +512,48 @@ def test_noop_reclaim_writes_no_row(book):
     call(book, "mill_todo_update", [card, BOB, "claimed", BOB, None])
     book.commit()
     assert _moves(book, "todo", card) == before
+
+
+# ---------- F188 history on=ITEM includes move rows ----------
+
+def test_history_on_card_includes_move_rows_with_evidence(book):
+    """Wall letter 3227 / F188: GET history?on=todo-N returns move rows with act and evidence."""
+    from agent_coord.server.api.mill import rpc
+
+    card = _card(book, "hist-ev")
+    _claim(book, BOB, card)
+    _pass(book, BOB, card, "ship", "shipped the patch")
+    rows = call(book, "mill_doing_history", ["", None, 1, 50, "todo", card])
+    acts = [r["act"] for r in rows]
+    assert "create" in acts and "claim" in acts and "ship" in acts, acts
+    ship = [r for r in rows if r["act"] == "ship"][0]
+    assert ship.get("evidence") == "shipped the patch"
+    # RPC shape the Wall reads
+    class _B:
+        def __init__(self, cn):
+            self._cn = cn
+    out = rpc._doing_history(_B(book), {}, "", on=("todo", card))
+    hit = [e for e in out["history"] if e.get("act") == "ship"]
+    assert hit and hit[0].get("evidence") == "shipped the patch"
+
+
+# ---------- F189 floor events: state stays sent/deleted; act is separate ----------
+
+def test_floor_events_keep_state_and_expose_act(book):
+    """Wall letter 3227 / F189: mill_floor_part events keep state; act is its own field."""
+    from agent_coord.server.records import mail as rec_mail
+
+    lan = "203.0.113.88"
+    rec_join.set_lan_ip(book, BOB, lan)
+    mid = int(rec_mail.insert(book, ROSTER, BOB, ANN, "event letter")[0]["id"])
+    gone = int(rec_mail.insert(book, ROSTER, BOB, ANN, "gone letter")[0]["id"])
+    rec_mail.delete(book, gone, BOB)
+    book.commit()
+    rows = call(book, "mill_floor_part", ["lan", lan, "events"])
+    by = {(str(r.get("type") or r.get("kind")), int(r["id"])): r for r in rows}
+    assert ("mail", mid) in by and ("mail", gone) in by, list(by)[:8]
+    assert by[("mail", mid)].get("state") == "sent"
+    assert by[("mail", gone)].get("state") == "deleted"
+    for r in (by[("mail", mid)], by[("mail", gone)]):
+        assert "act" in r
+        assert r.get("state") not in ("create", "claim", "ship", "focus", "send", "reply")

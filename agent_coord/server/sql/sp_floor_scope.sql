@@ -150,6 +150,7 @@ BEGIN
     ORDER BY s.updated DESC
     LIMIT 200;
   ELSEIF p_part = 'events' THEN
+    -- Wall contract (letter 3227): state stays sent/deleted/NULL as before; act is separate.
     SELECT a.id AS id,
       a.type AS kind,
       a.type AS type,
@@ -157,12 +158,17 @@ BEGIN
       IFNULL(dn.name, '') AS owner, IFNULL(dn.type, '') AS owner_type,
       IFNULL(an.name, '') AS roster_id, IFNULL(an.type, '') AS roster_id_type,
       a.act AS act,
-      a.act AS state,
+      CASE
+        WHEN a.deleted IS NOT NULL THEN 'deleted'
+        WHEN a.type = 'mail' AND m.id IS NOT NULL THEN 'sent'
+        ELSE NULL
+      END AS state,
       a.bytes AS bytes,
       1 AS items
     FROM activity a
     LEFT JOIN name dn ON dn.id = a.desk_id
     LEFT JOIN name an ON an.id = a.roster_id
+    LEFT JOIN mail m ON a.type = 'mail' AND m.id = a.id
     JOIN mill_floor_desk fd ON fd.desk_id = a.desk_id
     ORDER BY a.updated DESC
     LIMIT 120;
