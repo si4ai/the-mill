@@ -72,6 +72,12 @@ def _one(cn, sql, args=()):
 def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False, long_evidence: bool = False) -> dict:
     rng = random.Random(80 + scale)
     cur = cn.cursor()
+    if long_evidence:
+        # todo.evidence is VARCHAR(2000); widen so a value over EVIDENCE_MAX can exist for the preflight refuse.
+        cur.execute(
+            "ALTER TABLE todo MODIFY COLUMN evidence VARCHAR(4000)"
+            " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL"
+        )
     t0 = datetime(2026, 9, 1, 8, 0, 0)
 
     def ts(i: int) -> datetime:
@@ -147,10 +153,10 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False, 
         ev = f"evidence {i} \u00e9\u2713 \U0001f600" if st in ("shipped", "done") and i % 2 == 0 else None
         if i == 7:  # evidence on a card a step back left claimed: carried as it is (0.8.0 has no CHECK on it)
             ev = "kept after a step back"
-        if i == 10:  # the longest evidence that fits doing.text (512 characters, 4-byte ones)
-            ev = "\U0001f600" * 512
-        if i == 15 and long_evidence:  # the owner has not decided where longer evidence goes (pending)
-            ev = "x" * 513
+        if i == 10:  # a long evidence that fits doing.evidence (EVIDENCE_MAX 2000; 4-byte ones)
+            ev = "\U0001f600" * 500
+        if i == 15 and long_evidence:  # over EVIDENCE_MAX refuses the migrate (nothing is cut)
+            ev = "x" * 2001
         dw = f"done when {i}" if i % 3 == 0 else None
         roster = rng.choice([1] + rosters)
         todo.append((i, ts(i), ts(i + 50), upd, roster, creator, st, asg, ts(i + 10) if st == "claimed" else None,
@@ -266,8 +272,9 @@ MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher",
                "mill_invite", "mill_invite_join", "push_queue")
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
 DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "glance_cache", "sp_deploy")
-# Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence, activity.weight,
-# activity.n); left out of the row compare.
+# Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
+# activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
+# (it is new; main's focus rows keep it NULL).
 ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id"}
 DROPPED = {"evidence", "weight", "n"}
 # A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
@@ -404,12 +411,16 @@ def test_ids_rows_and_transforms(main_book):
     acts = dict(_q(cn, "SELECT id, act FROM doing WHERE id <= %s", (max(old_doing),)))
     for i, r in old_doing.items():
         assert acts[i] == ("focus" if r["text"] else "finish" if r["on_type"] else "clear"), r
-    new_doing = {r["id"]: r for r in _rows_as_dicts(after, "doing") if r["id"] in old_doing}
+    new_doing = {
+        r["id"]: {k: v for k, v in r.items() if k != "evidence"}
+        for r in _rows_as_dicts(after, "doing") if r["id"] in old_doing
+    }
     assert new_doing == old_doing
 
     # Every card gets one move row (the owner, 2026-10-26): by updated_id at updated, act from the status, peer the
-    # volunteer, text the evidence byte for byte (or empty). It is the card's first row, so its fold gives the status.
-    moves = {r[0]: r[1:] for r in _q(cn, "SELECT on_id, desk_id, created, act, peer_id, HEX(text), roster_id"
+    # volunteer, evidence the card's evidence byte for byte (or NULL), text empty. Focus rows keep evidence NULL.
+    moves = {r[0]: r[1:] for r in _q(cn, "SELECT on_id, desk_id, created, act, peer_id, HEX(IFNULL(evidence, '')),"
+                                         " text, roster_id"
                                          " FROM doing WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')")}
     assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(b) == len(moves)
     for rb in b:
@@ -417,7 +428,8 @@ def test_ids_rows_and_transforms(main_book):
         if act == "claim" and rb["assigned_id"] != rb["updated_id"]:
             act = "assign"
         ev = (rb["evidence"] or "").encode("utf-8").hex().upper()
-        assert moves[rb["id"]] == (rb["updated_id"], rb["updated"], act, rb["assigned_id"], ev, rb["roster_id"]), rb
+        assert moves[rb["id"]] == (rb["updated_id"], rb["updated"], act, rb["assigned_id"], ev, "", rb["roster_id"]), rb
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act IN ('focus', 'clear', 'finish') AND evidence IS NOT NULL") == 0
     assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == len(b)
 
     # activity.act: the item's latest move (a card's from its status, a doing row's own act, a hold taken or free).
@@ -548,7 +560,7 @@ def test_preflight_refuses_bad_data_and_changes_nothing(main_book, case, check):
     msg = str(e.value)
     assert check in msg and "nothing was changed" in msg, msg
     if check == "todo_evidence_long":
-        assert "pending the owner" in msg, msg
+        assert "2000" in msg and "EVIDENCE_MAX" in msg, msg
     assert schema_snapshot(main_book) == snap
     assert _checksums(main_book) == sums
     assert _routines(main_book) == routines
@@ -623,10 +635,11 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
         cur.execute("ALTER TABLE mail DROP FOREIGN KEY fk_mail_desk, DROP FOREIGN KEY fk_mail_roster")
     else:
         migrate.apply_080(main_book, stop_after="acts")
-        cur.execute("INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)"
-                    " SELECT updated, updated_id, roster_id, IFNULL(evidence, ''), 'todo', id,"
+        cur.execute("INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id, evidence)"
+                    " SELECT updated, updated_id, roster_id, '', 'todo', id,"
                     " ELT(FIELD(status, 'open', 'parked', 'claimed', 'shipped', 'done'),"
-                    " 'create', 'park', IF(assigned_id = updated_id, 'claim', 'assign'), 'ship', 'done'), assigned_id"
+                    " 'create', 'park', IF(assigned_id = updated_id, 'claim', 'assign'), 'ship', 'done'),"
+                    " assigned_id, evidence"
                     " FROM todo")
     main_book.commit()
     cur.close()
