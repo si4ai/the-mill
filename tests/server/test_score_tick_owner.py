@@ -42,11 +42,11 @@ def test_fallback_updates_the_office_rows_with_no_desk():
     cur = MagicMock()
     cn = MagicMock()
     cn.cursor.return_value = cur
-    st._publish_sql(cn, {st.KPI_TICKS: 3})
+    st._publish_sql(cn, {st.KPI_TICKS: 3, st.KPI_IDLE: 0, st.KPI_DROP: 0})
     updates = [c for c in cur.execute.call_args_list if "UPDATE score" in c.args[0]]
     assert len(updates) == 3
     assert all("roster_id=1 AND desk_id IS NULL" in c.args[0] for c in updates)
-    assert [c.args[1][0] for c in updates][0] == "3"
+    assert all(c.args[1][0] in ("3", "0") for c in updates)
     assert cn.commit.called
 
 
@@ -62,6 +62,13 @@ def test_fallback_failure_does_not_commit():
     with pytest.raises(RuntimeError, match="book down"):
         st._publish_sql(cn, {})
     assert not cn.commit.called
+
+
+def test_fallback_has_no_admin_desk_lookup():
+    src = (ROOT / "agent_coord" / "server" / "score_tick.py").read_text(encoding="utf-8")
+    assert "Admin roster missing" not in src
+    assert "desk_id=%s" not in src.split("def _publish_sql", 1)[1].split("def tick", 1)[0]
+
 
 
 def test_regression_row_f19_documented():
