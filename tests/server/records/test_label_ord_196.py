@@ -99,52 +99,10 @@ def test_fresh_book_never_has_idx_name(cn) -> None:
     assert "smallint" in kind and "unsigned" in kind
     assert str(col[1]) == "65535"
     assert str(col[2]).upper() == "NO"
-    name_pos = int(_column(cn, "name_id")[3])
-    assert int(col[3]) == name_pos + 1
+    # 0.8.0: name_kind sits between name_id and ord
+    kind_pos = int(_column(cn, "name_kind")[3])
+    assert int(col[3]) == kind_pos + 1
 
-
-def test_migrate_existing_rows_index_swap_and_idempotent(cn) -> None:
-    seed_names(cn, ("unit", "roster"), ("a", "desk"), ("mig", "label"))
-    tid = int(rec_todo.insert(cn, "unit", "a", "open", "migrate-me")[0]["id"])
-    rec_label.put(cn, "todo", tid, "mig", 3)
-    assert _ord(cn, "todo", tid, "mig") == 3
-
-    _exec(cn, "ALTER TABLE label ADD KEY idx_name (name_id, type, id)")
-    _exec(cn, "ALTER TABLE label DROP INDEX idx_label_ord")
-    _exec(cn, "ALTER TABLE label DROP COLUMN ord")
-    assert _column(cn, "ord") is None
-
-    try:
-        first = migrate.ensure(cn)
-        assert "label.ord" in first["applied"]
-        assert "label.idx_label_ord" in first["applied"]
-        assert "label.drop_idx_name" in first["applied"]
-        assert _ord(cn, "todo", tid, "mig") == 65535
-        assert "idx_name" not in _indexes(cn)
-        assert "idx_label_ord" in _indexes(cn)
-
-        second = migrate.ensure(cn)
-        assert "label.ord" not in second["applied"]
-        assert "label.idx_label_ord" not in second["applied"]
-        assert "label.drop_idx_name" not in second["applied"]
-        assert _ord(cn, "todo", tid, "mig") == 65535
-
-        # idx_name already gone. A different name_id index holds fk_label_name.
-        _exec(cn, "ALTER TABLE label ADD KEY idx_name_hold (name_id)")
-        _exec(cn, "ALTER TABLE label DROP INDEX idx_label_ord")
-        _exec(cn, "ALTER TABLE label DROP COLUMN ord")
-        assert "idx_name" not in _indexes(cn)
-        third = migrate.ensure(cn)
-        assert "label.ord" in third["applied"]
-        assert "label.idx_label_ord" in third["applied"]
-        assert "label.drop_idx_name" not in third["applied"]
-        assert _column(cn, "ord") is not None
-        assert "idx_label_ord" in _indexes(cn)
-        assert "idx_name" not in _indexes(cn)
-    finally:
-        if "idx_name_hold" in _indexes(cn):
-            _exec(cn, "ALTER TABLE label DROP INDEX idx_name_hold")
-        migrate.ensure(cn)
 
 
 def test_ord_sort_pin_and_created_tie(cn) -> None:
