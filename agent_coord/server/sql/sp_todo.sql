@@ -320,7 +320,10 @@ BEGIN
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
-         t.done_when, t.evidence
+         t.done_when,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -354,7 +357,10 @@ BEGIN
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
-         t.done_when, t.evidence
+         t.done_when,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -400,7 +406,10 @@ BEGIN
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
-         t.done_when, t.evidence
+         t.done_when,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id

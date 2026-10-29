@@ -320,7 +320,10 @@ BEGIN
          t.status, t.assigned_id, t.body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type,
          sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
-         t.done_when, t.evidence
+         t.done_when,
+         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
+           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
+           ORDER BY d.id DESC LIMIT 1) AS evidence
     FROM todo t
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = t.roster_id
     LEFT JOIN name an ON an.id = t.roster_id
