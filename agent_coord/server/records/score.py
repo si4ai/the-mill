@@ -25,7 +25,7 @@ def upsert(
 
 
 def admin_upsert(cn, kpi: str, value: str = "", target: str = "", note: str = "") -> list[dict]:
-    """Office host score owned by the Admin roster (mill_score_admin_upsert). No watcher."""
+    """Office host score with no desk (mill_score_admin_upsert, desk_id NULL). No watcher."""
     return call(cn, "mill_score_admin_upsert", [kpi, value, target, note])
 
 

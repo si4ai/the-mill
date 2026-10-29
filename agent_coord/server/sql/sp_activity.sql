@@ -79,25 +79,12 @@ CREATE PROCEDURE mill_watcher_select(
   IN p_id   BIGINT UNSIGNED
 )
 BEGIN
-  -- A roster watcher expands to its members when it wakes them (#265), so a desk
-  -- that joins the roster later is woken too. A desk's own row wins over the
-  -- roster row (its own hint), and a desk on two watching rosters appears once.
+  -- 0.8.0: watchers are desks only (FK to seat). No roster-branch expansion.
   SELECT w.desk_id, n.name AS desk, n.type AS desk_type, w.hint, h.delivery_mode, h.endpoint_url
     FROM watcher w
     JOIN name n ON n.id = w.desk_id AND n.type = 'desk'
     LEFT JOIN seat h ON h.desk_id = w.desk_id
-   WHERE w.type = p_type AND w.id = p_id
-  UNION ALL
-  SELECT d.id, d.name, d.type, MIN(w.hint), h.delivery_mode, h.endpoint_url
-    FROM watcher w
-    JOIN name r ON r.id = w.desk_id AND r.type = 'roster'
-    JOIN member mb ON mb.name_id = r.id
-    JOIN name d ON d.id = mb.desk_id AND d.type = 'desk' AND d.deleted IS NULL
-    LEFT JOIN seat h ON h.desk_id = d.id
-   WHERE w.type = p_type AND w.id = p_id
-     AND NOT EXISTS (
-       SELECT 1 FROM watcher x WHERE x.type = p_type AND x.id = p_id AND x.desk_id = d.id)
-   GROUP BY d.id, d.name, d.type, h.delivery_mode, h.endpoint_url;
+   WHERE w.type = p_type AND w.id = p_id;
 END //
 
 CREATE PROCEDURE mill_watcher_set_hint(
@@ -223,8 +210,7 @@ BEGIN
   END IF;
 
   SET v_name = NULL;
-  SET v_office = NULL;
-  SELECT id INTO v_office FROM name WHERE id = 1 AND type = 'roster' AND deleted IS NULL LIMIT 1;  -- #722: Office by id
+  SET v_office = 1;  -- Office is id 1 (kind FK enforces roster; no type guard)
   IF v_kind = 'project' THEN
     SELECT id INTO v_name FROM name WHERE type = 'roster' AND name = p_id AND deleted IS NULL LIMIT 1;
   ELSEIF v_kind = 'role' THEN

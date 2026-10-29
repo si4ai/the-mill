@@ -59,6 +59,11 @@ def open_book(test_db: str):
         records.apply(c, wipe=True)
     except Exception as e:
         pytest.fail(f"mill records: MySQL answered but the SQL did not apply: {e}", pytrace=False)
+    # Cap InnoDB lock waits so a stuck FOR UPDATE fails the test instead of hanging CI (~15 min).
+    cur = c.cursor()
+    cur.execute("SET SESSION innodb_lock_wait_timeout = 30")
+    cur.execute("SET SESSION lock_wait_timeout = 30")
+    cur.close()
     return c
 
 
