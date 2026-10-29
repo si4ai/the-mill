@@ -70,9 +70,14 @@ def test_admin_is_a_roster_and_old_upsert_refuses(cn):
 
 
 def test_publish_writes_office_rows_with_no_desk(cn):
+    from agent_coord.client.tokens import token_hash
     from agent_coord.server import glance, score_tick
+    from agent_coord.server.records import join as rec_join
 
-    seed_names(cn, ("sa_live", "desk"))
+    seed_names(cn, ("sa_live", "desk"), ("Office", "roster"))
+    # 0.8.0: score.desk_id FKs to seat; a desk needs a seat before a desk-owned score.
+    rec_join.upsert(cn, "Office", "sa_live", "", token_hash("seat-sa_live"), None)
+    cn.commit()
     counts = {score_tick.KPI_TICKS: 5, score_tick.KPI_API_N: 77, "desks": {"sa_live": {score_tick.KPI_TICKS: 2}}}
     out = score_tick.publish(dict(counts))
     assert out["ok"] is True and "fallback" not in out, out

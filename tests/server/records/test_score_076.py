@@ -12,6 +12,17 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+
+def _seat(cn, *desks: str) -> None:
+    """0.8.0: score.desk_id FKs to seat; mint a seat for each desk name."""
+    from agent_coord.client.tokens import token_hash
+    from agent_coord.server.records import join as rec_join
+
+    for d in desks:
+        rec_join.upsert(cn, "Office", d, "", token_hash("seat-" + d), None)
+    cn.commit()
+
+
 from agent_coord.helpers.errors import CoordError
 from agent_coord.install import migrate
 from agent_coord.server.api.mill import rpc
@@ -43,6 +54,7 @@ def _live(cn, roster: str, kpi: str) -> list[tuple]:
 
 def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
     seed_names(cn, ("s76a", "roster"), ("g76", "desk"))
+    _seat(cn, "g76")
     rec_score.upsert(cn, "s76a", "g76", "probe", "", "", "")  # the 0.7.4 shape: empty, desk-owned
     with pytest.raises(CoordError, match="no score probe on s76a"):
         rpc._h_score(_Book(cn), {"name": "probe"}, "s76a", "g76")
@@ -53,6 +65,7 @@ def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
 
 def test_upgrade_leaves_one_score_per_name(cn) -> None:
     seed_names(cn, ("s76b", "roster"), ("Office", "roster"), ("ga", "desk"), ("gb", "desk"), ("gc", "desk"))
+    _seat(cn, "ga", "gb", "gc")
     # 1: empty legacy beside the 0.7.5 definition -> retired.
     rec_score.upsert(cn, "s76b", "ga", "dup", "", "", "")
     rpc._h_score(_Book(cn), {"name": "dup", "value": "3"}, "s76b", "ga")
@@ -84,6 +97,7 @@ def test_upgrade_leaves_one_score_per_name(cn) -> None:
 
 def test_set_target_without_a_point(cn) -> None:
     seed_names(cn, ("s76c", "roster"), ("tc", "desk"))
+    _seat(cn, "tc")
     got = rpc._h_score(_Book(cn), {"name": "ms.read", "target": "50", "better": "down", "unit": "ms"}, "s76c", "tc")
     assert got["target"] == "50" and got["better"] == "down" and got["unit"] == "ms" and got["trend"] == "new"
     assert _q(cn, "SELECT COUNT(*) FROM score_point sp JOIN score s ON s.id = sp.score_id"
@@ -104,6 +118,7 @@ def test_set_target_without_a_point(cn) -> None:
 
 def test_at_orders_points_and_backfill_is_not_latest(cn) -> None:
     seed_names(cn, ("s76d", "roster"), ("td", "desk"))
+    _seat(cn, "td")
     b = _Book(cn)
     rpc._h_score(b, {"name": "k", "value": "10", "better": "down"}, "s76d", "td")
     rpc._h_score(b, {"name": "k", "value": "30", "at": "2d"}, "s76d", "td")
@@ -120,6 +135,7 @@ def test_at_orders_points_and_backfill_is_not_latest(cn) -> None:
 @pytest.mark.parametrize("at", ["tomorrow", "2099-01-01", "5w", "2026-13-40", "1d; DROP"])
 def test_bad_at_stores_nothing(cn, at) -> None:
     seed_names(cn, ("s76e", "roster"), ("te", "desk"))
+    _seat(cn, "te")
     before = _q(cn, "SELECT COUNT(*) FROM score_point")[0][0]
     with pytest.raises(Exception, match="--at"):
         rpc._h_score(_Book(cn), {"name": "k", "value": "1", "at": at}, "s76e", "te")
@@ -128,6 +144,7 @@ def test_bad_at_stores_nothing(cn, at) -> None:
 
 def test_at_needs_a_value(cn) -> None:
     seed_names(cn, ("s76e", "roster"), ("te", "desk"))
+    _seat(cn, "te")
     with pytest.raises(CoordError, match="--at needs a VALUE"):
         rpc._h_score(_Book(cn), {"name": "k", "at": "1d"}, "s76e", "te")
 
@@ -137,6 +154,7 @@ def test_at_needs_a_value(cn) -> None:
 
 def test_retire_by_recorder_only_and_points_kept(cn) -> None:
     seed_names(cn, ("s76f", "roster"), ("rf", "desk"), ("other", "desk"))
+    _seat(cn, "rf", "other")
     sid = rpc._h_score(_Book(cn), {"name": "probe", "value": "1"}, "s76f", "rf")["id"]
     with pytest.raises(CoordError, match="only a desk that recorded on probe"):
         rpc._h_score(_Book(cn), {"name": "probe", "retire": True}, "s76f", "other")
@@ -155,6 +173,7 @@ def test_retire_by_recorder_only_and_points_kept(cn) -> None:
 
 def test_retire_by_admin_and_legacy_owner(cn) -> None:
     seed_names(cn, ("s76g", "roster"), ("Admin", "roster"), ("ad", "desk"), ("own", "desk"), ("rec", "desk"))
+    _seat(cn, "ad", "own", "rec")
     from agent_coord.server.records import member as rec_member
 
     rec_member.put_admin(cn, "ad")
@@ -166,5 +185,6 @@ def test_retire_by_admin_and_legacy_owner(cn) -> None:
 
 def test_retire_refuses_value_or_at(cn) -> None:
     seed_names(cn, ("s76h", "roster"), ("rh", "desk"))
+    _seat(cn, "rh")
     with pytest.raises(CoordError, match="retire takes no VALUE"):
         rpc._h_score(_Book(cn), {"name": "k", "value": "1", "retire": True}, "s76h", "rh")

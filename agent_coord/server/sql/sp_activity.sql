@@ -1,10 +1,10 @@
 -- Activity is the record of mail, todo, join, hold, and score.
--- mill_activity_put upserts that row: first write n=1, later writes n=n+1.
+-- mill_activity_put upserts that row (0.8.0: one row per item, its latest move: act by desk_id at updated).
+-- p_act: the move (activity.act, the list in docs/requirements/beta/BETA-CHANGES.md). NULL keeps the row's act and
+-- desk (a tree parent touch is not a move by anyone; a new row then says create).
 -- p_id = payload id (mail.id, todo.id, ...). No AUTO_INCREMENT on activity.
 -- p_bytes = last payload UTF-8 byte length (mail/todo body); NULL if none.
 -- p_project NULL keeps the row's roster: a tree parent touch passes NULL (card 841).
--- p_desk NULL (beta 0.8.0) is the office: a new row has no desk, and a touch of an
--- existing row keeps its desk (a parent touch is not the parent's new author).
 -- Outer SP owns the transaction.
 
 DROP PROCEDURE IF EXISTS mill_activity_put;
@@ -28,21 +28,20 @@ CREATE PROCEDURE mill_activity_put(
   IN p_ts      DATETIME(6),
   IN p_desk    BIGINT UNSIGNED,
   IN p_project BIGINT UNSIGNED,
-  IN p_weight  INT,
+  IN p_act     VARCHAR(16),
   IN p_bytes   INT UNSIGNED
 )
 BEGIN
   IF p_id IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill_activity_put: id required';
   END IF;
-  INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n, bytes)
-  VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_weight, MILL_WEIGHT(p_type)), 1, p_bytes)
+  INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes)
+  VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_act, 'create'), p_bytes)
   ON DUPLICATE KEY UPDATE
     updated = p_ts,
-    desk_id = IFNULL(p_desk, desk_id),
+    desk_id = IF(p_act IS NULL, desk_id, p_desk),
     roster_id = IFNULL(p_project, roster_id),
-    weight = IFNULL(p_weight, weight),
-    n = n + 1,
+    act = IFNULL(p_act, act),
     bytes = IFNULL(p_bytes, bytes);
 END //
 
@@ -52,9 +51,7 @@ CREATE PROCEDURE mill_watcher_put(
   IN p_desk BIGINT UNSIGNED
 )
 BEGIN
-  -- Beta 0.8.0: no IGNORE, so a non-desk (a roster id) is the FK refusal, not a silent no-op.
-  INSERT INTO watcher (type, id, desk_id) VALUES (p_type, p_id, p_desk) AS new
-  ON DUPLICATE KEY UPDATE desk_id = new.desk_id;
+  INSERT IGNORE INTO watcher (type, id, desk_id) VALUES (p_type, p_id, p_desk);
 END //
 
 CREATE PROCEDURE mill_watcher_roster(
@@ -82,13 +79,25 @@ CREATE PROCEDURE mill_watcher_select(
   IN p_id   BIGINT UNSIGNED
 )
 BEGIN
-  -- Beta 0.8.0: a watcher is a desk (watcher.desk_id FKs to seat). Main's roster
-  -- watcher rows (#265) are expanded to their member desks by the 0.8.0 migration.
+  -- A roster watcher expands to its members when it wakes them (#265), so a desk
+  -- that joins the roster later is woken too. A desk's own row wins over the
+  -- roster row (its own hint), and a desk on two watching rosters appears once.
   SELECT w.desk_id, n.name AS desk, n.type AS desk_type, w.hint, h.delivery_mode, h.endpoint_url
     FROM watcher w
     JOIN name n ON n.id = w.desk_id AND n.type = 'desk'
     LEFT JOIN seat h ON h.desk_id = w.desk_id
-   WHERE w.type = p_type AND w.id = p_id;
+   WHERE w.type = p_type AND w.id = p_id
+  UNION ALL
+  SELECT d.id, d.name, d.type, MIN(w.hint), h.delivery_mode, h.endpoint_url
+    FROM watcher w
+    JOIN name r ON r.id = w.desk_id AND r.type = 'roster'
+    JOIN member mb ON mb.name_id = r.id
+    JOIN name d ON d.id = mb.desk_id AND d.type = 'desk' AND d.deleted IS NULL
+    LEFT JOIN seat h ON h.desk_id = d.id
+   WHERE w.type = p_type AND w.id = p_id
+     AND NOT EXISTS (
+       SELECT 1 FROM watcher x WHERE x.type = p_type AND x.id = p_id AND x.desk_id = d.id)
+   GROUP BY d.id, d.name, d.type, h.delivery_mode, h.endpoint_url;
 END //
 
 CREATE PROCEDURE mill_watcher_set_hint(
@@ -114,7 +123,7 @@ CREATE PROCEDURE mill_activity_select(
   IN p_limit INT
 )
 BEGIN
-  SELECT a.type, a.id, a.created, a.updated, a.desk_id, a.roster_id, a.weight, a.n, a.bytes,
+  SELECT a.type, a.id, a.created, a.updated, a.desk_id, a.roster_id, a.act, a.bytes,
          ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type,
          CASE
            WHEN a.deleted IS NOT NULL THEN 'deleted'
@@ -175,7 +184,7 @@ BEGIN
     a.type,
     a.desk_id,
     a.roster_id,
-    SUM(a.n) AS n,
+    COUNT(*) AS items,
     ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type,
     ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
   FROM activity a
@@ -201,6 +210,7 @@ BEGIN
   DECLARE v_kind VARCHAR(16);
   DECLARE v_grain VARCHAR(16);
   DECLARE v_name BIGINT UNSIGNED;
+  DECLARE v_office BIGINT UNSIGNED;
   DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
 
   SET v_kind = LOWER(IFNULL(p_kind, ''));
@@ -213,6 +223,8 @@ BEGIN
   END IF;
 
   SET v_name = NULL;
+  SET v_office = NULL;
+  SELECT id INTO v_office FROM name WHERE id = 1 AND type = 'roster' AND deleted IS NULL LIMIT 1;  -- #722: Office by id
   IF v_kind = 'project' THEN
     SELECT id INTO v_name FROM name WHERE type = 'roster' AND name = p_id AND deleted IS NULL LIMIT 1;
   ELSEIF v_kind = 'role' THEN
@@ -224,7 +236,7 @@ BEGIN
   ELSEIF v_grain = 'min' AND v_kind = 'role' THEN
     SELECT
       CAST(DATE_FORMAT(a.updated, '%Y-%m-%d %H:%i:00') AS DATETIME(6)) AS updated,
-      a.type, a.desk_id, a.roster_id, SUM(a.n) AS n,
+      a.type, a.desk_id, a.roster_id, COUNT(*) AS items,
       ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
     FROM member m
     JOIN activity a
@@ -238,7 +250,7 @@ BEGIN
   ELSEIF v_grain = 'min' AND v_kind = 'lan' THEN
     SELECT
       CAST(DATE_FORMAT(a.updated, '%Y-%m-%d %H:%i:00') AS DATETIME(6)) AS updated,
-      a.type, a.desk_id, a.roster_id, SUM(a.n) AS n,
+      a.type, a.desk_id, a.roster_id, COUNT(*) AS items,
       ANY_VALUE(dn.name) AS desk, ANY_VALUE(dn.type) AS desk_type, ANY_VALUE(an.name) AS roster, ANY_VALUE(an.type) AS roster_type
     FROM seat j
     JOIN activity a
@@ -253,7 +265,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = 1
+      ON s.roster_id = v_office
      AND s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -267,7 +279,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = 1
+      ON s.roster_id = v_office
      AND s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -281,7 +293,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = 1
+      ON s.roster_id = v_office
      AND s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -295,7 +307,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = 1
+      ON s.roster_id = v_office
      AND s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
@@ -347,7 +359,9 @@ BEGIN
     recent.updated,
     recent.type,
     recent.id,
-    recent.n,
+    recent.act,
+    1 AS items,
+    recent.bytes,
     recent.desk_id,
     dn.name AS desk, dn.type AS desk_type,
     recent.roster_id,
@@ -379,7 +393,7 @@ BEGIN
        AND j.lan_ip = p_id
   ) d
   JOIN LATERAL (
-    SELECT a.type, a.id, a.updated, a.deleted, a.desk_id, a.roster_id, a.n
+    SELECT a.type, a.id, a.updated, a.deleted, a.desk_id, a.roster_id, a.act, a.bytes
       FROM activity a
      WHERE a.desk_id = d.desk_id
      ORDER BY a.updated DESC, a.type, a.id

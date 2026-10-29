@@ -16,6 +16,7 @@ from agent_coord.server.records.db import call, conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import admin_desk
 
 TEST_DB = throwaway_db("mill_writer_gaps_test")
 
@@ -125,7 +126,7 @@ def test_mail_insert_ids_never_reused(cn) -> None:
     b = int(mail.insert(cn, "wg_p", "wg_d", "wg_r", "two")[0]["id"])
     assert b > a
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='mail' AND id=%s", (b,)) is None
-    assert scalar(cn, "SELECT n FROM activity WHERE type='mail' AND id=%s", (b,)) == 1
+    assert scalar(cn, "SELECT act FROM activity WHERE type='mail' AND id=%s", (b,)) is not None
     # Checks stay on for the whole call (#205, #216).
     assert int(scalar(cn, "SELECT @@SESSION.foreign_key_checks")) == 1
 
@@ -219,7 +220,7 @@ def test_reclaim_desk_with_dead_seat_ok(cn) -> None:
     here.upsert(cn, "wg_rcp", "wg_rc_dead", "", "b" * 64, "")
     here.reset(cn, "wg_rcp", "wg_rc_dead")
     _retire_raw(cn, "desk", "wg_rc_dead")
-    out = rec_name.reclaim(cn, "wg_rc_dead", "desk")
+    out = rec_name.reclaim(cn, "wg_rc_dead", "desk", by=admin_desk(cn))
     assert out[0]["op"] == "reclaimed"
 
 
@@ -228,7 +229,7 @@ def test_reclaim_desk_with_live_seat_blocked(cn) -> None:
     here.upsert(cn, "wg_rcl", "wg_rc_live", "", "c" * 64, "")
     _retire_raw(cn, "desk", "wg_rc_live")
     with pytest.raises(Exception) as ei:
-        rec_name.reclaim(cn, "wg_rc_live", "desk")
+        rec_name.reclaim(cn, "wg_rc_live", "desk", by=admin_desk(cn))
     assert "name in use" in str(ei.value)
 
 
@@ -242,9 +243,9 @@ def test_reclaim_role_blocked_only_by_live_member(cn) -> None:
     )
     _retire_raw(cn, "roster", "wg_rcr")
     with pytest.raises(Exception):
-        rec_name.reclaim(cn, "wg_rcr", "roster")
+        rec_name.reclaim(cn, "wg_rcr", "roster", by=admin_desk(cn))
     here.reset(cn, "wg_rcr_p", "wg_rcr_m")
-    out = rec_name.reclaim(cn, "wg_rcr", "roster")
+    out = rec_name.reclaim(cn, "wg_rcr", "roster", by=admin_desk(cn))
     assert out[0]["op"] == "reclaimed"
 
 
@@ -252,7 +253,7 @@ def test_reclaim_unrelated_live_seat_does_not_block(cn) -> None:
     seed_names(cn, ("wg_rcu_p", "roster"), ("wg_rcu_live", "desk"), ("wg_rcu_name", "label"))
     here.upsert(cn, "wg_rcu_p", "wg_rcu_live", "", "9" * 64, "")
     _retire_raw(cn, "label", "wg_rcu_name")
-    out = rec_name.reclaim(cn, "wg_rcu_name", "label")
+    out = rec_name.reclaim(cn, "wg_rcu_name", "label", by=admin_desk(cn))
     assert out[0]["op"] == "reclaimed"
 
 
@@ -286,4 +287,4 @@ def test_todo_delete_requires_desk(cn) -> None:
     todo.delete(cn, tid, "wg_tother")
     # stamp only: activity.desk_id is not rewritten to the deleting desk
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='todo' AND id=%s", (tid,)) == desk
-    assert scalar(cn, "SELECT n FROM activity WHERE type='todo' AND id=%s", (tid,)) == 1
+    assert scalar(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None

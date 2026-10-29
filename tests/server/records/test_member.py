@@ -17,6 +17,7 @@ from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import seed_names
 
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import admin_desk
 
 TEST_DB = throwaway_db("mill_records_test")
 
@@ -99,9 +100,9 @@ def test_m4_retire_keeps_member_rows_reclaim_warns(cn) -> None:
     seed_names(cn, ("carol", "desk"))
     rec_name.host_put(cn, "keep-roster", "roster")
     rec_member.put(cn, "keep-roster", "carol")
-    rec_name.retire(cn, "keep-roster", "roster")
+    rec_name.retire(cn, "keep-roster", "roster", by=admin_desk(cn))
     rows = rec_member.select(cn, group="keep-roster")
     assert rows
-    out = rec_name.reclaim(cn, "keep-roster", "roster")
+    out = rec_name.reclaim(cn, "keep-roster", "roster", by=admin_desk(cn))
     hit = out[0] if out else {}
     assert int(hit.get("members") or 0) >= 1

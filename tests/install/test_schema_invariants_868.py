@@ -27,7 +27,6 @@ SHORT_TEXT_OK = {
     ("mill_invite", "key_id"): "an invite key id, ascii",
     ("mill_invite_join", "key_id"): "an invite key id, ascii",
     ("mill_invite_join", "party"): "desk or human, a kind",
-    ("vote_option", "label"): "option text",
     ("seat", "lan_ip"): "an address",
 }
 # Id-like columns that are not BIGINT UNSIGNED (main's id type, owner decision 2026-10-24), with the reason.
@@ -35,9 +34,6 @@ ID_TYPE_OK = {
     ("mill_invite", "key_id"): "an invite key string",
     ("mill_invite_join", "key_id"): "an invite key string",
     ("mill_invite_join", "party_id"): "FINDING F1",
-    ("glance_cache", "id"): "the one row (tinyint)",
-    ("vote_option", "opt"): "option number 1..n, not an id",
-    ("vote_cast", "opt"): "option number 1..n, not an id",
 }
 # Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data. seat is the
 # desk kind (one FK to name, kind id = name.id); roster, label, tree and res have no data of their own, so their
@@ -45,7 +41,7 @@ ID_TYPE_OK = {
 KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind"}
 NAME_REF_NO_OWN_DATA = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id"),
                         ("member", "name_id"), ("activity", "roster_id"), ("mail", "roster_id"), ("todo", "roster_id"),
-                        ("doing", "roster_id"), ("score", "roster_id"), ("vote", "roster_id"), ("human_member", "name_id")}
+                        ("doing", "roster_id"), ("score", "roster_id"), ("human_member", "name_id")}
 # Desk columns FK to seat (desk_id); roster columns to name (id).
 DESK_COLS = ("desk_id", "updated_id", "creator_id", "assigned_id")
 ROSTER_COLS = ("roster_id",)
@@ -167,11 +163,11 @@ def test_app_grant_is_execute_only(book):
 
 
 def test_no_name_event_anywhere_in_the_book(book):
-    # No name history (the owner): no table, trigger or routine names name_event, and the book has 30 tables (F166).
+    # No name history (the owner): no table, trigger or routine names name_event, and the book has main's 22 tables (F166).
     cn, db = book
     tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
     assert "name_event" not in tables
-    assert len(tables) == 29, f"beta book has {len(tables)} tables"
+    assert len(tables) == 22, f"beta book has {len(tables)} tables"
     trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
                      " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
                      " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))
@@ -181,7 +177,7 @@ def test_no_name_event_anywhere_in_the_book(book):
 
 
 # The owner (2026-10-25): a name kind gets its own table only if the thing has its own data. A roster has none, so
-# there is no roster table and the eight roster columns reference name (id), with main's constraint names (F167).
+# there is no roster table and the seven roster columns reference name (id), with main's constraint names (F167).
 ROSTER_FKS = {
     ("member", "fk_member_name", "name_id"): "RESTRICT",
     ("activity", "fk_activity_roster", "roster_id"): "RESTRICT",
@@ -189,7 +185,6 @@ ROSTER_FKS = {
     ("todo", "fk_todo_roster", "roster_id"): "RESTRICT",
     ("doing", "fk_doing_roster", "roster_id"): "RESTRICT",
     ("score", "fk_score_roster", "roster_id"): "RESTRICT",
-    ("vote", "fk_vote_roster", "roster_id"): "RESTRICT",
     ("human_member", "fk_human_member_name", "name_id"): "CASCADE",
 }
 
@@ -208,7 +203,8 @@ def test_no_roster_table_and_roster_columns_reference_name(book):
     assert not [k for k, v in got.items() if v[0] == "roster"], "nothing references a roster table"
 
 
-# The owner (2026-10-25, approved review file): the twelve single-kind name references are kind-checked. Each has a
+# The owner (2026-10-25, approved review file): the eleven single-kind name references (twelve until the vote table
+# was dropped, 2026-10-26) are kind-checked. Each has a
 # plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and its FK is (col, <x>_kind) -> name (id, type), keeping the
 # constraint name and ON DELETE rule. name carries UNIQUE idx_id_type (id, type) as the FK target. Desk columns keep
 # referencing seat (desk_id) (F168).
@@ -220,7 +216,6 @@ KIND_FKS = {
     ("todo", "fk_todo_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
     ("doing", "fk_doing_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
     ("score", "fk_score_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("vote", "fk_vote_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
     ("tree", "fk_tree_name"): ("name_id", "name_kind", "tree", "RESTRICT"),
     ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree_kind", "tree", "RESTRICT"),
     ("label", "fk_label_name"): ("name_id", "name_kind", "label", "RESTRICT"),
@@ -269,7 +264,7 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
 
 
 def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
-    # One name of each kind; each of the twelve columns takes its own kind and refuses the other four (FK, 1452).
+    # One name of each kind; each of the eleven columns takes its own kind and refuses the other four (FK, 1452).
     import mysql.connector
 
     cn, db = book
@@ -288,8 +283,6 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "todo": ("INSERT INTO todo (updated_id, roster_id, creator_id) VALUES (%s, %s, %s)", lambda x: (desk, x, desk)),
         "doing": ("INSERT INTO doing (desk_id, roster_id) VALUES (%s, %s)", lambda x: (desk, x)),
         "score": ("INSERT INTO score (desk_id, roster_id, kpi) VALUES (%s, %s, 'kchk')", lambda x: (desk, x)),
-        "vote": ("INSERT INTO vote (desk_id, roster_id, mail_id, question, deadline)"
-                 " VALUES (%s, %s, %s, 'q', NOW(6) + INTERVAL 1 DAY)", lambda x: (desk, x, mail)),
         "tree": ("INSERT INTO tree (name_id, type, id, lft, rgt) VALUES (%s, 'mail', %s, 1, 2)", lambda x: (x, mail)),
         "tree_read": ("INSERT INTO tree_read (desk_id, tree_id, last_id) VALUES (%s, %s, 0)", lambda x: (desk, x)),
         "label": ("INSERT INTO label (type, id, name_id) VALUES ('mail', %s, %s)", lambda x: (mail, x)),

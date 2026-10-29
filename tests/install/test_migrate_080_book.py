@@ -1,4 +1,4 @@
-"""0.8.0 schema migration (lane A): a main book (0.7.18 shape) to the 0.8.0 schema, on throwaway MySQL.
+"""0.8.0 schema migration (lane A; F170, F180): a main book (0.7.18 shape) to the 0.8.0 schema, on throwaway MySQL.
 
 Each test builds a main book, seeds normal data plus the problem cases the migration fixes, runs
 agent_coord.install.migrate, and checks the result against a fresh install of tables.sql through
@@ -69,9 +69,15 @@ def _one(cn, sql, args=()):
 # Seed: a main book with normal data and every problem case.
 
 
-def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False) -> dict:
+def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False, long_evidence: bool = False) -> dict:
     rng = random.Random(80 + scale)
     cur = cn.cursor()
+    if long_evidence:
+        # todo.evidence is VARCHAR(2000); widen so a value over EVIDENCE_MAX can exist for the preflight refuse.
+        cur.execute(
+            "ALTER TABLE todo MODIFY COLUMN evidence VARCHAR(4000)"
+            " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL"
+        )
     t0 = datetime(2026, 9, 1, 8, 0, 0)
 
     def ts(i: int) -> datetime:
@@ -144,7 +150,13 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False) 
         creator = unseated[2] if i % 89 == 0 else rng.choice(desks)
         upd = rng.choice(desks)
         asg = rng.choice(desks) if st in ("claimed", "shipped", "done") else None
-        ev = f"evidence {i}" if st in ("shipped", "done") and i % 2 == 0 else None
+        ev = f"evidence {i} \u00e9\u2713 \U0001f600" if st in ("shipped", "done") and i % 2 == 0 else None
+        if i == 7:  # evidence on a card a step back left claimed: carried as it is (0.8.0 has no CHECK on it)
+            ev = "kept after a step back"
+        if i == 10:  # a long evidence that fits doing.evidence (EVIDENCE_MAX 2000; 4-byte ones)
+            ev = "\U0001f600" * 500
+        if i == 15 and long_evidence:  # over EVIDENCE_MAX refuses the migrate (nothing is cut)
+            ev = "x" * 2001
         dw = f"done when {i}" if i % 3 == 0 else None
         roster = rng.choice([1] + rosters)
         todo.append((i, ts(i), ts(i + 50), upd, roster, creator, st, asg, ts(i + 10) if st == "claimed" else None,
@@ -173,10 +185,19 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False) 
         d = rng.choice(desks)
         created = ts(i // 2)  # pairs share a timestamp
         cleared = i % 17 == 0
+        finished = i % 23 == 0  # main's mill_doing_finish row: empty text on the entry's item
         on = None if cleared else rng.choice([None, ("todo", rng.randint(1, n_todo)), ("mail", rng.randint(1, n_mail))])
-        doing.append((i, created, d, rng.choice([1] + rosters), "" if cleared else f"doing {i}",
+        if finished:
+            on = ("todo", rng.randint(1, n_todo))
+        doing.append((i, created, d, rng.choice([1] + rosters), "" if cleared or finished else f"doing {i}",
                       on[0] if on else None, on[1] if on else None))
         activity.append(("doing", i, created, created, d, 1, 1, 1, None))
+    # desks[0]'s newest row is a finish row on its last entry's item: the seat names that entry (it ended).
+    last = max((r for r in doing if r[2] == desks[0] and r[4]), key=lambda r: (r[1], r[0]), default=None)
+    if last is not None:
+        fin = n_doing + 1
+        doing.append((fin, ts(n_doing), desks[0], last[3], "", "todo", 1))
+        activity.append(("doing", fin, ts(n_doing), ts(n_doing), desks[0], 1, 1, 1, None))
     cur.executemany("INSERT INTO doing (id, created, desk_id, roster_id, text, on_type, on_id)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s)", doing)
 
@@ -249,9 +270,16 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False) 
 MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher", "mail", "mail_to", "tree_read", "todo",
                "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
                "mill_invite", "mill_invite_join", "push_queue")
-NEW_TABLES = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "glance_cache", "sp_deploy")
-# Columns the migration adds (kind pins, desk_key) or drops (todo.evidence); left out of the row compare.
-ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key"}
+# The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
+DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "glance_cache", "sp_deploy")
+# Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
+# activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
+# (it is new; main's focus rows keep it NULL).
+ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id"}
+DROPPED = {"evidence", "weight", "n"}
+# A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
+# assign).
+SEED_ACT = {"open": "create", "parked": "park", "claimed": "claim", "shipped": "ship", "done": "done"}
 
 
 def _pk(cn, table):
@@ -289,12 +317,12 @@ def _migrate(cn):
 
 
 def test_fresh_tables_sql_is_the_080_schema(fresh_snapshot):
-    """tables.sql is the 29-table 0.8.0 schema, the same as docs/requirements/beta/beta_ddl.sql."""
+    """tables.sql is the 22-table 0.8.0 schema, the same as docs/requirements/beta/beta_ddl.sql."""
     from tests.beta_book import drop_db, make_book, schema_snapshot
 
     tables = {r[0] for r in fresh_snapshot["tables"]}
-    assert len(tables) == 29, sorted(tables)
-    assert set(NEW_TABLES) <= tables
+    assert tables == set(MAIN_TABLES), sorted(tables)
+    assert not set(DROPPED_PLAN) & tables
     cn, db = make_book("mill_m080_doc", sp=False)
     try:
         doc = schema_snapshot(cn)
@@ -303,7 +331,7 @@ def test_fresh_tables_sql_is_the_080_schema(fresh_snapshot):
     for key in fresh_snapshot:
         assert fresh_snapshot[key] == doc[key], key
     kind_fks = [r for r in fresh_snapshot["fk_cols"] if r[3].endswith("_kind")]
-    assert len(kind_fks) == 12, kind_fks
+    assert len(kind_fks) == 11, kind_fks
 
 
 def test_migrated_main_book_equals_fresh_install(main_book, fresh_snapshot):
@@ -324,12 +352,13 @@ def test_ids_rows_and_transforms(main_book):
     after = dump(main_book)
     cn = main_book
 
-    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo"}
+    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing"}
     for t in sorted(untouched):
         assert after[t] == before[t], t
 
     # seat: every desk has a seat; old rows unchanged; the unseated desks got a token-NULL row.
     old_seats = {r["desk_id"]: r for r in _rows_as_dicts(before, "seat")}
+    # updated = updated: seeding seat.doing_id is not a seat edit (ON UPDATE CURRENT_TIMESTAMP must not fire).
     new_seats = {r["desk_id"]: r for r in _rows_as_dicts(after, "seat")}
     for d, row in old_seats.items():
         assert new_seats[d] == row
@@ -364,36 +393,77 @@ def test_ids_rows_and_transforms(main_book):
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
             assert ra["desk_id"] == want_desk, (t, rb)
-            assert {k: v for k, v in ra.items() if k != "desk_id"} == {k: v for k, v in rb.items() if k != "desk_id"}
+            keep = {k: v for k, v in rb.items() if k not in ("desk_id", "weight", "n")}
+            assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
+    assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
     assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_key <> IFNULL(desk_id, 0)") == 0
     assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 3 + 8 * 3
 
-    # todo: evidence moved to todo_event (one row each), the column is gone, every other field kept.
+    # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")
     a = {r["id"]: r for r in _rows_as_dicts(after, "todo")}
     assert "evidence" not in after["todo"][0]
     for rb in b:
         assert {k: v for k, v in rb.items() if k != "evidence"} == a[rb["id"]]
-    ev = {r[0]: r for r in _q(cn, "SELECT todo_id, desk_id, from_status, to_status, assigned_id, evidence, created"
-                                  " FROM todo_event")}
-    with_ev = [r for r in b if r["evidence"] is not None]
-    assert len(ev) == len(with_ev) == _one(cn, "SELECT COUNT(*) FROM todo_event")
-    for rb in with_ev:
-        assert ev[rb["id"]] == (rb["id"], rb["updated_id"], None, rb["status"], rb["assigned_id"], rb["evidence"],
-                                rb["updated"])
 
-    # doing_now: the newest doing row per desk, by (created, id), as mill_doing_now reads it.
-    newest = {}
+    # doing: main's rows are kept; act says what each was (text: focus; empty on an item: finish; else clear).
+    old_doing = {r["id"]: r for r in _rows_as_dicts(before, "doing")}
+    acts = dict(_q(cn, "SELECT id, act FROM doing WHERE id <= %s", (max(old_doing),)))
+    for i, r in old_doing.items():
+        assert acts[i] == ("focus" if r["text"] else "finish" if r["on_type"] else "clear"), r
+    new_doing = {
+        r["id"]: {k: v for k, v in r.items() if k != "evidence"}
+        for r in _rows_as_dicts(after, "doing") if r["id"] in old_doing
+    }
+    assert new_doing == old_doing
+
+    # Every card gets one move row (the owner, 2026-10-26): by updated_id at updated, act from the status, peer the
+    # volunteer, evidence the card's evidence byte for byte (or NULL), text empty. Focus rows keep evidence NULL.
+    moves = {r[0]: r[1:] for r in _q(cn, "SELECT on_id, desk_id, created, act, peer_id, HEX(IFNULL(evidence, '')),"
+                                         " text, roster_id"
+                                         " FROM doing WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')")}
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(b) == len(moves)
+    for rb in b:
+        act = SEED_ACT[rb["status"]]
+        if act == "claim" and rb["assigned_id"] != rb["updated_id"]:
+            act = "assign"
+        ev = (rb["evidence"] or "").encode("utf-8").hex().upper()
+        assert moves[rb["id"]] == (rb["updated_id"], rb["updated"], act, rb["assigned_id"], ev, "", rb["roster_id"]), rb
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act IN ('focus', 'clear', 'finish') AND evidence IS NOT NULL") == 0
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == len(b)
+
+    # activity.act: the item's latest move (a card's from its status, a doing row's own act, a hold taken or free).
+    for t, i, act in _q(cn, "SELECT a.type, a.id, a.act FROM activity a"):
+        if t == "todo":
+            want = moves[i][2]
+        elif t == "doing":
+            want = acts[i]
+        elif t == "hold":
+            want = "hold" if _one(cn, "SELECT desk_id FROM hold WHERE id = %s", (i,)) else "drop"
+        elif t == "mail":
+            want = "send"
+        else:
+            want = "score"
+        assert act == want, (t, i, act)
+
+    # seat.doing_id: the desk's newest focus row (focus or clear), created then id, as main's mill_doing_now orders
+    # rows. Where main's newest row is a finish row, the seat names the focus row it ended.
+    newest, focus = {}, {}
     for r in _rows_as_dicts(before, "doing"):
         k = (r["created"], r["id"])
         if r["desk_id"] not in newest or k > newest[r["desk_id"]][0]:
             newest[r["desk_id"]] = (k, r["id"])
-    now = dict(_q(cn, "SELECT desk_id, doing_id FROM doing_now"))
-    assert now == {d: v[1] for d, v in newest.items()}
+        if (r["text"] or not r["on_type"]) and (r["desk_id"] not in focus or k > focus[r["desk_id"]][0]):
+            focus[r["desk_id"]] = (k, r["id"])
+    seat_now = {d: v for d, v in _q(cn, "SELECT desk_id, doing_id FROM seat") if v is not None}
+    assert seat_now == {d: v[1] for d, v in focus.items()}
+    same = [d for d in newest if acts[newest[d][1]] != "finish"]
+    assert same and all(seat_now[d] == newest[d][1] for d in same)
+    assert any(acts[newest[d][1]] == "finish" for d in newest), "the seed has a desk whose newest row is a finish"
 
-    for t in ("vote", "vote_option", "vote_cast", "glance_cache"):
-        assert _one(cn, f"SELECT COUNT(*) FROM {t}") == 0, t
-    assert _one(cn, "SELECT COUNT(*) FROM sp_deploy") == 1
+    for t in DROPPED_PLAN:
+        assert _one(cn, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
+                        " AND TABLE_NAME = %s", (t,)) == 0, t
     # no migration routine is left behind
     assert _one(cn, "SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE()"
                     " AND ROUTINE_NAME LIKE 'mill\\_migrate\\_080%'") == 0
@@ -432,7 +502,8 @@ def test_second_run_is_a_no_op(main_book):
 
 
 @pytest.mark.parametrize("kill_after", [
-    "seat", "watcher", "desk_null", "score_key", "keys_kinds", "tables", "todo_event", "doing_now", "fks",
+    "seat", "watcher", "desk_null", "score_key", "keys_kinds", "columns", "acts", "moves", "doing_id", "drop_cols",
+    "fks",
 ])
 def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after):
     from agent_coord.install import migrate
@@ -449,9 +520,10 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
         assert snap[key] == fresh_snapshot[key], (kill_after, key)
     after = dump(main_book)
     for t in MAIN_TABLES:
-        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher"), t
-    assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == sum(
-        1 for r in _rows_as_dicts(before, "todo") if r["evidence"] is not None)
+        grow = len(before["todo"][1]) if t == "doing" else 0  # one move row per card
+        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher"), t
+    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(
+        before["todo"][1])
 
 
 def test_preflight_reports_and_changes_nothing(main_book):
@@ -467,13 +539,14 @@ def test_preflight_reports_and_changes_nothing(main_book):
     assert fix["seat_backfill"] == len(s["unseated"])
     assert fix["watcher_roster"] == len(s["roster_watch"])
     assert fix["activity_desk_null"] > 0 and fix["score_desk_null"] == 3 + 8 * 3
-    assert fix["todo_evidence"] > 0 and fix["doing_now"] > 0
+    assert fix["todo_moves"] == s["n_todo"] and fix["seat_doing_id"] > 0
     assert schema_snapshot(main_book) == snap
     assert _checksums(main_book) == sums
     assert _routines(main_book) == routines
 
 
-@pytest.mark.parametrize("case,check", [("collapse", "score_collapse"), ("bad_kind", "kind_label")])
+@pytest.mark.parametrize("case,check", [("collapse", "score_collapse"), ("bad_kind", "kind_label"),
+                                        ("long_evidence", "todo_evidence_long")])
 def test_preflight_refuses_bad_data_and_changes_nothing(main_book, case, check):
     from agent_coord.install import migrate
     from tests.beta_book import schema_snapshot
@@ -486,6 +559,8 @@ def test_preflight_refuses_bad_data_and_changes_nothing(main_book, case, check):
         migrate.apply_080(main_book)
     msg = str(e.value)
     assert check in msg and "nothing was changed" in msg, msg
+    if check == "todo_evidence_long":
+        assert "2000" in msg and "EVIDENCE_MAX" in msg, msg
     assert schema_snapshot(main_book) == snap
     assert _checksums(main_book) == sums
     assert _routines(main_book) == routines
@@ -543,32 +618,36 @@ def test_wipe_then_apply_on_a_migrated_book_is_a_fresh_install(main_book, fresh_
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], key
-    assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == 0
+    assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0
 
 
-@pytest.mark.parametrize("cut", ["fks_dropped_not_added", "todo_event_copied_not_dropped"])
+@pytest.mark.parametrize("cut", ["fks_dropped_not_added", "moves_copied_not_dropped"])
 def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
-    """A kill between the two ALTERs of the FK step, or between the todo_event copy and the column drop."""
+    """A kill between the two ALTERs of the FK step, or between the move rows' commit and the evidence drop."""
     from agent_coord.install import migrate
     from tests.beta_book import schema_snapshot
 
     seed(main_book)
-    n_ev = _one(main_book, "SELECT COUNT(*) FROM todo WHERE evidence IS NOT NULL")
+    n_cards = _one(main_book, "SELECT COUNT(*) FROM todo")
     cur = main_book.cursor()
     if cut == "fks_dropped_not_added":
-        migrate.apply_080(main_book, stop_after="doing_now")
+        migrate.apply_080(main_book, stop_after="drop_cols")
         cur.execute("ALTER TABLE mail DROP FOREIGN KEY fk_mail_desk, DROP FOREIGN KEY fk_mail_roster")
     else:
-        migrate.apply_080(main_book, stop_after="tables")
-        cur.execute("INSERT INTO todo_event (todo_id, created, desk_id, to_status, assigned_id, evidence)"
-                    " SELECT id, updated, updated_id, status, assigned_id, evidence FROM todo WHERE evidence IS NOT NULL")
+        migrate.apply_080(main_book, stop_after="acts")
+        cur.execute("INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id, evidence)"
+                    " SELECT updated, updated_id, roster_id, '', 'todo', id,"
+                    " ELT(FIELD(status, 'open', 'parked', 'claimed', 'shipped', 'done'),"
+                    " 'create', 'park', IF(assigned_id = updated_id, 'claim', 'assign'), 'ship', 'done'),"
+                    " assigned_id, evidence"
+                    " FROM todo")
     main_book.commit()
     cur.close()
     assert migrate.apply_080(main_book)
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)
-    assert _one(main_book, "SELECT COUNT(*) FROM todo_event") == n_ev
+    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == n_cards
 
 
 def _declared_keys_080() -> set[tuple[str, str]]:
@@ -583,7 +662,7 @@ def _declared_keys_080() -> set[tuple[str, str]]:
     return out
 
 
-@pytest.mark.parametrize("kill_after", [None, "keys_kinds", "doing_now"])
+@pytest.mark.parametrize("kill_after", [None, "keys_kinds", "columns", "doing_id"])
 def test_migrated_book_has_no_implicit_indexes(main_book, kill_after):
     """The owner rule (F169): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared in
     tables.sql and named idx_*. A migrated main book (whole, or resumed after a kill) has no index MySQL made for an

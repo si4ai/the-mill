@@ -42,6 +42,9 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: that desk has no seat in this office';
+  END IF;
   SELECT id INTO v_id FROM score
     WHERE roster_id = v_proj AND desk_id = v_desk AND kpi = p_kpi
     LIMIT 1;
@@ -57,7 +60,7 @@ BEGIN
           note = IFNULL(p_note, note)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   -- F2: soft-deleted score on upsert revives. Clear activity.deleted here only
   -- (never in mill_activity_put; that would resurrect mail/todo on any touch).
   UPDATE activity SET deleted = NULL, updated = v_ts
@@ -106,7 +109,7 @@ BEGIN
           note = IFNULL(p_note, note)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, NULL, 1, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, NULL, 1, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -249,7 +252,7 @@ BEGIN
            WHERE sp.score_id = v_id ORDER BY sp.created DESC, sp.id DESC LIMIT 1) n
       SET s.value = LEFT(CAST(n.value AS CHAR), 64), s.note = n.note
     WHERE s.id = v_id;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
@@ -314,7 +317,7 @@ BEGIN
           unit = IFNULL(p_unit, unit)
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('score'), NULL);
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);

@@ -18,6 +18,7 @@ from agent_coord.server.records import watcher as rec_w
 from tests.server.records.conftest import seed_names
 
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import admin_desk
 
 TEST_DB = throwaway_db("mill_records_test")
 
@@ -107,7 +108,7 @@ def test_w1_rename_keeps_the_name_id(cn) -> None:
     rec_name.host_put(cn, "ren", "roster")
     rec_member.put(cn, "ren", "dave")
     gid = rec_name.get(cn, "ren", "roster")
-    rec_name.rename(cn, "ren", "renamed", "roster")
+    rec_name.rename(cn, "ren", "renamed", "roster", by=admin_desk(cn))
     assert rec_name.get(cn, "renamed", "roster") == gid
     dave = rec_name.get(cn, "dave", "desk")
     assert dave in _members(cn, "renamed")

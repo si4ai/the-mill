@@ -882,8 +882,8 @@ def _ensure_todo_done_when(cn) -> list[str]:
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER body"
             )
             applied.append("todo.done_when")
-        # 0.8.0: evidence lives on todo_event; a migrated book must not get the column back.
-        if not _column_exists(cur, "todo", "evidence") and not _table_exists(cur, "todo_event"):
+        # 0.8.0: evidence is doing.evidence on a card's move row; a migrated book must not get todo.evidence back.
+        if not _column_exists(cur, "todo", "evidence") and not _column_exists(cur, "doing", "evidence"):
             cur.execute(
                 "ALTER TABLE todo ADD COLUMN evidence VARCHAR(2000) CHARACTER SET utf8mb4"
                 " COLLATE utf8mb4_0900_ai_ci NULL AFTER done_when"
@@ -1210,7 +1210,8 @@ def apply_doing_818(cn) -> list[str]:
 MIGRATE_080 = "migrate_080.sql"
 # Steps in order. Each checks the book first, so a run after a kill at any point does only what is left.
 STEPS_080: tuple[str, ...] = (
-    "seat", "watcher", "desk_null", "score_key", "keys_kinds", "tables", "todo_event", "doing_now", "fks", "triggers",
+    "seat", "watcher", "desk_null", "score_key", "keys_kinds", "columns", "acts", "moves", "doing_id", "drop_cols", "fks",
+    "triggers",
 )
 # Preflight checks that refuse the run, with what they mean. Nothing in the book changes before the refusal.
 _REFUSE_080: dict[str, str] = {
@@ -1238,7 +1239,9 @@ _REFUSE_080: dict[str, str] = {
     "kind_score": "score.roster_id holds a name that is not a roster",
     "kind_human_member": "human_member.name_id holds a name that is not a roster",
     "score_collapse": "two scores of one roster and kpi would both become the office's (desk NULL); retire or rename one",
-    "todo_evidence_status": "a card that is not shipped or done carries evidence",
+    "todo_evidence_long": (
+        "a card's evidence is longer than 2000 characters (doing.evidence / EVIDENCE_MAX); nothing is cut"
+    ),
 }
 
 
@@ -1414,32 +1417,6 @@ def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None)
     return applied
 
 
-def _pack_version() -> str:
-    try:
-        from agent_coord import __version__
-
-        return str(__version__ or "")[:15]
-    except Exception:
-        return ""
-
-
-def _stamp_sp_deploy(cn) -> None:
-    """0.8.0 sp_deploy: one row per pack version whose routines this book holds. Same version: no row."""
-    ver = _pack_version()
-    cur = cn.cursor()
-    try:
-        if not ver or not _table_exists(cur, "sp_deploy"):
-            return
-        cur.execute("SELECT version FROM sp_deploy ORDER BY id DESC LIMIT 1")
-        row = cur.fetchone()
-        if row and str(row[0]) == ver:
-            return
-        cur.execute("INSERT INTO sp_deploy (version, file) VALUES (%s, %s)", (ver, "apply_order.txt"))
-        cn.commit()
-    finally:
-        cur.close()
-
-
 SQL_FIX = "mill install sql --apply"
 _STAMP_FN = "MILL_SQL_STAMP"
 
@@ -1587,7 +1564,6 @@ def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
     res = _ensure_steps(cn)
-    _stamp_sp_deploy(cn)
     _stamp_sql(cn, sql_digest())
     _stamp_routines(cn)
     return res

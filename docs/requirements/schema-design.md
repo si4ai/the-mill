@@ -79,8 +79,8 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 - **Decision.** The desk is the one kind with data of its own (token, wake, connect stamps), so `seat` (desk_id,
   UNIQUE as on main) is its kind table: it links to `name (id)` with one FK, and every desk column FKs to seat
   (desk_id). A roster, label, tree or res has no data of its own (a roster's desk count is `name.n`, as on main), so
-  none has a kind table. Their twelve columns (the eight roster columns and the label, tree, tree_read and hold
-  references) each carry a plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and the FK is
+  none has a kind table. Their eleven columns (the seven roster columns and the label, tree, tree_read and hold
+  references; twelve until the vote table was dropped on 2026-10-26) each carry a plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and the FK is
   `(col, <x>_kind) REFERENCES name (id, type)` against `name`'s UNIQUE `idx_id_type` (id, type) (UNIQUE only
   because MySQL 8.4 needs a unique FK target; id is already the PK). There is no `roster` table (f316ac0f had one;
   the owner dropped it on 2026-10-25).
@@ -97,7 +97,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
   declared in the DDL and named idx_*. No index is implicit: an FK leads a PRIMARY, a UNIQUE or a declared idx_* key,
   and MySQL creates none for it (BETA-CHANGES.md row 39, F169). Each kind column is folded into the key that leads with
   its column; a PRIMARY or UNIQUE key extended by a constant kind column keeps the same uniqueness.
-- **Cost.** Twelve `*_kind` columns (one byte each) and twelve CHECKs; one more index (`idx_id_type`). A read on a
+- **Cost.** The eleven `*_kind` columns (one byte each) and eleven CHECKs; one more index (`idx_id_type`). A read on a
   folded key adds `AND <x>_kind = '<kind>'` to use the whole key (MySQL does not read the CHECK as a constant).
   Whether a seat row is a desk name is still the minting procedure's job (open question Q3).
 - **To change it.** A kind that gains data of its own, plus the owner's OK.

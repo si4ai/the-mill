@@ -15,6 +15,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import rows_done
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -43,25 +44,23 @@ def _holder(cn, res: str) -> str | None:
     return rows[0].get("desk") or None
 
 
-def _activity_n(cn, res: str) -> int:
-    return int(
-        rows_done(
-            cn,
-            "SELECT a.n FROM hold h JOIN name r ON r.id = h.resource_id"
-            " JOIN activity a ON a.type = 'hold' AND a.id = h.id WHERE r.name = %s",
-            (res,),
-        )[0]["n"]
-    )
+def _activity_act(cn, res: str) -> str:
+    return rows_done(
+        cn,
+        "SELECT a.act FROM hold h JOIN name r ON r.id = h.resource_id"
+        " JOIN activity a ON a.type = 'hold' AND a.id = h.id WHERE r.name = %s",
+        (res,),
+    )[0]["act"]
 
 
 def test_reset_frees_the_desks_holds_only(book) -> None:
     cn = book
-    n_a = _activity_n(cn, "h842/a")
+    act_a = _activity_act(cn, "h842/a")
     out = rec_join.reset(cn, R, GONE)
     assert _holder(cn, "h842/a") is None
     assert _holder(cn, "h842/b") is None
     assert int(out[0]["released"]) == 2
-    assert _activity_n(cn, "h842/a") == n_a + 1
+    assert _activity_act(cn, "h842/a") == "drop"
     assert _holder(cn, "h842/d") == OTHER
     assert rec_hold.own(cn, GONE) == []
     # The freed resource can be taken by another desk.
@@ -70,7 +69,7 @@ def test_reset_frees_the_desks_holds_only(book) -> None:
 
 def test_retire_frees_the_desks_holds(book) -> None:
     cn = book
-    out = rec_name.retire(cn, DEAD, "desk")
+    out = rec_name.retire(cn, DEAD, "desk", by=admin_desk(cn))
     assert _holder(cn, "h842/c") is None
     assert int(out[0]["released"]) == 1
     assert _holder(cn, "h842/d") == OTHER

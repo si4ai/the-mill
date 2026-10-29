@@ -143,8 +143,8 @@ def test_throwaway_ab_backfill_then_alter(cn) -> None:
     mid = int(scalar(cn, "SELECT LAST_INSERT_ID()"))
     _exec(
         cn,
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('mail', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('mail', %s, NOW(6), %s, %s, 'create', 1)",
         (mid, desk, proj),
     )
     # todo
@@ -157,8 +157,8 @@ def test_throwaway_ab_backfill_then_alter(cn) -> None:
     tid = int(scalar(cn, "SELECT LAST_INSERT_ID()"))
     _exec(
         cn,
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('todo', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('todo', %s, NOW(6), %s, %s, 'create', 1)",
         (tid, desk, proj),
     )
     # score
@@ -171,8 +171,8 @@ def test_throwaway_ab_backfill_then_alter(cn) -> None:
     sid = int(scalar(cn, "SELECT LAST_INSERT_ID()"))
     _exec(
         cn,
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('score', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('score', %s, NOW(6), %s, %s, 'create', 1)",
         (sid, desk, office),
     )
     # Orphan card with no activity row (cannot backfill) - risk documented.
