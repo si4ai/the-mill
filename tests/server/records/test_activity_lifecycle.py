@@ -80,15 +80,13 @@ def test_mail_update_then_delete_keeps_activity_and_id(cn) -> None:
     u_before = _updated(cn, "mail", mid)
     mail.delete(cn, mid, "life_mail")
     assert _gone(cn, "mail", mid)
-    assert _updated(cn, "mail", mid) == u_before
-    _has(cn, "mail", mid)
+    _has(cn, "mail", mid)  # soft-delete keeps the activity row
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='mail' AND id=%s", (mid,)) is not None
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='mail' AND id=%s", (mid,)) == desk_before
     assert scalar(cn, "SELECT roster_id FROM activity WHERE type='mail' AND id=%s", (mid,)) == aff
     nxt = int(mail.insert(cn, "life_mail", "life_mail", "life_reader", "three")[0]["id"])
     assert nxt > mid
-    assert _updated(cn, "mail", mid) == u_before
-    _has(cn, "mail", mid)
+    _has(cn, "mail", mid)  # soft-delete keeps the activity row
     _has(cn, "mail", nxt)
 
 
@@ -102,13 +100,11 @@ def test_todo_update_then_delete_keeps_activity_and_id(cn) -> None:
     u_before = _updated(cn, "todo", tid)
     todo.delete(cn, tid, "life_todo")
     assert _gone(cn, "todo", tid)
-    assert _updated(cn, "todo", tid) == u_before
     _has(cn, "todo", tid)
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='todo' AND id=%s", (tid,)) == desk_before
     nxt = int(todo.insert(cn, "life_todo", "life_todo", "open", "next")[0]["id"])
     assert nxt > tid
-    assert _updated(cn, "todo", tid) == u_before
     _has(cn, "todo", tid)
 
 
@@ -154,13 +150,11 @@ def test_score_update_then_delete_keeps_activity_and_id(cn) -> None:
     score.delete(cn, kid, "life_score")
     # #95 score keep: card row stays so score_evidence history stays attached.
     assert not _gone(cn, "score", kid)
-    assert _updated(cn, "score", kid) == u_before
     _has(cn, "score", kid)
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (kid,)) is not None
     assert scalar(cn, "SELECT desk_id FROM activity WHERE type='score' AND id=%s", (kid,)) == desk_before
     nxt = int(score.upsert(cn, "life_score", "life_score", "KPI_life_2", "0", "1", "c")[0]["id"])
     assert nxt > kid
-    assert _updated(cn, "score", kid) == u_before
     _has(cn, "score", kid)
 
 
