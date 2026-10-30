@@ -10,10 +10,10 @@ knob *names*, defaults, resolve helpers, and the fungibility ladder lock:
 **Knobs do not replace pack replaceability.** Ladder step 2 stays valid forever;
 db knobs are the easy path, not the only path.
 
-Cut 6 LOCK: docs/acceptance/ACCEPTANCE-WALL-FUNGIBLE-CUT6-KNOBS.md - mill prefs JSON office_default + per-desk (desk wins). schema_migrated True only after migrate_wall_prefs.
+Cut 6 LOCK: wall-contract; wall_logic/knobs.py - mill prefs JSON office_default + per-desk (desk wins). schema_migrated True only after migrate_wall_prefs.
 These helpers are pure stubs packs can call once knobs land.
 
-See docs/acceptance/ACCEPTANCE-WALL-TABS-KNOBS-PURE.md.
+See wall-contract; tests/wall tabs/knobs.
 """
 
 from __future__ import annotations
@@ -329,7 +329,7 @@ def knobs_contract() -> dict[str, Any]:
         "storage": "mill_prefs_json",
         "pure": True,
         "path": "A",
-        "sor": "docs/acceptance/ACCEPTANCE-WALL-FUNGIBLE-CUT6-KNOBS.md",
+        "sor": "wall-contract; wall_logic/knobs.py",
     }
 
 

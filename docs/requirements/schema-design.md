@@ -12,11 +12,11 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 (every departure from main), lab results `beta-norm/schema-lab/RESULTS.md` (box, card 868), read/write ratio
 `beta-norm/rw-ratio/README.md` (box).
 
-## 1. No universal id table: polymorphic references are (kind ENUM, id INT UNSIGNED)
+## 1. No universal id table: polymorphic references are (kind ENUM, id BIGINT UNSIGNED)
 
 - **Decision.** There is no table of every id. A reference that can point at several kinds is the composite
-  (type ENUM, id), as on main's `activity`, `label`, `tree`, `watcher` and `doing.on_*` / `waiting_*`. Beta (0.8): ids are
-  `INT UNSIGNED`; a wider id needs a stated reason (`push_queue.id`, a churning queue). Main: `BIGINT UNSIGNED`.
+  (type ENUM, id), as on main's `activity`, `label`, `tree`, `watcher` and `doing.on_*` / `waiting_*`. Ids and id
+  references are `BIGINT UNSIGNED`, as on main (owner decision 2026-10-24; the INT narrowing is withdrawn).
 - **Why.** Performance: a read joins straight to the payload's own table; no hop through a registry of everything.
 - **Cost.** A small insert hit (one ENUM byte, a wider key), and the writing procedure checks the target exists
   because one FK cannot cover several tables. Accepted.
@@ -53,23 +53,63 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 
 ## 5. One name table is the one place names are managed
 
-- **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (type, name), referenced by
-  (type, id) through a typed composite FK (beta 0.8; main: a plain FK to `name(id)`), so a desk column cannot hold a roster. No other table stores a name
-  string. Rename, retire and reclaim go only through `sp_name_*`, each writes `name_event` (old, new, by whom, trust
-  then; beta 0.8, main has no `name_event`), and delete is soft (`name.deleted`; a trigger refuses DELETE). Reuse of a retired name is an Admin reclaim
-  of the same id. Rules: admin.md sections 1, 2 and 4, rows F60, F65, F92, F135.
-- **Why.** Integrity, in the owner's words: names are everything in the activities, and renaming or deleting a name
-  is an easy way to mislead; one table plus one procedure family is the single choke point.
-- **Cost.** A generated type column per referencing table and a (type, id) key.
+- **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (type, name). A name is
+  not a first-class object, just an isolated column managed in `name`. No other table stores a name string.
+  Rename, retire and reclaim go only through `sp_name_*`. There is no name history (no `name_event`).
+  Rules: admin.md sections 1, 2 and 4, rows F60, F65, F92, F135.
+  - Delete is hard to do: Admin retires (soft, `name.deleted`; a trigger refuses DELETE), the name stays reserved
+    while retired, and an Admin reclaim restores the same id.
+  - Rename is a plain update; related records follow through the id. Admin renames; a desk may rename itself.
+  - No hold on a renamed-away name, for any type: names belong to agents, not humans, so the old string is free
+    for a new mint at once.
+- **Why.** Integrity, in the owner's words: the name table exists only so names cannot confuse or mislead agents
+  or humans. UNIQUE (type, name) stops duplicates, the id keeps records attached through a rename, and a hard
+  delete would orphan what the name meant. A history table adds nothing to that goal (owner decision 2026-10-24).
+- **Cost.** None beyond main's table and the procedures.
 - **To change it.** The owner's OK; a performance claim also needs a lab result.
+
+## 5a. Kind tables: only a kind with its own data gets a table
+
+- **Rule (the owner, 2026-10-25).** A name kind gets its own table only if the thing has its own data; otherwise
+  references go to `name`, kind-checked (the owner's review, 2026-10-25).
+- **Scope.** The rework narrows single-kind FKs only: a column that always points at ONE kind. The
+  composite-reference design (section 1) is intact: every reference that can point at several kinds (label and tree
+  nodes, watchers, `doing.on_*` / `waiting_*`, the activity timeline) stays a (type ENUM, id) composite, unchanged.
+  The isolated name table, nested-set trees (section 2) and label rank (section 4) are unchanged too.
+- **Decision.** The desk is the one kind with data of its own (token, wake, connect stamps), so `seat` (desk_id,
+  UNIQUE as on main) is its kind table: it links to `name (id)` with one FK, and every desk column FKs to seat
+  (desk_id). A roster, label, tree or res has no data of its own (a roster's desk count is `name.n`, as on main), so
+  none has a kind table. Their eleven columns (the seven roster columns and the label, tree, tree_read and hold
+  references; twelve until the vote table was dropped on 2026-10-26) each carry a plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and the FK is
+  `(col, <x>_kind) REFERENCES name (id, type)` against `name`'s UNIQUE `idx_id_type` (id, type) (UNIQUE only
+  because MySQL 8.4 needs a unique FK target; id is already the PK). There is no `roster` table (f316ac0f had one;
+  the owner dropped it on 2026-10-25).
+- **Link shape: kind id = name.id.** Chosen because it keeps ids shared: every desk column still holds the name id,
+  so no column, join or procedure argument changes, and seat needs no new index (its UNIQUE desk_id is the
+  referenced key).
+- **Why.** The typed composite FK to `name (type, id)` made `name` the hub of every relation and cost a generated
+  column plus an index per reference. seat gives desk columns the guarantee that matters most (a desk column cannot
+  hold a roster id) with plain one-column FKs that reuse main's indexes. Counts on a fresh book, #199 head and now:
+  FKs 49 -> 46, FKs to `name` 35 -> 13, all indexes 117 -> 89 (88 before the kind check), generated type
+  columns 31 -> 0 (BETA-CHANGES.md, Kind tables). The kind check closes the gap the plain FKs left: a roster,
+  label, tree or res column refuses a name id of another kind (F168).
+- **Indexes (the owner rule, 2026-10-25).** PRIMARY and UNIQUE keys are indexed by definition; every other index is
+  declared in the DDL and named idx_*. No index is implicit: an FK leads a PRIMARY, a UNIQUE or a declared idx_* key,
+  and MySQL creates none for it (BETA-CHANGES.md row 39, F169). Each kind column is folded into the key that leads with
+  its column; a PRIMARY or UNIQUE key extended by a constant kind column keeps the same uniqueness.
+- **Cost.** The eleven `*_kind` columns (one byte each) and eleven CHECKs; one more index (`idx_id_type`). A read on a
+  folded key adds `AND <x>_kind = '<kind>'` to use the whole key (MySQL does not read the CHECK as a constant).
+  Whether a seat row is a desk name is still the minting procedure's job (open question Q3).
+- **To change it.** A kind that gains data of its own, plus the owner's OK.
 
 ## 6. High / limited trust with Admin applies to every command, enforced in the procedures
 
-- **Decision.** The office trust setting lives in the book (`office_setting`). Every command procedure reads it
-  itself and applies admin.md sections 1-3 (always Admin; trust-gated; any desk). Admin grant is the host path only.
-- **Why.** Integrity: the app database user holds EXECUTE only, so the procedure is the only place a guard can stand;
-  a guard that reads an app argument can be lied to.
-- **Cost.** One indexed read per command.
+- **Decision.** Every command procedure applies admin.md sections 1-3 (always Admin; trust-gated; any desk) itself,
+  reading the level from `b_trust()`. No procedure takes trust as an argument, so the frozen signatures stay as they
+  are. Where the level comes from is section 9. Admin grant is the host path only.
+- **Why.** Integrity: the app database user holds EXECUTE only, so the procedure is the only place a guard can stand,
+  and a guard that reads an app argument can be lied to.
+- **Cost.** A function call per guarded command (no table read).
 - **To change it.** The owner's OK.
 
 ## 7. The office is a hard boundary
@@ -85,3 +125,39 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 - **Why.** Performance and integrity: the guards, the writes and the answer share one call and one transaction.
 - **Cost.** Procedures carry the logic; the server maps refusal codes to full text (MESSAGE_TEXT holds 128 characters).
 - **To change it.** A measured command that needs two calls, plus the owner's OK.
+
+## 9. Office settings live in config.toml
+
+- **Decision.** Office settings, trust included, live in the server's `config.toml`, as on main. No table holds
+  them. The key is `trust`; see "The trust key" below.
+- **Why not a table.** It is main's design, the office human edits that file, and one source of truth means a
+  setting cannot say one thing in the file and another in the book (owner review, PR #199).
+- **What `b_trust()` is.** One SQL function in the book, `b_trust()`, DETERMINISTIC and NO SQL, whose whole body is
+  `RETURN 'high'` or `RETURN 'limited'`. Procedures call it to read the level. It holds no state of its own: it is
+  a copy of the file, made by the server.
+- **When it is made.** One routine does it (`agent_coord/server/records/trust_fn.py`, `init_trust_fn`):
+  - at server startup, before the server accepts any request;
+  - on `mill trust high|limited` (Admin): the server writes `config.toml` first, then re-creates the function.
+  It runs under the `config.toml` login, the one `migrate.ensure` uses to install routines, never the EXECUTE-only
+  app user. `mill install sql --apply` installs it with the default body `high`; the next start sets it from the file.
+- **A hand edit of `config.toml` takes effect at the next server restart.** Until then the procedures keep the
+  level of the last start or `mill trust`. There is no stamp and no drift check; startup is the one init point.
+  (`AGENT_COORD_TRUST` still overrides the file, as on main.)
+- **Startup failure.** If `trust` holds anything but a trust level, the server does not start: it logs and exits
+  with `config.toml trust = '...' is not a trust level: use high or limited`. If the key is absent, main's default
+  `high` (admin.md) applies and the server logs that it used the default. If the book cannot be reached, the server
+  starts as on main (`/health` is 503 until the book is back) and logs that `b_trust()` was not initialised; the
+  function keeps its last value until the next restart or `mill trust`.
+- **`mill trust` failure.** If re-creating the function fails, the server puts `config.toml` back as it was and the
+  command returns the error, so the file and the function do not disagree.
+- **Main's books.** A book with no `b_trust()` (main's shape) is left alone at startup and on `mill trust`.
+  `b_trust()` is also left out of the routines fingerprint, so a re-init never makes `mill install sql` report the
+  book as changed.
+- **Cost.** One DROP and CREATE FUNCTION per start and per `mill trust`.
+- **To change it.** The owner's OK.
+
+### The trust key
+
+`trust` in `config.toml`: `high` (the default when the key is absent) or `limited`. Main's spellings `low` and
+`strict` also mean `limited`. Any other value stops the server at startup. Set it with `mill trust high|limited`
+(Admin), or edit the file and restart the server.

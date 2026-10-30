@@ -94,7 +94,7 @@ def reclaim(cn, desk: str, body: dict[str, Any]) -> list[dict]:
     a = str(body.get("slug") or "").strip()
     b = str(body.get("confirm") or "").strip()
     _match(a, b, command="reclaim")
-    return rec_name.reclaim(cn, a, _live_kind(cn, a, body, command="reclaim"))
+    return rec_name.reclaim(cn, a, _live_kind(cn, a, body, command="reclaim"), by=desk)
 
 
 def rename(cn, desk: str, body: dict[str, Any]) -> list[dict]:
@@ -108,7 +108,7 @@ def rename(cn, desk: str, body: dict[str, Any]) -> list[dict]:
     if kind == CONST_ROSTER and reserved_roster_id(cn, old) == ADMIN_ROSTER_ID:
         # #722: SQL refuses too; this makes the refusal a clean one. Office may be renamed.
         raise CoordError(f"rename: {old!r} is the reserved Admin roster; it keeps its name")
-    return rec_name.rename(cn, old, new, kind)
+    return rec_name.rename(cn, old, new, kind, by=desk)
 
 
 def retire(cn, desk: str, body: dict[str, Any]) -> list[dict]:
@@ -117,4 +117,4 @@ def retire(cn, desk: str, body: dict[str, Any]) -> list[dict]:
     a = str(body.get("slug") or "").strip()
     b = str(body.get("confirm") or "").strip()
     _match(a, b, command="retire")
-    return rec_name.retire(cn, a, _live_kind(cn, a, body, command="retire"))
+    return rec_name.retire(cn, a, _live_kind(cn, a, body, command="retire"), by=desk)

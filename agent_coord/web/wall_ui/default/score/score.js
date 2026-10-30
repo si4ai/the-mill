@@ -72,8 +72,11 @@
     return hit;
   }
   function scoreDeskSlug(k) {
+    /* 0.8.0: Admin / roster scores may have desk_id NULL; show under the roster. */
     var s = String((k && (k.owner || k.desk_id || k.desk)) || "").trim();
-    return s || "(unknown)";
+    if (s) return s;
+    var roster = String((k && (k.roster_id || k.roster)) || "").trim();
+    return roster || "(unknown)";
   }
   function scoreIsHostDesk(desk) {
     return String(desk || "").trim().toLowerCase() === "mill-host";

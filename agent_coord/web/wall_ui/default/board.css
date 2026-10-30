@@ -692,7 +692,7 @@
     .hist-log { min-height: 0; overflow: auto; }
     .hist-row {
       display: grid;
-      grid-template-columns: 10rem 6.6rem 13rem 9rem 3.2rem auto;
+      grid-template-columns: 10rem 6.6rem 13rem 9rem auto;
       justify-content: start;
       gap: .35rem .85rem; align-items: center;
       padding: .4rem .55rem; margin: 0 0 .28rem;
@@ -714,11 +714,10 @@
     .hist-row.kind-todo .k { color: var(--amber); border-color: var(--amber); }
     .hist-row.kind-station { border-left-color: var(--mag); }
     .hist-row .who { color: var(--ink); font-weight: 600; }
-    .hist-row .prod, .hist-row .n { color: var(--dim); font-size: 11px; }
+    .hist-row .prod { color: var(--dim); font-size: 11px; }
     .hist-row .who, .hist-row .prod {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
     }
-    .hist-row .n { font-variant-numeric: tabular-nums; text-align: left; }
     /* #92 activity state pill (read-only): deleted any type, sent live letter. */
     .act-state {
       display: inline-flex; justify-content: center; justify-self: start; margin-left: .3rem;
@@ -730,7 +729,7 @@
     .act-state.st-deleted { border-style: dashed; text-decoration: line-through; }
     @media (max-width: 720px) {
       .hist-row { grid-template-columns: 8.2rem 5.4rem minmax(6rem, 1fr); }
-      .hist-row .prod, .hist-row .n, .hist-row .act-state { grid-column: 3; }
+      .hist-row .prod, .hist-row .act-state { grid-column: 3; }
     }
     .sg-chip.here { color: var(--green); border-color: var(--green); }
     tr.here-here { }

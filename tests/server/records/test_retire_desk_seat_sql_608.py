@@ -16,6 +16,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import rows_done, scalar_done
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -47,7 +48,8 @@ def _stored_hash(cn, desk: str):
 
 def test_self_retire_clears_the_seat(cn):
     digest = _seat(cn, "fx608-d1", "seat-608-d1")
-    rec_name.retire(cn, "fx608-d1", "desk")
+    # card 880 self path: the desk's own name and seat hash (0.8.0: sp_name_retire checks the hash)
+    rec_name.retire(cn, "fx608-d1", "desk", by="fx608-d1", by_hash=digest)
     cn.commit()
     assert _stored_hash(cn, "fx608-d1") is None
     assert rec_join.desk_for_token_hash(cn, digest) == ""
@@ -56,7 +58,7 @@ def test_self_retire_clears_the_seat(cn):
 
 def test_admin_retire_clears_the_seat(cn):
     digest = _seat(cn, "fx608-d2", "seat-608-d2")
-    catalog.retire(cn, "admin-desk", {"slug": "fx608-d2", "confirm": "fx608-d2", "yes": True, "name_type": "desk"})
+    catalog.retire(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d2", "confirm": "fx608-d2", "yes": True, "name_type": "desk"})
     cn.commit()
     assert _stored_hash(cn, "fx608-d2") is None
     assert not rec_join.token_matches(cn, "fx608-d2", digest)
@@ -65,7 +67,7 @@ def test_admin_retire_clears_the_seat(cn):
 def test_retiring_a_label_named_like_a_desk_keeps_the_seat(cn):
     digest = _seat(cn, "fx608-d3", "seat-608-d3")
     seed_names(cn, ("fx608-d3", "label"))
-    catalog.retire(cn, "admin-desk", {"slug": "fx608-d3", "confirm": "fx608-d3", "yes": True, "name_type": "label"})
+    catalog.retire(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d3", "confirm": "fx608-d3", "yes": True, "name_type": "label"})
     cn.commit()
     assert rec_join.token_matches(cn, "fx608-d3", digest)
 
@@ -93,7 +95,7 @@ def test_reset_clears_a_retired_desk_seat_then_reclaim_works(cn):
     cn.commit()
     assert rows and rows[0].get("op") == "reset"
     assert _stored_hash(cn, "fx608-d5") is None
-    catalog.reclaim(cn, "admin-desk", {"slug": "fx608-d5", "confirm": "fx608-d5", "yes": True, "name_type": "desk"})
+    catalog.reclaim(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d5", "confirm": "fx608-d5", "yes": True, "name_type": "desk"})
     cn.commit()
     live = rows_done(cn, "SELECT id FROM name WHERE type='desk' AND name=%s AND deleted IS NULL", ("fx608-d5",))
     assert len(live) == 1
@@ -101,9 +103,9 @@ def test_reset_clears_a_retired_desk_seat_then_reclaim_works(cn):
 
 def test_reclaim_without_a_type_finds_the_retired_name(cn):
     seed_names(cn, ("fx608-d6", "desk"))
-    rec_name.retire(cn, "fx608-d6", "desk")
+    rec_name.retire(cn, "fx608-d6", "desk", by=admin_desk(cn))
     cn.commit()
-    catalog.reclaim(cn, "admin-desk", {"slug": "fx608-d6", "confirm": "fx608-d6", "yes": True})
+    catalog.reclaim(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d6", "confirm": "fx608-d6", "yes": True})
     cn.commit()
     live = rows_done(cn, "SELECT id FROM name WHERE type='desk' AND name=%s AND deleted IS NULL", ("fx608-d6",))
     assert len(live) == 1

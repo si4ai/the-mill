@@ -25,6 +25,7 @@ from agent_coord.server.records import name as rec_name
 from agent_coord.server.records import score as rec_score
 from agent_coord.server.records.db import call
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -53,15 +54,13 @@ def _sql(cn, stmt: str, args=()) -> None:
 @pytest.fixture(scope="module")
 def renamed(cn):
     seed_names(cn, ("r722o-admin", "desk"), ("r722o-plain", "desk"), ("r722o-room", "roster"))
-    _sql(cn, "INSERT IGNORE INTO member (name_id, desk_id)"
-             " SELECT %s, id FROM name WHERE type = 'desk' AND name = 'r722o-admin'",
-         (ADMIN_ROSTER_ID,))
+    admin_desk(cn, "r722o-admin")  # 0.8.0: a seated Admin (sp_name_rename checks the acting desk)
     body = {"old": "Office", "new": NEW, "confirm": NEW, "yes": True, "name_type": "roster"}
     rows = admin_cat.rename(cn, "r722o-admin", body)
     assert rows and rows[0].get("op") == "renamed"
     assert _one(cn, "SELECT name FROM name WHERE id = 1") == NEW
     yield NEW
-    rec_name.rename(cn, NEW, "Office", "roster")
+    rec_name.rename(cn, NEW, "Office", "roster", by=admin_desk(cn))
     assert _one(cn, "SELECT name FROM name WHERE id = 1") == "Office"
 
 
@@ -81,7 +80,7 @@ def test_sql_alias_office_is_id_1(cn, renamed, spelling):
 
 def test_no_other_roster_takes_the_name_office(cn, renamed):
     with pytest.raises(mysql.connector.Error) as ei:
-        rec_name.rename(cn, "r722o-room", "Office", "roster")
+        rec_name.rename(cn, "r722o-room", "Office", "roster", by=admin_desk(cn))
     assert "name in use" in str(ei.value)
 
 
@@ -107,10 +106,10 @@ def test_seat_roster_refuses_office_by_either_name(cn, renamed, spelling):
 
 def test_score_procs_find_office_by_id(cn, renamed):
     rec_score.admin_upsert(cn, "r722o.kpi", "1", "0", "note")
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id = %s"
-                    " AND kpi = 'r722o.kpi'", (ADMIN_ROSTER_ID,)) == 1
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
+                    " AND kpi = 'r722o.kpi'") == 1
     call(cn, "mill_wall_event", ["r722o-route", 5, None])
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id = 1"
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
                     " AND kpi = 'wall'") == 1
     call(cn, "mill_score_event", ["r722o-plain", "todo", 5, 1, 1, None])
     assert _one(cn, "SELECT COUNT(*) FROM score s JOIN name d ON d.id = s.desk_id"
@@ -118,7 +117,7 @@ def test_score_procs_find_office_by_id(cn, renamed):
 
 
 def test_rename_back_to_office(cn, renamed):
-    rec_name.rename(cn, NEW, "Office", "roster")
+    rec_name.rename(cn, NEW, "Office", "roster", by=admin_desk(cn))
     assert office_name(cn) == "Office"
-    rec_name.rename(cn, "Office", NEW, "roster")
+    rec_name.rename(cn, "Office", NEW, "roster", by=admin_desk(cn))
     assert office_name(cn) == NEW

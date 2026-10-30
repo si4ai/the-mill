@@ -760,27 +760,24 @@
       }
       return rows;
     }
-    function presenceSpendLines(d) {
-      return (d.events || []).map(e => ({
-        at: e.at || e.updated || "",
-        owner: e.owner || "",
-        source: "presence",
-        kind: e.kind || e.type || "",
-        tokens: Number(e.n || 0) * Number(e.weight == null ? 1 : e.weight),
-        usd: 0,
-        detail: (e.kind || e.type || "") + " n*weight",
-      }));
-    }
+    /* #896 rule-no-activity-weight: never invent spend from activity n and weight.
+     * Prefer spend_lines / spend with reply bytes. If neither is present, say unavailable. */
     function millSpend(d) {
-      if (!(d.spend_lines && d.spend_lines.length) && !(d.spend && d.spend.length)) {
-        d = Object.assign({}, d, { spend_lines: presenceSpendLines(d) });
-      }
       const allLines = (d.spend_lines && d.spend_lines.length) ? d.spend_lines : (d.spend || []);
-      const rows = spendWhatRows(d);
+      const rows = allLines.length ? spendWhatRows(Object.assign({}, d, { spend_lines: allLines })) : [];
+      const millBytes = rows.reduce((a, r) => a + (Number(r.bytes_out || r.bytes || 0) || 0), 0);
       const tokens = rows.reduce((a, r) => a + Number(r.tokens || 0), 0);
       const usd = rows.reduce((a, r) => a + Number(r.usd || 0), 0).toFixed(4);
       const spendEl = document.getElementById("score-spend");
-      if (spendEl) spendEl.innerHTML = `MILL SPEND<b>${esc(tokens)}</b> | est USD<b>${esc(usd)}</b>`;
+      if (spendEl) {
+        if (!allLines.length) {
+          spendEl.innerHTML = `MILL SPEND<b>unavailable</b>`;
+        } else if (millBytes > 0 || rows.some(r => r.bytes_out != null || r.bytes != null)) {
+          spendEl.innerHTML = `MILL SPEND<b>${esc(millBytes)}</b> B | est USD<b>${esc(usd)}</b>`;
+        } else {
+          spendEl.innerHTML = `MILL SPEND<b>${esc(tokens)}</b> | est USD<b>${esc(usd)}</b>`;
+        }
+      }
       const owners = [...new Set(allLines.map(r => r.owner).filter(Boolean))].sort();
       const ownerOpts = `<option value="">owner</option>` + owners.map(o =>
         `<option value="${esc(o)}"${o === spendOwner ? " selected" : ""}>${esc(o)}</option>`

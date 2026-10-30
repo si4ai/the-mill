@@ -1,7 +1,7 @@
 /* WALL_UI_LIB_DATA - fetch + last-good + api-down helpers (Path A).
  * Extract from board.html paintApiDown / tick last-good / fetchJsonFirst.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
- * Amend: docs/acceptance/ACCEPTANCE-WALL-HONEST-EMPTY-VS-DOWN.md
+ * SoR: wall-contract; tests/wall
+ * Amend: wall-contract; tests/wall/test_wall_honest_empty_vs_down.py
  * Marker: WALL_UI_LIB_DATA
  * Marker: WALL_HONEST_EMPTY_VS_DOWN
  * Marker: MAINTENANCE_DRAIN
@@ -223,7 +223,67 @@
   global.wallHonestLlmDisplay = honestLlmDisplay;
   global.wallHonestMillBytesDisplay = honestMillBytesDisplay;
   global.wallSumLlmTokens = sumLlmTokens;
+
+  /* #899 rule-act-labels: command-name acts from the 0.8.0 ENUM. Unknown acts show raw. */
+  var WALL_ACT_LABELS = {
+    create: "created",
+    send: "sent",
+    reply: "replied",
+    note: "noted",
+    park: "parked",
+    claim: "claimed",
+    unclaim: "unclaimed",
+    assign: "assigned",
+    unpark: "unparked",
+    ship: "shipped",
+    done: "done",
+    back: "back",
+    hold: "held",
+    drop: "dropped",
+    focus: "focused",
+    clear: "cleared",
+    finish: "finished",
+    score: "scored",
+    retire: "retired",
+    reclaim: "reclaimed",
+    remove: "removed"
+  };
+  var WALL_ACT_FOCUS = { focus: 1, clear: 1, finish: 1 };
+  var WALL_ACT_EVIDENCE = { ship: 1, done: 1 };
+
+  function wallActLabel(act) {
+    var a = String(act == null ? "" : act).trim();
+    if (!a) return "";
+    if (Object.prototype.hasOwnProperty.call(WALL_ACT_LABELS, a)) return WALL_ACT_LABELS[a];
+    return a;
+  }
+  function wallActIsFocus(act) {
+    return !!WALL_ACT_FOCUS[String(act == null ? "" : act).trim()];
+  }
+  function wallActHasEvidence(act) {
+    return !!WALL_ACT_EVIDENCE[String(act == null ? "" : act).trim()];
+  }
+  /* Newest ship/done evidence on a card trail; a later back clears it. */
+  function wallCardEvidenceFromTrail(rows) {
+    var list = rows || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      var e = list[i] || {};
+      var act = String(e.act || "").trim();
+      if (act === "back") return "";
+      if (wallActHasEvidence(act)) {
+        var ev = e.evidence;
+        return ev == null ? "" : String(ev);
+      }
+    }
+    return "";
+  }
+
   global.wallPaintThrowSafe = paintThrowSafe;
+  global.WALL_ACT_LABELS = WALL_ACT_LABELS;
+  global.wallActLabel = wallActLabel;
+  global.wallActIsFocus = wallActIsFocus;
+  global.wallActHasEvidence = wallActHasEvidence;
+  global.wallCardEvidenceFromTrail = wallCardEvidenceFromTrail;
   global.WALL_UI_LIB_DATA = "WALL_UI_LIB_DATA";
   global.WALL_UI_LIB_API_DOWN_BANNER = API_DOWN_BANNER;
   global.WALL_HONEST_EMPTY_VS_DOWN = "WALL_HONEST_EMPTY_VS_DOWN";

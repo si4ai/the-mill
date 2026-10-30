@@ -7,6 +7,7 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from agent_coord.client.tokens import token_hash
 from agent_coord.const import CONST_DESK
 from agent_coord.helpers.errors import CoordError
 from agent_coord.helpers.projects import project_refusal
@@ -27,9 +28,10 @@ class _Book:
 def book(cn):
     seed_names(cn, ("dl", "roster"), ("dl-other", "roster"), ("dl_a", "desk"), ("dl_b", "desk"),
                ("dl_c", "desk"), ("dl_out", "desk"), ("dl_noseat", "desk"))
+    # 0.8.0: mill_join_select / seen list only seats with a token (or a past disconnect).
     for d in ("dl_a", "dl_b", "dl_c"):
-        rec_join.upsert(cn, "dl", d, "", None, "present")
-    rec_join.upsert(cn, "dl-other", "dl_out", "", None, "present")
+        rec_join.upsert(cn, "dl", d, "", token_hash("dl-" + d), "present")
+    rec_join.upsert(cn, "dl-other", "dl_out", "", token_hash("dl-out"), "present")
     rec_hold.upsert(cn, "dl", "dl_a", "dl/one.md")
     rec_hold.upsert(cn, "dl", "dl_a", "dl/two.md")
     rec_hold.upsert(cn, "dl", "dl_b", "dl/three.md")

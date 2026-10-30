@@ -6,13 +6,13 @@ filter, score hot/Needs, ensure* paint contract, pack seams) - not CSS
 or human-only chrome. Packs call these helpers (or reimplement); core
 must not hard-wire one office's layout forever.
 
-SoR: docs/acceptance/ACCEPTANCE-WALL-UI-FUNGIBLE.md,
-docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md,
-docs/acceptance/ACCEPTANCE-WALL-MAIL-PURE.md (mail pure extract contract),
-docs/acceptance/ACCEPTANCE-WALL-SCORE-PURE.md (score pure extract contract),
-docs/acceptance/ACCEPTANCE-WALL-TABS-KNOBS-PURE.md (tabs+knobs Path A deepen),
-docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md ordered cut 4 (shared gutter),
-docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md ordered cut 5 (domain folders).
+SoR: wall-contract;
+wall-contract; tests/wall
+wall-contract; tests/wall mail suites (mail pure extract contract),
+wall-contract; tests/wall score suites (score pure extract contract),
+wall-contract; tests/wall tabs/knobs (tabs+knobs Path A deepen),
+wall-contract; wall_logic/gutter.py
+wall-contract; wall_logic/domains.py
 """
 
 from .mail import (

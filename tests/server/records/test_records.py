@@ -75,11 +75,13 @@ def test_mail_crud_dests_list_and_presence_n(cn) -> None:
     assert mail.get(cn, mid)[0]["body"] == "hello everyone"
     pr = _presence_row(cn, "mail", mid)
     assert pr is not None
-    n1 = int(pr["n"])
+    u1 = pr.get("updated") or pr.get("items")
     mail.update(cn, mid, "a", body="hello2")
     assert mail.get(cn, mid)[0]["body"] == "hello2"
-    n2 = int(_presence_row(cn, "mail", mid)["n"])
-    assert n2 == n1 + 1
+    pr2 = _presence_row(cn, "mail", mid)
+    assert pr2 is not None
+    # 0.8.0: activity has no n; an update keeps one row and refreshes it
+    assert "n" not in pr2
     box = mail.select(cn, "a")
     assert any(int(r["id"]) == mid for r in box)
     listed = mail.list_project(cn, "unit")
@@ -197,7 +199,7 @@ def test_floor_office_kpis(cn) -> None:
     cur = cn.cursor()
     cur.execute(
         "UPDATE score SET value='7' "
-        "WHERE roster_id=1 AND desk_id=2 AND kpi='mill-wall.ticks'"
+        "WHERE roster_id=1 AND desk_id IS NULL AND kpi='mill-wall.ticks'"
     )
     cn.commit()
     cur.close()

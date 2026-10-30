@@ -1,13 +1,15 @@
 -- #818 PR B: --doing on an activity command writes one doing entry linked to
 -- that command's item; `mill connected` reads what every desk is doing.
 -- Rows live in table doing (append-only, see sp_join.sql mill_doing_insert).
+-- 0.8.0: seat.doing_id names each desk's newest focus row (focus or clear; never a move row).
 -- An entry ends on a real event, derived on read from rows that never change:
 --   finished: the desk replies under the letter; the desk passes (ships) or
---             passes --done the card, or drops the hold, without --doing,
---             which appends an empty row on that item (mill_doing_finish);
---   cleared:  clock-out, reset or retire appends an empty row with no item
---             (mill_doing_clear);
---   newer:    the desk writes another --doing entry.
+--             passes --done the card, or drops the hold: its own move row on that item
+--             (act ship, done or drop; finish is a pre-0.8.0 row, the migration's);
+--   cleared:  clock-out, reset or retire appends a clear row (mill_doing_clear);
+--   newer:    the desk writes another --doing entry (a focus row).
+-- 0.8.0 (C3): each read filters by act. A move row is never a newer or a cleared end: only focus rows
+-- (act focus) are entries, an end at the next row reads focus rows only, an item's previous row reads move rows.
 -- A mark, a note, someone else's pass, a card stepped back or a hold taken
 -- again never ends one and never brings an ended one back. A score entry ends only as cleared or newer.
 
@@ -46,7 +48,8 @@ BEGIN
     -- a step back or a re-take changes the card or hold, never this row.
     SELECT MIN(f.created) INTO v_at
       FROM doing f
-     WHERE f.desk_id = p_desk AND f.text = '' AND f.on_type = p_on_type AND f.on_id = p_on_id
+     WHERE f.desk_id = p_desk AND f.act IN ('ship', 'done', 'drop', 'finish')
+       AND f.on_type = p_on_type AND f.on_id = p_on_id
        AND (f.created > p_created OR (f.created = p_created AND f.id > p_id));
   END IF;
   RETURN v_at;
@@ -65,7 +68,7 @@ BEGIN
   DECLARE v_at DATETIME(6);
   SELECT MIN(e.created) INTO v_at
     FROM doing e
-   WHERE e.desk_id = p_desk AND e.text = '' AND e.on_type IS NULL
+   WHERE e.desk_id = p_desk AND e.act = 'clear'
      AND (e.created > p_created OR (e.created = p_created AND e.id > p_id));
   RETURN v_at;
 END //
@@ -97,7 +100,7 @@ BEGIN
     RESIGNAL;
   END;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+  IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';
   END IF;
   IF IFNULL(p_on_type, '') NOT IN ('mail', 'todo', 'hold', 'score') OR p_on_id IS NULL
@@ -124,14 +127,19 @@ BEGIN
   SET v_roster = IFNULL((SELECT roster_id FROM activity WHERE type = p_on_type AND id = p_on_id), 1);
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
-  UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
+  -- F186 (spin D07): seat lock + live token. A retired desk (token cleared, time_disconnect set)
+  -- must not write a focus after its retire.
+  UPDATE seat SET updated = v_ts WHERE desk_id = v_desk AND token_hash IS NOT NULL;
+  IF ROW_COUNT() = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';
+  END IF;
   CALL mill_doing_insert(v_desk, v_roster, p_text, v_ts, v_id);
   -- The row was inserted by this call; nothing older is touched.
   UPDATE doing SET on_type = p_on_type, on_id = p_on_id,
                    waiting_type = IF(v_wid IS NULL, NULL, p_w_type), waiting_id = v_wid,
                    waiting_why = IF(v_wid IS NULL, NULL, NULLIF(p_w_why, ''))
    WHERE id = v_id;
-  CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, IF(p_text = '', 'clear', 'focus'), NULL);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS created, v_desk AS desk_id, v_roster AS roster_id;
 END //
@@ -162,14 +170,12 @@ BEGIN
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_cur = NULL;
-  SELECT id, text, on_type, on_id, roster_id INTO v_cur, v_text, v_type, v_on, v_roster
-    FROM doing WHERE desk_id = v_desk ORDER BY created DESC, id DESC LIMIT 1 FOR UPDATE;
-  IF v_cur IS NOT NULL AND v_text <> '' AND v_type = p_on_type AND v_on = p_on_id THEN
-    SET v_ts = MILL_NOW();
-    CALL mill_doing_insert(v_desk, v_roster, '', v_ts, v_id);
-    UPDATE doing SET on_type = p_on_type, on_id = p_on_id WHERE id = v_id;
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
-  END IF;
+  -- 0.8.0 (the owner, 2026-10-26): finish writes no row. The desk's own ship, done or drop move on its focus
+  -- item (written by the card or hold write, mill_doing_move) ends the entry. The seat row lock serializes this
+  -- read with the desk's other writes; the rule reads the row seat.doing_id names, not the desk's newest row.
+  SELECT g.id, g.text, g.on_type, g.on_id, g.roster_id INTO v_cur, v_text, v_type, v_on, v_roster
+    FROM seat dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = v_desk FOR UPDATE;
+  SET v_id = NULL, v_ts = NULL;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
@@ -213,15 +219,17 @@ BEGIN
   SELECT s.desk_id
     FROM seat s
     JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.deleted IS NULL
-   WHERE (v_one IS NOT NULL AND s.desk_id = v_one)
+   -- 0.8.0: a joined seat only (a named desk has a seat row from its mint; sp_join.sql).
+   WHERE (s.token_hash IS NOT NULL OR s.time_disconnect IS NOT NULL)
+     AND ((v_one IS NOT NULL AND s.desk_id = v_one)
       OR (v_ros IS NOT NULL AND EXISTS (SELECT 1 FROM member m WHERE m.desk_id = s.desk_id AND m.name_id = v_ros))
       OR (v_one IS NULL AND v_ros IS NULL AND (IFNULL(p_all, 0) = 1
           OR s.updated > v_now - INTERVAL 1 DAY
           OR EXISTS (SELECT 1 FROM activity a
-                      WHERE a.desk_id = s.desk_id AND a.created > v_now - INTERVAL 1 DAY)));
+                      WHERE a.desk_id = s.desk_id AND a.created > v_now - INTERVAL 1 DAY))));
 
   SELECT 'desk' AS part, d.name AS desk,
-         cur.id, cur.text, cur.on_type, cur.on_id, cur.waiting_type, cur.waiting_id, cur.waiting_why,
+         cur.id, cur.text, cur.on_type, cur.on_id, cur.act, cur.waiting_type, cur.waiting_id, cur.waiting_why,
          (SELECT wn.name FROM name wn WHERE cur.waiting_type = 'desk' AND wn.id = cur.waiting_id) AS waiting_name,
          TIMESTAMPDIFF(SECOND, cur.created, v_now) AS age_s,
          -- the first of its own event and a clear
@@ -231,26 +239,29 @@ BEGIN
          CASE WHEN en.fin IS NULL AND en.clr IS NULL THEN NULL
               WHEN en.clr IS NULL OR (en.fin IS NOT NULL AND en.fin <= en.clr) THEN 'finished'
               ELSE 'cleared' END AS ended_by,
-         lst.id AS last_id, lst.text AS last_text, lst.on_type AS last_on_type, lst.on_id AS last_on_id,
-         TIMESTAMPDIFF(SECOND, lst.created, v_now) AS last_age_s,
+         -- the last thing it said: the same newest entry (main read it twice)
+         cur.id AS last_id, cur.text AS last_text, cur.on_type AS last_on_type, cur.on_id AS last_on_id,
+         TIMESTAMPDIFF(SECOND, cur.created, v_now) AS last_age_s,
          st.updated AS heartbeat, v_now AS now
     FROM tmp_doing_desk t
     JOIN name d ON d.id = t.desk_id
     JOIN seat st ON st.desk_id = t.desk_id
+    -- 0.8.0: seat.doing_id is the desk's newest focus row (one primary-key read). A clear row has no text,
+    -- so the last thing it said is read back from idx_desk_created (focus rows only).
+    LEFT JOIN doing nw ON nw.id = st.doing_id
     LEFT JOIN LATERAL (
-      SELECT g.id, g.created, g.text, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
-        FROM doing g WHERE g.desk_id = t.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-       ORDER BY g.created DESC, g.id DESC LIMIT 1
+      SELECT g.id, g.created, g.text, g.on_type, g.on_id, g.act, g.waiting_type, g.waiting_id, g.waiting_why
+        FROM doing g WHERE g.id = nw.id AND g.act = 'focus' AND g.on_type IS NOT NULL AND g.text <> ''
+      UNION ALL
+      (SELECT g.id, g.created, g.text, g.on_type, g.on_id, g.act, g.waiting_type, g.waiting_id, g.waiting_why
+        FROM doing g WHERE NOT (nw.on_type IS NOT NULL AND nw.text <> '')
+         AND g.desk_id = t.desk_id AND g.act = 'focus' AND g.on_type IS NOT NULL AND g.text <> ''
+       ORDER BY g.created DESC, g.id DESC LIMIT 1)
     ) cur ON TRUE
     LEFT JOIN LATERAL (
       SELECT mill_doing_end(t.desk_id, cur.id, cur.on_type, cur.on_id, cur.created) AS fin,
              mill_doing_cleared(t.desk_id, cur.id, cur.created) AS clr
     ) en ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT g.id, g.created, g.text, g.on_type, g.on_id
-        FROM doing g WHERE g.desk_id = t.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-       ORDER BY g.created DESC, g.id DESC LIMIT 1
-    ) lst ON TRUE
    ORDER BY IFNULL(cur.created, '1970-01-01') DESC, d.name;
 
   SELECT 'letter' AS part, x.desk, x.id, x.sender, x.age_s, x.n, x.asked
@@ -311,10 +322,15 @@ BEGIN
           -- each seated desk's current entry, when it waits on something and has not ended
           SELECT s.desk_id AS waiter_id, cur.*
             FROM seat s
+            LEFT JOIN doing nw ON nw.id = s.doing_id
             JOIN LATERAL (
               SELECT g.id, g.created, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
-                FROM doing g WHERE g.desk_id = s.desk_id AND g.on_type IS NOT NULL AND g.text <> ''
-               ORDER BY g.created DESC, g.id DESC LIMIT 1
+                FROM doing g WHERE g.id = nw.id AND g.act = 'focus' AND g.on_type IS NOT NULL AND g.text <> ''
+              UNION ALL
+              (SELECT g.id, g.created, g.on_type, g.on_id, g.waiting_type, g.waiting_id, g.waiting_why
+                FROM doing g WHERE NOT (nw.on_type IS NOT NULL AND nw.text <> '')
+                 AND g.desk_id = s.desk_id AND g.act = 'focus' AND g.on_type IS NOT NULL AND g.text <> ''
+               ORDER BY g.created DESC, g.id DESC LIMIT 1)
             ) cur ON TRUE
            WHERE cur.waiting_type IS NOT NULL
              AND mill_doing_end(s.desk_id, cur.id, cur.on_type, cur.on_id, cur.created) IS NULL
@@ -358,22 +374,29 @@ BEGIN
     SET v_one = IFNULL(MILL_NAME_GET('desk', p_desk), 0);
   END IF;
   SET v_off = (GREATEST(IFNULL(p_page, 1), 1) - 1) * GREATEST(IFNULL(p_size, 50), 1);
-  SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id,
+  -- 0.8.0 Wall (letter 3227): desk history stays focus entries; on=ITEM also
+  -- returns that item's move rows (act + evidence) so the card trail is whole.
+  SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id, g.act, g.evidence,
          g.waiting_type, g.waiting_id, g.waiting_why, ro.name AS roster,
          (SELECT wn.name FROM name wn WHERE g.waiting_type = 'desk' AND wn.id = g.waiting_id) AS waiting_name,
          mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) AS ended_at,
          mill_doing_cleared(g.desk_id, g.id, g.created) AS cleared_at,
          (SELECT MIN(nx.created) FROM doing nx
-           WHERE nx.desk_id = g.desk_id AND nx.on_type IS NOT NULL AND nx.text <> ''
+           WHERE nx.desk_id = g.desk_id AND nx.act = 'focus' AND nx.on_type IS NOT NULL AND nx.text <> ''
              AND (nx.created > g.created OR (nx.created = g.created AND nx.id > g.id))) AS replaced_at,
          COUNT(*) OVER () AS total
     FROM doing g
     JOIN name d ON d.id = g.desk_id
     JOIN name ro ON ro.id = g.roster_id
-   WHERE g.text <> '' AND g.on_type IS NOT NULL
+   WHERE g.on_type IS NOT NULL
+     AND (
+       (IFNULL(p_on_type, '') = '' AND g.act = 'focus' AND g.text <> '')
+       OR (IFNULL(p_on_type, '') <> '' AND g.on_type = p_on_type AND g.on_id = p_on_id
+           AND ((g.act = 'focus' AND g.text <> '')
+                OR g.act NOT IN ('focus', 'clear')))
+     )
      AND (v_one IS NULL OR g.desk_id = v_one)
      AND (p_since IS NULL OR g.created >= p_since)
-     AND (IFNULL(p_on_type, '') = '' OR (g.on_type = p_on_type AND g.on_id = p_on_id))
    ORDER BY g.created DESC, g.id DESC
    LIMIT v_off, p_size;
 END //

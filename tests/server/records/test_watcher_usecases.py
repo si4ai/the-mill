@@ -13,6 +13,7 @@ from agent_coord.server.records import hold, join as here, label, member, name, 
 from agent_coord.server.push import fanout
 
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import admin_desk
 
 TEST_DB = throwaway_db("mill_records_test")
 
@@ -119,16 +120,16 @@ def test_w1_rename_retire_reclaim_keeps_the_name_id(cn) -> None:
     name.host_put(cn, "west", "roster")
     member.put(cn, "west", alice)
     nid = int(name.get(cn, "west", "roster"))
-    name.rename(cn, "west", "west2", "roster")
+    name.rename(cn, "west", "west2", "roster", by=admin_desk(cn))
     assert name.get(cn, "west2", "roster") == nid
     _no_name_watcher(cn, nid)
-    name.retire(cn, "west2", "roster")
+    name.retire(cn, "west2", "roster", by=admin_desk(cn))
     assert name.get(cn, "west2", "roster") is None
     _no_name_watcher(cn, nid)
     with pytest.raises(Exception, match="retired"):
         name.get_or_insert(cn, "west2", "roster")
     here.reset(cn, p, alice)
-    name.reclaim(cn, "west2", "roster")
+    name.reclaim(cn, "west2", "roster", by=admin_desk(cn))
     assert name.get(cn, "west2", "roster") == nid
     _no_name_watcher(cn, nid)
 
@@ -136,10 +137,10 @@ def test_w1_rename_retire_reclaim_keeps_the_name_id(cn) -> None:
 def test_n4_n5_office_admin_never_retire(cn) -> None:
     assert name.get(cn, "Office", "roster") == 1
     with pytest.raises(Exception, match="Office"):
-        name.retire(cn, "Office", "roster")
+        name.retire(cn, "Office", "roster", by=admin_desk(cn))
     assert name.get(cn, "Admin", "roster") is not None
     with pytest.raises(Exception, match="Admin"):
-        name.retire(cn, "Admin", "roster")
+        name.retire(cn, "Admin", "roster", by=admin_desk(cn))
 
 
 def test_office_join_does_not_watch_name_id_1(cn) -> None:

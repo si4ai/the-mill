@@ -70,7 +70,7 @@
       modules: ["mailPaint"]
     },
     score: {
-      js: "/score/score.js?v=wow320",
+      js: "/score/score.js?v=wow322",
       css: "/score/score.css?v=wow319",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
@@ -116,12 +116,12 @@
       domain: "mail"
     },
     scorePaint: {
-      js: "/score/score-paint.js?v=wow321",
+      js: "/score/score-paint.js?v=wow322",
       marker: "WALL_UI_DEFAULT_SCORE_PAINT",
       domain: "score"
     },
     floorPaint: {
-      js: "/floor/floor-paint.js?v=wow319",
+      js: "/floor/floor-paint.js?v=wow322",
       marker: "WALL_UI_DEFAULT_FLOOR_PAINT",
       with: ["floorMap"]
     },
@@ -149,8 +149,8 @@
     },
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
     doingPaint: {
-      js: "/doing/doing-paint.js?v=wow319",
-      css: "/doing/doing.css?v=wow319",
+      js: "/doing/doing-paint.js?v=wow322",
+      css: "/doing/doing.css?v=wow322",
       marker: "WALL_UI_DEFAULT_DOING_PAINT"
     }
   };

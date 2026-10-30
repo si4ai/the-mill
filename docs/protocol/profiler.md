@@ -38,31 +38,56 @@ The hour and the day are `mill_score_event`. The wall calls it when a command fi
 ## `mill-perf.log`
 
 ```
-2026-09-17T00:00:00Z op=sql.mill_mail_insert ms=8.2 n=1 ok=1
-2026-09-17T00:00:00Z op=fanout ms=1.4 type=mail id=6 hint=MAIL watchers=2 sit=1 miss=1 frame_b=48
-2026-09-17T00:00:00Z op=ws.recv ms=0.0 desk=DESK_alice hint=MAIL id=6 q=1 drop=0 frame_b=48
-2026-09-17T00:00:00Z op=hint.drain ms=1.2 desk=DESK_alice hint=MAIL id=6 ok=1 q=0
-2026-09-17T00:00:00Z op=api.mill.send ms=14.1 status=200 owner=<desk> req_b=412 body_b=88 resp_b=96
-2026-09-17T00:00:00Z op=api.floor ms=80.0 status=200 n=1 resp_b=7545
+2026-09-17T00:00:00.120Z op=sql.mill_mail_insert ms=8.20 rid=9d3d-3b n=1 ok=1
+2026-09-17T00:00:00.131Z op=fanout ms=1.40 rid=9d3d-3b type=mail id=6 hint=MAIL watchers=2 sit=1 miss=1 frame_b=48
+2026-09-17T00:00:00.140Z op=verb ms=24.81 rid=9d3d-3b desk=<desk> verb=send ok=1 req_b=412 resp_b=96 sql_n=3 sql_ms=11.02 rows=3 trips=9 stmts=21 rows_s=4 rows_x=38 srv_ms=6.10 lock_ms=0.00 ph=q:0.04,open:0.20,run:14.10,close:0.30,sync:9.90,enc:0.20
+2026-09-17T00:00:00.150Z op=ws.recv ms=0.00 desk=DESK_alice hint=MAIL id=6 q=1 drop=0 frame_b=48
+2026-09-17T00:00:00.160Z op=api.mill.send ms=14.10 status=200 owner=<desk> req_b=412 body_b=88 resp_b=96
+2026-09-17T00:00:00.170Z op=api.floor ms=80.00 status=200 n=1 resp_b=7545
 ```
 
 (`watchers=` in this log line is fanout row count; the book table is `watcher`.)
 
+### The switch
+
+`perf` in `config.toml` or `AGENT_COORD_PERF` (the env wins), read when mill-wall starts:
+
+| Value | Lines |
+|---|---|
+| `on` (default) | every perf line. A fast successful read (`sql.*_select`, `_get`, `_list` under 25 ms) is counted on its command's line but gets no line of its own (#220). |
+| `all` | as `on`, and every fast read gets its own line too. |
+| `off`, `0`, `false`, `no` | no `mill-perf.log` line at all. Each hook is one module flag check, well under a microsecond per command (`tests/server/test_perf_cmd_080.py`). |
+
+When on, each command also costs two short performance_schema reads on its own connection (one round trip each; under 1 ms on a local book). The numbers are baselines to compare, not gates.
+
+### Fields
+
 | Field | Meaning |
 |---|---|
-| `op=` | `sql.<SP>` | `api.mill.<command>` | `api.floor` | `fanout` | `ws.recv` | `hint.drain` | `ws.reconnect` |
-| `ms=` | wall clock |
-| `req_b=` | mill HTTPS **request** JSON bytes |
+| `op=` | `verb` (one /ws command) / `sql.<SP>` / `api.mill.<verb>` / `api.floor` / `fanout` / `ws.recv` / `hint.drain` / `ws.reconnect` |
+| stamp | UTC, milliseconds |
+| `ms=` | wall clock, 0.01 ms. On `op=verb`: from the command's arrival to its encoded reply, including the sync read. A refused command's `ms` ends before the sync read. |
+| `rid=` | request id. The `op=verb` line and every line written while that command ran carry the same one. |
+| `ok=` | 1 / 0. On `op=verb`, a refused hold or drop is 0 too. |
+| `err=` | short, always last on the line: a refusal's text, or only the error class for any other failure; no stack |
+| `req_b=` | mill **request** JSON bytes |
 | `body_b=` | mill `body` / `need` / `note` only (the letter/card) |
-| `resp_b=` | mill HTTPS **response** JSON (`inbox`, floor, ...) |
+| `resp_b=` | mill **response** JSON bytes (`inbox`, floor, ...) |
 | `frame_b=` | Hub `{type,id,hint}` (~40-80 B) |
 | `n=` | SQL row count or floor project count |
+| `sql_n=` `sql_ms=` `rows=` | `op=verb`: the SQL lines of this command (fast reads too), their summed ms and rows |
+| `trips=` | `op=verb`: top-level statements and pings on the command's connection, about one network round trip each |
+| `stmts=` | `op=verb`: statements MySQL ran, the ones inside procedures too |
+| `rows_s=` `rows_x=` | `op=verb`: rows MySQL sent and examined |
+| `srv_ms=` | `op=verb`: MySQL's own time for those statements. `sql_ms` minus `srv_ms` is the network and the connector. |
+| `lock_ms=` | `op=verb`: time the statements waited for row locks. `lock_part=1`: the thread's statement history (10 by default, `performance_schema_events_statements_history_size`) no longer held the command's first statement, so `lock_ms` is a lower bound. |
+| `ph=` | `op=verb` phases in ms: `q` waiting for a worker thread, `open` book connection checkout, `run` the command, `close` connection return, `sync` the reply's sync read (a second connection), `enc` the reply JSON. A refused command has no `sync` or `enc`. |
 | `sit=` `miss=` | fanout: mill connect on `/ws` vs not (log field still named `sit=`) |
 | `desk=` | mill connect / Hub room. N desks one PC: always present on mill-connect lines |
 | `q=` `drop=` | mill connect HINT FIFO depth; `drop=1` oldest HINT discarded (recv still ran) |
 | `status=` | 200 / 400 / 500 |
-| `ok=` | SQL 1/0 |
-| `err=` | short; no stack in this file |
+
+The `trips`, `stmts`, `rows_s`, `rows_x`, `srv_ms` and `lock_ms` fields come from performance_schema (`events_statements_summary_by_thread_by_event_name`, `events_statements_history`). A book user that cannot read it gets the line without them. `Innodb_row_lock_time` is not used: it is global, so its change would mix in every other desk.
 
 **SQL `activity.bytes`:** last mail or todo body length (`LENGTH(body)`). Not HTTP. The activity row is `(type, id)`.
 

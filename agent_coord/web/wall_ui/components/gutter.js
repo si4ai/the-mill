@@ -1,6 +1,6 @@
 /* WALL_UI_COMPONENTS_GUTTER - shared split gutter drag (Floor + Score).
  * Path A extract from board.html duplicate applyPct/onMove/onUp.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md ordered cut 4.
+ * SoR: wall-contract; wall_logic/gutter.py
  * Marker: WALL_UI_COMPONENTS_GUTTER
  *
  * wireSplitGutter({

@@ -16,7 +16,7 @@ Default pack paint still lives in `agent_coord/wall_ui/default/board.html` (and
 (same semantics; names often camelCase mirrors). Do not fork filter/autoselect/
 desk-only rules in chrome without updating this module + `tests/wall`.
 
-See docs/acceptance/ACCEPTANCE-WALL-MAIL-PURE.md.
+See wall-contract; tests/wall mail suites.
 """
 
 from __future__ import annotations

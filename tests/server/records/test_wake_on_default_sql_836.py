@@ -8,6 +8,7 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.install import migrate
 from agent_coord.server.records import join as rec_join
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
 
@@ -87,6 +88,6 @@ def test_wake_off_and_retire_reset_to_addressed(cn):
     rec_join.wake_off(cn, "fx836-r1")
     cn.commit()
     assert _seat_wake_on(cn, "fx836-r1") == "addressed"
-    rec_name.retire(cn, "fx836-r2", "desk")
+    rec_name.retire(cn, "fx836-r2", "desk", by=admin_desk(cn))
     cn.commit()
     assert _seat_wake_on(cn, "fx836-r2") == "addressed"
