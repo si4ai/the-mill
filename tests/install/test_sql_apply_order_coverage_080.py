@@ -1,4 +1,4 @@
-"""Every agent_coord/server/sql/*.sql is in apply_order.txt or on a named skip list (F191)."""
+"""Every agent_coord/server/sql/*.sql is in apply_order.txt or on a named skip list (F193)."""
 from __future__ import annotations
 
 from pathlib import Path

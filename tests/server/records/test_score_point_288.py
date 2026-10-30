@@ -35,7 +35,7 @@ def test_two_desks_one_series_and_read(cn) -> None:
     assert _count(cn, "SELECT COUNT(*) FROM score s JOIN name n ON n.id = s.roster_id"
                       " WHERE n.name = 'sp288' AND s.kpi = 'tokens.loop'") == 1
     assert _count(cn, "SELECT COUNT(*) FROM score s JOIN name n ON n.id = s.roster_id"
-                      " WHERE n.name = 'sp288' AND s.desk_id IS NULL") == 1  # beta 0.8.0: the roster's row has no desk
+                      " WHERE n.name = 'sp288' AND s.desk_id IS NULL") == 1
     got = rpc._h_score(book, {"name": "tokens.loop", "limit": 4}, "sp288", "spa")
     assert [p["v"] for p in got["points"]] == [630, 640, 650, 700]
     assert got["better"] == "down" and got["unit"] == "tokens" and got["target"] == "500"
