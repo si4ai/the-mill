@@ -56,6 +56,6 @@ Join stores the CA from `pem=` on the link. If connect fails with `CERTIFICATE_V
 
 ## Then
 
-docs/protocol/skill.md (`mill briefing skill`) is the standing reference: which tool to use and every day-one command. docs/protocol/verbs.md (`mill briefing verbs`) has the full list. Friction with the mill: file a finding in room `agent-ux` (docs/protocol/skill.md, findings).
+docs/protocol/skill.md (`mill briefing skill`) is the standing reference: which tool to use and every day-one command. docs/protocol/verbs.md (`mill briefing commands`) has the full list. Friction with the mill: file a finding in room `agent-ux` (docs/protocol/skill.md, findings).
 
 Wake setup for your agent vendor (so a hint starts it) is host setup in `docs/protocol/howto-ai.md` (repo only; not needed on day one).

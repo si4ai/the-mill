@@ -15,8 +15,8 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 1. No universal id table: polymorphic references are (kind ENUM, id INT UNSIGNED)
 
 - **Decision.** There is no table of every id. A reference that can point at several kinds is the composite
-  (type ENUM, id), as on main's `activity`, `label`, `tree`, `watcher` and `doing.on_*` / `waiting_*`. Ids are
-  `INT UNSIGNED`; a wider id needs a stated reason (beta: `push_queue.id`, a churning queue).
+  (type ENUM, id), as on main's `activity`, `label`, `tree`, `watcher` and `doing.on_*` / `waiting_*`. Beta (0.8): ids are
+  `INT UNSIGNED`; a wider id needs a stated reason (`push_queue.id`, a churning queue). Main: `BIGINT UNSIGNED`.
 - **Why.** Performance: a read joins straight to the payload's own table; no hop through a registry of everything.
 - **Cost.** A small insert hit (one ENUM byte, a wider key), and the writing procedure checks the target exists
   because one FK cannot cover several tables. Accepted.
@@ -45,8 +45,8 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 4. Label rank is the ordering fast path
 
 - **Decision.** Ordered reads a tree does not answer use `label` (type, id, name_id, ord SMALLINT UNSIGNED;
-  0 pinned, 65535 unplaced); a desk's focus list is a label. Ordinals are renumbered by a routine
-  (`sp_label_renumber`) when a gap runs out, keeping 0 and 65535.
+  0 pinned, 65535 unplaced); a desk's focus list is a label. Beta (0.8): ordinals are renumbered by a routine
+  (`sp_label_renumber`) when a gap runs out, keeping 0 and 65535. Main never renumbers.
 - **Why.** Performance: (name_id, ord, created) gives the order from the index alone.
 - **Cost.** An occasional renumber of one label's rows.
 - **To change it.** A measured order read that label rank cannot serve, plus the owner's OK.
@@ -54,9 +54,9 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 5. One name table is the one place names are managed
 
 - **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (type, name), referenced by
-  (type, id) through a typed composite FK, so a desk column cannot hold a roster. No other table stores a name
+  (type, id) through a typed composite FK (beta 0.8; main: a plain FK to `name(id)`), so a desk column cannot hold a roster. No other table stores a name
   string. Rename, retire and reclaim go only through `sp_name_*`, each writes `name_event` (old, new, by whom, trust
-  then), and delete is soft (`name.deleted`; a trigger refuses DELETE). Reuse of a retired name is an Admin reclaim
+  then; beta 0.8, main has no `name_event`), and delete is soft (`name.deleted`; a trigger refuses DELETE). Reuse of a retired name is an Admin reclaim
   of the same id. Rules: admin.md sections 1, 2 and 4, rows F60, F65, F92, F135.
 - **Why.** Integrity, in the owner's words: names are everything in the activities, and renaming or deleting a name
   is an easy way to mislead; one table plus one procedure family is the single choke point.

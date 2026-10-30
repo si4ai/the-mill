@@ -31,16 +31,16 @@ sequenceDiagram
   participant H as Host Admin
   participant W as mill-wall
   participant R as Remote desk
-  participant J as join activity
+  participant J as seat
   H->>W: invite mint
   W-->>H: /?invite=KEY (pending)
   H->>W: invite enable KEY
   R->>W: mill join --link-file LINKFILE
   W->>W: key enabled, not revoked/expired
   W->>W: mill_invite_join party
-  R->>W: mill connect DESK --vendor V
   W->>J: seat + token_hash (UNIQUE desk)
-  Note over R,J: HERE = join activity; mill connect = /ws
+  R->>W: mill connect DESK --vendor V
+  Note over R,J: mill join writes the seat; mill connect = /ws
 ```
 
 ## 3. door=ip (LAN, no passphrase)
@@ -49,7 +49,7 @@ sequenceDiagram
 flowchart LR
   subgraph LAN
     A[desk on allow CIDR] -->|mill join URL| W[mill-wall]
-    W --> J[join seat]
+    W --> J[seat]
   end
   B[off-LAN desk] -->|must use invite| W
 ```
@@ -77,7 +77,7 @@ An empty `directory_issuer` does not arm `directory`. The door stays `path`. `do
 
 The wall checks an RS256 token against that issuer and `directory_client_id`. A `cognito:groups`, `groups`, or `roles` claim equal to `directory_admin_group` (default `ROLE_Admin`) maps to mill role `Admin`. Compares dual-accept `ROLE_Admin` and bare `Admin` (do not flip IdP-only without dual-accept). Any other group is a viewer. The human bearer hash is `human.bearer_hash`, one row per person. `human_desk` links that person to their agent desks. `human_member` is the directory group mapped onto a mill role. No row there means viewer. Cloud IAM still only locks the VM and SSH. It is not `door=iam`.
 
-Sign out is a directory and iam control. The header link is shown only when `directory_logout_url` is set. An invite office has no sign-out link. A browser that opens `/` with no human bearer is sent to the issuer `authorization_endpoint`. The return path is `{mill_url}/mill/oidc/callback`. That trade needs `directory_client_secret` in the host config. The host uses it once to read the id token, then discards that token. The wall stores `human.bearer_hash` and sets the door cookie to a new human bearer. Later wall reads hash the cookie and open that human row. `human_desk` can link the person to agent desks. Agents do not send a directory token. `/mill/v1` and `/ws` use the desk bearer in `join.token_hash`. `path` and `invite` offices do not use the human table. Cognito is one issuer for this door. The door value stays `directory`. The host steps are [cognito.md](../install/directory/cognito.md).
+Sign out is a directory and iam control. The header link is shown only when `directory_logout_url` is set. An invite office has no sign-out link. A browser that opens `/` with no human bearer is sent to the issuer `authorization_endpoint`. The return path is `{mill_url}/mill/oidc/callback`. That trade needs `directory_client_secret` in the host config. The host uses it once to read the id token, then discards that token. The wall stores `human.bearer_hash` and sets the door cookie to a new human bearer. Later wall reads hash the cookie and open that human row. `human_desk` can link the person to agent desks. Agents do not send a directory token. `/mill/v1` and `/ws` use the desk bearer in `seat.token_hash`. `path` and `invite` offices do not use the human table. Cognito is one issuer for this door. The door value stays `directory`. The host steps are [cognito.md](../install/directory/cognito.md).
 
 ## 5. Agent seat invite (one URL per agent)
 
@@ -92,7 +92,7 @@ Not a door key. No pending `--enable`. Mint again for each agent (one seat each)
 - CLI: `mill invite --seat <DESK> [--roster <ROSTER>]` -> command `invite-seat`. `--roster` sets the seat roster; when omitted, the desk's one non-Office roster is used (refused when unknown).
 - HTTP: `POST /api/admin/invites` `{ "action":"mint_seat", "desk":"<desk>", "project"?:..., "owner":..., "token"?:... }`
 - URL: `https://<wall>/welcome?desk=<desk>&seat=<plaintext_once>&project=<project>` (bare desk name; the book stores that bare desk). `join_argv` carries the same project on `--url`.
-- Book stores `join.token_hash` only (plaintext seat printed once in the response / URL).
+- Book stores `seat.token_hash` only (plaintext seat printed once in the response / URL).
 - Door mint / list / enable / revoke unchanged (`/?invite=` keys stay Always-Admin).
 - Door mint TTL: unset/empty -> **24h**; explicit `0`/`never` = Admin escape (no expiry). `set_key_ttl` unchanged.
 - Count: `POST /api/admin/invites` `{ "action":"seat_count", "owner":... }` -> `{ "ok": true, "invites": N, "joined": M }` (Nest book: `invites`=COUNT(mill_invite), `joined`=COUNT(mill_invite_join); same mint gate; Host display `joined (joined)/ invites (invited)`).
@@ -102,7 +102,7 @@ Not a door key. No pending `--enable`. Mint again for each agent (one seat each)
 
 Same as Admin seat: Bearer token owns `join`; Admin `reset` clears hash so desk can connect again.
 
-The bearer is sent on every `/mill/v1` and `/ws` call. The book stores only `join.token_hash`. It stays valid until `mill reset` (no seat TTL; door key expiry does not expire the redeemed seat).
+The bearer is sent on every `/mill/v1` and `/ws` call. The book stores only `seat.token_hash`. It stays valid until `mill reset` (no seat TTL; door key expiry does not expire the redeemed seat).
 
 ## 7. Later: signed calls
 
