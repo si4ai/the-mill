@@ -1,5 +1,8 @@
 -- MILL_NAME_GET: SELECT only (reads must not mint).
 -- MILL_NAME_PUT: INSERT on first use (intentional create paths only).
+--   0.8.0: a new roster or label reads b_trust() (admin.md section 2): limited trust refuses it here,
+--   Admin mints through sp_name_mint. A new desk gets its seat row (token NULL) with its name: every
+--   desk column FKs to seat (desk_id), the desk kind table. Plans (tree) and resources (res) mint as on main.
 -- Reads use MILL_NAME_GET. Creates use MILL_NAME_PUT.
 -- A name is (type, bare string). id is the primary key. idx_type is UNIQUE (type, name).
 -- Deleted names stay unique; retired names SIGNAL on get and put.
@@ -84,6 +87,10 @@ BEGIN
   IF p_type = 'roster' AND TRIM(p_name) COLLATE utf8mb4_0900_ai_ci = 'Office' THEN
     RETURN 1;
   END IF;
+  IF p_type IN ('roster', 'label') AND b_trust() = 'limited' THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
+  END IF;
   INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name));
   IF v_dup = 1 THEN
     SELECT id, deleted INTO v_id, v_del
@@ -101,6 +108,9 @@ BEGIN
     RETURN v_id;
   END IF;
   SET v_id = LAST_INSERT_ID();
+  IF p_type = 'desk' THEN
+    INSERT INTO seat (desk_id) VALUES (v_id);
+  END IF;
   RETURN v_id;
 END //
 

@@ -9,9 +9,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent_coord.client.tokens import token_hash
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill.rpc import _h_add_remove
 from agent_coord.server.records import hold as rec_hold
+from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import todo as rec_todo
@@ -52,6 +54,10 @@ def _tos(cn, mid):
 def room(cn):
     seed_names(cn, (R, "roster"), ("ar_r", "roster"),
                ("ar_a", "desk"), ("ar_b", "desk"), ("ar_c", "desk"), ("ar_d", "desk"), ("ar_e", "desk"))
+    # 0.8.0: watcher.desk_id FKs to seat; every desk in the fixture needs a seat.
+    for d in ("ar_a", "ar_b", "ar_c", "ar_d", "ar_e"):
+        rec_join.upsert(cn, R, d, "", token_hash("ar-" + d), None)
+    cn.commit()
     rec_member.put(cn, "ar_r", "ar_c", "roster")
     rec_member.put(cn, "ar_r", "ar_d", "roster")
     m1 = int(rec_mail.insert(cn, R, "ar_a", "ar_b", "root")[0]["id"])
@@ -144,20 +150,10 @@ def test_watch_add_remove_self(cn, card):
         _go(cn, "remove", "todo", card)
 
 
-def test_roster_watcher_expands_at_wake_time(cn, card):
-    _go(cn, "add", "todo", card, "ar_r", hint="roster recipe")
-    assert {"ar_c", "ar_d"} <= set(_wake(cn, "todo", card))
-    _go(cn, "add", "todo", card, "ar_c", hint="own recipe")
-    woke = call(cn, "mill_watcher_select", ["todo", card])
-    assert [r["desk"] for r in woke].count("ar_c") == 1
-    assert _wake(cn, "todo", card)["ar_c"] == "own recipe"
-    assert _wake(cn, "todo", card)["ar_d"] == "roster recipe"
-    rec_member.put(cn, "ar_r", "ar_e", "roster")  # joins after the watch
-    assert "ar_e" in _wake(cn, "todo", card)
-    tree_desks = {r["desk"] for r in call(cn, "mill_tree_watchers", ["todo", card])}
-    assert {"ar_c", "ar_d", "ar_e"} <= tree_desks and "ar_r" not in tree_desks
-    assert _go(cn, "remove", "todo", card, "ar_r")["removed"] == 1
-    assert "ar_d" not in _wake(cn, "todo", card)
+def test_roster_watcher_is_refused(cn, card):
+    """0.8.0: a watcher is a desk (fk_watcher_desk -> seat); a roster who is refused (F172 / lane C)."""
+    with pytest.raises(CoordError, match="no seat|roster|refused"):
+        _go(cn, "add", "todo", card, "ar_r", hint="roster recipe")
 
 
 def test_hold_is_watchable(cn, room):

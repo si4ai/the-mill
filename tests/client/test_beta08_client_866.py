@@ -1,4 +1,4 @@
-"""Card 866: done_when, pass --evidence, cached glance, version warning. Row F143."""
+"""Card 866: done_when, pass --evidence, the glance, version warning. Rows F143, F176."""
 from __future__ import annotations
 
 import pytest
@@ -7,7 +7,7 @@ from agent_coord.__main__ import _build_parser
 from agent_coord.client.outbound import body_from_args
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill.rpc import _todo_card
-from agent_coord.server.beta_client import read_cached_glance, shape_glance
+from agent_coord.server.beta_client import read_glance, shape_glance
 
 
 def _card(row, fields):
@@ -105,7 +105,7 @@ def test_glance_keeps_two_sets_and_drops_unread():
         [{"seq": 1, "at": "t", "kind": "letter", "ref": 5, "desk": "a"}],
     )
     assert got["cache"]["present"] == 2
-    assert got["cache"]["open_votes"] == 4
+    assert "open_votes" not in got["cache"]  # no vote table (the owner, 2026-10-26)
     assert "unread" not in got["cache"]
     assert got["activity"] == [{"seq": 1, "at": "t", "kind": "letter", "ref": 5, "desk": "a"}]
 
@@ -135,7 +135,7 @@ def test_glance_skips_an_unknown_kind():
 def test_glance_refuses_when_the_read_is_missing():
     class _Cur:
         def execute(self, _sql):
-            raise RuntimeError('(1305, "PROCEDURE uc_a6_glance_cached does not exist")')
+            raise RuntimeError('(1305, "PROCEDURE uc_a6_glance does not exist")')
 
         def close(self):
             return None
@@ -144,8 +144,36 @@ def test_glance_refuses_when_the_read_is_missing():
         def cursor(self, dictionary=True):
             return _Cur()
 
-    with pytest.raises(CoordError, match="not installed"):
-        read_cached_glance(_Cn())
+    with pytest.raises(CoordError, match="glance: the glance is not installed"):
+        read_glance(_Cn())
+
+
+def test_glance_is_read_live_not_from_a_cache():
+    # The owner (2026-10-26): no glance_cache; the glance is computed by uc_a6_glance on each read (F176).
+    seen = []
+
+    class _Cur:
+        with_rows = True
+
+        def execute(self, sql):
+            seen.append(sql)
+
+        def fetchall(self):
+            return [{"at": "t", "letters_1d": 1}]
+
+        def nextset(self):
+            return None
+
+        def close(self):
+            return None
+
+    class _Cn:
+        def cursor(self, dictionary=True):
+            return _Cur()
+
+    got = read_glance(_Cn())
+    assert seen == ["CALL uc_a6_glance()"]
+    assert got["cache"]["letters_1d"] == 1
 
 @pytest.mark.parametrize(
     "extra",

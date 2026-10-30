@@ -17,6 +17,7 @@ from agent_coord.server.records import todo as rec_todo
 from tests.server.records.conftest import seed_names
 
 from tests.sql_isolate import throwaway_db
+from tests.server.records.conftest import admin_desk
 
 TEST_DB = throwaway_db("mill_records_test")
 
