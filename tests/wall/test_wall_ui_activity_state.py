@@ -97,7 +97,7 @@ def test_history_diary_paints_events_not_daily_evidence():
         + "\nconst diary = presenceRowsForUi({diary: true});\n"
         "const chartDaily = presenceRowsForUi();\n"
         "_q = {key: 'lan:x|min'}; _presenceKey = 'lan:x|min'; _presenceSource = 'activity';\n"
-        "_presenceRows = [{updated: '2026-10-09T13:22:00', type: 'mail', owner: 'a', n: 2}];\n"
+        "_presenceRows = [{updated: '2026-10-09T13:22:00', type: 'mail', owner: 'a', items: 2}];\n"
         "const chartMin = presenceRowsForUi();\n"
         "const diaryMin = presenceRowsForUi({diary: true});\n"
         "console.log(JSON.stringify({diary, chartDaily, chartMin, diaryMin}));"
@@ -109,7 +109,9 @@ def test_history_diary_paints_events_not_daily_evidence():
     assert d[1]["state"] is None
     # Evidence rows never become kind-less, time-less list rows.
     assert all(r["kind"] for r in out["chartDaily"])
-    assert out["chartMin"][0]["kind"] == "mail" and out["chartMin"][0]["n"] == 2
+    assert out["chartMin"][0]["kind"] == "mail" and out["chartMin"][0]["items"] == 2
+    assert "n" not in out["chartMin"][0]
+    assert "n" not in d[0]
     assert [r["kind"] for r in out["diaryMin"]] == ["mail", "todo"]
     src = BOOT.read_text(encoding="utf-8")
     diary_src = src[src.index("function paintSessionWire("): src.index("function wire(d)")]

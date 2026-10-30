@@ -5181,6 +5181,7 @@
         type: r.type || r.kind,
         owner: r.owner,
         roster_id: millGid(r),
+        items: r.items,
         state: r.state || null,
       }));
     }
