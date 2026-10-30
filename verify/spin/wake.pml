@@ -69,8 +69,20 @@
  *                up after a newer lease began still holds its own, older token.
  *   MUT_RUN_CURRENT  mutation of card 888: the run binds the lease current when
  *                it starts, not the token its POST carried (must fail L01)
+ *   LAPSE_FIRING 1 = card 890: the lease may lapse while its POSTs are still in
+ *                flight (a slow or hung receiver, or a short wake_lease_s), so a
+ *                newer lease can start before the older POST returns. 0 (default)
+ *                = a lease always outlives its POSTs (900 s against at most 16 s).
+ *                With it, the token a run holds and the lease that woke it are
+ *                kept apart (pend carries both), so a token read late is seen.
+ *   MUT_LATE_TOKEN  mutation of card 890: the POST body reads the current lease
+ *                token when it is sent, not the token its take returned (must
+ *                fail L06)
  */
 
+#ifndef LAPSE_FIRING
+#define LAPSE_FIRING 0
+#endif
 #ifndef N
 #define N 2
 #endif
@@ -164,7 +176,21 @@ bool stale_done = false;
 byte cf = 0;           /* POSTs failed in a row */
 /* woken runs that have not connected yet, each with the lease token its POST
    carried (FIFO: runs start in POST order) */
+#if LAPSE_FIRING
+/* card 890: (token the POST body carried, ghost: the lease its take started) */
+chan pend = [MAXRUNS] of { byte, byte };
+#define PEND_PUT(c, t) pend!c,t
+#define PEND_GET(c, t) pend?c,t
+#else
 chan pend = [MAXRUNS] of { byte };
+#define PEND_PUT(c, t) pend!c
+#define PEND_GET(c, t) pend?c; t = c
+#endif
+#ifdef MUT_LATE_TOKEN
+#define SENT_TK(t) (gate_ep)     /* the lease current when the body is sent */
+#else
+#define SENT_TK(t) (t)           /* wake_body(lease=...) from the take */
+#endif
 byte posts = 0;        /* every POST attempted, for the record */
 
 /* card 827 (proposal only) */
@@ -196,7 +222,7 @@ inline post(ok, tk) {
   posts++;
   if
   :: cf < MAXFAIL -> cf++; ok = false
-  :: atomic { true -> cf = 0; ok = true; if :: nfull(pend) -> pend!RUNTK(tk) :: full(pend) -> skip fi }
+  :: atomic { true -> cf = 0; ok = true; if :: nfull(pend) -> PEND_PUT(RUNTK(SENT_TK(tk)), RUNTK(tk)) :: full(pend) -> skip fi }
   fi
 }
 
@@ -370,7 +396,7 @@ end_t:
 proctype Clock() {
 end_c:
   do
-  :: atomic { gate_ep != 0 && !gate_exp && firing == 0 -> gate_exp = true; since_ok = true; run_ok = true }
+  :: atomic { gate_ep != 0 && !gate_exp && (LAPSE_FIRING || firing == 0) -> gate_exp = true; since_ok = true; run_ok = true }
   od
 }
 
@@ -465,11 +491,9 @@ proctype Session(byte s) {
   bool ok, took, t;
 end_s:
   do
-  :: atomic { nempty(pend) && !seat[s] -> pend?own;
+  :: atomic { nempty(pend) && !seat[s] -> PEND_GET(ep, own);   /* ep = wake.lease from the POST body */
 #ifdef MUT_RUN_CURRENT
                 ep = gate_ep                 /* the lease current at run start */
-#else
-                ep = own                     /* wake.lease from the POST body */
 #endif
               };
      /* one connect per shell call; MULTI lets the run make more than one */
