@@ -1,0 +1,35 @@
+{
+  "office": {
+    "mill_office": "example-office",
+    "mill_connect_template": "mill --office {mill_office} connect {roster} {desk}",
+    "roster": "example-roster",
+    "export_before_restart": true
+  },
+  "defaults": {
+    "permission_mode": "default",
+    "allow_bypass_permissions": false,
+    "lessons_byte_cap": 12000,
+    "lessons_count_cap": 25,
+    "handoff_char_cap": 1500,
+    "first_message_template": "desk {desk}\ndo the open work (claimed cards, open letters) first, then start mill connect-wait"
+  },
+  "desks": [
+    {
+      "name": "example-desk",
+      "work_dir": "C:/Users/YOU/desks/example-desk/work",
+      "export_dir": "C:/Users/YOU/desks/example-desk/exports",
+      "agent_file": "C:/Users/YOU/desks/example-desk/agent.md",
+      "model": "",
+      "reasoning_effort": "",
+      "permission_mode": "default",
+      "credential_target": "mill-desk/example-desk/github-pat",
+      "lessons_label": "learn-example-desk",
+      "lessons_byte_cap": 12000,
+      "lessons_count_cap": 25,
+      "handoff_letter_id": null,
+      "handoff_query": "trail --label learn-example-desk",
+      "add_dirs": [],
+      "first_message_template": "desk {desk}\nlearn-label {lessons_label}\ndo the open work first, then start mill connect-wait"
+    }
+  ]
+}
