@@ -381,13 +381,6 @@ def apply(cn, *, wipe: bool = False) -> dict[str, Any]:
     return apply_records(cn, wipe=wipe)
 
 
-def _fast_sql_read(op: str) -> bool:
-    """A cheap successful read. Those lines were most of mill-perf.log (#220)."""
-    if not op.startswith("sql."):
-        return False
-    return op[4:].endswith(("_select", "_get", "_list"))
-
-
 def _bump_write(name: str) -> None:
     """Move pane versions after a successful write. A read leaves them alone."""
     try:
@@ -401,12 +394,12 @@ def _bump_write(name: str) -> None:
 
 
 def _perf(op: str, ms: float, **kv: Any) -> None:
+    """One CALL's cost. perf.sql_line counts it on the command line (fast reads too), keeps the
+    25 ms rule for a fast read's own line, and writes it anyway under `all` (F171)."""
     try:
-        if kv.get("ok") == 1 and ms < 25.0 and _fast_sql_read(op):
-            return
-        from agent_coord.server.push import perf_log
+        from agent_coord.server import perf
 
-        perf_log(op, ms, **kv)
+        perf.sql_line(op, ms, **kv)
     except Exception:
         pass
 

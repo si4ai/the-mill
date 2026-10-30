@@ -1774,8 +1774,6 @@ def build_events(
             "owner": _nm(r.get("desk")),
             "roster_id": proj_s,
             "desk_id": r.get("desk_id"),
-            "weight": r.get("weight"),
-            "n": r.get("n"),
             "state": r.get("state"),
         }
         if _keep(ev, want):

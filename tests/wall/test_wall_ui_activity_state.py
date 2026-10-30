@@ -110,6 +110,8 @@ def test_history_diary_paints_events_not_daily_evidence():
     # Evidence rows never become kind-less, time-less list rows.
     assert all(r["kind"] for r in out["chartDaily"])
     assert out["chartMin"][0]["kind"] == "mail" and out["chartMin"][0]["items"] == 2
+    assert "n" not in out["chartMin"][0]
+    assert "n" not in d[0]
     assert [r["kind"] for r in out["diaryMin"]] == ["mail", "todo"]
     src = BOOT.read_text(encoding="utf-8")
     diary_src = src[src.index("function paintSessionWire("): src.index("function wire(d)")]

@@ -5262,7 +5262,7 @@
     })();
 
     function paintLeftoverBanner(d) {
-      /* v1 leftover-as-work retired. leftover is spend, not a JOB. */
+      /* v1 leftover-as-work retired. leftover is not a job. */
       const el = document.getElementById("leftover-banner");
       if (!el) return;
       el.classList.remove("on");
