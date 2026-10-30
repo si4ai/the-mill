@@ -766,9 +766,9 @@
         owner: e.owner || "",
         source: "presence",
         kind: e.kind || e.type || "",
-        tokens: Number(e.n || 0) * Number(e.weight == null ? 1 : e.weight),
+        tokens: 0,
         usd: 0,
-        detail: (e.kind || e.type || "") + " n*weight",
+        detail: (e.kind || e.type || ""),
       }));
     }
     function millSpend(d) {

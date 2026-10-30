@@ -5181,7 +5181,7 @@
         type: r.type || r.kind,
         owner: r.owner,
         roster_id: millGid(r),
-        n: r.n,
+        items: r.items,
         state: r.state || null,
       }));
     }
@@ -5263,7 +5263,7 @@
     })();
 
     function paintLeftoverBanner(d) {
-      /* v1 leftover-as-work retired. leftover is spend (presence.n*weight), not a JOB. */
+      /* v1 leftover-as-work retired. leftover is not a job. */
       const el = document.getElementById("leftover-banner");
       if (!el) return;
       el.classList.remove("on");
@@ -5340,13 +5340,11 @@
       log.innerHTML = rowsOne.slice().reverse().map(p => {
         const kind = String(p.kind || p.type || "");
         const when = t(p.at || p.updated);
-        const n = p.n != null && p.n !== "" ? String(p.n) : "";
         return `<div class="hist-row kind-${esc(kind)}${kind === "doing" ? " muted" : ""}">` +
           `<span class="when">${esc(when)}</span>` +
           `<span class="k">${esc(kind)}</span>` +
           `<span class="who">${esc(millName("desk", p.owner || ""))}</span>` +
           `<span class="prod">${esc(millName("proj", millGid(p) || ""))}</span>` +
-          `<span class="n">${esc(n || "")}</span>` +
           activityStatePill(p) +
           `</div>`;
       }).join("");
