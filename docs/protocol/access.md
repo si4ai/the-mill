@@ -3,7 +3,7 @@
 **Law:** `agent_coord/server/sql/tables.sql`. **Interface:** [skill.md](skill.md) (teaching names).  
 **Enforcement:** mill-wall Bearer fail-closed - not skill etiquette.
 
-Bearer = seated desk whose `join.token_hash` matches the request. No token -> no mutate.  
+Bearer = seated desk whose `seat.token_hash` matches the request. No token -> no mutate.  
 Every mutate is a **Bearer dest** act. Extra gates: `Admin` (Always Admin) and office **trust** (`high` default / `limited`). Chart: [admin.md](../requirements/admin.md).
 
 ## Chart
@@ -15,7 +15,7 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **send** | yes | `src` = Bearer. Dest may be another desk, a role mailbox, or `*`. |
 | **inbox** (list) | yes | Own desk only: the sitting connect. No project, desk, or role argument. |
 | **inbox** mark -> `mail_to.opened` | yes | First-person receipt only. |
-| **doing** / HERE | yes | Own `join` row only. |
+| **doing** (`--doing` on a command) | yes | Own doing rows only. |
 | **watcher** / hint | yes | Own subscription only. |
 | **hold** | yes | Take as self. |
 | **drop** (hold) | holder | Only the hold owner releases. Not unclaim. |

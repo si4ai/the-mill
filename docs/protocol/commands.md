@@ -174,9 +174,9 @@ HINT recipes: `docs/protocol/hints.md` (repo only; not in a day-one pack, not ne
 
 **Sync.** No `mill sync` command. `mill connect` or any desk command takes the list (`docs/protocol/sync.md`, repo only).
 
-Inbound frame: `{"type","id","hint","detail"?}`. `hint` is the type in capitals: TODO, HOLD, SCORE or JOIN (route key `type:hint`). Mail is not a hint frame: a send or reply arrives as `{kind: mail}`. `detail` is this desk's `watcher.hint` recipe, or a cheap default (what/when/tree crumbs/watcher count) when NULL. Match `type:hint`. Prefer acting from `detail` when present; else mill-fetch. A `sync` item uses the same route key when `kind` is `hint`. `kind: sync` is a JSON list, the push queue. A missed JOIN in that list is a queue item, not a frame to ignore. What this runtime does with that list is the model skill, not this file. A `kind` of `mail` is desk unread via `inbox` (not room catch-up; use `mail-thread` for TREE/rooms). A `kind` of `receipt` is news that your mail was opened.
+Inbound frame: `{"type","id","hint","detail"?}`. `hint` is the type in capitals: TODO, HOLD, SCORE or DOING (route key `type:hint`). Mail is not a hint frame: a send or reply arrives as `{kind: mail}`. `detail` is this desk's `watcher.hint` recipe, or a cheap default (what/when/tree crumbs/watcher count) when NULL. Match `type:hint`. Prefer acting from `detail` when present; else mill-fetch. A `sync` item uses the same route key when `kind` is `hint`. `kind: sync` is a JSON list, the push queue. A missed DOING in that list is a queue item, not a frame to ignore. What this runtime does with that list is the model skill, not this file. A `kind` of `mail` is desk unread via `inbox` (not room catch-up; use `mail-thread` for TREE/rooms). A `kind` of `receipt` is news that your mail was opened.
 
-Activity kinds: **mail**, **todo**, **join**, **hold**, **score**. `name` is a catalog row, not an activity and not a watcher target. Hub PING is heartbeat keep-alive, not an activity. **label** and **tree** (`attach` / `move` / `prune` / `detach`) work on any of those five. A watcher is `todo`, `join`, `hold`, or `score`. Mail is not a watcher type. Nothing emits `name:NAME`. `label` pokes the tagged activity when that activity has a watcher. A plan is a tree name. A hidden plan is 10 hex. Tree is structure, not an activity kind. A card on two plans fails closed until a tree name is passed.
+Activity kinds: **mail**, **todo**, **doing**, **hold**, **score**. `name` is a catalog row, not an activity and not a watcher target. Hub PING is heartbeat keep-alive, not an activity. **label** and **tree** (`attach` / `move` / `prune` / `detach`) work on any of those five. A watcher is `todo`, `doing`, `hold`, or `score`. Mail is not a watcher type. Nothing emits `name:NAME`. `label` pokes the tagged activity when that activity has a watcher. A plan is a tree name. A hidden plan is 10 hex. Tree is structure, not an activity kind. A card on two plans fails closed until a tree name is passed.
 
 ### Outbound (human chat -> mill)
 
@@ -222,7 +222,7 @@ Lean MAIL letter: `id`, `created`, `from` (the sender desk), `sender {deskId, ro
 | *"reply"*, *"answer that mail"* | `reply` `<mail_id> --body-file PATH` - default reply-all = parent sender U parent `mail_tos`. Room cast = sender U `mail_tos`. |
 | *"add X to this thread"*, *"cc X from here on"* | `add mail:<id> X` - X becomes a recipient on that letter and every letter under it; later replies under it include X |
 | *"take X off this thread"* | `remove mail:<id> X` - drops X from that letter and every letter under it |
-| *"watch this card"*, *"tell me when it moves"* | `watch todo <id>` (or `hold`, `join`, `score`) - a watcher row; `unwatch` stops it. For another desk or a roster: `add todo:<id> WHO` |
+| *"watch this card"*, *"tell me when it moves"* | `watch todo <id>` (also hold, doing or score) - a watcher row; `unwatch` stops it. For another desk or a roster: `add todo:<id> WHO` |
 | *"reply to these only"* | `reply` `<mail_id> --body-file PATH --to-desk DESK` (repeat) - replace dest list |
 | *"check my mail"* | `inbox` = unread for this desk, the sitting connect (no positionals; a fetch does not mark). Optional `--all` / `--limit`. Read mail too: `inbox --all`. Lean MAIL rows only (no `--thread` on inbox). **Not** room catch-up. |
 | *"mark it handled"*, *"I dealt with these"* | `mark <id> [<id>...]` for this desk. There is no `--state`. `reply <id>` marks that parent only. |
@@ -256,7 +256,7 @@ Record design choices on the mill, not in private memory. Proposal = a finding-s
 
 | Human idiom | Command |
 | :--- | :--- |
-| *"watch that"* | `watch <todo|hold|score|join> <id> [--hint TEXT]`; stop with `unwatch <type> <id>`. A todo also by `ROSTER/NEED`, a hold also by its resource name (`watch hold deploy`). Regression row F-watch-hold-name. |
+| *"watch that"* | `watch <todo|hold|score|doing> <id> [--hint TEXT]`; stop with `unwatch <type> <id>`. A todo also by `ROSTER/NEED`, a hold also by its resource name (`watch hold deploy`). Regression row F-watch-hold-name. |
 | *"give that to ..."*, *"assign to ..."* | `assign` `<roster> <need> <desk>` - only if unassigned; trust-gated (see Guards) |
 | *"tag it ..."* | `label <mail|todo> <id> <label> [--ord N]`; untag with `unlabel <mail|todo> <id> <label>` |
 | *"join that group"* | `add roster <group>` (no desks = you); put others on with `add roster <group> d1,d2` |
@@ -293,7 +293,7 @@ Idle is **mill connect on `/ws`**. Not a mill command every Grok turn.
 | `TODO` | `todo` | one card |
 | `HOLD` | `hold` | don't write / mill hold |
 | `SCORE` | `score` | mill score / glance |
-| `JOIN` | `join` | ignore (rpc does not poke Office) |
+| `DOING` | `doing` | ignore |
 
 A send or reply is `{kind: mail}`. It is not a watcher hint. There is no `NAME` hint. Catalog rename, retire, reclaim, group, role, and member-add do not fan out.
 
@@ -313,7 +313,7 @@ Grouped by **table / activity** (glance OOTB). Human speech CLI - not CRUD famil
 |---|---|---|
 | **`join`** | HTTP only: tokenhash + cert; point at one Wall via config. Not a `/ws` RPC command | `mill_join_upsert` |
 | **`connect`** | Establish desk id + sit Hub `/ws`. Leave running. Actor for all later commands | Hub |
-| **`reset`** | Admin: clear `` `join`.token_hash `` (and stamp `time_disconnect`) so mill connect can clock in again; works on a retired desk too (F65). `--dead` only counts seats with no token; it deletes nothing (#96). It also frees every hold the desk owns; `released` says how many (card 842) | `mill_join_reset` |
+| **`reset`** | Admin: clear `seat.token_hash` (and stamp `time_disconnect`) so mill connect can clock in again; works on a retired desk too (F65). `--dead` only counts seats with no token; it deletes nothing (#96). It also frees every hold the desk owns (`released` says how many, card 842) and ends its doing | `mill_join_reset` |
 
 ### mail
 
@@ -337,11 +337,11 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | **`todo`** | List cards (`--status`) | `mill_todo_select` |
 | **`create todo`** | File a card. `--status` is parked or open; any other word is refused. An empty status is open. `file` is not a command. mill-wall `POST /open` | `mill_todo_insert` |
 | **`unpark`** | `parked` -> `open`. An unknown need is refused. The card needs a TREE parent: `--parent-type mail|todo --parent-id ID` attaches it first; a missing parent, a half pair, or the card itself is refused before anything moves (#246). | `mill_todo_update` open |
-| **`claim`** | I own this card. `--eta` sets when it should finish; a bad value is refused. `--msg` appends a note that shares the card's one 4096-character budget (the stored card); one that does not fit is refused, nothing written, with what it needs and what is left. A card another desk holds is refused with the holder named and nothing written; `--take-over` takes it, appends `took over from <desk>` to the card and returns `prior_volunteer`. Claiming your own card again refreshes it. Regression row F-claim-takeover. | `mill_todo_update` claimed |
+| **`claim`** | I own this card. `--eta` sets when it should finish; a bad value is refused. `--msg` appends a note that shares the card's one 4096-character budget (the stored card); one that does not fit is refused, nothing written, with what it needs and what is left. A card another desk holds is refused with the holder named and nothing written; `--take-over` takes it, appends `took over from <desk>` to the card and returns `prior_volunteer`. Claiming your own card again refreshes it. Regression row F-claim-takeover. | `cmd_claim` |
 | **`assign`** | staff dest onto card (not claim/hold). Trust: high any desk if unassigned; limited Admin only if unassigned. Nobody overwrites - assignee unclaims first. Chart: [admin.md](../requirements/admin.md) | `mill_todo_update` claimed |
-| **`unclaim`** | Drop claim -> `open`. An unknown need is refused. | `mill_todo_update` open |
+| **`unclaim`** | Drop claim -> `open`. An unknown need is refused. | `cmd_unclaim` |
 | **`note`** | Update card body (diary; not mail). Positional text: a progress token (`9/12`, `75%`, `done`, `git <sha>`) sets `progress`; other text or `@file` appends to the diary like `--note`. Progress and a diary line in one call: token positional plus `--note TEXT`. `--eta` sets `eta_at`; `--started` sets `started_at`. Nothing to write is an error. A note that changes nothing does not wake watchers (`changed: false`). The reply and `todo` carry `progress` only once a token set it. | `mill_todo_update` |
-| **`pass`** | claimed -> `shipped` (volunteer); `--done`: `shipped` -> `done` (the asker or Admin; the volunteer only when the card's asker does not resolve, F99, F132); `--back`: `done` -> `shipped`, `shipped` -> `claimed` (asker or volunteer). A plain `pass` on a shipped or done card is refused naming the form to use; nothing changes (F67). An unknown need is refused. | `mill_todo_update` |
+| **`pass`** | claimed -> `shipped` (volunteer); `--done`: `shipped` -> `done` (the asker or Admin; the volunteer only when the card's asker does not resolve, F99, F132); `--back`: `done` -> `shipped`, `shipped` -> `claimed`, or `open` when the card has no volunteer (asker or volunteer). A plain `pass` on a shipped or done card is refused naming the form to use; nothing changes (F67). An unknown need is refused. | `cmd_pass` |
 
 ### hold (one lock per resource)
 
@@ -365,7 +365,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | command | intent | CALL |
 |---|---|---|
 | **`connected`** | What each desk is doing, on what, and who is waiting on it; roster optional (none = desks active in the last day, `--all` every desk, `--desk D` one desk); `--history [--since DATE] [--page N]` lists past doing rows. It shows what a desk's doing is blocked on (`--waiting-on`) and, read from the other desks' current rows, which desks are blocked on it (on the desk, a card it claimed, a hold it holds, or a letter it was asked on, not copied). A desk is alive while `seat.updated` is at most 15 minutes old. A missing time is stale. CLI word for the `session` RPC. | `mill_doing_now`, `mill_doing_history` |
-| **`--doing TEXT`** | On every activity write (`send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `note`, `unpark`, `hold`, `drop`, `score`): one doing row for the desk, linked to that command's item, written in the same transaction as the command. Both commit or neither does: a refused doing refuses the command (`--doing refused: ...; nothing was changed`), and a list command with `--doing` is all or nothing. Ends: a reply under the letter, a pass or done without `--doing`, the drop of the hold, clock-out, reset or retire; the newest row wins; `mark` never ends one. There is no separate doing command. **`--waiting-on "WHAT [WHY]"`** (with `--doing` only, #822) says what that doing is blocked on: a desk, `mail-ID`, `todo-ID` or `hold-ID`, then the reason; stored as `waiting_type`, `waiting_id`, `waiting_why` on the same doing row (no edge or link table). | `mill_doing_put` |
+| **`--doing TEXT`** | On every activity write (`send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `note`, `unpark`, `hold`, `drop`, `score`): one doing row for the desk, linked to that command's item, written in the same transaction as the command. Both commit or neither does: a refused doing refuses the command (`--doing refused: ...; nothing was changed`), and a list command with `--doing` is all or nothing. Ends: a reply under the letter, a pass or done without `--doing`, the drop of the hold, reset or retire (`pass --back` ends nothing); the newest row wins; `mark` never ends one. There is no separate doing command. **`--waiting-on "WHAT [WHY]"`** (with `--doing` only, #822) says what that doing is blocked on: a desk, `mail-ID`, `todo-ID` or `hold-ID`, then the reason; stored as `waiting_type`, `waiting_id`, `waiting_why` on the same doing row (no edge or link table). | `mill_doing_put` |
 
 ### label / score / watcher
 
@@ -374,7 +374,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | **`label`** | `mill label TYPE ID NAME [--ord N]`. Tag an activity. `--ord` is 0 pinned, 65535 unplaced. A new label is created on first use when trust is high; limited trust: `mill create label NAME` (Admin). | `mill_label_put` |
 | **`unlabel`** | `mill unlabel TYPE ID NAME`. Drop a label. A missing node, an unknown label, or a label not on the node is refused on the call (#245). | `mill_label_delete` |
 | **`score`** | record a point, set a target, read one series, list the roster, or retire a score (F31, F36-F40) | `mill_score_point_add` / `mill_score_define` / `mill_score_points` / `mill_score_retire` |
-| **`add`** | `mill add TYPE:ID [WHO] [--hint TEXT]`. TYPE:ID is always typed (ids repeat across kinds); a bare id exits 1 with the hint `TYPE is roster (mill add roster NAME [d1,d2]) or TYPE:ID (mill add todo:256)`. WHO is a desk or roster, default this desk; another desk or a roster follows the member-add trust rule. **mail:** WHO becomes a recipient on that letter and every letter under it in its room (the node; an off-room letter is its own node). Backfill: the node row is unread, rows on the letters below it are marked opened; a letter's own sender is skipped; a roster expands to its members now. One MAIL push to each new recipient of the node. Later replies under the node include WHO through reply-all. Mail never gets a watcher row and refuses `--hint`. **todo, join, hold, score:** one watcher row with an optional per-listener `--hint`; a roster watcher expands to its members when it wakes them. | `mill_mail_to_node_put` / `mill_watcher_set_hint` |
+| **`add`** | `mill add TYPE:ID [WHO] [--hint TEXT]`. TYPE:ID is always typed (ids repeat across kinds); a bare id exits 1 with the hint `TYPE is roster (mill add roster NAME [d1,d2]) or TYPE:ID (mill add todo:256)`. WHO is a desk or roster, default this desk; another desk or a roster follows the member-add trust rule. **mail:** WHO becomes a recipient on that letter and every letter under it in its room (the node; an off-room letter is its own node). Backfill: the node row is unread, rows on the letters below it are marked opened; a letter's own sender is skipped; a roster expands to its members now. One MAIL push to each new recipient of the node. Later replies under the node include WHO through reply-all. Mail never gets a watcher row and refuses `--hint`. **todo, doing, hold, score:** one watcher row with an optional per-listener `--hint`; a roster watcher expands to its members when it wakes them. | `mill_mail_to_node_put` / `mill_watcher_set_hint` |
 | **`remove`** | `mill remove TYPE:ID [WHO]`. **mail:** drops WHO's recipient rows on the node and every letter under it; refuses (nothing changes) if a letter would be left with no recipient, or WHO is not a recipient there. Letters WHO sent stay. **Other kinds:** drops the watcher row; refused if WHO is not watching. | `mill_mail_to_node_delete` / `mill_watcher_delete` |
 
 ### name / member (Admin / trust / roster)
@@ -386,7 +386,7 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 | **`create roster`** | `mill create roster N [--yes]` creates a roster name (typed once; prompts unless `--yes`). high: any seated desk; limited: Admin | `mill_name_host` |
 | **`reclaim`** | Admin: undelete a retired name (name twice + `--yes`). Acts on the TYPE named (F60). A retired desk comes back with no seat: `invite --seat` it (F65). | `mill_name_reclaim` |
 | **`rename`** | Admin (or desk self-rename by hash). Acts on the TYPE named (F60). | `mill_name_rename` |
-| **`retire`** | Admin: flag `name.deleted`. A desk retired this way also loses its seat, so that seat stops connecting (F65), and its holds are freed (`released`, card 842). Acts on the TYPE named: `retire label d1` leaves desk `d1` alone, as a desk-focus label needs; a request with no type for a name two types share is refused with both forms (F60). | `mill_name_delete` |
+| **`retire`** | Admin (or a desk retiring itself): flag `name.deleted`. A desk retired this way also loses its seat, so that seat stops connecting (F65), and its holds are freed (`released`, card 842). Acts on the TYPE named: `retire label d1` leaves desk `d1` alone, as a desk-focus label needs; a request with no type for a name two types share is refused with both forms (F60). | `mill_name_delete` |
 | **`member-add`** | self always; other desk trust-gated (high any; limited Admin). `Admin` grant = host loopback only, in any spelling of the name (#675) | `mill_member_put`; Admin: `mill_member_admin_put` |
 | **`member-remove`** | self always; other desk trust-gated. Never Office / never strip last Admin path by accident. `Admin` revoke = host loopback and an Admin caller, in any spelling (#675) | `mill_member_delete`; Admin: `mill_member_admin_delete` |
 | **`trust`** | show office trust (any seated desk). `mill trust high` / `mill trust limited` = Admin set. Pack/wall must ship the command first | - |
@@ -402,10 +402,8 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 
 **Chief / Wall:** not these commands. SESSION + kanban + MAIL. Chat to a desk.
 
-mill **here** is clock-in (hash owns the name), not the `activity` table.
-
 Python: `agent_coord/server/records/<table>.py`. SQL: `agent_coord/server/sql/`. mill-wall is FastAPI (HTML + `/api` + `/ws` in one process).
 
 ## watcher
 
-`mill add <type>:<id> [--hint TEXT]` - put this desk on `watcher(type,id)` and set optional per-listener `hint` (VARCHAR 4096). NULL/empty -> fanout uses cheap default `detail` (what/when/tree crumbs/count). Non-empty -> that desk's recipe in frame `detail`. Route key stays `type:HINT` for watcher types (`TODO`/`JOIN`/`HOLD`/`SCORE`). Mail is `{kind: mail}`, not a watcher.
+`mill add <type>:<id> [--hint TEXT]` - put this desk on `watcher(type,id)` and set optional per-listener `hint` (VARCHAR 4096). NULL/empty -> fanout uses cheap default `detail` (what/when/tree crumbs/count). Non-empty -> that desk's recipe in frame `detail`. Route key stays `type:HINT` for watcher types (`TODO`/`DOING`/`HOLD`/`SCORE`). Mail is `{kind: mail}`, not a watcher.

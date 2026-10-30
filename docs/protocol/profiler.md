@@ -16,7 +16,7 @@ Dest for the logs: `AGENT_COORD_MILL_HOME` or `~/.mill`. **No session tokens, no
 
 **Intent.** Two facts about agent work. Every finished command moves the activity row the command chart names. Separately, each desk's commands are counted per hour and rolled into that calendar day.
 
-**How.** The activity write is the procedure for that command. The map of which row moves, and when `join.updated` bumps, is [Activity](../requirements/activity.md). **Bump** means `join.updated = now()`.
+**How.** The activity write is the procedure for that command. Activity ids and delete rules are in [Activity](../requirements/activity.md). The seat pulse is `seat.updated`.
 
 The hour and the day are `mill_score_event`. The wall calls it when a command finishes, with the desk, the command, the host milliseconds, and `req_b` / `resp_b`. The procedure adds that command to the current hour document and to today's midnight document. The same hour on a later day replaces the hour. The day row stays. Mail bytes are `send`, `reply`, `inbox`, and `mail-thread`. Todo bytes are `todo`, `open`, `note`, `pass`, `claim`, and `assign`. One score per desk (`kpi` `system`) holds today's command count in `score.value`. The document cap is 4096 bytes. A larger write is rejected and `mill-perf.log` records `op=score.history`.
 

@@ -110,3 +110,20 @@ def test_records_mail_to_snapshot_names_the_backfill():
     doc = _doc("records.md")
     assert "late joiners miss old mail" not in doc
     assert "mill_mail_to_node_put" in doc
+
+
+def test_f139_row_points_at_commands_md():
+    """M3 pin: F139's evidence path stays on commands.md, not verbs.md."""
+    matrix = (ROOT / "docs" / "security" / "REGRESSION-MATRIX.md").read_text(encoding="utf-8")
+    row = next(ln for ln in matrix.splitlines() if ln.startswith("| F139 "))
+    assert "docs/protocol/commands.md" in row
+    assert "verbs.md" not in row
+
+
+def test_commands_md_table_headers_say_command_not_verb():
+    """M4 pin: every command table header is '| command |', never '| verb |'."""
+    doc = _doc("commands.md")
+    headers = [ln for ln in doc.splitlines() if ln.startswith("| ") and " intent " in ln and " CALL " in ln]
+    assert headers, "commands.md has no command/intent/CALL tables"
+    assert all(ln.startswith("| command |") for ln in headers), headers
+    assert "| verb |" not in doc

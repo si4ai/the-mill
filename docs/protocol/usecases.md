@@ -68,7 +68,7 @@ PowerShell: `$c = Start-Process python -ArgumentList '-m','agent_coord','connect
 
 | ID | Kind | Create | Rename | Retire (`deleted`) | Reclaim |
 |---|---|---|---|---|---|
-| N1 | **Desk** (type `desk`) | `mill connect` (hash minted) | **`mill rename`** - only the desk whose **hash** matches `` `join`.token_hash `` | that desk (hash) | Admin `mill reclaim` / `mill reset`. Name **twice** + `--yes`. Name must be retired **and not in use** (no token_hash). Else Admin `mill reset seat <desk>`, then `mill join`. Lost seat: `mill join` or that reset. |
+| N1 | **Desk** (type `desk`) | `mill join` or `mill invite --seat` (hash minted) | **`mill rename`** - only the desk whose **hash** matches `seat.token_hash` | that desk (hash) | Admin `mill reclaim` / `mill reset`. Name **twice** + `--yes`. Name must be retired **and not in use** (no token_hash). Else Admin `mill reset seat <desk>`, then `mill join`. Lost seat: `mill join` or that reset. |
 | N2 | **Roster** (type `roster`) | high: any seated desk `mill create roster NAME`; limited: Admin only | Admin. Not desk `mill rename`. | Admin | Admin reclaim; no live join in that roster |
 | N4 | **Office** id=1, project `Office` | mill install seed | Admin `mill rename` (id **stays 1**) | **never** | **never** |
 | N5 | **Admin** id=2, `Admin` | mill install seed | **never** (`cannot rename Admin`, #722) | **never** | **never** |
@@ -120,17 +120,16 @@ Per-listener detail / custom recipes: [hints.md](hints.md).
 | **Talk** | `send` | none. `mail_to` dests | `{kind: mail}` | `inbox` unread (all) | **yes** |
 | mill-wall 500 | mill_admin_alert | `mail` to `Admin` | `{kind: mail}` | Admin inbox | yes |
 | **Card** | `create todo` `claim` `assign` `note` `pass` | `todo`, todo.id | **`TODO`** | dest desk: claimer; assigner STOP | **yes** |
-| **Be here** | `mill connect` | `` `join` ``, join.id (self) | **`JOIN`** | ignore / SESSION (dispatch skips; no vendor poke) | **yes** |
 | Keep-alive | Hub 20s `PING` | nobody | **`PING`** | ignore | Hub loop (mill connect does **not** POST `heartbeat`) |
 | **Hold** | `hold` / `drop` | `hold`, hold.id | **`HOLD`** | mill hold / don't write | **yes** |
 | **Score** | `score` | `score`, score.id | **`SCORE`** | glance / mill score | **yes** |
 | **Plan tree** | `attach` / `move` / `prune` | ancestor watchers of the child | the payload type | mill attach under parent | **yes** (ancestor watchers) |
-| **Tag** | `label` / `unlabel` | tagged `todo` / `join` / `hold` / `score` | that type | same as that object | **yes** for those four. A mail label does not use `watcher` |
+| **Tag** | `label` / `unlabel` | tagged `todo` / `doing` / `hold` / `score` | that type | same as that object | **yes** for those four. A mail label does not use `watcher` |
 | mark handled | `mark <id>` (or `reply`, which marks the parent) | - | - | handled the letter | **no poke** |
 
 ```
-watcher type:  todo | join | hold | score
-hint:          TODO | JOIN | HOLD | SCORE
+watcher type:  todo | doing | hold | score
+hint:          TODO | DOING | HOLD | SCORE
 mail push:     {kind: mail}
 PING = keep-alive (not a type)
 ```

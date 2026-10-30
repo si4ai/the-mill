@@ -67,7 +67,7 @@ agent_coord = [
 "share/the-mill/docs" = ["docs/HOST.md", "docs/JOIN.md"]
 "share/the-mill/docs/install" = ["docs/install/README.md", "docs/install/HOST.md", "docs/install/CLOUD.md"]
 "share/the-mill/docs/install/cloud" = ["docs/install/cloud/aws.md", "docs/install/cloud/azure.md", "docs/install/cloud/gcp.md", "docs/install/cloud/self.md"]
-"share/the-mill/docs/requirements" = ["docs/requirements/README.md", "docs/requirements/admin.md", "docs/requirements/invite.md", "docs/requirements/todo-claim.md", "docs/requirements/env-variables.md", "docs/requirements/install.md"]
+"share/the-mill/docs/requirements" = ["docs/requirements/README.md", "docs/requirements/admin.md", "docs/requirements/invite.md", "docs/requirements/env-variables.md", "docs/requirements/install.md"]
 "share/the-mill/docs/protocol" = [
   "docs/protocol/usecases.md",
   "docs/protocol/commands.md",

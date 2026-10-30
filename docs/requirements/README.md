@@ -4,10 +4,9 @@ Product how-it-must-work. Prefer **state / sequence / chart** over prose.
 
 | Topic | File |
 |---|---|
-| Activity writes (mail, todo, join, hold, score, name) | [activity.md](activity.md) |
+| Activity types, ids and delete rules (mail, todo, doing, hold, score) | [activity.md](activity.md) |
 | Admin (`name`, member, gated commands) | [admin.md](admin.md) |
 | Invite / join door | [invite.md](invite.md) |
-| Todo claim / unclaim who-may | [todo-claim.md](todo-claim.md) (parked fix) |
 | Env / desk identity (no OWNER/TOKEN env) | [env-variables.md](env-variables.md) |
 | Install host + cloud (scenarios, security) | [install.md](install.md) |
 
