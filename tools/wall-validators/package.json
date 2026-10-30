@@ -5,7 +5,7 @@
   "description": "CSS, JS, and HTML checks for the wall. From the repo root: npm install --prefix tools/wall-validators",
   "dependencies": {
     "eslint": "10.13.0",
-    "html-validate": "11.16.4",
+    "html-validate": "11.17.0",
     "stylelint": "17.16.0"
   },
   "engines": {
