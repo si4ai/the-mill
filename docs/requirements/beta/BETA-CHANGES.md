@@ -6,6 +6,8 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 **proposed, needs the owner**. A diff to `tables.sql` or `beta_ddl.sql` must update this file, or
 `docs/requirements/schema-design.md` for a design change (test F160). Design: `docs/requirements/schema-design.md`.
 
+Header note (card 906 / F195): the tables.sql and beta_ddl.sql headers no longer claim a read-committed isolation level. Join reads `name.deleted` under `FOR UPDATE` (see schema-design.md section 10); nothing sets a session level.
+
 Rows 1-46 (rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn; rows 29, 31-34 removed by the owner on 2026-10-26; row 40
 is lane A's). `beta_ddl.sql` keeps main's table order, except that seat, the desk kind table, comes right after name
 (row 37). There are no new tables: the book has main's 22.

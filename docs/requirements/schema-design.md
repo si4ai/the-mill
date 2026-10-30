@@ -161,3 +161,13 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 `trust` in `config.toml`: `high` (the default when the key is absent) or `limited`. Main's spellings `low` and
 `strict` also mean `limited`. Any other value stops the server at startup. Set it with `mill trust high|limited`
 (Admin), or edit the file and restart the server.
+
+## 10. Join vs retire: deleted is read under the name lock
+
+- **Decision.** `mill_join_upsert` reads `name.deleted` in the same `SELECT ... FOR UPDATE` that takes the
+  name row (card 906 / F195). The book does not set a session isolation level; the mysql default
+  (repeatable read) is fine because the locking read is a current read of `deleted`.
+- **Why.** A plain re-check of `deleted` after the lock can miss a retire that commits while join waits
+  (spin N03). The tables.sql / beta_ddl.sql headers once claimed a read-committed isolation level; nothing
+  set one, so that sentence is gone. The check is the locking read.
+- **To change it.** A new spin finding plus the owner's OK.
