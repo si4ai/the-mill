@@ -1,4 +1,4 @@
-"""score_tick never looks Admin up as a desk; fallback resolves rosters by name."""
+"""score_tick never looks Admin up as a desk; office rows have no desk (beta 0.8.0)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,6 +48,20 @@ def test_fallback_updates_null_owner_office_rows():
     assert all("desk_id IS NULL" in c.args[0] and "roster_id=1" in c.args[0] for c in updates)
     assert all(c.args[1][0] in ("3", "0") for c in updates)
     assert cn.commit.called
+
+
+def test_fallback_failure_does_not_commit():
+    import pytest
+
+    from agent_coord.server import score_tick as st
+
+    cur = MagicMock()
+    cur.execute.side_effect = RuntimeError("book down")
+    cn = MagicMock()
+    cn.cursor.return_value = cur
+    with pytest.raises(RuntimeError, match="book down"):
+        st._publish_sql(cn, {})
+    assert not cn.commit.called
 
 
 def test_fallback_has_no_admin_desk_lookup():
