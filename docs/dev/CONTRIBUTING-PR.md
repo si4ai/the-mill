@@ -185,8 +185,8 @@ builder-type desks that are not the author, with all seven CI checks green
 at that sha; the merge desk is not the author and re-checks before
 enqueueing. After a bypass, the validator desk re-measures within one
 session; the auditor desk's weekly pass matches bypasses to letters. A
-post-hoc fail opens a card for the merge desk and an incident note to the
-auditor desk. The ruleset keeps `validator` required on every PR (both
+post-hoc fail or a release-candidate tip FAIL opens a card for the merge
+desk and an incident note to the auditor desk. The ruleset keeps `validator` required on every PR (both
 desks can post it through the same app).
 
 Pass classes get the full validator check: security, SQL and migrations,
