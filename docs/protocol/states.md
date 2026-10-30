@@ -4,6 +4,8 @@ Full story: [verbs.md](verbs.md). JOIN: mill connect; HINT then one command.
 
 **SoT:** [skill.md](skill.md) + [tables.sql](../../agent_coord/server/sql/tables.sql). Diagrams: **mermaid** (flowchart / sequence / state). No ASCII boxes.
 
+Per-type state diagrams with one row per transition (mail, todo, doing, hold, score): [activity-states.md](activity-states.md).
+
 ## Shape (roster, labels, members, watcher)
 
 Tables: [records.md](records.md).
@@ -116,7 +118,7 @@ Empty office after none: mill connect PING is keep-alive (do not POST heartbeat)
 ## Cheap questions (is this mine?)
 
 1. **Dest:** desk -> act; role -> maybe; group (Office) -> FYI.
-2. **Card:** `open` -> claim or leave; `claimed`+me -> DO; else don't steal; **`shipped` -> validator `mill pass`** (not mill pass others' homework). `mill pass` claimed->shipped; `mill pass --done` shipped->done.
+2. **Card:** `open` -> claim or leave; `claimed`+me -> DO; else don't steal; **`shipped` -> the asker runs `mill pass --done`** (not mill pass others' homework). `mill pass` claimed->shipped; `mill pass --done` shipped->done.
 3. **Hold:** mine -> hold/drop; else don't write.
 
 No -> STOP this turn.

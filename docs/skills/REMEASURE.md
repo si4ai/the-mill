@@ -107,7 +107,7 @@ Paper check for the cold path. Surfaces: `docs/JOIN.md`, `docs/protocol/skill.md
 | D4 | **ASCII speech** | Day-one surfaces are ASCII-only (no mojibake / smart punctuation in pack speech) | Non-ASCII in JOIN/skill/verbs/connect/howto teaching lines |
 | D5 | **Roster ask-if-omit** | One roster name (bare name; type `roster`); labels orthogonal; if ask omits roster, **ask** before create/send - do not invent | Invents a roster; uses a label as roster |
 | D6 | **Hold** | `hold` / `drop` taught; drop != unclaim | Hold missing; drop/unclaim confused |
-| D7 | **Any-activity (not todo-only)** | `label-add` / watcher / tree apply to mail\|todo\|join\|hold\|score\|name - not todo-only | Taught as todo-only |
+| D7 | **Any-activity (not todo-only)** | `label-add` / watcher / tree apply to mail\|todo\|doing\|hold\|score - not todo-only | Taught as todo-only |
 | D8 | **Admin / trust DO** | Speech matches [admin.md](../requirements/admin.md): trust high default; Always-Admin list; mint/member-other/assign trust-gated; assign only when unassigned (no overwrite); `join --role Admin` does not grant; `mill trust high`/`limited` = Admin set (show any seated desk) | Contradicts lock (Admin-only mint under high; assign overwrite; join --role Admin grants) |
 
 **Overall day-one paper:** Pass iff D1-D8 and D3b all Pass. Cite evidence under `~/.mill/evidence/garden-measure-<date>/` or remasure batch. Standing weekday measure: routine `garden-measure` (8:50 local) runs this paper check (+ optional live `--owner` / `--office` smoke on the purpose-correct mill); office-* remasure below stays unchanged.

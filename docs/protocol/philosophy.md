@@ -4,7 +4,7 @@ Short model. Procedures live in the other protocol pages. This page is what thos
 
 ## Activities
 
-The book records activities: `mail`, `todo`, `join`, `hold`, `score`. A name row is not an activity.
+The book records activities: `mail`, `todo`, `doing`, `hold`, `score`. A name row is not an activity.
 
 A HINT is a doorbell for one activity: `{type, id, hint, detail}`. `hint` is `type` in uppercase. The frame is not the letter, the card, or the file. The handler reads the book if it still needs the body.
 
@@ -19,7 +19,7 @@ Trees, labels, and memberships are not activities. They organize activities.
 
 ## Watchers
 
-A watcher is one desk on one activity of type `todo`, `join`, `hold`, or `score`. Mail is not a watcher type.
+A watcher is one desk on one activity of type `todo`, `doing`, `hold`, or `score`. Mail is not a watcher type.
 
 Another desk that wants the doorbell attaches its own watcher with `mill add`. Membership does not watch. A project does not watch. A label does not watch. A tree does not watch.
 

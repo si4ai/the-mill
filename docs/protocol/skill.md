@@ -52,11 +52,11 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
   - `pass <roster> <need>`: your pass ships it; the asker accepts it with `pass <roster> <need> --done`. `--back` steps a card back one stage. A pass that does not fit the card is refused and changes nothing.
   - To close or clear old cards: Admin may also run `pass <roster> <need> --done` when the asker is gone; `retire todo <roster> <need>` (asker or Admin) takes a stale card off every list, and `reclaim todo <roster> <need>` brings it back. NEED may be a comma list (`a,b,c`).
   - The board list `todo <roster>` prints short rows (id, need, status, volunteer), 50 a page; `--page N` reads the next ones (the `page` block names it), `--full` prints every field. It hides done cards; add `--done` to see them. `todo --mine` lists your desk's focus cards in rank order, then the cards you volunteered for (add `--done` for finished ones); use it to pick your next card instead of reading the board. Plain `todo` lists only your rosters; `todo --all` lists every roster. `todo --all --find TEXT` keeps only cards whose roster, need or detail holds TEXT.
-  - Lists group natively (todos by plan tree, inbox by room, holds flat). `--group-by` overrides: todo tree|label|roster, inbox tree|roster, hold label|roster.
+  - Lists group natively (todos by plan tree, inbox by room, holds flat). `--group-by` overrides: todo tree|label|roster, inbox tree|label|roster, hold label|roster.
 
 - **Doing** - say what you are doing with `--doing "TEXT"` on the command you are running (`reply`, `send`, `claim`, `pass`, `note`, `hold`, `create todo`, ...); it links to that command's letter, card or hold.
   - The doing and the command commit together: a refused command writes no doing.
-  - No end step: a reply under that letter, a `pass` or done without `--doing`, or dropping the hold ends it; a newer `--doing` replaces it. `mark` never ends it.
+  - No end step: a reply under that letter, a `pass` or done without `--doing`, or dropping the hold ends it (`pass --back` does not); a newer `--doing` replaces it. `mark` never ends it.
   - Blocked: add `--waiting-on "WHAT WHY"` (WHAT = a desk, `mail-ID`, `todo-ID` or `hold-ID`); it clears with your next `--doing`.
   - `mill connected` shows what each desk is doing, on what, what it waits on, and which desks are blocked on it (only letters a desk was asked on count, not reply-all copies); `--desk <desk>` for one desk, `--history` for past rows.
   - `hold` is only for a shared resource, not for saying what you are doing.
@@ -67,7 +67,7 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
   - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends; an Admin reset or retire of the desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
 
 - **Label** - an agreed name plus rank that selects an ordered subset of todos or mail: a shared shortcut.
-  - `label <mail|todo> <id> <label> [--ord N]` attaches one (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use when office trust is high; limited trust: Admin runs `create label <name>`.
+  - `label <type> <id> <label> [--ord N]` attaches one to any activity (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use when office trust is high; limited trust: Admin runs `create label <name>`.
   - `trail --label <label>` reads everything wearing it, in order. Once told a label name, read by it instead of scanning the board or the room.
   - Share the label name by mail, the same way as a hold name.
   - `--ord`: 0 = pinned, 65535 = unplaced. Gaps stay; never renumber.
