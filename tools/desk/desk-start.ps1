@@ -7,6 +7,11 @@
 # Fresh: --cwd, optional --agent/--add-dir/-m/--reasoning-effort, -s <new uuid>, PROMPT.
 # Never: -r/--resume, -c/--continue, --fork-session, -p.
 # bypassPermissions only when config defaults.allow_bypass_permissions is true (warns).
+# office.launch_mode: dashboard (default) or window.
+#   dashboard - attach desk sessions to the shared Grok leader for one Agent
+#     Dashboard (grok dashboard). Exact attach recipe: UNVERIFIED until the
+#     owner probe (runbook step 0) passes. Dry-run prints window_argv fallback.
+#   window - one interactive grok process per desk (fallback).
 # Writes only under each desk's work_dir parent (session.json) and export_dir.
 # Never deletes sessions.
 
@@ -50,6 +55,12 @@ function Assert-Config($cfg) {
     if (-not $d.work_dir) { throw "desk-start: desk '$($d.name)': work_dir is required" }
     if (-not $d.export_dir) { throw "desk-start: desk '$($d.name)': export_dir is required" }
     if (-not $d.credential_target) { throw "desk-start: desk '$($d.name)': credential_target is required" }
+  }
+  $lm = 'dashboard'
+  if ($cfg.office.launch_mode) { $lm = [string]$cfg.office.launch_mode }
+  $lm = $lm.ToLowerInvariant()
+  if (@('dashboard', 'window') -notcontains $lm) {
+    throw "desk-start: office.launch_mode must be 'dashboard' or 'window'"
   }
 }
 
@@ -227,10 +238,23 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
     handoff          = $handoff
     handoff_chars    = $handoff.Length
     launch           = "positional-prompt"
+    launch_mode      = $(if ($cfg.office.launch_mode) { [string]$cfg.office.launch_mode } else { 'dashboard' })
+    leader_socket    = $(if ($cfg.office.leader_socket) { [string]$cfg.office.leader_socket } else { '' })
+    window_argv      = @($argv)
     outcome          = "ok"
     would_launch     = $true
     launched         = $false
     session_record   = $sessionPath
+  }
+  $launchMode = ([string]$plan.launch_mode).ToLowerInvariant()
+  if (-not $launchMode) { $launchMode = 'dashboard' }
+  if ($launchMode -eq 'dashboard') {
+    $plan.attach_status = 'UNVERIFIED'
+    $plan.attach_note = 'dashboard mode: attach to shared Grok leader for grok dashboard. Exact attach argv UNVERIFIED until owner probe (runbook step 0). window_argv is the fallback.'
+    $plan.argv = @()
+  } else {
+    $plan.attach_status = 'verified-window'
+    $plan.attach_note = 'window mode: one interactive grok process per desk'
   }
 
   if ($dry) {
@@ -241,6 +265,11 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
   $grok = Get-Command grok -ErrorAction SilentlyContinue
   if (-not $grok) {
     Write-Host "desk-start: grok not on PATH"
+    return 1
+  }
+
+  if ($launchMode -eq 'dashboard') {
+    Write-Host "desk-start: launch_mode=dashboard attach recipe is UNVERIFIED; refuse live launch until runbook step 0 probe passes. Use -DryRun or set office.launch_mode to window."
     return 1
   }
 

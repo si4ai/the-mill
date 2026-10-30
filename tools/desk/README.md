@@ -45,10 +45,41 @@ Flags: `-Config <path>` (required), `-Desk <name>` (repeatable, or `all`),
 
 ## What it launches
 
+`office.launch_mode` chooses how desks appear:
+
+| Mode | Behavior |
+| --- | --- |
+| `dashboard` (default) | Desk sessions attach to the **shared Grok leader** so they show in one Agent Dashboard (`grok dashboard`). |
+| `window` | Fallback: one interactive `grok` process per desk. |
+
+### Window mode (verified shape)
+
 ```
 grok --cwd <work_dir> [--agent <agent_file>] [--add-dir ...] [-m model]
      [--reasoning-effort ...] -s <new-uuid> "<first message>"
 ```
+
+Source: workstation `grok --help` (grok 1.0.70).
+
+### Dashboard mode (UNVERIFIED attach recipe)
+
+Goal: one TUI (`grok dashboard`) showing every desk session (top-level and
+subagents). Workstation facts (grok 1.0.70 help):
+
+- `grok dashboard` shows every session; disable with `[dashboard].enabled=false` or `GROK_AGENT_DASHBOARD=0`
+- Shared leader (default socket `~/.grok/leader.sock`; custom `--leader-socket`; named `~/.grok/leader-*.sock`); `grok leader list/info/kill`
+- `grok agent --leader` connects to the shared leader; default from `[cli] use_leader` in config.toml; `--no-leader` overrides
+- `grok agent` also has stdio / headless / serve / leader; `--agent-profile`, `-m`, `--reasoning-effort`
+
+**UNVERIFIED:** the exact argv to create a desk session that attaches to the
+leader and appears in the dashboard is not confirmed on this host yet. Dry-run
+prints `attach_status: UNVERIFIED` and a `window_argv` fallback. Live
+`launch_mode=dashboard` refuses until the owner finishes **runbook step 0**
+(one approved machine-targeted probe: throwaway session attached to the
+leader, confirmed visible in the dashboard). Do not guess the recipe in
+production.
+
+### Shared rules
 
 - Permission mode defaults to `default`. `bypassPermissions` is refused unless
   the config sets `allow_bypass_permissions: true` (emits a warning).
@@ -61,7 +92,8 @@ grok --cwd <work_dir> [--agent <agent_file>] [--add-dir ...] [-m model]
 ## Config schema (summary)
 
 **office:** `mill_office`, `roster`, `mill_connect_template` (placeholders
-`{mill_office}`, `{roster}`, `{desk}`), `export_before_restart` (bool).
+`{mill_office}`, `{roster}`, `{desk}`), `export_before_restart` (bool),
+`launch_mode` (`dashboard`|`window`, default `dashboard`), `leader_socket` (optional).
 
 **defaults:** `permission_mode`, `allow_bypass_permissions`, lesson/handoff
 caps, `first_message_template`.

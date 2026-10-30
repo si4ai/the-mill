@@ -5,6 +5,10 @@ Usage: ``grok [OPTIONS] [PROMPT] [COMMAND]`` - [PROMPT] is the initial
 interactive prompt. Fresh start uses ``-s`` (new UUID), never ``-r``/``-c``/
 ``--fork-session``/``-p``. Permission mode defaults to ``default``;
 ``bypassPermissions`` only when config sets ``allow_bypass_permissions``.
+``office.launch_mode`` is ``dashboard`` (default; sessions attach to the
+shared Grok leader so they appear in ``grok dashboard``) or ``window``
+(one interactive process per desk). The exact dashboard attach recipe is
+UNVERIFIED until the owner probe in the runbook passes.
 """
 from __future__ import annotations
 
@@ -57,6 +61,13 @@ def validate_config(data: dict[str, Any]) -> dict[str, Any]:
         office["export_before_restart"] = True
     elif not isinstance(office["export_before_restart"], bool):
         raise ConfigError("desk-start: office.export_before_restart must be a boolean")
+    mode = str(office.get("launch_mode") or "dashboard").strip().lower()
+    if mode not in {"dashboard", "window"}:
+        raise ConfigError(
+            "desk-start: office.launch_mode must be 'dashboard' or 'window'"
+        )
+    office["launch_mode"] = mode
+    office.setdefault("leader_socket", "")
 
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, dict):
@@ -340,6 +351,7 @@ def plan_desk(
         "credential": {"where": "Credential Manager", "target": target},
         "forbidden_flags": sorted(FORBIDDEN_GROK_FLAGS),
         "launch": "positional-prompt",
+        "launch_mode": str(office.get("launch_mode") or "dashboard"),
         "launch_note": (
             f"grok [OPTIONS] [PROMPT] per {HELP_SOURCE}; -s new UUID; "
             "never -r/-c/--fork-session/-p"
@@ -410,7 +422,11 @@ def plan_desk(
         out["export_path"] = export_path
         out["export_note"] = "export prior session to Markdown; keep the old session (never delete)"
 
-    out["argv"] = build_argv(
+    launch_mode = str(office.get("launch_mode") or "dashboard")
+    leader_socket = str(office.get("leader_socket") or "")
+    out["launch_mode"] = launch_mode
+    out["leader_socket"] = leader_socket or None
+    window_argv = build_argv(
         handoff,
         work_dir=work_dir,
         session_id=sid,
@@ -420,6 +436,36 @@ def plan_desk(
         permission_mode=mode,
         add_dirs=list(desk.get("add_dirs") or []),
     )
+    out["window_argv"] = window_argv
+    if launch_mode == "window":
+        out["argv"] = window_argv
+        out["attach_status"] = "verified-window"
+        out["attach_note"] = (
+            "window mode: one interactive grok process per desk "
+            "(grok --cwd ... -s <uuid> <PROMPT>)"
+        )
+    else:
+        # dashboard: attach to shared leader. Exact recipe UNVERIFIED on this
+        # host until runbook step 0 probe passes (grok 1.0.70: grok dashboard,
+        # grok leader list/info, grok agent --leader / --no-leader,
+        # [cli] use_leader, GROK_AGENT_DASHBOARD, --leader-socket).
+        out["argv"] = []
+        out["attach_status"] = "UNVERIFIED"
+        out["attach_note"] = (
+            "dashboard mode: attach each desk session to the shared Grok leader "
+            "so it appears in `grok dashboard`. Exact attach argv is UNVERIFIED; "
+            "run the owner-approved probe (runbook step 0) before a real restart. "
+            "window_argv holds the fallback one-window launch."
+        )
+        out["probe_hint"] = {
+            "leader_list": ["grok", "leader", "list"],
+            "dashboard": ["grok", "dashboard"],
+            "notes": [
+                "default leader socket ~/.grok/leader.sock; named ~/.grok/leader-*.sock",
+                "custom via --leader-socket; grok agent --leader connects to shared leader",
+                "[cli] use_leader in config.toml; --no-leader overrides; GROK_AGENT_DASHBOARD=0 disables UI",
+            ],
+        }
     # session.json sits beside work_dir (desk folder), not outside.
     out["session_record"] = str(Path(work_dir).parent / "session.json")
     if dry_run:

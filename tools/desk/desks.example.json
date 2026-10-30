@@ -3,7 +3,9 @@
     "mill_office": "example-office",
     "mill_connect_template": "mill --office {mill_office} connect {roster} {desk}",
     "roster": "example-roster",
-    "export_before_restart": true
+    "export_before_restart": true,
+    "launch_mode": "dashboard",
+    "leader_socket": ""
   },
   "defaults": {
     "permission_mode": "default",

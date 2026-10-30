@@ -46,6 +46,8 @@ def _cfg(**desk_over):
             "mill_connect_template": "mill --office {mill_office} connect {roster} {desk}",
             "roster": "example-roster",
             "export_before_restart": True,
+            "launch_mode": "dashboard",
+            "leader_socket": "",
         },
         "defaults": {
             "permission_mode": "default",
@@ -81,9 +83,12 @@ def test_no_hardcoded_real_desks_or_offices_in_script():
 def test_positional_prompt_new_session_and_options():
     m = _mod()
     sid = "11111111-1111-1111-1111-111111111111"
-    p = m.plan(config=_cfg(), desks=["example-desk"], session_id=sid)
+    cfg = _cfg()
+    cfg["office"]["launch_mode"] = "window"
+    p = m.plan(config=cfg, desks=["example-desk"], session_id=sid)
     assert p["outcome"] == "ok"
     assert p["launch"] == "positional-prompt"
+    assert p["launch_mode"] == "window"
     assert p["permission_mode"] == "default"
     assert p["session_id"] == sid
     argv = p["argv"]
@@ -101,9 +106,12 @@ def test_positional_prompt_new_session_and_options():
 
 def test_never_resume_flags():
     m = _mod()
-    p = m.plan(config=_cfg(), desks=["example-desk"], session_id=str(uuid.uuid4()))
+    cfg = _cfg()
+    cfg["office"]["launch_mode"] = "window"
+    p = m.plan(config=cfg, desks=["example-desk"], session_id=str(uuid.uuid4()))
     for bad in ("-r", "--resume", "-c", "--continue", "-p", "--single", "--fork-session"):
         assert bad not in p["argv"]
+        assert bad not in p["window_argv"]
 
 
 def test_bypass_refused_unless_allow_flag():
@@ -115,6 +123,7 @@ def test_bypass_refused_unless_allow_flag():
     except m.ConfigError as e:
         assert "bypassPermissions" in str(e)
     cfg["defaults"]["allow_bypass_permissions"] = True
+    cfg["office"]["launch_mode"] = "window"
     p = m.plan(config=cfg, desks=["example-desk"], session_id=str(uuid.uuid4()))
     assert p["permission_mode"] == "bypassPermissions"
     assert p["argv"][p["argv"].index("--permission-mode") + 1] == "bypassPermissions"
@@ -213,6 +222,37 @@ def test_ps1_and_readme_document_config_flags():
     assert "-Config" in readme and "-Desk" in readme and "-DryRun" in readme
     assert "outside" in readme.lower()
     assert "Credential Manager" in readme
+    assert "UNVERIFIED" in readme
+    assert "dashboard" in readme
+    assert "launch_mode" in PS1.read_text(encoding="utf-8")
+
+
+def test_dashboard_mode_unverified_with_window_fallback():
+    m = _mod()
+    cfg = _cfg()
+    cfg["office"]["launch_mode"] = "dashboard"
+    p = m.plan(config=cfg, desks=["example-desk"], session_id=str(uuid.uuid4()))
+    assert p["launch_mode"] == "dashboard"
+    assert p["attach_status"] == "UNVERIFIED"
+    assert p["argv"] == []
+    assert p["window_argv"][0] == "grok"
+    assert "-s" in p["window_argv"]
+    assert "UNVERIFIED" in p["attach_note"]
+    # example defaults to dashboard
+    ex = m.plan(config_path=EXAMPLE, desks=["example-desk"], session_id=str(uuid.uuid4()))
+    assert ex["launch_mode"] == "dashboard"
+    assert ex["attach_status"] == "UNVERIFIED"
+
+
+def test_bad_launch_mode_refused():
+    m = _mod()
+    cfg = _cfg()
+    cfg["office"]["launch_mode"] = "sidecar"
+    try:
+        m.plan(config=cfg, desks=["example-desk"])
+        assert False
+    except m.ConfigError as e:
+        assert "launch_mode" in str(e)
 
 
 def test_dry_run_cli_on_example(tmp_path=None):
@@ -225,3 +265,6 @@ def test_dry_run_cli_on_example(tmp_path=None):
     assert data["would_launch"] is True
     assert data["launched"] is False
     assert data["help_source"].startswith("workstation grok --help")
+    assert data["launch_mode"] == "dashboard"
+    assert data["attach_status"] == "UNVERIFIED"
+    assert data["window_argv"][0] == "grok"
