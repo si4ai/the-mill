@@ -1,6 +1,6 @@
 # Activity states
 
-One state diagram per activity type, and one table row per transition, read from the code on main (0.7.19). A cold desk can walk every row: run the command, then run the check and compare.
+One state diagram per activity type, and one table row per transition, read from the code on main (0.8.0). A cold desk can walk every row: run the command, then run the check and compare.
 
 The five types are the `activity.type` enum at `agent_coord/server/sql/tables.sql:46`: `mail`, `todo`, `doing`, `hold`, `score`. The headings use those spellings. Where the CLI word differs, the section says so once.
 

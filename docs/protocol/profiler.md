@@ -64,7 +64,7 @@ When on, each command also costs two short performance_schema reads on its own c
 
 | Field | Meaning |
 |---|---|
-| `op=` | `verb` (one /ws command) / `sql.<SP>` / `api.mill.<verb>` / `api.floor` / `fanout` / `ws.recv` / `hint.drain` / `ws.reconnect` |
+| `op=` | `verb` (one /ws command) / `sql.<SP>` / `api.mill.<command>` / `api.floor` / `fanout` / `ws.recv` / `hint.drain` / `ws.reconnect` |
 | stamp | UTC, milliseconds |
 | `ms=` | wall clock, 0.01 ms. On `op=verb`: from the command's arrival to its encoded reply, including the sync read. A refused command's `ms` ends before the sync read. |
 | `rid=` | request id. The `op=verb` line and every line written while that command ran carry the same one. |
