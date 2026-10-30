@@ -1112,6 +1112,25 @@ def _mail_role_admin(c: Book, project: str, owner: str | None, target: str, *, a
     )
 
 
+
+def _member_row(row: dict[str, Any] | None, *, desk: str, roster: str, op: str) -> dict[str, Any]:
+    """Shape a member-add/remove row: desk, roster, op, and members (name.n), never bare n (#914)."""
+    raw = dict(row or {})
+    n = raw.pop("n", None)
+    out: dict[str, Any] = {"desk": desk or _stored(raw.pop("desk", "")), "roster": roster, "op": op}
+    raw.pop("op", None)
+    for k, v in raw.items():
+        if k == "desk":
+            continue
+        out[k] = v
+    if n is not None:
+        try:
+            out["members"] = int(n)
+        except (TypeError, ValueError):
+            out["members"] = n
+    return out
+
+
 def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import member as rec_member
     from agent_coord.client.outbound import canonical_command
@@ -1153,7 +1172,7 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         else:
             rows = rec_member.put(c._cn, g, target, slot_kind)
         # Name the desk and roster, not only ids (#274).
-        rows = [{"desk": target, "roster": g, "op": "added", **dict(r)} for r in (rows or [])]
+        rows = [_member_row(r, desk=target, roster=g, op="added") for r in (rows or [])]
         if admin_slot and not was_admin:
             _mail_role_admin(c, project, owner, target, added=True)
     else:
@@ -1161,6 +1180,8 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
             rows = rec_member.delete_admin(c._cn, target)
         else:
             rows = rec_member.delete(c._cn, g, target, slot_kind)
+        # #914: name the roster desk count as members (not bare n).
+        rows = [_member_row(r, desk=target, roster=g, op="removed") for r in (rows or [])]
         if admin_slot and was_admin:
             _mail_role_admin(c, project, owner, target, added=False)
     return rows
@@ -1779,6 +1800,18 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             for bare in sorted(rec_mail.room_participants(c._cn, mail_id)):
                 _add_dest(bare, None)
 
+    # #918: reply-all skips retired desks (gone from the name table) and names
+    # them in skipped; an explicit --to-desk still refuses via _live_desk above.
+    skipped: list[str] = []
+    if not (isinstance(raw_tos, list) and raw_tos):
+        live_dest: list[str] = []
+        for bare in dest_set:
+            if rec_name.get(c._cn, bare, CONST_DESK) is not None:
+                live_dest.append(bare)
+            else:
+                skipped.append(bare)
+        dest_set = live_dest
+
     if not dest_set:
         # A letter needs a reader other than its sender (no self-To). Name the
         # forms that work instead of the reply-all default (letters 2199/2200).
@@ -1787,6 +1820,11 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 "reply: --to-desk names only you, and a reply never goes to its sender; "
                 f"post to the room with mill reply {mail_id} --body-file PATH (reply-all), "
                 "name another desk with --to-desk DESK, or keep a private line with mill note on a card"
+            )
+        if skipped:
+            raise CoordError(
+                f"reply: every other desk on it is retired ({', '.join(skipped)}); "
+                f"name a live desk with mill reply {mail_id} --to-desk DESK --body-file PATH"
             )
         raise CoordError(
             f"reply: you are the only desk on it, so reply-all reaches no one; "
@@ -1819,6 +1857,8 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         rec_opened.insert(c._cn, int(mail_id), self_bare)
     if isinstance(rec, dict):
         rec["replied_to"] = mail_id
+        if skipped:
+            rec["skipped"] = skipped
     return rec
 
 
