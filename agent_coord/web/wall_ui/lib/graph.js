@@ -1,6 +1,6 @@
 /* WALL_UI_LIB_GRAPH - floor map / graph layout helpers (Path A).
  * Thin shared extract; default pack floor.js may still own pack-specific paint.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
+ * SoR: wall-contract; tests/wall
  * Marker: WALL_UI_LIB_GRAPH
  */
 (function (global) {

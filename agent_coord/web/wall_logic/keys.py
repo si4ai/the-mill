@@ -4,7 +4,7 @@
 localStorage shape (browser): wall-keys:<deskId> -> {profile, overrides}
 Path B mill prefs / Cut 6 later - schema_migrated stays False here.
 
-SoR: docs/acceptance/ACCEPTANCE-WALL-KEYBOARD-SHORTCUTS.md
+SoR: wall-contract; tests/wall (keyboard)
 """
 from __future__ import annotations
 

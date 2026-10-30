@@ -14,7 +14,7 @@ Default pack paint still lives in `agent_coord/wall_ui/default/board.html`.
 Do not fork alias / ensure* paint *contracts* in chrome without updating this
 module + `tests/wall`.
 
-See docs/acceptance/ACCEPTANCE-WALL-TABS-KNOBS-PURE.md.
+See wall-contract; tests/wall tabs/knobs.
 """
 
 from __future__ import annotations

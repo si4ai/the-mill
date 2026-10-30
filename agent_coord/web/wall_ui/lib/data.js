@@ -1,7 +1,7 @@
 /* WALL_UI_LIB_DATA - fetch + last-good + api-down helpers (Path A).
  * Extract from board.html paintApiDown / tick last-good / fetchJsonFirst.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
- * Amend: docs/acceptance/ACCEPTANCE-WALL-HONEST-EMPTY-VS-DOWN.md
+ * SoR: wall-contract; tests/wall
+ * Amend: wall-contract; tests/wall/test_wall_honest_empty_vs_down.py
  * Marker: WALL_UI_LIB_DATA
  * Marker: WALL_HONEST_EMPTY_VS_DOWN
  * Marker: MAINTENANCE_DRAIN

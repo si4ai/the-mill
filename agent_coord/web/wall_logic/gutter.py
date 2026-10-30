@@ -4,7 +4,7 @@ SoR: `agent_coord.web.wall_logic.gutter` mirrors clamp/persist rules used by
 `wall_ui/components/gutter.js` (ordered cut 4). Packs keep CSS class names;
 behavior contracts live here + the JS component.
 
-See docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md ordered cut 4.
+See wall-contract; wall_logic/gutter.py
 """
 
 from __future__ import annotations

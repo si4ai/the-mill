@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-www Wall CSS/JS gate (cheap). Fail before deploy_www / install wall.
 
-SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md (pre-www CSS/JS validator amend).
+SoR: wall-contract rule-asset-bytes (card 874); tests/wall/test_wall_asset_bytes.py
 Catches:
   - JS syntax via node --check / quickjs when available; else ast-ish heuristics
     plus stray )(); / broken IIFE closers

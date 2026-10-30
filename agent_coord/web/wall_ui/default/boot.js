@@ -4,7 +4,7 @@
  * Marker: WALL_HUMAN_READONLY
  * Marker: WALL_WELCOME_SHOW_BEFORE_MINT_WOW172
  * Marker: WALL_UI_PERF (opt-in; hooks no-op unless lib/perf.js loaded)
- * SoR: docs/acceptance/ACCEPTANCE-WALL-BOARD-HTML-BREAKUP.md
+ * SoR: wall-contract (tests/wall)
  * Marker: WALL_UI_DEFAULT_BOOT
  * Loads after lib/* + gutter + floor; MAIL/TODO/SCORE lazy via wallEnsureDomain (Wave 2).
  * Keys wired via wallKeysBind if present.
@@ -6033,7 +6033,7 @@
     }
 
     /* WALL_CUT6_WIRE: mill prefs office_default+desk (desk wins) -> Wall inject
-       SoR: docs/acceptance/ACCEPTANCE-WALL-CUT6-WIRE.md
+       SoR: wall-contract (tests/wall)
        Fail closed: missing prefs / API down -> pack defaults (no fake knobs).
        Pack CSS/JS override ladder still valid; knobs do not replace pack. */
     const WALL_PACK_STUB = {

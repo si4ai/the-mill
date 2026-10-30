@@ -70,7 +70,7 @@
       modules: ["mailPaint"]
     },
     score: {
-      js: "/score/score.js?v=wow320",
+      js: "/score/score.js?v=wow322",
       css: "/score/score.css?v=wow319",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
