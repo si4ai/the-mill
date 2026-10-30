@@ -4,7 +4,7 @@
  * Marker: WALL_HUMAN_READONLY
  * Marker: WALL_WELCOME_SHOW_BEFORE_MINT_WOW172
  * Marker: WALL_UI_PERF (opt-in; hooks no-op unless lib/perf.js loaded)
- * SoR: docs/acceptance/ACCEPTANCE-WALL-BOARD-HTML-BREAKUP.md
+ * SoR: wall-contract (tests/wall)
  * Marker: WALL_UI_DEFAULT_BOOT
  * Loads after lib/* + gutter + floor; MAIL/TODO/SCORE lazy via wallEnsureDomain (Wave 2).
  * Keys wired via wallKeysBind if present.
@@ -2748,7 +2748,7 @@
       out.dead_holders = (out.locks || []).filter(r => r.holder_dead).length;
       out.open_needs = (out.needs || []).filter(n => n.status === "open").length;
       out.claimed_needs = (out.needs || []).filter(n => n.status === "claimed").length;
-      out.open_issues = (out.issues || []).filter(i => i.status === "todo" || i.status === "doing").length;
+      out.open_issues = (out.issues || []).length;
       /* OFFICE_GLANCE: keep aggregates; filter desk_unread to visible live owners when filter on */
       out.desk_unread = d.desk_unread || {};
       out.office_glance = d.office_glance || null;
@@ -4059,10 +4059,8 @@
           `<div class="st">${esc(st)}</div>` +
           `</div>`;
       }
-      const current = r.status === "current";
       const done = r.status === "done";
-      const owned = r.status === "claimed" || current;
-      const bareSession = current && !isMillNeedId(r.need_id) && (r.source === "register" || !r.need_id);
+      const owned = r.status === "claimed";
       const nid = String(r.need_id || "").trim() || "(no id)";
       const asker = String(r.creator || r.asker || "").trim();
       const volunteer = String(r.assigned || r.volunteer || r.owner || "").trim();
@@ -4078,7 +4076,7 @@
       if (r.stale) cues.push("stale");
       if (r.holder_dead) cues.push("holder_dead");
       const cueLine = cues.length ? `<div class="cue">${esc(cues.join(" | "))}</div>` : "";
-      const cls = done ? "done" : (bareSession ? "idle-card" : (owned ? "claimed" : "open"));
+      const cls = done ? "done" : (owned ? "claimed" : "open");
       const d = Math.max(0, Number(nest.depth) || 0);
       const nestCls = d > 0 ? " nest-child" : (nest.tree ? " nest-root" : "");
       const pid = String(nest.parentId || "");
@@ -5182,6 +5180,7 @@
         owner: r.owner,
         roster_id: millGid(r),
         items: r.items,
+        act: r.act || null,
         state: r.state || null,
       }));
     }
@@ -5340,11 +5339,13 @@
       log.innerHTML = rowsOne.slice().reverse().map(p => {
         const kind = String(p.kind || p.type || "");
         const when = t(p.at || p.updated);
+        const act = p.act != null && p.act !== "" ? (typeof wallActLabel === "function" ? wallActLabel(p.act) : String(p.act)) : "";
         return `<div class="hist-row kind-${esc(kind)}${kind === "doing" ? " muted" : ""}">` +
           `<span class="when">${esc(when)}</span>` +
           `<span class="k">${esc(kind)}</span>` +
           `<span class="who">${esc(millName("desk", p.owner || ""))}</span>` +
           `<span class="prod">${esc(millName("proj", millGid(p) || ""))}</span>` +
+          `<span class="n">${esc(act || "")}</span>` +
           activityStatePill(p) +
           `</div>`;
       }).join("");
@@ -6032,7 +6033,7 @@
     }
 
     /* WALL_CUT6_WIRE: mill prefs office_default+desk (desk wins) -> Wall inject
-       SoR: docs/acceptance/ACCEPTANCE-WALL-CUT6-WIRE.md
+       SoR: wall-contract (tests/wall)
        Fail closed: missing prefs / API down -> pack defaults (no fake knobs).
        Pack CSS/JS override ladder still valid; knobs do not replace pack. */
     const WALL_PACK_STUB = {

@@ -14,7 +14,7 @@ Default pack paint still lives in `agent_coord/wall_ui/default/board.html`.
 Do not fork hot / Needs / pulse / fallback rules in chrome without updating this
 module + `tests/wall`.
 
-See docs/acceptance/ACCEPTANCE-WALL-SCORE-PURE.md.
+See wall-contract; tests/wall score suites.
 """
 
 from __future__ import annotations

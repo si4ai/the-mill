@@ -1,6 +1,6 @@
 /* WALL_UI_LIB_TABLE - sort / copy / wrap table helpers (Path A).
  * Extract core from board.html sortTable / tableTsv / cellSortVal.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
+ * SoR: wall-contract; tests/wall
  * Marker: WALL_UI_LIB_TABLE
  */
 (function (global) {

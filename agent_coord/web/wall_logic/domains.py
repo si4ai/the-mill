@@ -3,8 +3,8 @@
 SoR inventory for Path A thin JS modules under `wall_ui/default/{mail,score,floor}/`.
 Board loads them as a thin shell; packs override domain files without whole-board forks.
 
-See docs/acceptance/ACCEPTANCE-WALL-UNIT-SUITE.md ordered cut 5,
-docs/acceptance/ACCEPTANCE-WALL-FUNGIBLE-CUT5-DOMAINS.md.
+See wall-contract; wall_logic/domains.py
+wall-contract; wall_logic/domains.py.
 """
 
 from __future__ import annotations

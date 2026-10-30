@@ -91,8 +91,8 @@ def test_history_diary_paints_events_not_daily_evidence():
         "let _presenceSource = 'score_evidence';\n"
         "let _presenceRows = [{desk_id: 1, owner: 'a', timestamp: '2026-10-09T00:00:00', value: {n: 3}}];\n"
         "globalThis.window = {_floor: {timeline: [], events: [\n"
-        "  {id: 1247, kind: 'mail', type: 'mail', at: '2026-10-09T13:23:05', owner: 'validator', n: 1, state: 'sent'},\n"
-        "  {id: 9, kind: 'todo', type: 'todo', at: '2026-10-09T13:00:00', owner: 'b', n: 1, state: null}]}};\n"
+        "  {id: 1247, kind: 'mail', type: 'mail', at: '2026-10-09T13:23:05', owner: 'validator', act: 'send', state: 'sent'},\n"
+        "  {id: 9, kind: 'todo', type: 'todo', at: '2026-10-09T13:00:00', owner: 'b', act: 'claim', state: null}]}};\n"
         + _presence_src()
         + "\nconst diary = presenceRowsForUi({diary: true});\n"
         "const chartDaily = presenceRowsForUi();\n"

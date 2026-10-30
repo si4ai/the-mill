@@ -1,5 +1,5 @@
 /* WALL_UI_LIB_KEYS - per-desk keyboard profiles + customize (Path A).
- * SoR: docs/acceptance/ACCEPTANCE-WALL-KEYBOARD-SHORTCUTS.md
+ * SoR: wall-contract; tests/wall (keyboard)
  * Marker: WALL_UI_LIB_KEYS
  * Storage: localStorage wall-keys:<deskId> = { profile, overrides: { actionId: chord } }
  * Path B: mill prefs keyboard_profile+overrides win when present; else localStorage wall-keys:<deskId>.

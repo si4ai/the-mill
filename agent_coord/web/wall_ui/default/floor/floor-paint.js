@@ -372,8 +372,9 @@
           const ts = floorParseTs(e.at || e.updated);
           if (!Number.isFinite(ts)) return;
           const i = bucketIdx(ts);
+          const n = Number(e.items != null ? e.items : 1) || 1;
           const k = String(e.kind || e.type || "");
-          if (series[k]) series[k][i] += 1;
+          if (series[k]) series[k][i] += n;
         });
         perDesk[owner] = { series };
       });

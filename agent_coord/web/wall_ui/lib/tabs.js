@@ -1,6 +1,6 @@
 /* WALL_UI_LIB_TABS - hash / showTab / ensure*Paint hook registry (Path A).
  * Mirrors wall_logic.tabs contracts for packs; board may thin-wrap.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md + ACCEPTANCE-WALL-TABS-KNOBS-PURE.md
+ * SoR: wall-contract; tests/wall + lib/tabs.js
  * Marker: WALL_UI_LIB_TABS
  */
 (function (global) {

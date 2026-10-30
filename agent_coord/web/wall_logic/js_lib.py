@@ -1,7 +1,7 @@
 """Wall shared JS lib inventory + theme contract (Path A pure SoR).
 
 Mirrors `wall_ui/lib/*` for unit tests. DB css_vars migrate stays Cut 6.
-SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
+SoR: wall-contract; tests/wall
 """
 from __future__ import annotations
 
