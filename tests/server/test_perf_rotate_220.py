@@ -22,8 +22,8 @@ def test_mill_perf_keeps_five_files_and_other_logs_do_not(tmp_path, monkeypatch)
 def test_fast_select_lines_are_dropped(monkeypatch) -> None:
     seen: list = []
     monkeypatch.setattr(
-        "agent_coord.server.push.perf_log",
-        lambda op, ms, **kv: seen.append((op, ms, kv)),
+        "agent_coord.server.push.perf_write",
+        lambda op, ms, kv, rid=None: seen.append((op, ms, kv)),
     )
     db._perf("sql.mill_mail_select", 3.0, n=2, ok=1)
     db._perf("sql.mill_mail_get", 24.9, n=1, ok=1)
