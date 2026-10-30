@@ -14,6 +14,8 @@ from pathlib import Path
 
 from agent_coord.web.wall_logic.packs import wall_ui_root
 
+from ._wall_src import wall_fn
+
 BOOT = wall_ui_root() / "default" / "boot.js"
 
 HARNESS = r"""
@@ -40,6 +42,7 @@ def _run() -> dict:
         raise AssertionError("Node.js is not on PATH, so the plan rows cannot run.")
     src = BOOT.read_text(encoding="utf-8")
     block = src[src.index("function millTreeHexName("):src.index("/* #33: one nested-set pass")]
+    block += "\n" + wall_fn("millPlanRowFace")  # #872: lives in todo/todo-paint.js
     with tempfile.TemporaryDirectory() as folder:
         tmp = Path(folder)
         js, body = tmp / "plan.js", tmp / "body.js"

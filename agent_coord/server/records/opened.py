@@ -1,8 +1,8 @@
 """MAIL receipts.
 
 Unread is a null opened on mail_to for this desk.
-The opened table is gone. mill_opened_insert calls mill_mail_open,
-which stamps mail_to.opened.
+The opened table is gone. insert calls mill_mail_open, which stamps
+mail_to.opened.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from .db import call
 def insert(cn, mail_id: int, desk: str) -> list[dict]:
     from agent_coord.server.records.name import bare
 
-    rows = call(cn, "mill_opened_insert", [mail_id, bare(desk, CONST_DESK)])
+    rows = call(cn, "mill_mail_open", [mail_id, bare(desk, CONST_DESK)])
     if rows and int((rows[0] or {}).get("push_receipt") or 0) == 1:
         from agent_coord.server.mail_push import push_receipt
 
@@ -22,14 +22,8 @@ def insert(cn, mail_id: int, desk: str) -> list[dict]:
     return rows
 
 
-def select(cn, mail_id: int = 0, desk: str = "") -> list[dict]:
-    from agent_coord.server.records.name import bare
-
-    return call(cn, "mill_opened_select", [mail_id, bare(desk, CONST_DESK) if desk else ""])
-
-
 def read_ids(cn, mail_ids: list[int], desk: str) -> set[int]:
-    """Mail ids this desk has opened. One query, same rule as mill_opened_select."""
+    """Mail ids this desk has opened (mail_to.opened is set). One query."""
     from agent_coord.server.records.name import bare
     from agent_coord.server.records.name import get as name_get
 

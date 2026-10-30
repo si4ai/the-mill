@@ -456,9 +456,9 @@ BEGIN
    ORDER BY m.id DESC;
 END //
 
--- Desk inbox page, cut in SQL. Unread (default): the oldest p_limit unread
--- letters, oldest first, the order inbox has always printed. p_all: the newest
--- p_limit letters, newest first. Drives from mail_to idx_desk_unread
+-- Desk inbox page, cut in SQL. Unread (default): the newest p_limit unread
+-- letters, newest first, so a new letter is never buried (F137). p_all: the
+-- newest p_limit letters, newest first. Drives from mail_to idx_desk_unread
 -- (desk_id, opened, id) in a derived table, so an unread page reads p_limit index
 -- entries, not the whole mailbox. Same columns as mill_mail_select.
 CREATE PROCEDURE mill_mail_inbox(
@@ -480,12 +480,12 @@ BEGIN
            affn.name AS sender_roster, affn.type AS sender_roster_type
       FROM (SELECT id, desk_id, receipt, opened FROM mail_to
              WHERE type = 'mail' AND desk_id = v_desk AND opened IS NULL
-             ORDER BY id LIMIT v_lim) t
+             ORDER BY id DESC LIMIT v_lim) t
       JOIN mail m ON m.type = 'mail' AND m.id = t.id
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
-     ORDER BY t.id;
+     ORDER BY t.id DESC;
   ELSE
     SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
            m.roster_id AS sender_roster_id,

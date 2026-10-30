@@ -21,7 +21,7 @@
     .mail-mode-toggle button.on:hover, .mail-dest-class button.on:hover {
       color: #1a140c; border-color: #f0c57e;
     }
-    /* wow168: grid cols need height+min-height:0 so overflow-y on .mail-col scrolls */
+    /* grid cols need height+min-height:0 so overflow-y on .mail-col scrolls */
     .mail-browser, .mail-split {
       display: grid;
       gap: .55rem;
@@ -122,7 +122,7 @@
       border-right: none; padding-right: 0;
       min-height: 0; overflow-x: hidden; overflow-y: auto;
     }
-    /* wow168: rooms view - thin visible scrollbars (override global * hide) */
+    /* rooms view - thin visible scrollbars (override global * hide) */
     .mail-browser[data-mail-view="rooms"] .mail-col {
       scrollbar-width: thin;
       -ms-overflow-style: auto;

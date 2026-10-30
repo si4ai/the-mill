@@ -741,7 +741,7 @@ def ack_sync(cn, desk: str, ids) -> int:
     from agent_coord.server.records import push as rec_push
 
     try:
-        return rec_push.ack(cn, ids)
+        return rec_push.ack(cn, desk, ids)
     except Exception as e:
         _bc_log(f"push ack err desk={desk} err={e}")
         return 0
@@ -763,14 +763,43 @@ def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     except Exception as e:
         _bc_log(f"hold own err desk={desk} err={e}")
         holds = []
-    # #618: this sync hands over the queue, so the desk's next hint may ring its webhook.
+    # F144: a sync does not end the desk's wake lease. A routine run connects once
+    # per shell call; only mill wake-done or the lease timeout lets the next item POST.
+    # The sync did hand over what was held back, so those no longer count.
     try:
-        from agent_coord.server.wake import gate_clear
+        from agent_coord.server.wake import lease_synced
 
-        gate_clear(desk)
+        lease_synced(desk)
     except Exception:
         pass
-    return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk)}
+    return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk), "hello": hello_line(cn)}
+
+
+def sp_stamp() -> str:
+    """The SP stamp this pack ships: sp-<first 12 hex of its SQL digest> (#614, #867).
+    The book's mill_sp_version() reads the same digest from MILL_SQL_STAMP."""
+    try:
+        from agent_coord.install.migrate import sql_digest
+
+        return "sp-" + sql_digest()[:12]
+    except Exception:
+        return ""
+
+
+def hello_line(cn) -> str:
+    """#867: the pack's SP stamp against the office's (mill_hello, warn mode).
+    'ok' on a match, else the SP's warn line. A failed check says so; connect goes on."""
+    from agent_coord.server.records.db import call
+
+    try:
+        rows = call(cn, "mill_hello", [sp_stamp() or None, "warn"])
+    except Exception as e:
+        _bc_log(f"mill_hello err={type(e).__name__}")
+        return "check failed"
+    row = rows[-1] if rows else {}
+    if str(row.get("status") or "") == "ok":
+        return "ok"
+    return str(row.get("message") or row.get("status") or "").strip() or "check failed"
 
 
 def wake_line(cn, desk: str) -> str:

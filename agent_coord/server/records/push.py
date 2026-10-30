@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .db import call
+from agent_coord.const import CONST_DESK
+
+from .db import Inline, call
 
 
 # #627: a stored row carries this key only when it reached the desk as a room
@@ -53,24 +55,11 @@ def _payload_dict(raw: Any) -> dict:
 
 
 def _put_back(cn, row_id: int, raw_payload: Any, idem: str) -> None:
-    """A sent row did not reach a redirector. It waits again. Same frame."""
+    """A sent row did not reach a redirector. It waits again. Same frame (#867: an SP)."""
     payload = _payload_dict(raw_payload)
     if idem and not str(payload.get("idem") or "").strip():
         payload["idem"] = idem
-    raw = json.dumps(payload, default=str)
-    cur = cn.cursor()
-    try:
-        # Named SQL. The first execute argument must not be a literal with % and payload.
-        mark_back = (
-            "UPDATE push_queue SET outcome = 'missed', payload = %s "
-            "WHERE id = %s AND outcome = 'sent'"
-        )
-        cur.execute(mark_back, (raw, int(row_id)))
-        from agent_coord.server.records.db import commit as _db_commit
-
-        _db_commit(cn)  # #818: not inside a request transaction
-    finally:
-        cur.close()
+    call(cn, "cmd_push_put_back", [int(row_id), json.dumps(payload, default=str)])
 
 
 def note_drop(cn, desk: str, frame: dict) -> str:
@@ -204,24 +193,17 @@ def peek(cn, desk: str) -> Held:
     return out
 
 
-def ack(cn, ids) -> int:
+def ack(cn, desk: str, ids) -> int:
     """#831: delete the rows a sent frame carried. Only those ids: a row put after the
-    read stays queued. A second ack of the same ids deletes nothing."""
+    read stays queued. A second ack of the same ids deletes nothing. #867: only the
+    desk's own rows, in cmd_push_sent."""
+    from agent_coord.server.records.name import bare
+
     keep = [int(i) for i in ids or () if int(i) > 0]
     if not keep:
         return 0
-    from .db import commit
-
-    marks = ", ".join(["%s"] * len(keep))
-    delete_sent = "DELETE FROM push_queue WHERE id IN (" + marks + ")"
-    cur = cn.cursor()
-    try:
-        cur.execute(delete_sent, tuple(keep))
-        n = int(cur.rowcount or 0)
-    finally:
-        cur.close()
-    commit(cn)
-    return n
+    rows = call(cn, "cmd_push_sent", [Inline("MILL_DESK_ID(%s)", bare(desk, CONST_DESK)), json.dumps(keep)])
+    return int((rows[0].get("sent") if rows else 0) or 0)
 
 
 def take(cn, desk: str) -> list[dict]:
@@ -288,10 +270,6 @@ def fold_hints(items: list[dict]) -> list[dict]:
     return out
 
 
-# #832: emit and fanout put a row as missed before the live send; a send that
-# reached a socket marks it sent. A row already taken by a sync is left alone.
-_MARK_SQL = "UPDATE push_queue SET outcome = %s WHERE id = %s AND outcome = 'missed'"
-
 # #832: the newest hint or letter this desk has not had live (receipts never ring).
 _WAITING_SQL = (
     "SELECT p.id, p.kind, p.payload FROM push_queue p"
@@ -310,19 +288,13 @@ def row_id(got) -> int:
 
 
 def mark(cn, rid: int, outcome: str) -> int:
-    """#832: set a missed row's outcome (sent or error). 0 when the row is gone."""
+    """#832: set a missed row's outcome (sent or error). 0 when the row is gone.
+    Emit and fanout put a row as missed before the live send; a send that reached a
+    socket marks it sent. A row already taken by a sync is left alone (cmd_push_mark)."""
     if int(rid or 0) <= 0 or outcome not in ("sent", "error"):
         return 0
-    from .db import commit
-
-    cur = cn.cursor()
-    try:
-        cur.execute(_MARK_SQL, (outcome, int(rid)))
-        n = int(cur.rowcount or 0)
-    finally:
-        cur.close()
-    commit(cn)
-    return n
+    rows = call(cn, "cmd_push_mark", [int(rid), outcome])
+    return int((rows[0].get("marked") if rows else 0) or 0)
 
 
 def waiting(cn, desk: str) -> dict | None:

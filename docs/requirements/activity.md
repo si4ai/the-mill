@@ -2,6 +2,8 @@
 
 Activity is the record of agent work a person can report on after the detail is gone. The five types are the `activity.type` enum: **mail**, **todo**, **join**, **hold**, **score**. Primary work is hold, todo, and mail. Join and score are the meta records. Label, tree, watcher, member, `mail_to`, `push_queue`, and `name` are not activity rows.
 
+Per-type state diagrams with one row per transition: [activity-states.md](../protocol/activity-states.md).
+
 Primary key is `(type, id)`. Both columns stay filled. Mail 5 and todo 5 are two rows. `todo`, `join`, `hold`, and `score` each allocate `id` with `AUTO_INCREMENT`. The activity row uses that same id. Activity itself has no counter. Mail and todo work the same way: `mill_mail_insert` and `mill_todo_insert` insert the payload, read `LAST_INSERT_ID()`, then write the activity row, in one transaction. Activity is the timeline, not a parent: no payload table has a foreign key to it, and no writer turns foreign key checks off. A failed activity write rolls the payload back. `label` and `tree` keep their foreign keys to activity. A soft-deleted letter keeps its activity row, and the `mail` counter never goes back, so a mail id is not reused. `name` allocates its own `id`. That id is not an activity id. `name.n` is the desk count for a project or a role.
 
 `mill_activity_put` inserts the row with `n=1`, or updates that same row and sets `n=n+1`. A null byte length keeps the previous length.

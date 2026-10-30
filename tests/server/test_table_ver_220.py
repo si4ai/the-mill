@@ -22,8 +22,7 @@ def test_reads_and_push_do_not_bump() -> None:
 
 def test_a_mail_write_bumps_mail_and_the_stamp_changes() -> None:
     assert table_ver.tables_for_proc("mill_mail_insert") == ("mail", "mail_to")
-    assert table_ver.tables_for_proc("mill_opened_insert") == ("mail_to",)
-    assert table_ver.tables_for_proc("mill_mail_open") == ("mail", "mail_to")
+    assert table_ver.tables_for_proc("mill_mail_open") == ("mail_to",)
     before = table_ver.version_stamp(("mail", "mail_to"))
     mail_n = table_ver.version_of("mail")
     table_ver.bump(table_ver.tables_for_proc("mill_mail_insert"))

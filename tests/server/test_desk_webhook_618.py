@@ -301,9 +301,12 @@ def test_a_burst_of_ten_hints_rings_once_and_the_sync_has_all_ten(monkeypatch) -
         assert [r["id"] for r in frame["sync"]] == list(range(6180, 6190))
         assert {r["outcome"] for r in frame["sync"]} == {"missed"}
         assert frame["wake"] == f"webhook armed (host {HOOK_HOST})"
-        # The sync handed the queue over, so the next hint rings again.
+        # F144: the sync does not end the wake lease; the next hint waits for done.
         _hint(cn, 6190)
+        assert len(posts) == 1
+        assert wake.lease_done(cn, "away") == "sent"
     assert len(posts) == 2
+    assert posts[1]["wake"]["pending_count"] == 1
 
 
 def test_the_window_ends_without_a_connect(monkeypatch) -> None:

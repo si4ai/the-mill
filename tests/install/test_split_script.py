@@ -22,7 +22,6 @@ def test_split_script_preserves_fn_name_creates():
     assert _create_names(blob) == [
         "MILL_NAME_GET",
         "MILL_NAME_PUT",
-        "MILL_NAME",
     ]
     assert _split_create_names(blob) == _create_names(blob)
 

@@ -1,6 +1,6 @@
 -- MILL_NAME_GET: SELECT only (reads must not mint).
 -- MILL_NAME_PUT: INSERT on first use (intentional create paths only).
--- MILL_NAME calls MILL_NAME_PUT. Reads use MILL_NAME_GET. Creates use MILL_NAME_PUT.
+-- Reads use MILL_NAME_GET. Creates use MILL_NAME_PUT.
 -- A name is (type, bare string). id is the primary key. idx_type is UNIQUE (type, name).
 -- Deleted names stay unique; retired names SIGNAL on get and put.
 
@@ -102,14 +102,6 @@ BEGIN
   END IF;
   SET v_id = LAST_INSERT_ID();
   RETURN v_id;
-END //
-
--- Same as MILL_NAME_PUT.
-CREATE FUNCTION MILL_NAME(p_type VARCHAR(16), p_name VARCHAR(64)) RETURNS BIGINT UNSIGNED
-  NOT DETERMINISTIC
-  MODIFIES SQL DATA
-BEGIN
-  RETURN MILL_NAME_PUT(p_type, p_name);
 END //
 
 DELIMITER ;

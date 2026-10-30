@@ -200,6 +200,7 @@ BEGIN
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_released INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_desk = NULL;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
@@ -216,8 +217,12 @@ BEGIN
     -- Keep the ended entry's activity roster (not 1/Office).
     CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
   END IF;
+  -- Card 842: a reset desk owns no lock. Free its holds like a drop would.
+  IF v_desk IS NOT NULL THEN
+    CALL mill_hold_release_desk(v_desk, v_ts, v_released);
+  END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT p_desk AS owner, 'reset' AS op;
+  SELECT p_desk AS owner, 'reset' AS op, v_released AS released;
 END //
 
 -- Seat plus the desk's current doing (newest entry). type/id name that entry.

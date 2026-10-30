@@ -12,6 +12,7 @@ import agent_coord.server.push as push
 import agent_coord.server.records.name as rec_name
 import agent_coord.server.records.todo as rec_todo
 import agent_coord.server.records.tree as rec_tree
+from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill.rpc import _h_open
 
 
@@ -123,25 +124,28 @@ def test_open_new_card_with_parent_does_not_add_after(monkeypatch) -> None:
     assert seen["attached"][6] == 51
 
 
-def test_open_existing_card_still_updates_then_adds(monkeypatch) -> None:
+def test_open_existing_card_is_refused_and_attaches_nothing(monkeypatch) -> None:
+    """Card 775: create on an existing card refuses; attach is its own command."""
     _silence(monkeypatch)
-    monkeypatch.setattr(rec_todo, "find", lambda *a, **k: {"id": 24})
-    monkeypatch.setattr(rec_todo, "update", lambda *a, **k: [])
+    monkeypatch.setattr(rec_todo, "find", lambda *a, **k: {"id": 24, "status": "claimed"})
+    monkeypatch.setattr(
+        rec_todo, "update", lambda *a, **k: (_ for _ in ()).throw(AssertionError("update"))
+    )
     monkeypatch.setattr(
         rec_todo,
         "insert_attached",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("attached")),
     )
-    adds: list[tuple] = []
-    monkeypatch.setattr(rec_tree, "add", lambda *a, **k: adds.append(a))
-    rec = _h_open(
-        _Book(),
-        {"need": "f1327-create-todo-race", "parent_type": "mail", "parent_id": 51},
-        "the-mill",
-        "grok-tui",
+    monkeypatch.setattr(
+        rec_tree, "add", lambda *a, **k: (_ for _ in ()).throw(AssertionError("tree.add"))
     )
-    assert rec["id"] == 24
-    assert adds[0][1:] == ("mail", 51, "todo", 24)
+    with pytest.raises(CoordError, match=r"exists \(id 24, claimed\).*mill attach the-mill mail 51 todo 24"):
+        _h_open(
+            _Book(),
+            {"need": "f1327-create-todo-race", "parent_type": "mail", "parent_id": 51},
+            "the-mill",
+            "grok-tui",
+        )
 
 
 def test_open_without_parent_stays_a_plain_insert(monkeypatch) -> None:

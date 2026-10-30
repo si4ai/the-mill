@@ -1,7 +1,7 @@
 """claimed + progress-done is mill pass, not auto-close."""
 from __future__ import annotations
 
-from agent_coord.server.records.todo import progress_is_done, next_status
+from agent_coord.server.records.todo import progress_is_done
 
 
 def test_progress_is_done_100() -> None:
@@ -13,9 +13,3 @@ def test_progress_is_done_100() -> None:
     assert progress_is_done("describe") is False
     assert progress_is_done("") is False
     assert progress_is_done("1/3") is False
-
-
-def test_next_status_does_not_auto_done() -> None:
-    assert next_status("claimed", "100%") == "shipped"
-    assert next_status("claimed", "implementing") == "claimed"
-    assert next_status("shipped", "100%") == "shipped"

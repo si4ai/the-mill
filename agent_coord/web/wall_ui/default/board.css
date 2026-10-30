@@ -1040,7 +1040,7 @@
     .tile-row { display: flex; gap: .45rem; font-size: 12px; margin: .12rem 0; }
     .tile-k { color: var(--dim); min-width: 5.2rem; flex: 0 0 5.2rem; }
     .tile-v { color: var(--ink); user-select: text; cursor: text; min-width: 0; word-break: break-word; }
-    /* wow168: flex scroll child needs min-height:0 (same class as MAIL rooms grid cols) */
+    /* flex scroll child needs min-height:0 (same class as MAIL rooms grid cols) */
     .body { padding: .5rem .7rem; overflow-x: auto; overflow-y: auto; flex: 1; min-height: 0;
       scrollbar-width: none; -ms-overflow-style: none; }
     .body::-webkit-scrollbar { width: 0; height: 0; display: none; }
@@ -1604,7 +1604,7 @@
       .session-chrome, .jobs-chrome, .floor-chrome { flex-wrap: wrap; }
       #howto-card { width: calc(100vw - 1rem); right: .5rem; left: .5rem; }
     }
-    /* wow164: palette keys off data-theme=light|dark; auto media = no-JS fallback */
+    /* palette keys off data-theme=light|dark; auto media = no-JS fallback */
     html[data-theme="dark"] {
       color-scheme: dark;
       --bg: #080a0d;
@@ -1708,7 +1708,7 @@ html.wall-human-readonly .admin-actions.admin-full-only {
   display: none !important;
 }
 
-/* wow176: welcome Nest popup - compact card + translucent backdrop (Nest through) */
+/* welcome Nest popup - compact card + translucent backdrop (Nest through) */
 #wall-welcome {
   position: fixed; inset: 0; z-index: 90;
   display: flex; align-items: center; justify-content: center;
@@ -1737,7 +1737,7 @@ html.wall-human-readonly .admin-actions.admin-full-only {
 #wall-welcome .ww-card header {
   display: flex; align-items: center; gap: .4rem; padding: 0 0 .2rem;
 }
-/* wow190: welcome close matches ? help / howto-card .dismiss chrome (class=dismiss since wow189). */
+/* welcome close matches ? help / howto-card .dismiss chrome (class=dismiss). */
 #wall-welcome .dismiss {
   margin-left: auto; background: transparent; border: 0; color: var(--dim, #8d99a8);
   font: inherit; cursor: pointer; padding: .1rem .25rem; touch-action: auto;

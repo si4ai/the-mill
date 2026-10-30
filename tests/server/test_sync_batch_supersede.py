@@ -241,7 +241,7 @@ def test_peek_leaves_rows_and_ack_deletes_only_those(book) -> None:
     assert queued(D1) == [901, 902]  # read, not deleted
     rec_push.put(book, D1, "mail", {"kind": "mail", "id": 903}, "missed")
     book.commit()
-    assert rec_push.ack(book, held.ids) == 2
+    assert rec_push.ack(book, D1, held.ids) == 2
     assert queued(D1) == [903]  # a row put after the read stays
-    assert rec_push.ack(book, held.ids) == 0  # a second ack is harmless
+    assert rec_push.ack(book, D1, held.ids) == 0  # a second ack is harmless
 

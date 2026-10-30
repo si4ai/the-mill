@@ -93,16 +93,15 @@ def test_opened_n_and_unread(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
     ins = mail.insert(cn, "unit", "a", "b", "private")
     mid = int(ins[0]["id"])
-    before = opened.select(cn, mid, "b")
-    assert not any(int(r["mail_id"]) == mid for r in before)
-    opened.insert(cn, mid, "b")
-    rows = opened.select(cn, mid, "b")
+    assert opened.read_ids(cn, [mid], "b") == set()
+    rows = opened.insert(cn, mid, "b")
     assert rows and int(rows[0]["n"]) == 1
+    assert opened.read_ids(cn, [mid], "b") == {mid}
     assert _presence_row(cn, "mail", mid) is not None
     opened.insert(cn, mid, "b")
-    assert opened.select(cn, mid, "b")
+    assert opened.read_ids(cn, [mid], "b") == {mid}
     mail.delete(cn, mid, "a")
-    assert opened.select(cn, mid, "b") == []
+    assert opened.read_ids(cn, [mid], "b") == set()
 
 
 def test_todo_kanban_status_select(cn) -> None:

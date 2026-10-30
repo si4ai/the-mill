@@ -31,7 +31,7 @@ A TOY with one desk talking to itself is **not** a Pass. Name real mill desks in
 
 Score on mill SoR: mail **src!=dst** (Asker/Handoff) + Producer `activity` in t0-t1 (writer desk). Self-only `send` = Fail. Do not require Asker's desk_id on activity (recipients do not write activity rows).
 
-HYPOS / TOY.md must list **Cast:** Asker=... Producer=... Handoff=... (omit handoff only if product has none).
+TOY.md must list **Cast:** Asker=... Producer=... Handoff=... (omit handoff only if product has none).
 
 ## Run identity (required - activity join)
 
@@ -72,7 +72,7 @@ Every hypo / TOY row that counts toward **Pass rate** must be **COLD**:
 
 **Scripted command smoke** (pre-written create/claim/send/pass) is **not** COLD. Keep it as optional plumbing check; **do not** count it in Pass rate / Inputs / Command / STOP gates.
 
-Batch size for a scored cold run: **all 100** (10 functions x 10 hypos), each cold. Partial batches are pilots only - label `pilot`, not Pass rate.
+Batch size for a scored cold run: one cold turn per hypo the batch names, each cold. Smaller batches are pilots - label `pilot`, not Pass rate.
 
 ## Report gates (cold-run / TOY batch)
 
@@ -80,7 +80,7 @@ Write the batch gates on #50 (or child) + `COLD-RUN-RESULTS.md`.
 
 | Gate | Definition |
 |---|---|
-| **Pass rate** | % scenarios Overall Pass (rubric gates 1-11) |
+| **Pass rate** | % scenarios where every per-run gate below (Inputs, Collab, Joinable trail, Command hygiene, STOP) passes; no partial credit |
 | **Inputs gate** | % gap runs that `send` Asker / waiting_on before produce |
 | **Collab** | % runs with mail **src!=dst** (Producer->Asker/Handoff); activity.desk_id is writer-only |
 | **Joinable trail** | % runs with unique Producer desk_id **or** recorded t0-t1 + cast |

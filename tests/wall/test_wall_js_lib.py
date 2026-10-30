@@ -58,9 +58,7 @@ def test_pre_www_css_js_gate_passes():
     assert report["ok"] is True
     assert report.get("theme_css")
     assert any("theme.css" in f for f in report["files"])
-    # scripts/ mirror optional for git checkouts
-    script = ROOT / "scripts" / "wall_css_js_check.py"
-    assert script.is_file() or (ROOT / "agent_coord" / "web" / "wall_ui" / "lib" / "check.py").is_file()
+    assert (ROOT / "agent_coord" / "web" / "wall_ui" / "lib" / "check.py").is_file()
 
 
 def test_pack_inventory_mentions_lib():

@@ -20,7 +20,7 @@ def _legacy(cn, desk: str, unread_only: bool, lim: int) -> list[int]:
     """The 0.7.3 rule: whole mailbox, drop opened, sort, slice (the reference)."""
     rows = rec_mail.select(cn, desk)
     kept = [r for r in rows if not (unread_only and r.get("opened") is not None)]
-    kept.sort(key=lambda r: int(r["id"]), reverse=not unread_only)
+    kept.sort(key=lambda r: int(r["id"]), reverse=True)  # newest first, both (card 846)
     return [int(r["id"]) for r in kept[: max(1, lim or 100)]]
 
 
@@ -48,12 +48,12 @@ def test_page_matches_the_legacy_rule(cn, box, desk, unread_only, lim):
     assert got == _legacy(cn, desk, unread_only, lim)
 
 
-def test_unread_is_oldest_first_and_moves_after_a_mark(cn, box):
+def test_unread_is_newest_first_and_moves_after_a_mark(cn, box):
     first = [int(m["id"]) for m in rpc._h_inbox(_Book(cn), {"limit": 2}, "ib", "ib_r")]
-    assert first == box[5:7]
-    rec_opened.insert(cn, box[5], "ib_r")
+    assert first == [box[11], box[10]]
+    rec_opened.insert(cn, box[11], "ib_r")
     nxt = [int(m["id"]) for m in rpc._h_inbox(_Book(cn), {"limit": 2}, "ib", "ib_r")]
-    assert nxt == box[6:8]
+    assert nxt == [box[10], box[9]]
 
 
 def test_all_is_newest_first_and_keeps_opened(cn, box):
@@ -81,7 +81,7 @@ def test_unread_page_drives_from_the_index(cn, box):
         cur.execute("SELECT id FROM name WHERE type='desk' AND name='ib_r'")
         did = cur.fetchone()["id"]
         cur.execute(
-            "EXPLAIN SELECT id FROM mail_to WHERE type='mail' AND desk_id=%s AND opened IS NULL ORDER BY id LIMIT 100",
+            "EXPLAIN SELECT id FROM mail_to WHERE type='mail' AND desk_id=%s AND opened IS NULL ORDER BY id DESC LIMIT 100",
             (did,),
         )
         row = cur.fetchall()[0]

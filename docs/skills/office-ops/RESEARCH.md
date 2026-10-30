@@ -319,5 +319,4 @@ Asker/Gardener GO: append cold-run ladder only (no SKILL.md patch this wake).
 | C Watcher | H16-H20 | `mill add <type>:<id> [--hint]`; Watcher actor on >=2; >=1 gap (dest/card id); waiting_on speech-only |
 
 Day-one add: `watcher` per `docs/protocol/verbs.md`. Reject invent escalate/sev/deploy/drain/oncall CLI. Desk via `--owner`; no `AGENT_COORD_OWNER` teaching.
-Paths: `docs/skills/office-ops/HYPOS.md` (append). Gardener owns any later SKILL lingo->mill row for watcher.
 

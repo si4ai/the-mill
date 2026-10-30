@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from ._wall_src import boot_source
 from agent_coord.web.wall_logic import (
     kpi_miss,
     score_desk_rows,
@@ -335,7 +336,7 @@ def test_spend_tokens_est_dim_vs_exact():
 
 
 def test_score_js_activities_h_chip_label_and_empty_target():
-    """wow162: mill-office.activities -> activities/h; empty target never numeric miss in score.js."""
+    """mill-office.activities -> activities/h; empty target never numeric miss in score.js."""
     root = Path(__file__).resolve().parents[2]
     score_js = (root / "agent_coord/web/wall_ui/default/score/score.js").read_text(encoding="utf-8")
     assert 'SCORE_OFFICE_CHIPS = ["mill-office.activities"]' in score_js or (
@@ -346,7 +347,7 @@ def test_score_js_activities_h_chip_label_and_empty_target():
     assert "function scoreFindKpi" in score_js
     # empty-target gate present (informational)
     assert "Informational KPIs" in score_js
-    boot = (root / "agent_coord/web/wall_ui/default/boot.js").read_text(encoding="utf-8")
+    boot = boot_source()  # boot.js plus its split pane modules (#872)
     # The strip catalogs every book KPI, then scoreKpiLabel maps activities/h.
     assert 'add("system")' in boot
     assert "add(hereKpiName(k))" in boot

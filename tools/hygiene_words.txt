@@ -2,6 +2,9 @@
 # placeholder companies, days, months. Never a personal name. One per line.
 playwright
 takeaway
+producer
+overall
+invents
 jira
 copilot
 dependabot
@@ -118,3 +121,4 @@ dec
 wave
 typical
 ring
+minimal

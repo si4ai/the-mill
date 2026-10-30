@@ -35,8 +35,6 @@ def _send(body, seats=TWO):
     ), patch(
         "agent_coord.server.records.mail.insert", return_value=[{"id": 3, "created": "t"}]
     ) as ins, patch(
-        "agent_coord.server.records.mail.set_sender_roster"
-    ) as setaff, patch(
         "agent_coord.server.records.mail.dest_count", return_value=1
     ), patch(
         "agent_coord.server.records.mail.to_list", return_value=dest_rows
@@ -52,14 +50,13 @@ def _send(body, seats=TWO):
         try:
             out = rpc._h_send(_book(), dict({"src": "alice", "dst": "bob", "body": "plain"}, **body), "the-mill", "alice")
         except CoordError as e:
-            return e, ins, setaff
-    return out, ins, setaff
+            return e, ins, None
+    return out, ins, None
 
 
 def test_connect_roster_is_the_sender_roster():
     out, ins, setaff = _send({"connect_roster": "the-mill"})
     assert out["sender"] == {"deskId": "alice", "roster": "the-mill"}
-    setaff.assert_not_called()
     assert ins.call_args.args[1] == "the-mill"  # the letter's roster is the connect roster
 
 
@@ -69,10 +66,9 @@ def test_the_other_roster_on_the_seat_works_too():
 
 
 def test_explicit_roster_wins_over_connect_roster():
-    out, _ins, setaff = _send({"connect_roster": "the-mill", "roster": "grok-tui"})
+    out, ins, _ = _send({"connect_roster": "the-mill", "roster": "grok-tui"})
     assert out["sender"]["roster"] == "grok-tui"
-    setaff.assert_called_once()
-    assert setaff.call_args.args[2] == "grok-tui"
+    assert ins.call_args.args[1] == "grok-tui"  # #867: the insert carries the sender roster
 
 
 def test_connect_roster_the_desk_is_not_on_is_refused_and_nothing_sent():

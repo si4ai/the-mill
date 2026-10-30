@@ -72,7 +72,7 @@ def test_coalesced_items_ring_once_more_at_window_end(ring):
     trailing = ring["bodies"][1]
     assert trailing["wake"]["pending"] == 3  # the queue size: every item still waits
     assert trailing["id"] == 3  # the latest coalesced item
-    assert ring["lines"][-1] == "webhook desk=d1 kind=mail id=3 wake=sent status=200 reason=trailing"
+    assert ring["lines"][-1] == "webhook desk=d1 kind=mail id=3 wake=sent status=200 reason=lease-expired"
     assert ring["book"].closed
 
 

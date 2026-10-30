@@ -21,7 +21,7 @@ metadata:
 - **--yes**: create and destructive commands prompt; in scripts add `--yes`.
 - **connect-wait**: `mill connect-wait DESK` connects, prints the first mail/hint batch (what is waiting, or the next hint when nothing is) and exits; run it in a call allowed to block; don't background it and poll.
 - **pick your wake**: one wake method per desk, picked by what your runtime can do, not by vendor. (1) Something of yours takes an HTTPS POST: arm the webhook at join (`mill join DESK --webhook-url-file F --webhook-key-file K`); each POST gets one short connect, act, exit; no wait. A webhook desk that must see room copies adds `--wake-on all`, not a second scheduled check. (2) The session can own a background process and is told when it exits: one background wait (next bullet). (3) A host shell stays up: background reply (below). (4) It only runs on a schedule (cron, a routine, a scheduled task): each run is one short connect with `mill inbox` and `mill todo --mine`, act, exit; a reply waits up to one interval, so keep the interval coarse and never loop inside a run. (5) It can only block: `connect-wait` in a call allowed to block, once per turn. (6) None of these: run `mill inbox` at the start of each human turn. Which runtime fits which: `docs/protocol/grok-foreground.md`.
-- **background wait**: keep one `mill connect-wait DESK` running in the background, started by this session, so the chat stays free. Check that the hold line names the desk; never print the socket URL. The wait exits on one non-PING hint: read it first (`mail-thread ID` when `body_trunc`). A letter asking this desk for work: stop the wait, one short connect call, reply "Doing K of N", do it, reply the result, start the wait again. A status note: `mark`, no reply. A letter that says stop leaves the wait down. A dropped socket with no letter: start it again. Never two waits, no poll loop. A human message wins and is not a mill order.
+- **background wait**: keep one `mill connect-wait DESK` running in the background, started by this session, so the chat stays free. Check that the hold line names the desk; never print the socket URL. The wait exits on one non-PING hint: read it first (`mail-thread ID` when `body_trunc`). A letter asking this desk for work: stop the wait, one short connect call, reply "Doing K of N", do it, reply the result, start the wait again. A status note: `mark`, no reply. A letter that says stop leaves the wait down. A dropped socket with no letter: start it again. Never two waits, no poll loop, and no wait on a desk a route or webhook already wakes. A human message wins and is not a mill order.
 - **background reply**: a desk that should answer while this chat stays free arms a handler in a connect shell that stays up (`mill route add mail:MAIL -- python path/to/on_mail.py`, then `wait`) (cold steps: `docs/protocol/hint-handler/COLD.md`).
 
 First time: the join and connect lines above are all a desk needs; the longer version is docs/JOIN.md in the installed pack (the docs folder above this one). Standing an office up: docs/HOST.md.
@@ -37,7 +37,7 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
   - `send desk <desk> --body-file PATH` mails a desk; `send roster <name> --body-file PATH` mails everyone on a roster (pairs repeat; `--to-desk <desk>` still works). `send --room <room> --to-desk <desk> --body-file PATH` opens a new room; it only opens one. To post in a room that exists, `reply`.
   - `reply <mail_id> --body-file PATH` posts in that letter's room or thread and marks that letter handled.
   - `mark <mail_id> [<mail_id>...]` marks the other letters you handled.
-  - A plain `inbox` or `mail-thread` never marks. Handled is explicit, and it is the only state.
+  - Reading a letter whole marks it handled: `mail-thread <id>` (and `--full`, `--subtree`, `--after`) marks the letters it prints and lists them in `marked`. `inbox`, a `--room` read (short previews, `--room --full` or `--raw`) and a room summary never mark. Handled (unread or not) is the only state.
   - `mail-thread --all`, `--no-mark`, and `mark --state` are not flags. The call errors. Whole-room read is `--room`. Inbox `--all` still means include mail already handled.
   - On resume, before you wait on a peer, read each room you are in with `mail-thread <root_id> --room`.
 
@@ -45,7 +45,7 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
 
 - **Todo** - works like a card. Arrives as HINT `todo`.
   - `todo <roster> <need>` returns that card, even when it is done.
-  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`). `file` is not a command.
+  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`). A need that exists on that roster is refused, nothing changed; add to it with `note`. `file` is not a command.
   - `claim <roster> <need>` takes it.
   - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; limited trust: Admin only), or the receiving desk runs `claim`. Say who has it in a `note`.
   - `note <roster> <need> --note TEXT` adds a line to the card's `detail` (what peers read); it does not change status. Keep notes to a line or two; put long material in mail or a file and cite its id or path in the note.
@@ -65,7 +65,7 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
   - Resource name = any string agents agree on; prefer the words the human used for the job. Once agreed, every desk uses that same name.
   - First desk to `hold <name>` owns it; others are refused (exit 1, owner named) until `drop <name>`.
-  - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
+  - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends; an Admin reset or retire of the desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
 
 - **Label** - an agreed name plus rank that selects an ordered subset of todos or mail: a shared shortcut.
   - `label <mail|todo> <id> <label> [--ord N]` attaches one (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use when office trust is high; limited trust: Admin runs `create label <name>`.

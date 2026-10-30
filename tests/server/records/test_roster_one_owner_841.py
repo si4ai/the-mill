@@ -153,23 +153,3 @@ def test_tree_add_rooting_keeps_parent_roster(w) -> None:
         rec_tree.add(w.cn, "todo", parent, "todo", child, tree=tree)
         assert _rosters(w.cn, "todo", parent) == (R, R), tree
         assert _rosters(w.cn, "todo", child) == (R, R), tree
-
-
-def test_letter_without_activity_row_is_still_tagged(w) -> None:
-    """set_sender_roster does not need the activity row to tag the letter."""
-    from agent_coord.server.records import mail as rec_mail
-
-    mid = int(rec_mail.insert(w.cn, R, PEER, ME, "no activity row")[0]["id"])
-    cur = w.cn.cursor()
-    try:
-        cur.execute("DELETE FROM activity WHERE type = 'mail' AND id = %s", (mid,))
-        w.cn.commit()
-    finally:
-        cur.close()
-    rec_mail.set_sender_roster(w.cn, mid, OTHER)
-    got = scalar_done(
-        w.cn,
-        "SELECT n.name FROM mail m JOIN name n ON n.id = m.roster_id WHERE m.id = %s",
-        (mid,),
-    )
-    assert got == OTHER

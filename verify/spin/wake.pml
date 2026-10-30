@@ -9,10 +9,10 @@
  *   agent_coord/server/push.py      emit (538-590), fanout (392-521),
  *                                   Hub.add (115-155), take_sync (622-630),
  *                                   connect_sync_frame (633-655)
- *   agent_coord/server/wake.py      _fire (116-134), _gate_open (489-493),
- *                                   _gate_take (479-486), gate_clear (496-501),
- *                                   _coalesced (518-535), trail (538-567),
- *                                   post_desk (584-656)
+ *   agent_coord/server/wake.py      _fire, _gate_open, _gate_take, lease_synced,
+ *                                   _coalesced, _send_trailing, trail (lease end),
+ *                                   lease_done (mill wake-done), post_desk
+ *   agent_coord/server/api/mill/rpc.py  _h_wake_done
  *   agent_coord/server/asgi.py      ws_endpoint: add, then sync, then send (582-616);
  *                                   a command reply takes, then sends (633-636)
  *   agent_coord/server/sql/sp_push.sql  mill_push_take: SELECT + DELETE in one call
@@ -42,6 +42,28 @@
  *   MUT_SENT_EARLY  mutation of the 832 fix: mark the row sent when the frame is
  *                handed to the loop, not when a socket took it, and no ring when
  *                the frame finds no socket (must fail)
+ *   LEASE        1 = card 886 / F144 wake lease: a connect sync no longer clears
+ *                the gate (lease_synced only resets the held-back count); the run
+ *                ends the lease with mill wake-done (lease_done), or it lapses
+ *                (trail at lease end). Either end sends one trailing POST when the
+ *                lease held items back and rows still wait (_send_trailing).
+ *                0 = before 886: every connect sync calls gate_clear.
+ *   MULTI        1 = a woken run may connect more than once (one connect per
+ *                shell call, as routine runs do), then say done or stop;
+ *                defaults to LEASE, so LEASE=0 is the model as it was before 886
+ *   ONE_RUN      1 = also assert "no new POST while the last lease is held"
+ *                (the storm the lease fixes); on by default with LEASE
+ *   MUT_DONE_ANY mutation of the lease: wake-done never sends the trailing POST
+ *                (must fail delivery)
+ *   HOLD1        1 = card 887 / F144a: post_desk checks for a live lease and records
+ *                the held-back item in one lock hold (_coalesced -> _hold_locked),
+ *                and the take is the same single hold (_coalesced take=True: record
+ *                under a lease that started meanwhile, else start one). 0 = the
+ *                #216 order: peek, release, then record in a later hold.
+ *   TOKEN        1 = card 888 / F144b: every lease has a token (wake.lease, _EPOCH);
+ *                the run says mill wake-done --lease TOKEN, and a token that is not
+ *                the current lease's ends nothing (stale). 0 = no token (an older
+ *                client): the done ends whatever lease is current.
  */
 
 #ifndef N
@@ -72,16 +94,31 @@
 #define RESTART 0
 #endif
 #ifndef PUTFIRST
-#define PUTFIRST 0
+#define PUTFIRST 1
 #endif
 #ifndef RING_ON_LEAVE
-#define RING_ON_LEAVE 0
+#define RING_ON_LEAVE 1
 #endif
 #ifndef ACK_AFTER_SEND
-#define ACK_AFTER_SEND 0
+#define ACK_AFTER_SEND 1
 #endif
 #ifndef MAXRUNS
 #define MAXRUNS 2
+#endif
+#ifndef LEASE
+#define LEASE 1
+#endif
+#ifndef MULTI
+#define MULTI LEASE
+#endif
+#ifndef ONE_RUN
+#define ONE_RUN LEASE
+#endif
+#ifndef HOLD1
+#define HOLD1 LEASE
+#endif
+#ifndef TOKEN
+#define TOKEN LEASE
 #endif
 
 #define ALL ((1 << N) - 1)
@@ -104,13 +141,19 @@ byte sent = 0;         /* rows marked sent (a live frame reached a socket), 832 
 
 /* wake.py _GATE / _TRAIL, kept in wall memory. */
 byte gate_ep = 0;      /* the window's start time, as an epoch number; 0 = none */
-bool gate_exp = false; /* 120 s have passed since gate_ep */
+bool gate_exp = false; /* the lease (lease_s(), 900 s) has run out since gate_ep */
 byte ep_ctr = 0;
 byte trail = 0;        /* _TRAIL[D]["at"]: the window a trailing POST belongs to */
 byte firing = 0;       /* _fire calls in flight (<= 2 x 8 s each, far shorter than the window) */
 /* ghost for "one wake per window": true once the last wake's window ran out
-   or D connected. A new wake (a gate take) must find it true. */
+   or D connected (LEASE: once the lease ended by done or timeout).
+   A new wake (a gate take) must find it true. */
 bool since_ok = true;
+/* ghost for "one woken run at a time": true once the last lease ended by
+   wake-done or timeout. A connect never sets it, in either design. */
+bool run_ok = true;
+/* ghost: a wake-done ended a lease that was not the one its run was woken by */
+bool stale_done = false;
 
 /* the receiver (the routine behind the webhook URL) */
 byte cf = 0;           /* POSTs failed in a row */
@@ -166,6 +209,34 @@ inline coalesce() {
 /* wake.py post_desk, from the peek on. Steps between atomics interleave. */
 inline post_desk(ok, took) {
   took = false;
+#if HOLD1 && !defined(MUT_SPLIT_GATE)
+  /* _coalesced(take=False): live lease -> record the item in the same hold */
+  if
+  :: atomic { !GATE_OPEN -> if :: trail != gate_ep -> trail = gate_ep :: else -> skip fi }
+  :: atomic { GATE_OPEN -> skip };
+     /* check_url + public_host assumed to pass: an armed, valid URL */
+     atomic {                     /* _coalesced(take=True): record, or start a lease */
+       if
+       :: !GATE_OPEN -> if :: trail != gate_ep -> trail = gate_ep :: else -> skip fi
+       :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
+                       assert(since_ok); since_ok = false;
+                       assert(!ONE_RUN || run_ok); run_ok = false;
+                       firing++
+       fi
+     };
+     if
+     :: took ->
+        fire(ok);
+        atomic {
+          firing--;
+#if RETRY827
+          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++ :: else -> skip fi
+#endif
+        }
+     :: else -> skip
+     fi
+  fi
+#else
   if
   :: atomic { !GATE_OPEN -> skip }; coalesce()                    /* 620-624 */
   :: atomic { GATE_OPEN -> skip };                                 /* peek open */
@@ -173,12 +244,15 @@ inline post_desk(ok, took) {
 #ifdef MUT_SPLIT_GATE
      if :: GATE_OPEN -> skip :: else -> goto coal fi;
      atomic { ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
-              assert(since_ok); since_ok = false; firing++ }
+              assert(since_ok); since_ok = false;
+              assert(!ONE_RUN || run_ok); run_ok = false; firing++ }
 #else
      atomic {                                                      /* _gate_take 636 */
        if
        :: GATE_OPEN -> ep_ctr++; gate_ep = ep_ctr; gate_exp = false; took = true;
-                       assert(since_ok); since_ok = false; firing++     /* one wake per window */
+                       assert(since_ok); since_ok = false;               /* one wake per lease */
+                       assert(!ONE_RUN || run_ok); run_ok = false;       /* one run at a time */
+                       firing++
        :: else -> skip
        fi
      }
@@ -200,6 +274,7 @@ coal:
         coalesce()                                                  /* 637-639 */
      fi
   fi
+#endif
 }
 
 /* 832 fix, push.py ring_waiting: not sitting and a missed row that rings
@@ -260,17 +335,25 @@ end_t:
   do
   :: atomic { trail != 0 && trail == gate_ep && gate_exp ->
               trail = 0; gate_ep = 0; gate_exp = false };
+#if LEASE
+     /* _send_trailing(lease-expired): POST only when rows still wait */
+     if
+     :: atomic { queued != 0 -> skip }; post_desk(ok, took)
+     :: else -> skip                               /* wake=none reason=drained */
+     fi
+#else
      post_desk(ok, took)                           /* trailing=True, rows all queued */
+#endif
   :: atomic { trail != 0 && trail != gate_ep -> trail = 0 }
   od
 }
 
-/* Wall time: a running window ends 120 s after it starts. A POST pair takes
+/* Wall time: a running lease ends lease_s() after it starts. A POST pair takes
    at most 16 s, so a window never ends during the POSTs that opened it. */
 proctype Clock() {
 end_c:
   do
-  :: atomic { gate_ep != 0 && !gate_exp && firing == 0 -> gate_exp = true; since_ok = true }
+  :: atomic { gate_ep != 0 && !gate_exp && firing == 0 -> gate_exp = true; since_ok = true; run_ok = true }
   od
 }
 
@@ -330,45 +413,90 @@ inline deliver(s) {
 #define TAKE(s) infl[s] = queued; queued = 0      /* mill_push_take */
 #endif
 
+/* mill wake-done (rpc _h_wake_done -> wake.lease_done): pop the lease and its
+   held-back items under the lock (TOKEN: only when the run's token is the
+   current lease's, else stale: nothing ends, no POST); when the popped
+   items belong to that lease and rows still wait, one trailing POST. */
+inline wake_done(ep, ok, took, t) {
+  atomic {
+#if TOKEN
+    /* --lease TOKEN: a token that is not the current lease's ends nothing */
+    if
+    :: gate_ep != ep -> t = false
+    :: else ->
+#endif
+    if :: gate_ep != 0 && !gate_exp && gate_ep != ep -> stale_done = true :: else -> skip fi;
+    t = (trail != 0 && trail == gate_ep);
+    gate_ep = 0; gate_exp = false; trail = 0; since_ok = true; run_ok = true
+#if TOKEN
+    fi
+#endif
+  };
+#ifndef MUT_DONE_ANY
+  if
+  :: atomic { t && queued != 0 -> skip }; post_desk(ok, took)   /* _send_trailing */
+  :: else -> skip                                               /* none / drained */
+  fi
+#else
+  skip
+#endif
+}
+
 proctype Session(byte s) {
-  byte o;
-  bool ok, took;
+  byte o, ep;
+  bool ok, took, t;
 end_s:
   do
-  :: atomic { runs > 0 && !seat[s] -> runs-- };
-     /* Hub.add: check and sit with no await between (115-155) */
-     atomic {
-       if
-       :: REFUSE && SITTING -> goto refused                         /* 4409, exit 6 */
-       :: else ->
-          seat[s] = true; closed[s] = false;
-          o = 0;
-          do
-          :: o < SESSIONS -> if :: o != s && seat[o] -> seat[o] = false; closed[o] = true
-                                 :: else -> skip fi; o++
-          :: o >= SESSIONS -> o = 0; break
-          od
-       fi
-     };
-     /* connect_sync_frame: mill_push_take selects and deletes the rows
-        (ACK_AFTER_SEND: reads them; deliver deletes them after the send) */
-     atomic { TAKE(s) };
-     /* gate_clear: a new hint may ring again */
-     atomic { gate_ep = 0; gate_exp = false; trail = 0; since_ok = true;
-#if RETRY827
-              chain = false;
-#endif
-            };
-     /* websocket.send_text(sync frame): fails on a kicked socket */
-     deliver(s);
-     /* up: it may run commands (each one takes and replies), then it exits */
+  :: atomic { runs > 0 && !seat[s] -> runs--; ep = gate_ep };
+     /* one connect per shell call; MULTI lets the run make more than one */
      do
-     :: atomic { !closed[s] -> TAKE(s) }; deliver(s)
-     :: break
-     od;
-     atomic { seat[s] = false; closed[s] = false };                 /* Hub.discard */
+     :: /* Hub.add: check and sit with no await between (115-155) */
+        atomic {
+          if
+          :: REFUSE && SITTING -> goto refused                      /* 4409, exit 6 */
+          :: else ->
+             seat[s] = true; closed[s] = false;
+             o = 0;
+             do
+             :: o < SESSIONS -> if :: o != s && seat[o] -> seat[o] = false; closed[o] = true
+                                    :: else -> skip fi; o++
+             :: o >= SESSIONS -> o = 0; break
+             od
+          fi
+        };
+        /* connect_sync_frame: mill_push_take selects and deletes the rows
+           (ACK_AFTER_SEND: reads them; deliver deletes them after the send) */
+        atomic { TAKE(s) };
+#if !LEASE
+        /* gate_clear: a new hint may ring again */
+        atomic { gate_ep = 0; gate_exp = false; trail = 0; since_ok = true;
+#if RETRY827
+                 chain = false;
+#endif
+               };
+#endif
+        /* LEASE: lease_synced only resets the held-back count (pending_count),
+           which no POST decision reads: no model step. */
+        /* websocket.send_text(sync frame): fails on a kicked socket */
+        deliver(s);
+        /* up: it may run commands (each one takes and replies), then it exits */
+        do
+        :: atomic { !closed[s] -> TAKE(s) }; deliver(s)
+        :: break
+        od;
+        atomic { seat[s] = false; closed[s] = false };              /* Hub.discard */
 #if RING_ON_LEAVE
-     ring_waiting(ok, took);                                        /* 832: last leave */
+        ring_waiting(ok, took);                                     /* 832: last leave */
+#endif
+#if MULTI
+        if :: true -> skip :: true -> break fi                      /* another shell call? */
+#else
+        break
+#endif
+     od;
+#if LEASE
+     /* the run's last step: mill wake-done, or none (crash, old client) */
+     if :: wake_done(ep, ok, took, t) :: skip fi;
 #endif
 refused:
      skip
@@ -394,6 +522,9 @@ init {
 
 /* No item ever taken off the queue without reaching the desk. */
 ltl no_loss { [] (lost == 0) }
+
+/* LEASE: a wake-done ends only the lease that woke its own run. */
+ltl no_stale_done { [] (!stale_done) }
 
 /* Every item is eventually received by the desk. Checked with weak
    fairness (pan -a -f); the receiver's failures are bounded by MAXFAIL. */

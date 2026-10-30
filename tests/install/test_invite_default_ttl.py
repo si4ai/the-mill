@@ -7,10 +7,18 @@ from agent_coord.server.admin import door
 
 
 class _FakeCur:
+    with_rows = True  # an invite SP answers with its row count (#867)
+
     def __init__(self):
         self.rowcount = 1
 
     def execute(self, *_a, **_k):
+        return None
+
+    def fetchall(self):
+        return [(1,)]
+
+    def nextset(self):
         return None
 
     def close(self):
@@ -113,8 +121,8 @@ def test_set_key_ttl_still_allows_never(monkeypatch) -> None:
     assert out["ok"] is True
     assert out["ttl_seconds"] is None
     assert out["expires_at"] is None
-    assert seen["args"][0] is None
-    assert seen["args"][1] is None
+    assert seen["args"][0] == "abcd1234"
+    assert seen["args"] == ("abcd1234", None)  # cmd_invite_ttl(key, ttl): NULL never expires
 
 
 def test_default_invite_ttl_const() -> None:

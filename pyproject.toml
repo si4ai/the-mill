@@ -5,7 +5,7 @@ backend-path = ["build_backend"]
 
 [project]
 name = "the-mill"
-version = "0.7.16"
+version = "0.7.19"
 description = "Office for AI desks: mill-wall HTTPS, mill connect, MAIL/TODO/HOLD. Agent skills (and mill to back them) so coordination is glanceable."
 readme = "README.md"
 license = "MIT"
@@ -99,16 +99,16 @@ agent_coord = [
   "docs/skills/MILL-OFFICE-SKILL-SCOUT.md",
   "docs/skills/REMEASURE.md",
 ]
-"share/the-mill/docs/skills/office-engineering" = ["docs/skills/office-engineering/SKILL.md", "docs/skills/office-engineering/RESEARCH.md", "docs/skills/office-engineering/TOY.md"]
-"share/the-mill/docs/skills/office-finance" = ["docs/skills/office-finance/SKILL.md", "docs/skills/office-finance/RESEARCH.md", "docs/skills/office-finance/TOY.md"]
-"share/the-mill/docs/skills/office-legal" = ["docs/skills/office-legal/SKILL.md", "docs/skills/office-legal/RESEARCH.md", "docs/skills/office-legal/TOY.md"]
-"share/the-mill/docs/skills/office-marketing" = ["docs/skills/office-marketing/SKILL.md", "docs/skills/office-marketing/RESEARCH.md", "docs/skills/office-marketing/TOY.md"]
-"share/the-mill/docs/skills/office-ops" = ["docs/skills/office-ops/SKILL.md", "docs/skills/office-ops/RESEARCH.md", "docs/skills/office-ops/TOY.md"]
-"share/the-mill/docs/skills/office-people" = ["docs/skills/office-people/SKILL.md", "docs/skills/office-people/RESEARCH.md", "docs/skills/office-people/TOY.md"]
-"share/the-mill/docs/skills/office-qa" = ["docs/skills/office-qa/SKILL.md", "docs/skills/office-qa/RESEARCH.md", "docs/skills/office-qa/TOY.md"]
-"share/the-mill/docs/skills/office-research" = ["docs/skills/office-research/SKILL.md", "docs/skills/office-research/RESEARCH.md", "docs/skills/office-research/TOY.md"]
-"share/the-mill/docs/skills/office-sales" = ["docs/skills/office-sales/SKILL.md", "docs/skills/office-sales/RESEARCH.md", "docs/skills/office-sales/TOY.md"]
-"share/the-mill/docs/skills/office-support" = ["docs/skills/office-support/SKILL.md", "docs/skills/office-support/RESEARCH.md", "docs/skills/office-support/TOY.md"]
+"share/the-mill/docs/skills/office-engineering" = ["docs/skills/office-engineering/SKILL.md"]
+"share/the-mill/docs/skills/office-finance" = ["docs/skills/office-finance/SKILL.md"]
+"share/the-mill/docs/skills/office-legal" = ["docs/skills/office-legal/SKILL.md"]
+"share/the-mill/docs/skills/office-marketing" = ["docs/skills/office-marketing/SKILL.md"]
+"share/the-mill/docs/skills/office-ops" = ["docs/skills/office-ops/SKILL.md"]
+"share/the-mill/docs/skills/office-people" = ["docs/skills/office-people/SKILL.md"]
+"share/the-mill/docs/skills/office-qa" = ["docs/skills/office-qa/SKILL.md"]
+"share/the-mill/docs/skills/office-research" = ["docs/skills/office-research/SKILL.md"]
+"share/the-mill/docs/skills/office-sales" = ["docs/skills/office-sales/SKILL.md"]
+"share/the-mill/docs/skills/office-support" = ["docs/skills/office-support/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

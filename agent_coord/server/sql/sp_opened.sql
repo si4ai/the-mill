@@ -52,26 +52,4 @@ BEGIN
    WHERE m.id = p_mail;
 END //
 
-CREATE PROCEDURE mill_opened_insert(
-  IN p_mail BIGINT UNSIGNED,
-  IN p_desk VARCHAR(64)
-)
-BEGIN
-  CALL mill_mail_open(p_mail, p_desk);
-END //
-
-CREATE PROCEDURE mill_opened_select(
-  IN p_mail BIGINT UNSIGNED,
-  IN p_desk VARCHAR(64)
-)
-BEGIN
-  SELECT 'mail' AS type, t.id, t.created, t.opened AS updated, t.desk_id AS desk_id,
-         t.id AS mail_id, 1 AS n, dn.name AS desk, dn.type AS desk_type
-    FROM mail_to t
-    LEFT JOIN name dn ON dn.id = t.desk_id
-   WHERE t.opened IS NOT NULL
-     AND (p_mail IS NULL OR p_mail = 0 OR t.id = p_mail)
-     AND (p_desk IS NULL OR p_desk = '' OR t.desk_id = MILL_NAME_GET('desk', p_desk));
-END //
-
 DELIMITER ;

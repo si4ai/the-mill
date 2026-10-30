@@ -77,7 +77,7 @@ Entry format:
   A flat join let the planner start from mail and cost 3.1 ms
 - Status: fixed in 0.7.4 (!79). mill_mail_inbox pages unread from
   `idx_desk_unread (desk_id, opened, id)`; `--all` keeps its newest-100 order and
-  unread keeps oldest-first (the audit's `--all` note was wrong; unchanged).
+  unread keeps oldest-first (the audit's `--all` note was wrong; unchanged). 0.7.17 (card 846): unread is newest-first too, a backward scan of the same index.
   Measured on the copy, client median: desk with nothing unread 15.4 -> 1.2 ms,
   busy desks 25-29 -> 12-17 ms, `--limit 5` 13-21 -> 2.6-4 ms, `--all` 32-37 ->
   20-21 ms. What is left is the recipient and crumbs reads (entry 13, 10)

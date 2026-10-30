@@ -56,7 +56,7 @@ def tables_for_proc(name: str) -> tuple[str, ...]:
         return ()
     if n.startswith("mill_wall_"):
         return ()
-    if n.startswith("mill_opened_"):
+    if n == "mill_mail_open":
         return ("mail_to",)
     if n.startswith("mill_mail_"):
         return ("mail", "mail_to")

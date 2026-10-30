@@ -28,3 +28,17 @@ def test_sync_view_missing_holds_is_empty_list():
 def test_sync_view_non_list_holds_is_empty():
     out = sync_view({"kind": "sync", "sync": [], "holds": {"resource": "x"}})
     assert out["holds"] == []
+
+
+def test_sync_view_prints_a_version_warning():
+    out = sync_view({
+        "kind": "sync",
+        "sync": [],
+        "hello": {"status": "warn", "message": "sp version mismatch: office sp-aaa, client sp-bbb"},
+    })
+    assert out["hello"] == "sp version mismatch: office sp-aaa, client sp-bbb"
+
+
+def test_sync_view_stays_quiet_when_the_version_matches():
+    out = sync_view({"kind": "sync", "sync": [], "hello": "ok"})
+    assert "hello" not in out

@@ -42,8 +42,10 @@ def test_public_mail_lean_letter():
     ]
     pub = rec_mail.public_mail(row, dest, crumbs={"tree": "stand-up", "root_id": 7, "root_type": "mail"})
     assert set(pub.keys()) == {
-        "id", "created", "sender", "body", "mail_tos", "tree", "root_id", "root_type"
+        "id", "created", "from", "sender", "body", "mail_tos", "to", "tree", "root_id", "root_type"
     }
+    assert pub["from"] == "alice"  # card 837: one sender key on every letter row
+    assert pub["to"] == ["bob", "carol"]
     assert pub["sender"] == {"deskId": "alice", "roster": "builder"}
     assert pub["body"] == "hello"
     assert "opened" not in pub["mail_tos"][0]

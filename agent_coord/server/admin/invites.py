@@ -184,7 +184,6 @@ def post_invites(
     if action == "revoke":
         return door_mod.revoke_key(
             str(data.get("key_id") or data.get("key") or ""),
-            revoke_cohort=True,
         )
     if action in ("ttl", "set_ttl"):
         return door_mod.set_key_ttl(

@@ -96,6 +96,21 @@ _TTL_RE = re.compile(r"^\s*(\d+)\s*([smhdw]?)\s*$", re.I)
 DEFAULT_INVITE_TTL = "24h"
 
 
+def _invite_sp(cur, proc: str, args: tuple) -> int:
+    """#867: an invite write is one SP call on the caller's cursor (commit stays with
+    the caller). Returns the SP's row count column (0 when it returns none)."""
+    cur.execute("CALL `%s`(%s)" % (proc, ",".join(["%s"] * len(args))), args)
+    n = 0
+    more = True
+    while more:
+        if getattr(cur, "with_rows", False):
+            got = cur.fetchall()
+            if got and not n and isinstance(got[0][0], int):
+                n = int(got[0][0])
+        nxt = getattr(cur, "nextset", None)
+        more = bool(nxt and nxt())
+    return n
+
 
 def provider() -> str:
 
@@ -764,17 +779,7 @@ def mint_key(
 
         try:
 
-            cur.execute(
-
-                "INSERT INTO mill_invite "
-
-                "(key_id, token_hash, label, created_by, ttl_seconds, expires_at, enabled_at) "
-
-                "VALUES (%s, %s, %s, %s, %s, %s, NULL)",
-
-                (key_id, digest, lab, by, ttl_s, expires),
-
-            )
+            _invite_sp(cur, "cmd_invite_create", (key_id, digest, lab, by, ttl_s))
 
             cn.commit()
 
@@ -860,15 +865,7 @@ def enable_key(key_id: str) -> dict[str, Any]:
 
         try:
 
-            cur.execute(
-
-                "UPDATE mill_invite SET enabled_at=%s WHERE key_id=%s AND revoked_at IS NULL AND enabled_at IS NULL",
-
-                (_now(), kid),
-
-            )
-
-            n = cur.rowcount
+            n = _invite_sp(cur, "cmd_invite_enable", (kid,))
 
             cn.commit()
 
@@ -1125,17 +1122,7 @@ def set_key_ttl(key_id: str, ttl: str | int | None) -> dict[str, Any]:
 
         try:
 
-            cur.execute(
-
-                "UPDATE mill_invite SET ttl_seconds=%s, expires_at=%s "
-
-                "WHERE key_id=%s AND revoked_at IS NULL",
-
-                (ttl_s, expires, kid),
-
-            )
-
-            n = cur.rowcount
+            n = _invite_sp(cur, "cmd_invite_ttl", (kid, ttl_s))
 
             cn.commit()
 
@@ -1175,87 +1162,9 @@ def set_key_ttl(key_id: str, ttl: str | int | None) -> dict[str, Any]:
 
 
 
-def _purge_humans(humans: list[str]) -> list[str]:
+def revoke_key(key_id: str) -> dict[str, Any]:
 
-    """Drop badge rows for cohort humans (admin key-revoke path; no presence guard)."""
-
-    gone: list[str] = []
-
-    cn = _db()
-
-    if cn is None:
-
-        return gone
-
-    try:
-
-        cur = cn.cursor()
-
-        try:
-
-            for h in humans:
-
-                name = (h or "").strip()
-
-                if not name:
-
-                    continue
-
-                cur.execute("DELETE FROM agent_human WHERE human=%s", (name,))
-
-                if cur.rowcount:
-
-                    gone.append(name)
-
-                for sql, args in (
-
-                    ("DELETE FROM agent_human_device WHERE human=%s", (name,)),
-
-                    ("DELETE FROM agent_human_collect WHERE human=%s", (name,)),
-
-                    ("DELETE FROM agent_grant WHERE human=%s OR granted_by=%s", (name, name)),
-
-                    ("DELETE FROM agent_vouch WHERE human=%s OR by_human=%s", (name, name)),
-
-                ):
-
-                    try:
-
-                        cur.execute(sql, args)
-
-                    except Exception:
-
-                        pass
-
-            cn.commit()
-
-        except Exception:
-
-            cn.rollback()
-
-        finally:
-
-            cur.close()
-
-    finally:
-
-        try:
-
-            cn.close()
-
-        except Exception:
-
-            pass
-
-    return gone
-
-
-
-
-
-def revoke_key(key_id: str, *, revoke_cohort: bool = True) -> dict[str, Any]:
-
-    """Revoke a key. Optionally revoke humans who joined via that key."""
+    """Revoke a key and list the parties that joined via it."""
 
     kid = (key_id or "").strip().lower()
 
@@ -1279,17 +1188,7 @@ def revoke_key(key_id: str, *, revoke_cohort: bool = True) -> dict[str, Any]:
 
         try:
 
-            cur.execute(
-
-                "UPDATE mill_invite SET revoked_at=%s "
-
-                "WHERE key_id=%s AND revoked_at IS NULL",
-
-                (_now(), kid),
-
-            )
-
-            n = cur.rowcount
+            n = _invite_sp(cur, "cmd_invite_revoke", (kid,))
 
             cur.execute(
 
@@ -1329,12 +1228,6 @@ def revoke_key(key_id: str, *, revoke_cohort: bool = True) -> dict[str, Any]:
 
         raise ValueError(f"key {kid} not found or already revoked")
 
-    revoked_humans: list[str] = []
-
-    if revoke_cohort and humans:
-
-        revoked_humans = _purge_humans(humans)
-
     return {
 
         "ok": True,
@@ -1347,9 +1240,7 @@ def revoke_key(key_id: str, *, revoke_cohort: bool = True) -> dict[str, Any]:
 
         "cohort_agents": agents,
 
-        "revoked_humans": revoked_humans,
-
-        "note": "TTL expire is enforced on door check; revoke drops the key and cohort humans.",
+        "note": "TTL expire is enforced on door check; revoke drops the key.",
 
     }
 
@@ -1387,33 +1278,7 @@ def record_join(key_id: str, party: str, party_id: str) -> bool:
 
         try:
 
-            cur.execute(
-
-                "INSERT IGNORE INTO mill_invite_join (key_id, party, party_id) "
-
-                "VALUES (%s, %s, %s)",
-
-                (kid, kind, who),
-
-            )
-
-            if kind == "human":
-
-                try:
-
-                    cur.execute(
-
-                        "UPDATE agent_human SET invite_key_id=%s "
-
-                        "WHERE human=%s AND (invite_key_id='' OR invite_key_id IS NULL)",
-
-                        (kid, who),
-
-                    )
-
-                except Exception:
-
-                    pass
+            _invite_sp(cur, "cmd_invite_join_record", (kid, kind, who))
 
             cn.commit()
 

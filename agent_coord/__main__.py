@@ -540,6 +540,20 @@ def _build_parser() -> MillArgumentParser:
     )
     r.add_argument("resource")
 
+    dn = sub.add_parser(
+        "wake-done",
+        help="end this woken run: mill wake-done [--lease ID] [--note TEXT] (the last step of a webhook-woken run)",
+        description=(
+            "F144: the office sends one webhook wake at a time. mill wake-done ends this desk's wake lease; "
+            "letters that came during the run ring once more, carrying pending_count and the note. "
+            "Without it the lease lapses after the office's wake_lease_s (default 900 s). "
+            "It closes no card: that is mill pass ROSTER NEED --done."
+        ),
+    )
+    dn.add_argument("--note", default="", help="one line for the next wake (last_note): what you did, what is next")
+    dn.add_argument("--lease", default="",
+                    help="the wake.lease token of the wake that started this run: a run that outlived its lease ends nothing")
+
     m = sub.add_parser(
         "send",
         help="send a letter: mill send roster NAME | desk NAME --body-file PATH",
@@ -626,7 +640,8 @@ def _build_parser() -> MillArgumentParser:
             "(implies --room). A room name with no flag = short summary "
             "(root, latest few, counts). Envelope latest_id, room_letters, hint. "
             "Not a participant? mill reply <root id> --body-file PATH joins. "
-            "A read does not mark; reply marks the parent, mill mark marks the rest."
+            "A read that prints letters whole marks them (listed in marked); --room previews "
+            "and a summary do not. reply marks the parent, mill mark marks the rest."
         ),
     )
     mt.add_argument(
@@ -1098,6 +1113,12 @@ def _build_parser() -> MillArgumentParser:
             dest="parent_id",
             help="optional TREE parent id (attach on create)",
         )
+        p.add_argument(
+            "--done-when",
+            default=None,
+            dest="done_when",
+            help="acceptance line, 0..1000 chars; the asker or Admin",
+        )
 
     cr = sub.add_parser(
         "create",
@@ -1198,6 +1219,12 @@ def _build_parser() -> MillArgumentParser:
         action="store_true",
         help="reply with the card's whole detail (default: detail_chars and the last line)",
     )
+    pg.add_argument(
+        "--done-when",
+        default=None,
+        dest="done_when",
+        help="set or clear the acceptance line (asker or Admin); a blank value clears it",
+    )
 
     vo = sub.add_parser("claim", help="claim a card")
     vo.add_argument("project")
@@ -1254,6 +1281,15 @@ def _build_parser() -> MillArgumentParser:
     pstep = psd.add_mutually_exclusive_group()
     pstep.add_argument("--done", action="store_true", help="asker or Admin: accept a shipped card (shipped -> done)")
     pstep.add_argument("--back", action="store_true", help="asker or volunteer: done -> shipped, shipped -> claimed")
+    psd.add_argument(
+        "--evidence",
+        default="",
+        help="text stored with a ship or a done step (0..2000 chars); --back stores none",
+    )
+    sub.add_parser(
+        "glance",
+        help="office glance from the cached read: one summary row and the newest activity",
+    )
 
     inv = sub.add_parser(
         "invite",
@@ -1264,7 +1300,7 @@ def _build_parser() -> MillArgumentParser:
     inv.add_argument("--mint", action="store_true", help="mint a pending invite (prints URL once; host --enable before mill join)")
     inv.add_argument("--enable", default="", metavar="KEY", help="enable a pending invite key_id so mill join can finish")
     inv.add_argument("--list", action="store_true", dest="invite_list", help="list invite keys (pending/active/expired/revoked)")
-    inv.add_argument("--revoke", default="", metavar="KEY", help="revoke key_id; also revokes cohort humans")
+    inv.add_argument("--revoke", default="", metavar="KEY", help="revoke key_id")
     inv.add_argument("--ttl", default="", metavar="TTL", help="with --mint: duration (7d/24h); or KEY then DURATION via --for")
     inv.add_argument("--for", dest="ttl_for", default="", metavar="KEY", help="key_id when setting TTL (invite --ttl 7d --for KEY)")
     inv.add_argument("--seat", default="", metavar="DESK", help="mint one-seat agent invite URL for DESK (ready; trust-gated)")

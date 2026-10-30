@@ -82,8 +82,8 @@ def test_mail_select_card_roster_only(cn) -> None:
     assert rec["roster"] == "unit"
     # Retag the letter, then put activity back on unit (send tags both since
     # card 841; the drift is made by hand) so inbox must not fall back.
-    rec_mail.set_sender_roster(cn, mid, "Office")
     cur = cn.cursor()
+    cur.execute("UPDATE mail SET roster_id=%s WHERE type='mail' AND id=%s", (office, mid))
     cur.execute("UPDATE activity SET roster_id=%s, updated=updated WHERE type='mail' AND id=%s", (unit, mid))
     cn.commit()
     cur.execute("SELECT roster_id FROM activity WHERE type='mail' AND id=%s", (mid,))
@@ -108,8 +108,8 @@ def test_mail_get_card_roster_only(cn) -> None:
     assert rows[0]["roster"] == "unit"
     # Retag the letter, then put activity back on unit (send tags both since
     # card 841; the drift is made by hand) so get must not fall back.
-    rec_mail.set_sender_roster(cn, mid, "Office")
     cur = cn.cursor()
+    cur.execute("UPDATE mail SET roster_id=%s WHERE type='mail' AND id=%s", (office, mid))
     cur.execute("UPDATE activity SET roster_id=%s, updated=updated WHERE type='mail' AND id=%s", (unit, mid))
     cn.commit()
     cur.execute("SELECT roster_id FROM activity WHERE type='mail' AND id=%s", (mid,))

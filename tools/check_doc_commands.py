@@ -51,7 +51,7 @@ DOC_GLOBS = (
     "docs/requirements/*.md",
     "docs/skills/*/SKILL.md",
 )
-NOT_CHECKED = {"docs/dev/VERB-LEXICON-PROPOSAL.md", "docs/dev/DETERMINISTIC-OFFICE.md"}
+NOT_CHECKED = {"docs/dev/DETERMINISTIC-OFFICE.md"}
 
 # Flags read before the parser runs (main / _run_parsed), valid on any command.
 ANY_COMMAND_FLAGS = {"--office", "--yes", "-h", "--help"}

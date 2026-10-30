@@ -10,8 +10,8 @@ Catches:
 
 Exit non-zero on failure so bad assets never land in ~/.mill/www.
 Usage:
-  python scripts/wall_css_js_check.py
-  python -m pytest tests/wall/test_wall_css_js_check.py -q
+  python -m agent_coord.web.wall_ui.validate_assets
+  python -m pytest tests/wall/test_wall_js_lib.py -q
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve()
-# scripts/wall_css_js_check.py -> parents[1]=repo; wall_ui/lib/check.py -> parents[3]=repo
-ROOT = _HERE.parents[1] if _HERE.parent.name == "scripts" else _HERE.parents[3]
+# agent_coord/web/wall_ui/lib/check.py -> parents[4] holds agent_coord/ (the repo or site-packages)
+ROOT = _HERE.parents[4]
 WALL_UI = ROOT / "agent_coord" / "web" / "wall_ui"
 LIB = WALL_UI / "lib"
 DEFAULT = WALL_UI / "default"
