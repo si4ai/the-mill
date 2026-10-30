@@ -190,6 +190,7 @@ function wallDoingTrailHtml(key) {
   if (!rows.length) return `<span class="dt-head">Doing</span><span class="dt-none">${esc(byDesk ? "No doing rows from this desk yet." : "No doing rows on this card yet.")}</span>`;
   const older = Math.max(0, (Number(got.entries) || rows.length) - rows.length);
   return `<span class="dt-head">Doing</span>` +
+    (byDesk ? "" : wallDoingCardEvidenceHtml(key)) +
     (older ? `<span class="dt-more">${esc(older + " older not shown")}</span>` : "") +
     rows.map(function (e) {
       /* #897 rule-doing-focus: a move row is never "current". #899 paints act. */
@@ -314,6 +315,12 @@ function wallDoingCardEvidence(item) {
   const key = String(item || "");
   const got = window.WALL_DOING && window.WALL_DOING.trails && window.WALL_DOING.trails[key];
   if (!got || got.state !== "ok") return "";
-  if (typeof wallCardEvidenceFromTrail === "function") return wallCardEvidenceFromTrail(got.rows || []);
+  /* History is newest first; the rule reads oldest first. */
+  if (typeof wallCardEvidenceFromTrail === "function") return wallCardEvidenceFromTrail((got.rows || []).slice().reverse());
   return "";
+}
+/* The card's evidence slot at the head of its trail; blank once back clears it. */
+function wallDoingCardEvidenceHtml(item) {
+  const ev = wallDoingCardEvidence(item);
+  return `<span class="dt-card-evidence" data-slot="card_evidence">${ev ? `<span class="dt-head">evidence</span> <span class="dt-text">${esc(ev)}</span>` : ""}</span>`;
 }

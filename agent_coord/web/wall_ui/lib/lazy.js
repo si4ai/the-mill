@@ -150,7 +150,7 @@
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
     doingPaint: {
       js: "/doing/doing-paint.js?v=wow322",
-      css: "/doing/doing.css?v=wow319",
+      css: "/doing/doing.css?v=wow322",
       marker: "WALL_UI_DEFAULT_DOING_PAINT"
     }
   };
