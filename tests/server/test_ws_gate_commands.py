@@ -89,7 +89,7 @@ def test_http_desk_command_refused_even_when_sitting(monkeypatch) -> None:
 
 @pytest.mark.parametrize(
     "command",
-    ["inbox", "send", "reply", "mail-thread", "todo", "doing", "hold", "claim"],
+    ["inbox", "send", "reply", "mail-thread", "todo", "mark", "hold", "claim"],
 )
 def test_http_no_ws_refuses_desk_acting_commands(command: str) -> None:
     assert desk_sitting("alice") is False

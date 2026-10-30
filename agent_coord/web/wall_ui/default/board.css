@@ -705,8 +705,9 @@
       padding: .08rem .35rem; border-radius: 999px; font-size: 10px; letter-spacing: .06em;
       border: 1px solid var(--edge); color: var(--dim);
     }
-    .hist-row.kind-here { border-left-color: var(--green); }
-    .hist-row.kind-here .k { color: var(--green); border-color: var(--green); }
+    .hist-row.kind-doing { border-left-color: var(--green); }
+    .hist-row.kind-doing .k { color: var(--green); border-color: var(--green); }
+    .hist-row.kind-doing.muted { opacity: .62; }
     .hist-row.kind-mail { border-left-color: var(--cyan); }
     .hist-row.kind-mail .k { color: var(--cyan); border-color: var(--cyan); }
     .hist-row.kind-todo { border-left-color: var(--amber); }
@@ -1039,7 +1040,7 @@
     .tile-row { display: flex; gap: .45rem; font-size: 12px; margin: .12rem 0; }
     .tile-k { color: var(--dim); min-width: 5.2rem; flex: 0 0 5.2rem; }
     .tile-v { color: var(--ink); user-select: text; cursor: text; min-width: 0; word-break: break-word; }
-    /* wow168: flex scroll child needs min-height:0 (same class as MAIL rooms grid cols) */
+    /* flex scroll child needs min-height:0 (same class as MAIL rooms grid cols) */
     .body { padding: .5rem .7rem; overflow-x: auto; overflow-y: auto; flex: 1; min-height: 0;
       scrollbar-width: none; -ms-overflow-style: none; }
     .body::-webkit-scrollbar { width: 0; height: 0; display: none; }
@@ -1603,7 +1604,7 @@
       .session-chrome, .jobs-chrome, .floor-chrome { flex-wrap: wrap; }
       #howto-card { width: calc(100vw - 1rem); right: .5rem; left: .5rem; }
     }
-    /* wow164: palette keys off data-theme=light|dark; auto media = no-JS fallback */
+    /* palette keys off data-theme=light|dark; auto media = no-JS fallback */
     html[data-theme="dark"] {
       color-scheme: dark;
       --bg: #080a0d;
@@ -1707,7 +1708,7 @@ html.wall-human-readonly .admin-actions.admin-full-only {
   display: none !important;
 }
 
-/* wow176: welcome Nest popup - compact card + translucent backdrop (Nest through) */
+/* welcome Nest popup - compact card + translucent backdrop (Nest through) */
 #wall-welcome {
   position: fixed; inset: 0; z-index: 90;
   display: flex; align-items: center; justify-content: center;
@@ -1736,7 +1737,7 @@ html.wall-human-readonly .admin-actions.admin-full-only {
 #wall-welcome .ww-card header {
   display: flex; align-items: center; gap: .4rem; padding: 0 0 .2rem;
 }
-/* wow190: welcome close matches ? help / howto-card .dismiss chrome (class=dismiss since wow189). */
+/* welcome close matches ? help / howto-card .dismiss chrome (class=dismiss). */
 #wall-welcome .dismiss {
   margin-left: auto; background: transparent; border: 0; color: var(--dim, #8d99a8);
   font: inherit; cursor: pointer; padding: .1rem .25rem; touch-action: auto;
@@ -1878,6 +1879,10 @@ html.wall-human-readonly .admin-actions.admin-full-only {
   min-width: 14rem; overflow: auto;
   padding: .55rem .75rem .8rem;
 }
+/* #818: a CONNECTED line is the row button, then the doing meta under it (links can't sit
+   in a button). The meta line is empty until the doing view is read. */
+.here-line { border-bottom: 1px solid var(--edge); }
+.here-line > .here-row { border-bottom: 0; }
 .here-row {
   display: grid;
   grid-template-columns: .7rem minmax(7rem, 12rem) 4.6rem minmax(0, 1fr);
@@ -1896,6 +1901,8 @@ html.wall-human-readonly .admin-actions.admin-full-only {
 .here-dot.working { background: var(--green); }
 .here-dot.waiting, .here-dot.blocked { background: var(--amber); }
 .here-dot.idle, .here-dot.here { background: var(--cyan); }
+/* #818: an idle desk is a real state now; the empty-pane .idle padding must not stretch its dot. */
+.here-dot.idle { padding: 0; }
 .here-dot.gone { background: var(--red); }
 .here-name {
   font-weight: 650; color: var(--ink);
@@ -1937,6 +1944,11 @@ div.here-doing { overflow: visible; white-space: normal; text-overflow: clip; }
 /* #715: COLLAB stays compact, but once its count is read it is a real number and must
    not look like the faded not-loaded state (contrast was 2.2). */
 .strip .kpi.strip-nav.strip-later:not(.kpi-loading) { opacity: 1; }
+@media (max-width: 520px) {
+  /* #818: on a phone the doing text gets its own line under the name, not a 3-letter column. */
+  .here-row { grid-template-columns: .7rem minmax(0, 1fr) auto; }
+  .here-row > .here-doing { grid-column: 2 / -1; }
+}
 @media (max-width: 800px) {
   .here-split { flex-direction: column; }
   #sec-here > .here-split > #here { border-right: 0; border-bottom: 1px solid var(--edge); max-height: 50vh; }

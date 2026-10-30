@@ -98,7 +98,9 @@ def roster_ids(cn, names: list[str]) -> list[tuple[str, int]]:
 def get_or_insert(cn, name: str, kind: str = "") -> int:
     k, bare = pair(name, kind)
     nid = int(scalar(cn, "SELECT MILL_NAME_PUT(%s, %s)", (k, bare)))
-    cn.commit()
+    from agent_coord.server.records.db import commit as _db_commit
+
+    _db_commit(cn)  # #818: not inside a request transaction
     return nid
 
 

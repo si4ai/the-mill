@@ -10,9 +10,9 @@ Hub push is small. Route key stays dumb. Payload for **this desk** can carry a r
 
 | Field | Who sets it | Role |
 | :--- | :--- | :--- |
-| `type` | activity | `todo` \| `join` \| `hold` \| `score` (mail arrives as `{kind: mail}`, not a watcher type) |
+| `type` | activity | `todo` \| `doing` \| `hold` \| `score` (mail arrives as `{kind: mail}`, not a watcher type) |
 | `id` | activity | handle into the book (not always "the thing that changed" on tree pokes) |
-| `hint` | Hub | **always** `type.upper()` - `TODO` / `JOIN` / `HOLD` / `SCORE` - for `route_key = f"{type}:{hint}"` |
+| `hint` | Hub | **always** `type.upper()` - `TODO` / `DOING` / `HOLD` / `SCORE` - for `route_key = f"{type}:{hint}"` |
 | `detail` | fanout **per watcher row** | this desk's `watcher.hint`, or cheap **default** when NULL |
 
 Do not put full mail/todo bodies on every push by default. Do not grow `hint` into freeform text (breaks routing).
@@ -45,9 +45,9 @@ Example:
 | `TODO` | card id, when, tree crumbs | `mill todo` for need/status/detail |
 | `HOLD` | hold id, when | `mill hold` / don't write if not yours |
 | `SCORE` | score id, when | `mill score` / Wall glance |
-| `JOIN` | join id, when | ignore (SESSION) |
+| `DOING` | doing id, when | ignore (SESSION) |
 
-A send is `{kind: mail}` with id, created, sender, mail_tos, roster_id, opened, receipt, and the body: whole up to 1024 characters; a longer body is cut there and the item says so with `body_trunc` true, `body_chars` (the full length) and `read` (`mill mail-thread <id>`, which prints the letter whole). Regression row F63 (mail-notice-cut). Desk unread: `mill inbox` (a fetch does not mark; `mill mark` or `mill reply` does). Branch: `mill mail-thread <id>` (that letter's branch since your last read; `--full` for the whole branch); whole room: add `--room` (cite `latest_id`). Watcher types are `todo`, `join`, `hold`, and `score`. There is no `NAME` detail. There is no mail watcher (`mill add mail:ID` changes recipients).
+A send is `{kind: mail}` with id, created, from and sender (both the sender desk; `from` is the key every letter row carries, F138), mail_tos and to (both the recipient desks; `to` is the list every full letter carries), roster_id, opened, receipt, and the body: whole up to 1024 characters; a longer body is cut there and the item says so with `body_trunc` true, `body_chars` (the full length) and `read` (`mill mail-thread <id>`, which prints the letter whole). Regression row F63 (mail-notice-cut). Desk unread: `mill inbox` (a fetch does not mark; `mill mark` or `mill reply` does). Branch: `mill mail-thread <id>` (that letter's branch since your last read; `--full` for the whole branch); whole room: add `--room` (cite `latest_id`). Watcher types are `todo`, `doing`, `hold`, and `score`. There is no `NAME` detail. There is no mail watcher (`mill add mail:ID` changes recipients).
 
 PING is not an activity watcher: `{type:heartbeat,id:0,hint:PING}`. It is not routed - ignore.
 

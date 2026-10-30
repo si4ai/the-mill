@@ -152,7 +152,7 @@ def test_login_redirect_empty_without_mill_url(monkeypatch):
     monkeypatch.setenv("AGENT_COORD_DIRECTORY_ISSUER", ISSUER)
     monkeypatch.setenv("AGENT_COORD_DIRECTORY_CLIENT_ID", AUDIENCE)
     monkeypatch.setenv("AGENT_COORD_MILL_URL", "")
-    assert door.login_redirect() == ""
+    assert door.login_redirect() == ("", "")
 
 
 def test_logout_url_rejects_a_non_http_value(monkeypatch):

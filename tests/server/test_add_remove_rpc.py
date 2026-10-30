@@ -45,11 +45,11 @@ def test_add_watch_defaults_to_self_with_hint(live):
     assert live["hint"] == [("todo", 9, 42, "need:detail")]
 
 
-@pytest.mark.parametrize("typ", ["todo", "join", "hold", "score"])
-def test_every_non_mail_kind_is_a_watcher(live, typ):
+@pytest.mark.parametrize("typ,stored", [("todo", "todo"), ("doing", "doing"), ("hold", "hold"), ("score", "score")])
+def test_every_non_mail_kind_is_a_watcher(live, typ, stored):
     _go({"verb": "add", "type": typ, "id": 3})
     _go({"verb": "remove", "type": typ, "id": 3})
-    assert live["hint"][-1][:3] == (typ, 3, 42) and live["del"] == [(typ, 3, 42)]
+    assert live["hint"][-1][:3] == (stored, 3, 42) and live["del"] == [(stored, 3, 42)]
     assert live["put"] == [] and live["drop"] == []
 
 
@@ -64,6 +64,8 @@ def test_mail_is_recipients_never_watchers(live):
     ({"verb": "add", "type": "mail", "id": 7, "hint": "x"}, "--hint"),
     ({"verb": "remove", "type": "todo", "id": 7, "hint": "x"}, "--hint"),
     ({"verb": "add", "type": "tree", "id": 1}, "TARGET is type:id"),
+    ({"verb": "add", "type": "join", "id": 1}, "TARGET is type:id"),  # #818: join is no type now
+    ({"verb": "remove", "type": "join", "id": 1}, "TARGET is type:id"),
     ({"verb": "add", "type": "todo", "id": 0}, "TARGET is type:id"),
     ({"verb": "add", "type": "todo", "id": "abc"}, "TARGET is type:id"),
     ({"verb": "add", "type": "todo", "id": 3, "who": "ghost"}, "no such desk or roster ghost"),
@@ -139,3 +141,16 @@ def test_empty_signal_text_is_not_swallowed_270(live, monkeypatch):
     monkeypatch.setattr("agent_coord.server.records.mail.to_node_delete", boom)
     with pytest.raises(_SqlRefusal):
         _go({"verb": "remove", "type": "mail", "id": 7, "who": "peer"})
+
+
+@pytest.mark.parametrize("command,args", [
+    ("add", {"type": "join", "id": 3}),
+    ("remove", {"type": "join", "id": 3}),
+    ("label-add", {"type": "join", "id": 3, "label": "x"}),
+    ("move", {"type": "join", "id": 3, "type_b": "join"}),
+])
+def test_old_client_join_type_over_ws_names_the_upgrade(live, command, args):
+    """#818: a 0.7.15 client still sends TYPE join; the refusal names the upgrade, nothing runs."""
+    with pytest.raises(CoordError, match="pip install -U the-mill"):
+        rpc.dispatch_ws(_Book(), "builder", command, dict(args))
+    assert live["hint"] == [] and live["del"] == [] and live["put"] == [] and live["drop"] == []

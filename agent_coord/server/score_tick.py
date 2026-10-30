@@ -81,8 +81,8 @@ BOOK_SQL: dict[str, tuple[str, str]] = {
         "SELECT COUNT(*) FROM todo WHERE status='open'",
         "cards open (book)",
     ),
-    "join.n": ("SELECT COUNT(*) FROM `join`", "desks on join (book)"),
-    "here.n": ("SELECT COUNT(*) FROM `join`", "desks on join (book)"),
+    "join.n": ("SELECT COUNT(*) FROM seat", "desks on join (book)"),
+    "here.n": ("SELECT COUNT(*) FROM seat", "desks on join (book)"),
     # Informational throughput (activities/h). Target empty like mill-wall.api_n / floor_n.
     "mill-office.activities": (
         f"SELECT COUNT(*) FROM activity WHERE updated >= NOW(6) - INTERVAL {WINDOW_S} SECOND",

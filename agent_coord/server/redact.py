@@ -43,7 +43,9 @@ ALL_CLASSES = frozenset(PH)
 # claim, unclaim, pass, hold and assign joined send, note, open and score).
 WRITE_COMMANDS = frozenset({
     "send", "reply", "note", "create", "open", "update", "score", "patch", "set",
-    "doing", "join", "claim", "unclaim", "pass", "hold", "assign",
+    "join", "claim", "unclaim", "pass", "hold", "assign",
+    # #818 PR B: --doing text rides on these too.
+    "mark", "drop", "unpark",
 })
 
 TEXT_KEYS = frozenset({

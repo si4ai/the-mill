@@ -1,13 +1,13 @@
--- 20 tables. Wipe then apply.
+-- 22 tables. Wipe then apply.
 -- name, member, activity, label, tree, watcher,
--- mail, mail_to, todo, join, hold, score, score_point, score_evidence,
+-- mail, mail_to, tree_read, todo, seat, doing, hold, score, score_point, score_evidence,
 -- human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
 -- id 1 = Office. id 2 = Admin. Never retire.
 -- activity PK (type, id). Payload type uses this same ENUM list. Ids are per type (each payload table's AUTO_INCREMENT).
--- activity is the timeline, not a parent: no payload (mail, todo, join, hold, score) has an FK to it.
+-- activity is the timeline, not a parent: no payload (mail, todo, doing, hold, score) has an FK to it.
 -- A writer inserts the payload, takes LAST_INSERT_ID(), then writes the activity row in the same transaction.
 -- label and tree keep their FKs to activity: they point at a timeline row that already exists.
 -- Every mill FK to name is RESTRICT, and name_no_delete refuses a hard DELETE (retire stamps name.deleted).
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS member (
 
 -- Activity, then the rows that share its (type, id).
 CREATE TABLE IF NOT EXISTS activity (
-  type        ENUM('mail','todo','join','hold','score') NOT NULL,
+  type        ENUM('mail','todo','doing','hold','score') NOT NULL,
   id          BIGINT UNSIGNED       NOT NULL,
   created     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS activity (
 -- Tags on any activity. name_id is a label. Not member (desk <-> roster).
 -- ord: 0 pinned, 65535 unplaced. Gaps stay. Never renumber. RANK is reserved (#196).
 CREATE TABLE IF NOT EXISTS label (
-  type        ENUM('mail','todo','join','hold','score') NOT NULL,
+  type        ENUM('mail','todo','doing','hold','score') NOT NULL,
   id          BIGINT UNSIGNED NOT NULL,
   name_id     BIGINT UNSIGNED NOT NULL,
   ord         SMALLINT UNSIGNED NOT NULL DEFAULT 65535,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS label (
 -- The same payload may sit in many plans. The first card is lft 1.
 CREATE TABLE IF NOT EXISTS tree (
   name_id  BIGINT UNSIGNED NOT NULL,
-  type     ENUM('mail','todo','join','hold','score') NOT NULL,
+  type     ENUM('mail','todo','doing','hold','score') NOT NULL,
   id       BIGINT UNSIGNED NOT NULL,
   lft      INT UNSIGNED NOT NULL,
   rgt      INT UNSIGNED NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS tree (
 -- Who to poke (desk_id = subscriber name.id). Mail is not a watcher type.
 -- A name row is not a watcher target.
 CREATE TABLE IF NOT EXISTS watcher (
-  type        ENUM('todo','join','hold','score') NOT NULL,
+  type        ENUM('todo','doing','hold','score') NOT NULL,
   id          BIGINT UNSIGNED NOT NULL,
   desk_id     BIGINT UNSIGNED NOT NULL,
   hint        VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS watcher (
 
 -- Letter only. Dest/state live on mail_to. No updated, no group_id.
 CREATE TABLE IF NOT EXISTS mail (
-  type            ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'mail',
+  type            ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'mail',
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   created         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   desk_id         BIGINT UNSIGNED NOT NULL,
@@ -129,11 +129,14 @@ CREATE TABLE IF NOT EXISTS mail (
 
 -- Who has the letter. Desk, opened, receipt. Roster lives on the letter.
 CREATE TABLE IF NOT EXISTS mail_to (
-  type            ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'mail',
+  type            ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'mail',
   id              BIGINT UNSIGNED NOT NULL,
   desk_id         BIGINT UNSIGNED NOT NULL,
   opened          DATETIME(6) NULL,
   receipt         TINYINT(1) NOT NULL DEFAULT 0,
+  -- #818 D1: 1 = asked (named on the letter), 0 = copied (reached only as a
+  -- room member on reply-all). Waiting on a desk counts asked rows only.
+  asked           TINYINT(1) NOT NULL DEFAULT 1,
   created         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (type, id, desk_id),
   KEY idx_desk (desk_id, created),
@@ -158,7 +161,7 @@ CREATE TABLE IF NOT EXISTS tree_read (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS todo (
-  type            ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'todo',
+  type            ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'todo',
   id              BIGINT UNSIGNED        NOT NULL AUTO_INCREMENT,
   created         DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated         DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -168,7 +171,14 @@ CREATE TABLE IF NOT EXISTS todo (
   creator_id      BIGINT UNSIGNED        NOT NULL,
   status          ENUM('parked','open','claimed','shipped','done') NOT NULL DEFAULT 'open',
   assigned_id     BIGINT UNSIGNED        NULL,
+  -- #818 D2: when the card became claimed or its volunteer changed (claim,
+  -- --take-over, assign, pass --back to claimed). NULL when not claimed.
+  claimed_at      DATETIME(6)   NULL,
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  -- #867: the asker's acceptance line (cmd_card_accept) and the evidence of the last
+  -- ship or done step (cmd_pass). NULL when unset.
+  done_when       VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  evidence        VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_status (status, updated),
@@ -179,35 +189,60 @@ CREATE TABLE IF NOT EXISTS todo (
   CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS `join` (
-  type          ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'join',
-  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  created       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  desk_id       BIGINT UNSIGNED NOT NULL,
-  token_hash    CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
-  doing         VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  delivery_mode ENUM('websocket','webhook','polling') NOT NULL DEFAULT 'polling',
-  endpoint_url  VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+-- #818: one desk's standing setup (token, wake, connect stamps). Not an activity:
+-- no type column, no activity row. One row per desk. Agent text says desk/join/connect.
+CREATE TABLE IF NOT EXISTS seat (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  desk_id         BIGINT UNSIGNED NOT NULL,
+  created         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  token_hash      CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  delivery_mode   ENUM('websocket','webhook','polling') NOT NULL DEFAULT 'polling',
+  endpoint_url    VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   -- #618: the desk's own webhook key. Only mill_join_wake_target reads it (POST time).
-  endpoint_key  VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  endpoint_key    VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NULL,
   -- #628: which items POST: all, or addressed only (room-only items wait for the next connect).
-  wake_on       ENUM('all','addressed') NOT NULL DEFAULT 'all',
+  -- Card 836: addressed is the default, so a room copy wakes no one.
+  wake_on         ENUM('all','addressed') NOT NULL DEFAULT 'addressed',
   lan_ip          VARCHAR(45) CHARACTER SET ascii COLLATE ascii_bin NULL,
   time_connect    DATETIME(6) NULL,
   time_disconnect DATETIME(6) NULL,
-  PRIMARY KEY (type, id),
-  UNIQUE KEY idx_id (id),
+  PRIMARY KEY (id),
   UNIQUE KEY idx_desk (desk_id),
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
-  CONSTRAINT fk_join_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- #818: what a desk is doing. Append-only: one row per entry, never overwritten.
+-- The desk's current doing is its newest row. on_* is the activity the entry
+-- is about (any type but doing); waiting_* is what it is blocked on (#822:
+-- a desk, letter, card or hold, plus the reason) as fields on this one row.
+-- No edge or link table: who is blocked on a desk is a read (mill_doing_now).
+CREATE TABLE IF NOT EXISTS doing (
+  type          ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'doing',
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  created       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  desk_id       BIGINT UNSIGNED NOT NULL,
+  roster_id     BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  text          VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  on_type       ENUM('mail','todo','hold','score') NULL,
+  on_id         BIGINT UNSIGNED NULL,
+  waiting_type  ENUM('mail','todo','hold','desk') NULL,
+  waiting_id    BIGINT UNSIGNED NULL,
+  waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
+  PRIMARY KEY (type, id),
+  UNIQUE KEY idx_id (id),
+  KEY idx_desk_created (desk_id, created),
+  KEY idx_on (on_type, on_id),
+  CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- One lock per resource. desk_id NULL means free. Release nulls desk_id; the row stays.
 CREATE TABLE IF NOT EXISTS hold (
-  type        ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'hold',
+  type        ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'hold',
   id          BIGINT UNSIGNED          NOT NULL AUTO_INCREMENT,
   created     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -221,7 +256,7 @@ CREATE TABLE IF NOT EXISTS hold (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS score (
-  type        ENUM('mail','todo','join','hold','score') NOT NULL DEFAULT 'score',
+  type        ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'score',
   id          BIGINT UNSIGNED        NOT NULL AUTO_INCREMENT,
   created     DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -376,6 +411,7 @@ DROP TRIGGER IF EXISTS mail_no_delete_in_tree;
 DROP TRIGGER IF EXISTS hold_no_delete_in_tree;
 DROP TRIGGER IF EXISTS hold_no_delete;
 DROP TRIGGER IF EXISTS join_no_delete_in_tree;
+DROP TRIGGER IF EXISTS doing_no_delete_in_tree;
 DROP TRIGGER IF EXISTS score_no_delete_in_tree;
 DROP TRIGGER IF EXISTS name_no_delete;
 
@@ -416,12 +452,12 @@ BEGIN
     SET MESSAGE_TEXT = 'hold: release only (mill_hold_delete); DELETE refused';
 END //
 
-CREATE TRIGGER join_no_delete_in_tree BEFORE DELETE ON `join`
+CREATE TRIGGER doing_no_delete_in_tree BEFORE DELETE ON doing
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'join' AND id = OLD.id LIMIT 1) THEN
+  IF EXISTS (SELECT 1 FROM tree WHERE type = 'doing' AND id = OLD.id LIMIT 1) THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'join: still in tree (mill_tree_remove first)';
+      SET MESSAGE_TEXT = 'doing: still in tree (mill_tree_remove first)';
   END IF;
 END //
 

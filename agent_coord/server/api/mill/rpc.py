@@ -7,6 +7,7 @@ Bearer or PRIVATE-TOKEN. mill-wall does not write ~/.mill/session for laptops.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from collections import OrderedDict
@@ -216,6 +217,13 @@ def _poke(
     """
     if not nid:
         return
+    from agent_coord.server.records.db import after_commit
+
+    # #818: inside a --doing request the pokes wait for its commit.
+    after_commit(c._cn, lambda: _poke_now(c, typ, nid, command, owner=owner, fresh=fresh))
+
+
+def _poke_now(c: Book, typ: str, nid: Any, command: str, *, owner: str | None, fresh: bool) -> None:
     try:
         from agent_coord.server.push import fanout
 
@@ -298,7 +306,7 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
     )
     got = rows[0] if rows else {}
     if got.get("id"):
-        _poke(c, "join", got.get("id"), "join")
+        _poke(c, "doing", got.get("id"), "join")
     registered = _stored(_stored(str(got.get("owner") or owner)))
     try:
         from agent_coord.server.records import member as rec_member
@@ -344,7 +352,8 @@ def _join_delivery(c: Book, desk: str, delivery: dict[str, Any]) -> dict[str, An
         return {"webhook": "off", "delivery": "websocket"}
     if mode != "webhook":
         raise CoordError("join: delivery is websocket or webhook")
-    wake_on = str(delivery.get("wake_on") or wake.WAKE_ON_ALL).strip().lower()
+    # Card 836: no --wake-on arms addressed; a room copy waits for the next connect.
+    wake_on = str(delivery.get("wake_on") or wake.ADDRESSED).strip().lower()
     if wake_on not in wake.WAKE_ON:
         raise CoordError("join: --wake-on is addressed or all")
     try:
@@ -354,7 +363,7 @@ def _join_delivery(c: Book, desk: str, delivery: dict[str, Any]) -> dict[str, An
         raise CoordError(str(e)) from None
     if rec_join.wake_target(c._cn, desk) == (url, key):
         # Same routine: no second test POST. #628: a new --wake-on alone is stored.
-        if str(rec_join.wake_state(c._cn, desk).get("wake_on") or wake.WAKE_ON_ALL) != wake_on:
+        if str(rec_join.wake_state(c._cn, desk).get("wake_on") or wake.ADDRESSED) != wake_on:
             rec_join.wake_arm(c._cn, desk, url, key, wake_on=wake_on)
         return {"webhook": "armed", "host": host, "test": "unchanged", "wake_on": wake_on}
     got = wake.test_fire(url, key, desk, roster=wake.desk_roster(c._cn, desk))
@@ -362,24 +371,6 @@ def _join_delivery(c: Book, desk: str, delivery: dict[str, Any]) -> dict[str, An
         raise CoordError("join: webhook not armed: " + str(got.get("fix") or "test POST failed"))
     rec_join.wake_arm(c._cn, desk, url, key, wake_on=wake_on)
     return {"webhook": "armed", "host": host, "test": got["status"], "wake_on": wake_on}
-
-
-def _h_doing(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    from agent_coord.server.records import join as rec_join
-
-    doing = str(body.get("doing") or "working").strip()
-    rows = rec_join.push_doing(
-        c._cn, _stored(project), _stored(owner or ""), doing
-    )
-    rec = rows[0] if rows else {}
-    if rec.get("id"):
-        _poke(c, "join", rec.get("id"), "doing", owner=owner)
-    return {
-        "ok": True,
-        "doing": rec.get("doing") or doing,
-        "owner": owner,
-        "id": rec.get("id"),
-    }
 
 
 def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -402,7 +393,7 @@ def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     unread_only = not bool(body.get("all"))
 
     # The page is cut and ordered in SQL from mail_to idx_desk_unread: unread is
-    # the oldest `lim` unread, oldest first; --all is the newest `lim`, newest
+    # the newest `lim` unread, newest first (card 846); --all is the newest `lim`, newest
     # first. Bodies come on the same rows.
     page = max(1, lim or 100)
     kept = rec_mail.inbox(c._cn, _stored(desk), all_mail=not unread_only, limit=page)
@@ -489,7 +480,6 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
         "need_id": fields["need_id"],
         "id": r.get("id"),
         "status": st,
-        "doing": fields["doing"],
         "detail": fields["detail"],
         "progress": fields["progress"],
         "volunteer": _stored(r.get("assigned") or ""),
@@ -498,11 +488,15 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
         "tree": _stored(r.get("tree") or "") or None,
         "labels": _json_names(r.get("labels")),
     }
-    # #330: notes land in detail. A title (doing) or progress token that was
-    # never set is left out, so no field in the reply is always empty.
-    for k in ("doing", "progress"):
-        if not card[k]:
-            del card[k]
+    # #867: the acceptance line and the last ship/done evidence, when set.
+    if r.get("done_when"):
+        card["done_when"] = str(r["done_when"])
+    if r.get("evidence"):
+        card["evidence"] = str(r["evidence"])
+    # #330: notes land in detail. A progress token that was never set is left
+    # out, so no field in the reply is always empty. #818: cards have no title.
+    if not card["progress"]:
+        del card["progress"]
     return card
 
 
@@ -640,27 +634,401 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
 
 
 def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    from agent_coord.server.records import join as rec_join
-    from agent_coord.server.records.name import by_id as name_by_id
+    """`mill connected` (#274 word; RPC session). #818 PR B: what each desk is
+    doing, on which item, since when, and who is waiting on it.
+
+    ROSTER is optional (none = desks active in the last day; --all every desk;
+    --desk X one desk). --history lists past doing entries instead, a page at a time.
+    """
+    from agent_coord.server.records import doing as rec_doing
+
+    roster = _stored(str(body.get("project") or "").strip())
+    desk = _stored(str(body.get("desk") or "").strip())
+    if desk:
+        from agent_coord.server.records import name as rec_name
+
+        if rec_name.get(c._cn, desk, CONST_DESK) is None:
+            raise CoordError(f"connected: no desk {desk[:64]}")
+    elif roster:
+        _require_live_project(c._cn, roster, "connected")
+    page = _doing_page(body.get("page"))
+    if body.get("history"):
+        return _doing_history(c, body, desk)
+    if body.get("since") or page:
+        raise CoordError("connected: --since and --page go with --history")
+    return [_desk_view(r, roster, by) for r, by in _doing_rows(
+        rec_doing.now(c._cn, desk, roster, bool(body.get("all")))
+    )]
 
 
+def _doing_rows(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, list]]]:
+    """Group mill_doing_now's parts: (desk row, {letters, cards, blocked desks})."""
+    extra: dict[str, dict[str, list]] = {}
+    desks: list[dict[str, Any]] = []
+    for r in rows:
+        part = str(r.get("part") or "")
+        if part == "desk":
+            desks.append(r)
+        elif part in ("letter", "card", "blocked"):
+            extra.setdefault(str(r.get("desk") or ""), {"letter": [], "card": [], "blocked": []})[part].append(r)
+    return [(d, extra.get(str(d.get("desk") or ""), {"letter": [], "card": [], "blocked": []})) for d in desks]
+
+
+def _age(seconds: Any) -> str:
+    try:
+        s = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
+
+
+def _item(typ: Any, nid: Any) -> str | None:
+    return f"{typ}-{int(nid)}" if typ and nid is not None else None
+
+
+def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str, Any]:
     from agent_coord.lib.observe import heartbeat_flags
 
-    out = []
-    for rec in rec_join.select(c._cn, _stored(project)):
-        hb = rec.get("updated") or rec.get("lastUpdated")
-        alive, stale = heartbeat_flags(hb)
-        out.append(
-            {
-                "project_id": project,
-                "owner": _stored(rec.get("desk") or ""),
-                "doing": rec.get("doing") or "",
-                "heartbeat": hb,
-                "alive": alive,
-                "stale": stale,
-            }
-        )
+    who = _stored(r.get("desk") or "")
+    hb = r.get("heartbeat")
+    alive, stale = heartbeat_flags(hb)
+    text = str(r.get("text") or "")
+    on = _item(r.get("on_type"), r.get("on_id"))
+    ended = r.get("ended_at") is not None
+    out: dict[str, Any] = {"owner": who, "heartbeat": hb, "alive": alive, "stale": stale}
+    if roster:
+        out["project_id"] = roster
+    if text and not ended:
+        out.update({"doing": text, "on": on, "age": _age(r.get("age_s"))})
+        head = f'{who}: doing "{text}"' + (f" on {on}" if on else "") + f" ({out['age']})"
+        # #822: what this entry is blocked on (fields on its own doing row).
+        wait = _waiting_view(r.get("waiting_type"), r.get("waiting_id"), r.get("waiting_name"), r.get("waiting_why"))
+        if wait:
+            out["waiting_on"] = wait
+            target = wait["on"][5:] if wait["on"].startswith("desk-") else wait["on"]
+            head += f", waiting on {target}" + (f" ({wait['why']})" if wait["why"] else "")
+    else:
+        out["doing"] = ""
+        if ended and r.get("now") is not None:
+            out["idle"] = _age((r["now"] - r["ended_at"]).total_seconds())
+        elif r.get("age_s") is not None:
+            out["idle"] = _age(r.get("age_s"))
+        last_text = str(r.get("last_text") or "")
+        if last_text:
+            out["last"] = {"doing": last_text, "on": _item(r.get("last_on_type"), r.get("last_on_id")),
+                           "age": _age(r.get("last_age_s")), "ended_by": r.get("ended_by")}
+        head = f"{who}: idle" + (f" {out['idle']}" if out.get("idle") else "")
+        if last_text:
+            head += f' (last: "{last_text}"' + (f" on {out['last']['on']}" if out["last"]["on"] else "") + ")"
+    letters = [
+        {"id": f"mail-{int(x['id'])}", "from": _stored(x.get("sender") or ""), "age": _age(x.get("age_s")),
+         "asked": bool(x.get("asked"))}  # #820: always true here, a copy never waits
+        for x in by["letter"]
+    ]
+    cards = [
+        {"id": f"todo-{int(x['id'])}", "need": str(x.get("need") or ""), "roster": _stored(x.get("roster") or ""),
+         "watchers": [w for w in str(x.get("watchers") or "").split(",") if w], "age": _age(x.get("age_s")),
+         # #821: when it was claimed, office clock, like the history's at
+         "claimed_at": str(x["claimed_at"])[:19] if x.get("claimed_at") is not None else None}
+        for x in by["card"]
+    ]
+    # #822: desks whose current doing is blocked on this one (a read of their rows).
+    blocked = [
+        {"desk": _stored(x.get("waiter") or ""), "age": _age(x.get("age_s")),
+         **(_waiting_view(x.get("waiting_type"), x.get("waiting_id"), who, x.get("waiting_why")) or {})}
+        for x in by.get("blocked", [])
+    ]
+    n_letters = int(by["letter"][0].get("n") or 0) if by["letter"] else 0
+    n_cards = int(by["card"][0].get("n") or 0) if by["card"] else 0
+    n_blocked = int(by["blocked"][0].get("n") or 0) if by.get("blocked") else 0
+    out["waiting_on_it"] = {
+        "letters": {"n": n_letters, "newest": letters},
+        "cards": {"n": n_cards, "newest": cards},
+        "desks": {"n": n_blocked, "newest": blocked},
+    }
+    bits = []
+    if n_letters:
+        x = letters[0]
+        bits.append(f"{n_letters} unanswered letter{'s' if n_letters != 1 else ''} (newest {x['id']} from {x['from']}, {x['age']})")
+    if n_cards:
+        x = cards[0]
+        bits.append(f"{n_cards} watched card{'s' if n_cards != 1 else ''} it claimed (newest {x['id']} {x['need']}, {x['age']})")
+    if n_blocked:
+        x = blocked[0]
+        bits.append(f"{n_blocked} desk{'s' if n_blocked != 1 else ''} blocked on it (newest {x['desk']} on {x['on']}, {x['age']})")
+    out["line"] = head + ". Waiting on it: " + ("; ".join(bits) if bits else "nothing") + "."
     return out
+
+
+def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int] | None = None) -> dict[str, Any]:
+    """`mill connected --history`: past doing entries, newest first, 50 a page.
+    on keeps one item's entries (the Wall's card trail, GET /api/v1/doing/history?on=)."""
+    from datetime import datetime
+
+    from agent_coord.server.records import doing as rec_doing
+
+    since_raw = str(body.get("since") or "").strip()
+    since = None
+    if since_raw:
+        try:
+            since = datetime.fromisoformat(since_raw.replace("T", " "))
+        except ValueError:
+            raise CoordError(
+                f"connected --since: {since_raw[:40]} is not a date; say 2026-10-22 or '2026-10-22 18:00' (office clock)"
+            ) from None
+    page = _doing_page(body.get("page")) or 1
+    size = DOING_PAGE
+    rows = rec_doing.history(c._cn, desk, since.isoformat(sep=" ") if since else None, page, size,
+                             on[0] if on else "", on[1] if on else None)
+    total = int(rows[0].get("total") or 0) if rows else 0
+    if not rows and page > 1:
+        raise CoordError(f"connected --history --page {page}: past the last page")
+    of = max(1, -(-total // size))
+    block: dict[str, Any] = {"n": page, "of": of, "size": size, "entries": total}
+    if page < of:
+        block["next"] = f"--page {page + 1}"
+    entries = []
+    for r in rows:
+        # Whichever came first: its own event (reply, pass or done, drop),
+        # clock-out or reset (cleared), or a newer --doing.
+        ends = [(r.get("ended_at"), "finished"), (r.get("cleared_at"), "cleared"), (r.get("replaced_at"), "newer")]
+        hit = [(at, by) for at, by in ends if at is not None]
+        how = min(hit, key=lambda x: x[0])[1] if hit else None
+        entries.append({
+            "id": int(r["id"]),
+            "desk": _stored(r.get("desk") or ""),
+            "at": str(r.get("created") or "")[:19],
+            "doing": str(r.get("text") or ""),
+            "on": _item(r.get("on_type"), r.get("on_id")),
+            "roster": _stored(r.get("roster") or ""),
+            "ended": how is not None,
+            "ended_by": how,
+            **({"waiting_on": w} if (w := _waiting_view(r.get("waiting_type"), r.get("waiting_id"),
+                                                        r.get("waiting_name"), r.get("waiting_why"))) else {}),
+        })
+    return {"history": entries, "page": block}
+
+
+DOING_PAGE = 50
+# 50 a page: five million entries. The book's offset, (page - 1) * 50, is an INT.
+DOING_PAGE_MAX = 100000
+
+
+def _doing_page(raw: Any) -> int:
+    """The --history page: 0 when not given (None, "", or the CLI's 0), else an
+    int or a string of ASCII digits from 1 to DOING_PAGE_MAX. Anything else
+    (a bool, a float, "²" or "１" that str.isdigit() takes, a sign, an
+    overflow) is refused, so no page ever reaches the book out of range."""
+    if raw is None or raw == "" or (type(raw) is int and raw == 0):
+        return 0
+    n = -1
+    if type(raw) is int:
+        n = raw
+    elif isinstance(raw, str) and raw.isascii() and raw.isdigit() and len(raw) <= 6:
+        n = int(raw)
+    if not 1 <= n <= DOING_PAGE_MAX:
+        raise CoordError(f"connected --page: N is 1 to {DOING_PAGE_MAX}")
+    return n
+# #818 PR B: commands whose --doing writes a doing entry on the item they wrote.
+DOING_COMMANDS = frozenset(
+    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score"}
+)
+
+
+def _doing_text(command: str, body: dict[str, Any]) -> str:
+    """The --doing text this call carries, checked before the command runs.
+    A --waiting-on (#822) is checked here too, so a bad one runs nothing."""
+    raw = body.get("doing") if command in DOING_COMMANDS else None
+    text = " ".join(str(raw).replace("\x00", "").split()) if raw is not None else ""
+    if len(text) > 512:
+        raise CoordError(f"{command}: --doing must be 1..512 characters; nothing stored")
+    _doing_waiting(command, body, text)
+    return text
+
+
+_WAIT_ITEM = re.compile(r"^(mail|todo|hold)-(\d{1,19})$")
+
+
+def _doing_waiting(command: str, body: dict[str, Any], text: str) -> tuple[str, str, str] | None:
+    """#822 --waiting-on "WHAT [WHY]": what this doing is blocked on. WHAT is a
+    desk, mail-ID, todo-ID or hold-ID; the rest is the reason. None when absent."""
+    raw = " ".join(str(body.get("waiting_on") or "").replace("\x00", "").split())
+    if not raw:
+        return None
+    if command not in DOING_COMMANDS or not text:
+        raise CoordError(f"{command}: --waiting-on goes with --doing; nothing was changed")
+    what, _, why = raw.partition(" ")
+    if len(why) > 200:
+        raise CoordError(f"{command}: --waiting-on reason must be 0..200 characters; nothing was changed")
+    hit = _WAIT_ITEM.match(what.lower())
+    if hit:
+        return (hit.group(1), hit.group(2), why)
+    if len(what) > 64:
+        raise CoordError(f"{command} --doing refused: --waiting-on names no desk or item; nothing was changed")
+    return ("desk", what, why)
+
+
+def _waiting_view(typ: Any, nid: Any, name: Any, why: Any) -> dict[str, Any] | None:
+    """{on, why} of a blocked-on: on is desk-NAME or TYPE-ID."""
+    if not typ or nid is None:
+        return None
+    on = f"desk-{_stored(name or '')}" if typ == "desk" else f"{typ}-{int(nid)}"
+    return {"on": on, "why": str(why or "")}
+
+
+def _first_need(raw: Any) -> str:
+    return slug(str(raw or "").split(",")[0].strip())
+
+
+def _doing_item(c: Book, command: str, body: dict[str, Any], out: Any, project: str) -> tuple[str, int] | None:
+    """(type, id) of the item this command wrote, or None."""
+    res = out if isinstance(out, dict) else {}
+    if command == "send":
+        return ("mail", int(res["id"])) if res.get("id") else None
+    if command == "reply":
+        mid = int(body.get("mail_id") or body.get("id") or body.get("parent_id") or 0)
+        return ("mail", mid) if mid else None
+    if command == "mark":
+        ids = res.get("ids") or []
+        return ("mail", int(ids[0])) if ids else None
+    if command in ("open", "claim", "unclaim", "assign", "pass", "note", "unpark"):
+        if command == "open" and res.get("id"):
+            return ("todo", int(res["id"]))
+        from agent_coord.server.records import todo as rec_todo
+
+        hit = rec_todo.find(c._cn, project, _first_need(body.get("need")))
+        return ("todo", int(hit["id"])) if hit else None
+    if command in ("hold", "drop"):
+        if command == "hold" and not res.get("held"):
+            return None
+        if res.get("id"):
+            return ("hold", int(res["id"]))
+        from agent_coord.helpers.bounds import resource_name
+        from agent_coord.server.records import hold as rec_hold
+
+        got = rec_hold.peek(c._cn, _stored(project), resource_name(str(body.get("resource") or "")))
+        return ("hold", int(got["id"])) if got.get("id") else None
+    if command == "score":
+        return ("score", int(res["id"])) if res.get("id") and not res.get("retired") else None
+    return None
+
+
+def _doing_finish(c: Book, command: str, body: dict[str, Any], out: Any, owner: str) -> None:
+    """A pass (ship) or pass --done of a card, or a drop that frees a hold, without
+    --doing ends the desk's own doing on that item. pass --back ends nothing.
+    The command already stands; a failure here is logged."""
+    from agent_coord.server.records import doing as rec_doing
+
+    res = out if isinstance(out, dict) else {}
+    if command == "pass":
+        if str(body.get("step") or "ship").strip().lower() not in ("ship", "done"):
+            return
+        on_type = "todo"
+        rows = res.get("results") if isinstance(res.get("results"), list) else [res]
+        ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("ok") and r.get("id")]
+    elif command == "drop":
+        on_type = "hold"
+        ids = [res.get("id")] if res.get("released") and res.get("id") else []
+    else:
+        return
+    for nid in ids:
+        try:
+            rec_doing.finish(c._cn, _stored(owner), on_type, int(nid))
+        except Exception as e:
+            try:
+                c._cn.rollback()
+            except Exception:
+                pass
+            _log.warning("%s: doing finish not recorded for %s-%s: %s", command, on_type, nid, type(e).__name__)
+
+
+def _doing_after(c: Book, command: str, body: dict[str, Any], out: Any, project: str, owner: str | None, text: str) -> Any:
+    """The doing side of a command, inside the request that ran it.
+
+    Without --doing, a pass or drop may write its finish row (_doing_finish).
+    With --doing this runs inside _run_command's transaction: any refusal raises,
+    and the command rolls back with its doing row (#818).
+    """
+    if not owner:
+        return out
+    if not text:
+        if command in ("pass", "drop"):
+            _doing_finish(c, command, body, out, owner)
+        return out
+    from agent_coord.server.records import doing as rec_doing
+
+    res = out if isinstance(out, dict) else {}
+    rows = res.get("results") if isinstance(res.get("results"), list) else []
+    bad = [r for r in rows if isinstance(r, dict) and r.get("ok") is False]
+    if bad:
+        # A list command with --doing is all or nothing.
+        b = bad[0]
+        raise CoordError(f"{b.get('need') or 'an item'}: {str(b.get('error') or 'refused')[:160]}")
+    item = _doing_item(c, command, body, out, project)
+    if item is None:
+        raise CoordError("no item was written, so no doing can be recorded")
+    from agent_coord.server.records.db import retryable_db
+
+    waiting = _doing_waiting(command, body, text)
+    try:
+        got = rec_doing.put(c._cn, _stored(owner), text, item[0], item[1], waiting)
+    except CoordError:
+        raise
+    except Exception as e:
+        if retryable_db(e):
+            raise  # a deadlock, lock wait or dropped connection: request_tx runs it again
+        raise CoordError(_sql_refusal(e) or "the doing could not be stored") from e
+    if isinstance(out, dict):
+        out = dict(out)
+        out["doing_entry"] = {"id": int(got.get("id") or 0), "on": f"{item[0]}-{item[1]}"}
+        if waiting:
+            w_on = f"desk-{_stored(waiting[1])}" if waiting[0] == "desk" else f"{waiting[0]}-{int(waiting[1])}"
+            out["doing_entry"]["waiting_on"] = {"on": w_on, "why": waiting[2]}
+    if got.get("id"):
+        _poke(c, "doing", got.get("id"), "doing", owner=owner)  # waits for the commit
+    return out
+
+
+def _run_command(c: Book, fn: Any, command: str, body: dict[str, Any], project: str, owner: str | None, text: str) -> Any:
+    """Run a handler and its doing side.
+
+    With --doing (#818) the command and its doing row are one transaction: both
+    commit, or a refusal of either rolls both back and nothing is written; its
+    pokes, letters and webhooks go out only after the commit. A deadlock, lock
+    wait or dropped connection runs the whole request once more (request_tx);
+    if that fails too the reply is the same "--doing refused ... nothing was
+    changed".
+    """
+    if not (owner and text):
+        out = fn(c, body, project, owner)
+        return _doing_after(c, command, body, out, project, owner, text)
+    from agent_coord.server.records.db import RequestRolledBack, request_tx
+
+    def run() -> Any:
+        out = fn(c, body, project, owner)
+        return _doing_after(c, command, body, out, project, owner, text)
+
+    from agent_coord.server.records.db import TRANSIENT_ERRNO, retryable_db, transient_errno
+
+    try:
+        return request_tx(c._cn, run)
+    except RequestRolledBack as e:
+        errno = transient_errno(e.cause)
+        if errno is not None:
+            msg = f"the book was busy ({TRANSIENT_ERRNO[errno]} {errno}) twice; try again"
+        elif retryable_db(e.cause):
+            msg = "the book connection failed twice; try again"
+        else:
+            msg = _sql_refusal(e.cause) or str(e.cause).split(":", 1)[-1].strip() or type(e.cause).__name__
+        raise CoordError(f"{command} --doing refused: {msg[:160]}; nothing was changed") from e
+    except CoordError as e:
+        raise CoordError(f"{command} --doing refused: {e}; nothing was changed", sync=getattr(e, "sync", None)) from e
 
 
 def _h_project(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -1131,9 +1499,10 @@ def _h_send(
 
     # One mail row; first dest via insert; remaining via mill_mail_to_put.
     first_kind, first_to = resolved[0]
+    # #867: the sender roster goes in the insert (no follow-up UPDATE).
     rows = rec_mail.insert(
         c._cn,
-        _stored(project),
+        _stored(sender_roster or project),
         _stored(src),
         first_to,
         raw,
@@ -1148,8 +1517,9 @@ def _h_send(
             c._cn, mid, _stored(project), to, receipt=receipt, dst_kind=dst_kind
         )
 
-    if sender_roster:
-        rec_mail.set_sender_roster(c._cn, mid, sender_roster)
+    if room_only:
+        # #818 D1: store the wake's split. A room member that is not named is copied.
+        rec_mail.to_copied(c._cn, mid, room_only)
 
     if rec_mail.dest_count(c._cn, mid) < 1:
         raise CoordError(f"send: mail {mid} has empty mail_to (orphan refused)")
@@ -1281,7 +1651,9 @@ def _ends_read(fn):
             return fn(c, *a, **k)
         finally:
             try:
-                c._cn.commit()
+                from agent_coord.server.records.db import commit as _db_commit
+
+                _db_commit(c._cn)  # #818: not inside a request transaction
             except Exception:
                 pass
 
@@ -1572,6 +1944,32 @@ def _ids_in_tree_order(nodes: list[dict], ids: list[int], extra: int = 0) -> lis
     return [i for i in order if i in have]
 
 
+def _mark_shown(c: Book, ids: list[int], desk: str) -> list[int]:
+    """Stamp opened on this desk's unread rows among ids; return those ids, in order."""
+    from agent_coord.server.records import opened as rec_opened
+    from agent_coord.server.records.name import get as name_get
+
+    want = [int(i) for i in ids if int(i or 0)]
+    did = name_get(c._cn, desk, CONST_DESK) if desk and want else None
+    if not did:
+        return []
+    marks = ",".join(["%s"] * len(want))
+    cur = c._cn.cursor()
+    try:
+        cur.execute(
+            "SELECT id FROM mail_to WHERE type = 'mail' AND desk_id = %s AND opened IS NULL"
+            " AND id IN (" + marks + ")",
+            (int(did), *want),
+        )
+        unread = {int(r[0]) for r in cur.fetchall()}
+    finally:
+        cur.close()
+    done = [i for i in want if i in unread]
+    for mid in done:
+        rec_opened.insert(c._cn, mid, desk)
+    return done
+
+
 @_ends_read
 def _h_mail_thread(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """Read a room by mail id or TREE/room name. Lean MAIL rows only (no opened).
@@ -1670,7 +2068,11 @@ def _h_mail_thread(c: Book, body: dict[str, Any], project: str, owner: str | Non
     # latest_id = max this desk can see. Stable under --after and every scope.
     out["latest_id"] = max(visible) if visible else 0
     out["scope"] = scope
-    # A read does not mark handled. mill mark does (#195).
+    # Card 843: a read that prints letters whole marks them handled for this desk,
+    # the same stamp as mill mark (unread = mail_to.opened NULL, receipts too).
+    # Short-row --room previews and a room summary print previews; they do not.
+    whole = scope in ("branch", "full", "subtree") or (scope == "room" and after_id > 0)
+    out["marked"] = _mark_shown(c, pick, self_bare) if whole else []
     total = len(visible)
     out["room_letters"] = total
     seen = set(visible)
@@ -1703,6 +2105,32 @@ def _h_mail_thread(c: Book, body: dict[str, Any], project: str, owner: str | Non
     return out
 
 
+# Card 778: the moves states.md draws. claim and assign take an open card (or a
+# claimed one, for --take-over and an eta); unclaim releases one. Parked goes
+# through unpark (it needs a plan parent); shipped and done move by pass.
+_MOVES_FROM = {"claim": ("open", "claimed"), "assign": ("open", "claimed"), "unclaim": ("open", "claimed")}
+
+
+def _card_moves(c: Book, hit: dict[str, Any], command: str, project: str, need: str) -> None:
+    """Refuse a claim, assign or unclaim the card's status does not allow; nothing changes."""
+    from agent_coord.server.records import todo as rec_todo
+    from agent_coord.server.records import tree as rec_tree
+
+    st = rec_todo.normalize_status(str(hit.get("status") or ""), default="open")
+    if st in _MOVES_FROM[command]:
+        return
+    card = f"{command}: {project}/{need} is {st}; "
+    form = f"mill pass {project} {need}"
+    if st == "parked":
+        unpark = f"mill unpark {project} {need}"
+        if not rec_tree.has_parent(c._cn, "todo", int(hit["id"])):
+            unpark += " --parent-type T --parent-id N"
+        raise CoordError(card + unpark + " first")
+    if st == "shipped":
+        raise CoordError(card + f"the asker accepts it with {form} --done, or steps it back with {form} --back")
+    raise CoordError(card + f"{form} --back steps it back to shipped; for new work file a new card")
+
+
 def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.config import mill_trust
     from agent_coord.server.records import todo as rec_todo
@@ -1713,6 +2141,7 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
         raise CoordError(f"no such need: {project}/{need}")
+    _card_moves(c, hit, "assign", project, need)
     current = _desk_slug(c._cn, hit, "volunteer", "assigned")
     if current and current != "-":
         raise CoordError("assign: assignee must relinquish first")
@@ -1726,13 +2155,123 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return rec
 
 
-def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+# Card 867: a card guard runs in its SP, in the transaction that moves the card,
+# under the card's row lock. The SP's 45000 text is the refusal the desk reads.
+EVIDENCE_MAX = 2000
+DONE_WHEN_MAX = 1000
+
+
+def _card_refusal(code: str, roster: str, need: str) -> str:
+    """The desk's refusal line for a card SP's code (#867).
+
+    SIGNAL's MESSAGE_TEXT holds at most 128 characters, and the refusal lines name the
+    roster, the card and the command to run (up to about 300). So a card SP signals
+    `card:<code>[:<arg>]` and the text is written here, word for word as before.
+    """
+    kind, _, arg = code.partition(":")
+    form = f"mill pass {roster} {need}"
+    if kind == "moves":  # moves:<command>:<status>[:noparent]
+        command, _, rest = arg.partition(":")
+        st, _, flag = rest.partition(":")
+        head = f"{command}: {roster}/{need} is {st}; "
+        if st == "parked":
+            unpark = f"mill unpark {roster} {need}"
+            if flag == "noparent":
+                unpark += " --parent-type T --parent-id N"
+            return head + unpark + " first"
+        if st == "shipped":
+            return head + f"the asker accepts it with {form} --done, or steps it back with {form} --back"
+        return head + f"{form} --back steps it back to shipped; for new work file a new card"
+    texts = {
+        "claimed_by": f"claim: {roster}/{need} is claimed by {arg}; ask {arg} to "
+        f"mill unclaim {roster} {need}, or run mill claim {roster} {need} "
+        "--take-over to take it (the card records the prior volunteer)",
+        "who_may_unclaim": "who-may: unclaim is the volunteer",
+        "stale_prior": f"claim: {roster}/{need} changed volunteer while claiming; nothing changed; run it again",
+        "already_shipped": f"pass: {need} is already shipped; the asker accepts it with {form} --done",
+        "already_done": f"pass: {need} is already done; {form} --back steps it back to shipped",
+        "not_shippable": f"pass: {need} is {arg}; only a claimed card ships",
+        "claim_first": "claim first: mill claim <project> <need>",
+        "who_may_ship": "who-may: pass claimed->shipped is the volunteer",
+        "done_not_shipped": f"pass --done: {need} is {arg}, not shipped; nothing changed",
+        "who_may_done": f"who-may: pass shipped->done is the asker ({arg}) or Admin"
+        if arg
+        else "who-may: pass shipped->done is the asker; the card's asker does not resolve, so only the volunteer or Admin may",
+        "back_status": f"pass --back: {need} is {arg}; only shipped or done steps back (unclaim releases a claim)",
+        "who_may_back": "who-may: pass --back is the asker or the volunteer"
+        if arg
+        else "who-may: pass --back is the asker or the volunteer; the card's asker does not resolve, so only the volunteer may",
+        "who_may_done_when": "who-may: done-when is the asker or Admin",
+        "done_when_done": f"done-when: {need} is done; nothing changed",
+    }
+    return texts.get(kind, f"{kind}: refused")
+
+
+def _desk_arg(owner: str | None) -> Any:
+    """The desk id arg of a card SP: MILL_DESK_ID(name) in the same CALL (#867).
+    NULL for no desk (no who-may check), 0 for a name the book does not hold."""
+    from agent_coord.server.records.db import Inline
+    from agent_coord.server.records.name import bare
+
+    return Inline("MILL_DESK_ID(%s)", bare(_stored(owner or ""), CONST_DESK))
+
+
+def _card_sp(c: Book, proc: str, args: list, roster: str, need: str) -> dict[str, Any]:
+    """Call a card SP; a `card:<code>` refusal is written out for this roster and need."""
+    from agent_coord.server.records.db import call
+
+    try:
+        rows = call(c._cn, proc, args)
+    except CoordError:
+        raise
+    except Exception as e:
+        msg = _sql_refusal(e)
+        if msg and msg.startswith("card:"):
+            raise CoordError(_card_refusal(msg[5:], roster, need)) from e
+        if msg:
+            raise CoordError(msg) from e
+        raise
+    # The SP's answer is its last row (a nested call may send rows of its own first).
+    return dict(rows[-1]) if rows else {}
+
+
+def _card_hit(c: Book, project: str, need: str) -> dict[str, Any]:
     from agent_coord.server.records import todo as rec_todo
 
-    need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
         raise CoordError(f"no such need: {project}/{need}")
+    return hit
+
+
+CLAIM_TRIES = 3
+
+
+def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Claim a card. Refusals come in main's order on the row already read: status,
+    msg cap, eta, #325 claimed-by, card budget (Validator letter 2944). cmd_claim is
+    the authority: it checks status and volunteer again under the row lock, and
+    refuses a take-over whose body names a prior that no longer holds the card
+    (then the card is read again and the line rewritten)."""
+    need = slug(str(body.get("need") or ""))
+    for _ in range(CLAIM_TRIES):
+        hit = _card_hit(c, project, need)
+        try:
+            return _claim_once(c, body, project, need, hit, owner)
+        except _StalePrior:
+            continue
+    raise CoordError(f"claim: {project}/{need} changed volunteer while claiming; nothing changed; run it again")
+
+
+class _StalePrior(Exception):
+    """cmd_claim read another volunteer under the lock than the take-over line names."""
+
+
+def _claim_once(c: Book, body: dict[str, Any], project: str, need: str, hit: dict[str, Any], owner: str | None) -> Any:
+    from agent_coord.server.records import todo as rec_todo
+
+    # Read-only pre-check, main's order (cmd_claim checks the same under the lock).
+    _card_moves(c, hit, "claim", project, need)
     # --eta and --msg are stored. A bad eta or an oversize msg refuses
     # before the claim is written (#232).
     eta_raw = str(body.get("eta") or "").strip()
@@ -1745,22 +2284,18 @@ def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             eta_at = rec_todo.parse_eta(eta_raw)
         except ValueError as e:
             raise CoordError("claim: %s" % e) from e
+    take_over = bool(body.get("take_over"))
+    who = _stored(owner or "")
     # #325: a card another desk holds is not taken silently. --take-over takes it
     # and the card records the prior volunteer.
-    who = _stored(owner or "")
     prior = _desk_slug(c._cn, hit, "volunteer", "assigned")
     if prior == "-" or prior == who:
         prior = ""
-    if prior and not body.get("take_over"):
-        raise CoordError(
-            f"claim: {project}/{need} is claimed by {prior}; ask {prior} to "
-            f"mill unclaim {project} {need}, or run mill claim {project} {need} "
-            "--take-over to take it (the card records the prior volunteer)"
-        )
+    if prior and not take_over:
+        raise CoordError(_card_refusal("claimed_by:" + prior, project, need))
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
     payload = fields["payload"] or {
         "slug": fields["need_id"],
-        "doing": fields["doing"],
         "detail": fields["detail"],
     }
     if eta_at is not None:
@@ -1777,15 +2312,20 @@ def _h_claim(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         if refusal:
             raise CoordError(refusal)
     body_s = rec_todo.stored_body(payload) if (eta_at is not None or lines) else None
-    rec_todo.update(
-        c._cn,
-        int(hit["id"]),
-        _stored(owner or ""),
-        status="claimed",
-        volunteer=_stored(owner or ""),
-        body=body_s,
-    )
+    try:
+        got = _card_sp(
+            c,
+            "cmd_claim",
+            [_desk_arg(owner), int(hit["id"]), 1 if take_over else 0, prior, body_s],
+            project,
+            need,
+        )
+    except CoordError as e:
+        if str(e) == _card_refusal("stale_prior", project, need):
+            raise _StalePrior() from e
+        raise
     rec = {"ok": True, "need_id": need, "id": int(hit["id"]), "status": "claimed", "volunteer": owner}
+    prior = _stored(str(got.get("prior_volunteer") or ""))
     if prior:
         rec["prior_volunteer"] = prior
     if eta_at is not None:
@@ -1820,7 +2360,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     from agent_coord.server.records import todo as rec_todo
 
     need = slug(str(body.get("need") or body.get("title") or ""))
-    doing = str(body.get("doing") or "")[:200]
+    # #818: --doing on create is the desk's doing (written after the call), not card text.
     # #188: same rule as an oversize note. Refuse. Do not keep a silent prefix.
     import json
 
@@ -1831,6 +2371,9 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             % (len(detail_raw), rec_todo.BODY_MAX)
         )
     detail = detail_raw
+    if len(str(body.get("done_when") or "").strip()) > DONE_WHEN_MAX:
+        raise CoordError("done-when would be %s chars (max %s); refused, nothing stored"
+                         % (len(str(body.get("done_when")).strip()), DONE_WHEN_MAX))
     # Create accepts parked or open only. An empty status is open (#231).
     raw_status = body.get("status")
     if raw_status is None or str(raw_status).strip() == "":
@@ -1839,7 +2382,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         st = rec_todo.normalize_status(str(raw_status), default="")
         if st not in ("parked", "open"):
             raise CoordError("status must be parked or open")
-    body_s = json.dumps({"slug": need, "doing": doing, "detail": detail})
+    body_s = json.dumps({"slug": need, "detail": detail})
     if len(body_s) > rec_todo.BODY_MAX:
         # #292: a long detail is refused, never cut to its tail.
         raise CoordError(
@@ -1854,14 +2397,16 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     parent_t = str(body.get("parent_type") or body.get("type_a") or "")
     parent_id = int(body.get("parent_id") or body.get("id_a") or 0)
     if hit:
-        rec_todo.update(c._cn, int(hit["id"]), _stored(owner or ""), status=st, body=body_s)
+        # Card 775: create never rewrites a card. It used to reset status and detail.
         tid = int(hit["id"])
-        # An existing card is already committed. Attach stays the old path.
-        if tid and parent_t and parent_id:
-            from agent_coord.server.records import tree as rec_tree
-
-            rec_tree.add(c._cn, parent_t, parent_id, "todo", tid)
-    elif parent_t and parent_id:
+        status = rec_todo.normalize_status(str(hit.get("status") or ""), default="open")
+        forms = f"add a line with mill note {project} {need} --note TEXT"
+        if parent_t and parent_id:
+            forms += f"; put it under the parent with mill attach {project} {parent_t} {parent_id} todo {tid}"
+        raise CoordError(
+            f"create todo: {project}/{need} exists (id {tid}, {status}); nothing changed; {forms}"
+        )
+    if parent_t and parent_id:
         # New card and its tree place commit together. A 1062 retries inside (#146).
         rows = rec_todo.insert_attached(
             c._cn, _stored(project), _stored(owner or ""), st, body_s, parent_t, parent_id
@@ -1870,7 +2415,9 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     else:
         rows = rec_todo.insert(c._cn, _stored(project), _stored(owner or ""), st, body_s)
         tid = int(rows[0]["id"]) if rows else 0
-    rec = {"project_id": project, "need_id": need, "id": tid, "status": st, "doing": doing, "detail": detail}
+    rec = {"project_id": project, "need_id": need, "id": tid, "status": st, "detail": detail}
+    if str(body.get("done_when") or "").strip():
+        rec["done_when"] = _done_when(c, tid, project, need, body.get("done_when"), owner)["done_when"]
     _poke(c, "todo", tid, "open", owner=owner)
     return rec
 
@@ -1943,19 +2490,10 @@ def _desk_slug(cn, hit: dict[str, Any], *keys: str) -> str:
 
 
 def _h_yield(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    from agent_coord.server.records import todo as rec_todo
 
     need = slug(str(body.get("need") or ""))
-    hit = rec_todo.find(c._cn, project, need)
-    if not hit:
-        raise CoordError(f"no such need: {project}/{need}")
-    who = _stored(owner or "")
-    vol = _desk_slug(c._cn, hit, "volunteer", "assigned")
-    if vol and who and vol != who:
-        raise CoordError("who-may: unclaim is the volunteer")
-    rec_todo.update(
-        c._cn, int(hit["id"]), _stored(owner or ""), status="open", volunteer="-"
-    )
+    hit = _card_hit(c, project, need)
+    _card_sp(c, "cmd_unclaim", [_desk_arg(owner), int(hit["id"])], project, need)
     rec = {"ok": True, "need": need, "status": "open"}
     _poke(c, "todo", int(hit["id"]), "unclaim", owner=owner)
     return rec
@@ -1989,82 +2527,76 @@ def _h_pass(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     """One named step (#615): ship (claimed -> shipped, the volunteer), done
     (shipped -> done, the asker or Admin accepts) or back (done -> shipped -> claimed).
     A step that does not fit the card's status is refused and changes nothing.
-    NEED may be a comma list (#19)."""
+    Optional evidence (#867) is kept with a ship or done step. NEED may be a comma list (#19)."""
     step = str(body.get("step") or "ship").strip().lower()
     if step not in ("ship", "done", "back"):
         raise CoordError("pass: step is ship, done or back")
-    return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner))
+    evidence = str(body.get("evidence") or "").strip()
+    if len(evidence) > EVIDENCE_MAX:
+        raise CoordError(
+            "pass: evidence would be %s chars (max %s); refused, nothing changed" % (len(evidence), EVIDENCE_MAX)
+        )
+    return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner, evidence))
 
 
-def _pass_one(c: Book, raw_need: str, step: str, project: str, owner: str | None) -> dict[str, Any]:
-    from agent_coord.server.admin.guard import is_role_admin
-    from agent_coord.server.records import todo as rec_todo
+def _pass_one(
+    c: Book, raw_need: str, step: str, project: str, owner: str | None, evidence: str = ""
+) -> dict[str, Any]:
 
     need = slug(str(raw_need or ""))
-    hit = rec_todo.find(c._cn, project, need)
-    if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
-    st = hit.get("status") or ""
-    who = _stored(owner or "")
-    vol = _desk_slug(c._cn, hit, "volunteer", "assigned")
-    ask = _desk_slug(c._cn, hit, "asker", "creator")
-    form = f"mill pass {project} {need}"
-    if step == "ship":
-        if st == "shipped":
-            raise CoordError(f"pass: {need} is already shipped; the asker accepts it with {form} --done")
-        if st == "done":
-            raise CoordError(f"pass: {need} is already done; {form} --back steps it back to shipped")
-        if st not in ("open", "claimed"):
-            raise CoordError(f"pass: {need} is {st}; only a claimed card ships")
-        # An open card with no volunteer is not shipped by anyone (#211).
-        if st == "open" and not vol:
-            raise CoordError("claim first: mill claim <project> <need>")
-        if vol and who and vol != who:
-            raise CoordError("who-may: pass claimed->shipped is the volunteer")
-        # No volunteer yet: only the asker may ship it.
-        if not vol and ask and who and ask != who:
-            raise CoordError("who-may: pass claimed->shipped is the volunteer")
-        nxt = "shipped"
-    elif step == "done":
-        if st != "shipped":
-            raise CoordError(f"pass --done: {need} is {st}, not shipped; nothing changed")
-        # #655: an asker that does not resolve is not a pass for everyone;
-        # only the volunteer may still finish the card. #19: Admin closes a card
-        # whose asker is gone or idle; the refusal names the asker.
-        if who and ask != who and vol != who and not is_role_admin(c._cn, who):
-            raise CoordError(
-                f"who-may: pass shipped->done is the asker ({ask}) or Admin"
-                if ask
-                else "who-may: pass shipped->done is the asker; the card's asker does not resolve, so only the volunteer or Admin may"
-            )
-        nxt = "done"
-    else:
-        if st not in ("shipped", "done"):
-            raise CoordError(
-                f"pass --back: {need} is {st}; only shipped or done steps back (unclaim releases a claim)"
-            )
-        if who and ask != who and vol != who:
-            raise CoordError(
-                "who-may: pass --back is the asker or the volunteer"
-                if ask
-                else "who-may: pass --back is the asker or the volunteer; the card's asker does not resolve, so only the volunteer may"
-            )
-        nxt = "shipped" if st == "done" else ("claimed" if vol else "open")
-    rec_todo.update(c._cn, int(hit["id"]), _stored(owner or ""), status=nxt)
-    rec = {"ok": True, "need": need, "status": nxt, "was": st, "id": int(hit["id"])}
+    hit = _card_hit(c, project, need)
+    got = _card_sp(
+        c,
+        "cmd_pass",
+        [_desk_arg(owner), int(hit["id"]), step, evidence or None],
+        project,
+        need,
+    )
+    nxt = str(got.get("status") or "")
+    rec = {"ok": True, "need": need, "status": nxt, "was": str(got.get("was") or ""), "id": int(hit["id"])}
+    # #867: the card's evidence after the step (a done keeps the ship's; a back step clears it).
+    if got.get("evidence"):
+        rec["evidence"] = str(got["evidence"])
     _poke(c, "todo", rec["id"], "pass", owner=owner)
     return rec
+
+
+def _done_when(c: Book, card_id: int, project: str, need: str, raw: Any, owner: str | None) -> dict[str, Any]:
+    """Set or clear the card's acceptance line (#867). The SP checks asker or Admin and not done."""
+
+    text = str(raw or "").strip()
+    if len(text) > DONE_WHEN_MAX:
+        raise CoordError(
+            "done-when would be %s chars (max %s); refused, nothing changed" % (len(text), DONE_WHEN_MAX)
+        )
+    got = _card_sp(c, "cmd_card_accept", [_desk_arg(owner), card_id, text], project, need)
+    return {"ok": True, "need": need, "id": card_id, "done_when": got.get("done_when")}
+
+
+def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """The office glance from the cached procedure: one cache row, newest 30 activity rows."""
+    from agent_coord.server.beta_client import read_cached_glance
+
+    return read_cached_glance(c._cn)
+
+
+_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started")
 
 
 def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import todo as rec_todo
 
+    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
+        # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
+        raise CoordError("note: --done-when goes alone; send the note in its own mill note. Nothing changed")
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
         raise CoordError(f"no such need: {project}/{need}")
+    if "done_when" in body:
+        return _done_when(c, int(hit["id"]), project, need, body.get("done_when"), owner)
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
-    payload = fields["payload"] or {"slug": fields["need_id"], "doing": fields["doing"], "detail": fields["detail"]}
+    payload = fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]}
     before = dict(payload)
     note_s = str(body.get("note") or body.get("detail") or "").strip()
     # #102: positional text. A progress token (9/12, 75%, done, git <sha>) is
@@ -2373,6 +2905,12 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
 def _poke_tree(c: Book, typ: str, nid: int, *, owner: str | None = None) -> None:
     _poke(c, typ, nid, typ.upper(), owner=owner)
+    from agent_coord.server.records.db import after_commit
+
+    after_commit(c._cn, lambda: _poke_tree_rooms(c, typ, nid, owner=owner))
+
+
+def _poke_tree_rooms(c: Book, typ: str, nid: int, *, owner: str | None = None) -> None:
     try:
         from agent_coord.server.records import tree as rec_tree
         from agent_coord.server.records.name import by_id
@@ -2930,7 +3468,7 @@ def _h_trail(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             st = "deleted" if deleted else str(d.get("todo_status") or ("deleted" if not d else "open"))
             note = last_line(fields.get("detail") or "")
             idea = first_line(fields.get("detail") or "")
-            title = fields.get("doing") or fields.get("need_id") or ""
+            title = fields.get("need_id") or ""
             if idea and idea != note and idea != title:
                 title = f"{title}: {idea}"
             when = d.get("todo_updated_utc") or d.get("updated_utc")
@@ -3026,13 +3564,26 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     return {"ok": True, "state": "handled", "ids": ids}
 
 
+def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill wake-done [--lease ID] [--note TEXT] (F144): the calling desk's woken run is
+    finished. Ends that desk's own wake lease, only the one ID names when given
+    (F144b: a stale ID ends nothing); held-back items ring once with the note."""
+    from agent_coord.server import wake
+
+    if not owner:
+        raise CoordError("wake-done: owner required")
+    got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""),
+                          lease=str(body.get("lease") or ""))
+    return {"ok": True, "desk": owner, "wake": got}
+
+
 HANDLERS = {
+    "wake-done": _h_wake_done,
     "inbox": _h_inbox,
     "todo": _h_todo,
     "session": _h_session,
     "project": _h_project,
     "join": _h_here,
-    "doing": _h_doing,
     "label": _h_label_name,
     "label-add": _h_label,
     "label-remove": _h_label,
@@ -3054,6 +3605,7 @@ HANDLERS = {
     "unpark": _h_unpark,
     "unclaim": _h_yield,
     "pass": _h_pass,
+    "glance": _h_glance,
     "note": _h_note,
     "hold": _h_hold,
     "drop": _h_drop,
@@ -3070,6 +3622,22 @@ HANDLERS = {
     "trail": _h_trail,
     "probe-delete": _h_probe_delete,
 }
+
+
+JOIN_TYPE_GONE = (
+    "{command}: type join is gone; the activity is doing now (mill 0.7.16)."
+    " This mill client is older than the office: pip install -U the-mill, then use doing."
+)
+
+
+def _refuse_join_type(command: str, body: dict[str, Any]) -> None:
+    """#818: a TYPE of join comes only from a client older than the office.
+    Refuse it plainly, before any handler or SQL, and name the upgrade."""
+    if command == "join":
+        return
+    for key in ("type", "type_b", "kind"):
+        if str(body.get(key) or "").strip().lower() == "join":
+            raise CoordError(JOIN_TYPE_GONE.format(command=command or "mill"))
 
 
 def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
@@ -3091,6 +3659,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
     owner = _stored(owner_raw) if owner_raw else None
     if command not in WALL:
         raise CoordError(f"unknown mill command {command}")
+    _refuse_join_type(command, body)
     if command not in OPEN_COMMANDS:
         from agent_coord.client.session_errors import (
             SESSION_INVALID_REJOIN,
@@ -3123,8 +3692,9 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
 
     if command in WRITE_COMMANDS or canonical_command(command) in WRITE_COMMANDS:
         scrub_request_body(body)
+    doing_text = _doing_text(command, body)
     try:
-        out = fn(c, body, project, owner)
+        out = _run_command(c, fn, command, body, project, owner, doing_text)
         try:
             from agent_coord.server import wake_first
 
@@ -3257,6 +3827,7 @@ def dispatch_ws(
     # client. `host` (the Admin office-host marker) is re-set below only from a
     # verified loopback transport peer, never from the /ws args.
     _strip_server_only(body)
+    _refuse_join_type(v, body)
     from agent_coord.server.admin.guard import mark_host
 
     if peer and not forwarded:
@@ -3293,7 +3864,8 @@ def dispatch_ws(
         else:
             owns_id = True
     try:
-        out = fn(c, body, project, owner)
+        doing_text = _doing_text(v, body)
+        out = _run_command(c, fn, v, body, project, owner, doing_text)
         try:
             from agent_coord.server import wake_first
 

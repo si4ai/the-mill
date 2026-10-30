@@ -28,9 +28,12 @@ def test_null_heartbeat_on_session_and_floor(monkeypatch) -> None:
         "doing": "",
         "token_hash": "c235",
     }
+    # #818: `connected` reads mill_doing_now; a desk row with no seat time.
     monkeypatch.setattr(
-        "agent_coord.server.records.join.select",
-        lambda cn, project: [row],
+        "agent_coord.server.records.doing.now",
+        lambda cn, desk="", roster="", all_desks=False: [
+            {"part": "desk", "desk": "c235", "heartbeat": None, "cur_id": None, "cur_text": ""}
+        ],
     )
     monkeypatch.setattr(
         "agent_coord.server.records.floor.rec_join.select",

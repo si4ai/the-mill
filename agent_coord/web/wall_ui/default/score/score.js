@@ -124,7 +124,7 @@
       row.last = primary.value == null ? "" : primary.value;
       row.target = primary.target == null ? "" : primary.target;
       row.kpi = primary.kpi || "";
-      row.group_id = primary.group_id || primary.project_id || "";
+      row.roster_id = primary.roster_id || "";
       row.note = primary.note || "";
       row.published = primary.updated_at || "";
       row.sourceJob = scoreSourceJob(primary.note, primary.kpi || "");

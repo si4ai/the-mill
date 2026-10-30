@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from agent_coord.server.records.todo import (
     is_validator_pass_body,
-    next_status as next_need_status,
     pass_mail_closes,
     progress_git_sha,
     progress_is_done,
@@ -16,13 +15,6 @@ def test_progress_git_sha_and_done():
     assert progress_git_sha("100% git ad4198c tests pass") == "ad4198c"
     assert progress_is_done("git ad4198c tests pass") is True
     assert progress_is_done("implementing") is False
-
-
-def test_next_need_status_ships_claimed_100():
-    assert next_need_status("claimed", "100%") == "shipped"
-    assert next_need_status("claimed", "git deadbeef") == "shipped"
-    assert next_need_status("claimed", "implementing") == "claimed"
-    assert next_need_status("claimed", "100%", need_id="mill-foo") == "shipped"
 
 
 def test_pass_mail_closes_by_sha_and_need_id():

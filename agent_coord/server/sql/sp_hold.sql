@@ -6,6 +6,7 @@
 DROP PROCEDURE IF EXISTS mill_hold_upsert;
 DROP PROCEDURE IF EXISTS mill_hold_delete;
 DROP PROCEDURE IF EXISTS mill_hold_select;
+DROP PROCEDURE IF EXISTS mill_hold_release_desk;
 
 DELIMITER //
 
@@ -28,7 +29,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_res = MILL_NAME_PUT('res', p_resource);
@@ -70,7 +71,7 @@ BEGIN
   ELSE
     SET v_ok = 0;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_res AS resource_id,
          IF(v_ok = 1, v_desk, v_held) AS desk_id, v_ok AS ok;
 END //
@@ -88,7 +89,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF v_desk IS NULL THEN
@@ -102,8 +103,24 @@ BEGIN
     -- NULL roster: keep the hold's activity roster (not 1/Office).
     CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, NULL, NULL);
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;
+END //
+
+-- Card 842: free every hold one desk owns (reset, retire). The caller owns the
+-- transaction. Each freed hold's activity row is stamped the way a drop stamps
+-- it (updated, desk, n + 1; roster kept). p_n = holds freed.
+CREATE PROCEDURE mill_hold_release_desk(
+  IN p_desk BIGINT UNSIGNED,
+  IN p_ts   DATETIME(6),
+  OUT p_n   INT
+)
+BEGIN
+  UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
+     SET a.updated = p_ts, a.desk_id = p_desk, a.n = a.n + 1
+   WHERE h.desk_id = p_desk;
+  UPDATE hold SET desk_id = NULL, updated = p_ts WHERE desk_id = p_desk;
+  SET p_n = ROW_COUNT();
 END //
 
 CREATE PROCEDURE mill_hold_select(IN p_project VARCHAR(64))

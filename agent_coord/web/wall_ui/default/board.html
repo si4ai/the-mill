@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/lib/theme.css?v=wow165">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
   <link rel="stylesheet" href="/shell.css?v=wow269">
-  <!-- wow176: critical welcome Nest overlay (sync); board.css loads async -->
+  <!-- critical welcome Nest overlay (sync); board.css loads async -->
   <style id="wall-welcome-critical">
   #wall-welcome:not([hidden]){position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:.75rem}
   #wall-welcome[hidden]{display:none!important}
@@ -24,8 +24,8 @@
   #wall-welcome .dismiss:hover{color:var(--ink,#e8eef5)}
   </style>
 
-  <link rel="stylesheet" href="/board.css?v=wow318" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="/board.css?v=wow318"></noscript>
+  <link rel="stylesheet" href="/board.css?v=wow319" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="/board.css?v=wow319"></noscript>
   
   <style>.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}</style>
 </head>
@@ -180,7 +180,7 @@
           <div class="wire-filters" role="group" aria-label="here filters">
             <span class="wall-filter" id="wire-type" role="group" aria-label="event type">
               <button type="button" data-wire-type="live" class="on" title="Hide heartbeats">live</button>
-              <button type="button" data-wire-type="here">here</button>
+              <button type="button" data-wire-type="doing">doing</button>
               <button type="button" data-wire-type="mail">mail</button>
               <button type="button" data-wire-type="todo">todo</button>
               <button type="button" data-wire-type="hold">hold</button>
@@ -634,13 +634,13 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow318"></script>
+  <script defer src="/lib/lazy.js?v=wow321"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
     <script src="/mail/mail.js?v=wow285"></script>
-    <script src="/score/score.js?v=wow183"></script>
-    <script src="/todo/todo.js?v=wow183"></script>
+    <script src="/score/score.js?v=wow320"></script>
+    <script src="/todo/todo.js?v=wow320"></script>
   </template>
   <script defer src="/floor/floor.js"></script>
   
@@ -718,6 +718,6 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow318"></script>
+<script defer src="/boot.js?v=wow321"></script>
 </body>
 </html>

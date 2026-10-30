@@ -8,22 +8,22 @@ from agent_coord.server.api.mill import rpc
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _fields(doing="", progress=""):
-    return {"need_id": "c330", "doing": doing, "detail": "seed\nfirst note", "progress": progress}
+def _fields(progress=""):
+    return {"need_id": "c330", "detail": "seed\nfirst note", "progress": progress}
 
 
-def test_card_without_title_or_progress_leaves_them_out():
+def test_card_without_progress_leaves_it_out():
     card = rpc._todo_card({"id": 330, "assigned": "w1", "creator": "a"}, "cold-test", "claimed", _fields())
     assert "progress" not in card
     assert "doing" not in card
     assert card["detail"] == "seed\nfirst note"
 
 
-def test_card_with_title_and_progress_shows_them():
-    card = rpc._todo_card(
-        {"id": 330}, "cold-test", "claimed", _fields(doing="ship it", progress="9/12")
-    )
-    assert card["doing"] == "ship it"
+def test_card_with_progress_shows_it_and_has_no_title():
+    # #818: cards have no title; a stored doing never prints as one.
+    fields = dict(_fields(progress="9/12"), doing="ship it")
+    card = rpc._todo_card({"id": 330}, "cold-test", "claimed", fields)
+    assert "doing" not in card
     assert card["progress"] == "9/12"
 
 

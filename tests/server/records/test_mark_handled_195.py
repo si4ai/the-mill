@@ -1,4 +1,7 @@
-"""Read does not mark. Reply marks the parent only. mark takes several ids (#195)."""
+"""Inbox does not mark. Reply marks the parent only. mark takes several ids (#195).
+
+A mail-thread read that prints a letter whole marks it (card 843, F129).
+"""
 from __future__ import annotations
 
 import os
@@ -54,8 +57,7 @@ def cn():
 
 
 def _stamped(cn, mid: int, desk: str) -> bool:
-    rows = opened.select(cn, mid, desk)
-    return any(int(r.get("mail_id") or 0) == int(mid) for r in rows)
+    return int(mid) in opened.read_ids(cn, [mid], desk)
 
 
 def test_fetch_does_not_mark_and_reply_marks_the_parent_only(cn) -> None:
@@ -68,7 +70,8 @@ def test_fetch_does_not_mark_and_reply_marks_the_parent_only(cn) -> None:
     assert mid in {int(r["id"]) for r in listed}
     assert _stamped(cn, mid, "other") is False
     rpc._h_mail_thread(book, {"mail_id": mid}, "unit", "other")
-    assert _stamped(cn, mid, "other") is False
+    # Card 843: a read that prints the letter whole marks it (F129); inbox still does not.
+    assert _stamped(cn, mid, "other") is True
     reply = rpc._h_reply(book, {"mail_id": mid, "body": "answered"}, "unit", "other")
     child = int(reply["id"])
     assert _stamped(cn, mid, "other") is True

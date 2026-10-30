@@ -1,6 +1,6 @@
 # Office-function skills
 
-Measure spine: [MEASURE-LESSONS.md](MEASURE-LESSONS.md). Pack may lag office-host until next ship.
+Pack may lag office-host until next ship.
 
 ## Layer
 1. **mill-desk** - universal floor (HINT->command, one job, STOP). The coordination meta-layer.

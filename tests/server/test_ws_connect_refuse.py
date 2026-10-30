@@ -135,7 +135,7 @@ def client(monkeypatch, marks):
     monkeypatch.setattr("agent_coord.server.records.join.token_matches", lambda cn, d, h: True)
     monkeypatch.setattr("agent_coord.server.records.join.note_connect", lambda cn, d: joins.append(d))
     monkeypatch.setattr(
-        "agent_coord.server.push.connect_sync_frame", lambda cn, d: {"kind": "sync", "sync": []}
+        "agent_coord.server.push.connect_sync_frame", lambda cn, d, **k: {"kind": "sync", "sync": []}
     )
     monkeypatch.setattr("agent_coord.server.admin.door.mode", lambda: "path")
     monkeypatch.setattr("agent_coord.server.allow.allowed", lambda *a, **k: True)

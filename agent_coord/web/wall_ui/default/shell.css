@@ -122,7 +122,7 @@ nav.tabs { display: none; }
 .kpi b { color: var(--ink, #e8eef5); font-weight: 600; font-size: 1.05rem; letter-spacing: 0; }
 .glance-status { display: flex; flex-direction: row; align-items: stretch; min-width: 0; }
 
-/* WALL_UI_LOADING (wow139): spinner until inbound; no blank regions. */
+/* WALL_UI_LOADING: spinner until inbound; no blank regions. */
 .wall-loading {
   display: flex; align-items: center; gap: .45rem;
   padding: .55rem .65rem; color: var(--dim, #8d99a8);
@@ -139,12 +139,12 @@ nav.tabs { display: none; }
 @keyframes wall-spin { to { transform: rotate(360deg); } }
 .rail-book .wall-loading { padding: .35rem .4rem; font-size: 11px; }
 
-/* wow155/wow154..145: Checking overlay - translucent+scrollable; opaque when empty. */
+/* Checking overlay - translucent+scrollable; opaque when empty. */
 .pane-body { position: relative; }
 .wall-pane-overlay {
   position: absolute; inset: 0; z-index: 24;
   display: flex; align-items: center; justify-content: center;
-  /* translucent veil; pe-none so last-good scrolls (wow153). */
+  /* translucent veil; pe-none so last-good scrolls. */
   background: rgba(18, 23, 30, 0.22);
   background: color-mix(in srgb, var(--panel, #12171e) 22%, transparent);
   backdrop-filter: blur(1px);
@@ -153,7 +153,7 @@ nav.tabs { display: none; }
   pointer-events: none;
 }
 .wall-pane-overlay.is-opaque {
-  /* empty: solid blocking cover (wow152). */
+  /* empty: solid blocking cover. */
   background: var(--panel, #12171e);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -170,7 +170,7 @@ nav.tabs { display: none; }
   pointer-events: none;
 }
 
-/* WALL_UI_SHELL_CRITICAL (wow142): finished chrome + strip-tab loading */
+/* WALL_UI_SHELL_CRITICAL: finished chrome + strip-tab loading */
 #rail-desks, #rail-roster {
   display: flex; flex-direction: column; gap: .28rem;
 }
@@ -200,7 +200,7 @@ nav.tabs { display: none; }
   border-color: var(--amber, #e4b56a);
   box-shadow: 0 0 0 1px var(--amber, #e4b56a);
 }
-/* Strip tab loading (wow142): spinner on KPI until domain paints */
+/* Strip tab loading: spinner on KPI until domain paints */
 .kpi .kpi-load {
   display: none; align-items: center; gap: .2rem;
   margin: .02rem 0 .05rem;

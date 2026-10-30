@@ -8,6 +8,7 @@ it is not sent on /mill/v1 or /ws. This module does not write the book.
 
 from __future__ import annotations
 
+import hmac
 import json
 from typing import Any
 from urllib.request import urlopen
@@ -38,7 +39,15 @@ def fetch_jwks(issuer: str, opener=urlopen, timeout: float = 5.0) -> dict[str, A
         return json.loads(resp.read().decode("utf-8"))
 
 
-def authorize_url(doc: dict[str, Any], client_id: str, redirect_uri: str, state: str = "") -> str:
+def authorize_url(
+    doc: dict[str, Any],
+    client_id: str,
+    redirect_uri: str,
+    state: str = "",
+    *,
+    nonce: str = "",
+    code_challenge: str = "",
+) -> str:
     endpoint = str(doc.get("authorization_endpoint") or "").strip()
     if not endpoint or not client_id or not redirect_uri:
         raise ValueError("oidc: authorize")
@@ -52,6 +61,11 @@ def authorize_url(doc: dict[str, Any], client_id: str, redirect_uri: str, state:
     }
     if state:
         query["state"] = state
+    if nonce:
+        query["nonce"] = nonce
+    if code_challenge:
+        query["code_challenge"] = code_challenge
+        query["code_challenge_method"] = "S256"
     return endpoint + ("&" if "?" in endpoint else "?") + urlencode(query)
 
 
@@ -62,6 +76,7 @@ def exchange_code(
     client_secret: str,
     code: str,
     redirect_uri: str,
+    code_verifier: str = "",
     opener=urlopen,
     timeout: float = 5.0,
 ) -> dict[str, Any]:
@@ -71,15 +86,16 @@ def exchange_code(
     endpoint = str(doc.get("token_endpoint") or "").strip()
     if not endpoint or not code:
         raise ValueError("oidc: token")
-    body = urlencode(
-        {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }
-    ).encode()
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    if code_verifier:
+        form["code_verifier"] = code_verifier
+    body = urlencode(form).encode()
     req = Request(endpoint, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
     with opener(req, timeout=timeout) as resp:
         out = json.loads(resp.read().decode("utf-8"))
@@ -108,6 +124,7 @@ def verify_token(
     issuer: str,
     audience: str,
     jwks: dict[str, Any],
+    nonce: str = "",
 ) -> dict[str, Any]:
     header = jwt.get_unverified_header(token)
     key = _key_for(jwks, header.get("kid"))
@@ -121,6 +138,8 @@ def verify_token(
     )
     if not isinstance(claims, dict):
         raise ValueError("oidc: claims")
+    if nonce and not hmac.compare_digest(str(claims.get("nonce") or "").encode(), nonce.encode()):
+        raise ValueError("oidc: nonce")
     return claims
 
 

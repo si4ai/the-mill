@@ -187,9 +187,13 @@ def test_join_reset_keeps_activity_roster(cn) -> None:
     seed_names(cn, ("wg_jp", "roster"), ("wg_jd", "desk"))
     jid = int(here.upsert(cn, "wg_jp", "wg_jd", "", "a" * 64, "busy")[0]["id"])
     proj = _id(cn, "roster", "wg_jp")
-    _exec(cn, "UPDATE activity SET roster_id=%s WHERE type='join' AND id=%s", (proj, jid))
+    _exec(cn, "UPDATE activity SET roster_id=%s WHERE type='doing' AND id=%s", (proj, jid))
     here.reset(cn, "wg_jp", "wg_jd")
-    assert scalar(cn, "SELECT roster_id FROM activity WHERE type='join' AND id=%s", (jid,)) == proj
+    # #818: reset ends the doing with a new empty entry; it keeps the roster.
+    cur = scalar(cn, "SELECT MAX(id) FROM doing WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)", (jid,))
+    assert int(cur) > jid
+    assert scalar(cn, "SELECT roster_id FROM activity WHERE type='doing' AND id=%s", (cur,)) == proj
+    assert scalar(cn, "SELECT roster_id FROM activity WHERE type='doing' AND id=%s", (jid,)) == proj
 
 
 def test_hold_release_keeps_activity_roster(cn) -> None:

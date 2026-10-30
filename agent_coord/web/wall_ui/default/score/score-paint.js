@@ -140,7 +140,7 @@
           target: wo,
           age: age,
           progress: prog,
-          job: wallDoingFace(a.doing).now.slice(0, 48),
+          job: wallDoingText(a.owner, a.doing).slice(0, 48),
         });
       });
       scoreStalledNeeds(d).forEach(n => {
@@ -154,7 +154,7 @@
           target: String(n.need_id || ""),
           age: age,
           progress: prog,
-          job: String(n.doing || n.need_id || "").slice(0, 48),
+          job: String(n.detail || n.need_id || "").slice(0, 48),
         });
       });
       return out;
@@ -744,4 +744,343 @@
         });
       } catch (e) {}
     }
+
+    /* Moved out of boot.js with the pane (#872, wall-contract rule-lazy-panes). */
+    function spendWhatRows(d) {
+      const lines = d.spend_lines || [];
+      let rows = lines.length ? lines : (d.spend || []);
+      if (spendWindow === "today") {
+        const now = new Date();
+        const ymd = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+        rows = rows.filter(r => rowDay(r) === ymd);
+      }
+      if (spendOwner) {
+        const want = spendOwner.toLowerCase();
+        rows = rows.filter(r => String(r.owner || "").toLowerCase() === want);
+      }
+      return rows;
+    }
+    function presenceSpendLines(d) {
+      return (d.events || []).map(e => ({
+        at: e.at || e.updated || "",
+        owner: e.owner || "",
+        source: "presence",
+        kind: e.kind || e.type || "",
+        tokens: Number(e.n || 0) * Number(e.weight == null ? 1 : e.weight),
+        usd: 0,
+        detail: (e.kind || e.type || "") + " n*weight",
+      }));
+    }
+    function millSpend(d) {
+      if (!(d.spend_lines && d.spend_lines.length) && !(d.spend && d.spend.length)) {
+        d = Object.assign({}, d, { spend_lines: presenceSpendLines(d) });
+      }
+      const allLines = (d.spend_lines && d.spend_lines.length) ? d.spend_lines : (d.spend || []);
+      const rows = spendWhatRows(d);
+      const tokens = rows.reduce((a, r) => a + Number(r.tokens || 0), 0);
+      const usd = rows.reduce((a, r) => a + Number(r.usd || 0), 0).toFixed(4);
+      const spendEl = document.getElementById("score-spend");
+      if (spendEl) spendEl.innerHTML = `MILL SPEND<b>${esc(tokens)}</b> | est USD<b>${esc(usd)}</b>`;
+      const owners = [...new Set(allLines.map(r => r.owner).filter(Boolean))].sort();
+      const ownerOpts = `<option value="">owner</option>` + owners.map(o =>
+        `<option value="${esc(o)}"${o === spendOwner ? " selected" : ""}>${esc(o)}</option>`
+      ).join("");
+      const ownerSel = owners.length > 1
+        ? `<select id="spend-owner">${ownerOpts}</select>`
+        : "";
+      const cut = allLines.length
+        ? (`<span class="wall-filter spend-cut">` +
+          `<button type="button" data-spend-window="today" class="${spendWindow === "today" ? "on" : ""}">today</button>` +
+          `<button type="button" data-spend-window="all" class="${spendWindow === "all" ? "on" : ""}">all</button>` +
+          `</span>` + ownerSel)
+        : "";
+      const byOwner = {};
+      rows.forEach(r => {
+        const o = String(r.owner || "-");
+        (byOwner[o] = byOwner[o] || []).push(r);
+      });
+      const groups = Object.keys(byOwner).sort((a, b) => {
+        const ta = byOwner[a].reduce((s, r) => s + Number(r.tokens || 0), 0);
+        const tb = byOwner[b].reduce((s, r) => s + Number(r.tokens || 0), 0);
+        return tb - ta || a.localeCompare(b);
+      }).map(owner => {
+        const list = byOwner[owner].slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+        const tok = list.reduce((s, r) => s + Number(r.tokens || 0), 0);
+        const u = list.reduce((s, r) => s + Number(r.usd || 0), 0);
+        const lines = list.map(r => {
+          const kind = String(r.kind || r.source || "mill");
+          const kcls = kind.toLowerCase().replace(/[^a-z0-9]+/g, "");
+          const what = r.detail || r.note || (millGid(r) ? (String(millGid(r)) + (r.cmds ? " cmds " + r.cmds : "")) : "");
+          return `<div class="spend-row kind-${esc(kcls)}">` +
+            `<span class="when">${esc(dt(r.at))}</span>` +
+            `<span class="k">${esc(kind)}</span>` +
+            `<span class="tok" title="tokens">${esc(r.tokens == null ? "-" : r.tokens)}</span>` +
+            `<span class="usd" title="est USD">${esc(r.usd == null || r.usd === 0 ? "" : ("$" + r.usd))}</span>` +
+            `<span class="what">${esc(what)}</span>` +
+          `</div>`;
+        }).join("");
+        return `<div class="spend-group">` +
+          `<h3>${esc(owner)} <span>${esc(String(tok))} tok` + (u ? ` | $${esc(u.toFixed(4))}` : "") + `</span></h3>` +
+          lines +
+        `</div>`;
+      }).join("");
+      const body = rows.length
+        ? groups
+        : '<div class="idle">nothing in this window yet</div>';
+      return `<div class="spend-chrome">${cut}</div>` +
+        `<div class="spend-summary">` +
+          `<span class="sp-item">Tokens<b>${esc(tokens)}</b></span>` +
+          `<span class="sp-item">est USD<b>${esc(usd)}</b></span>` +
+          `<span class="sp-item">Lines<b>${esc(String(rows.length))}</b></span>` +
+        `</div>` +
+        `<div class="spend-body">${body}</div>`;
+    }
+    function scoreKpiCell(k) {
+      if (!k) return `<span class="score-lt dim">-</span>`;
+      const last = (k.value == null || k.value === "") ? "-" : String(k.value);
+      const tgt = (k.target == null || k.target === "") ? "-" : String(k.target);
+      const quiet = typeof scoreMintQuiet === "function" && scoreMintQuiet(k.value, k.target);
+      const miss = !quiet && typeof kpiMiss === "function" && kpiMiss(k.value, k.target);
+      return `<span class="score-lt${miss ? " miss" : ""}${quiet ? " mint" : ""}">` +
+        `<b>${esc(last)}</b><span class="tgt"> / ${esc(tgt)}</span></span>`;
+    }
+    function scoreCatalog(d) {
+      const names = [];
+      const seen = {};
+      function add(n) {
+        n = String(n || "").trim();
+        if (!n || seen[n]) return;
+        seen[n] = 1;
+        names.push(n);
+      }
+      add("system");
+      const books = [];
+      if (_officeScores && Array.isArray(_officeScores.kpis)) books.push(_officeScores.kpis);
+      if (d && Array.isArray(d.kpis)) books.push(d.kpis);
+      books.forEach(function (list) {
+        list.forEach(function (k) { add(hereKpiName(k)); });
+      });
+      const office = names.filter(function (n) { return n !== "system"; });
+      office.sort(function (a, b) { return a.localeCompare(b); });
+      return ["system"].concat(office);
+    }
+    function scoreShowLabel(name) {
+      const raw = String(name || "").trim();
+      if (raw === "system") return "commands";
+      const mapped = (typeof scoreKpiLabel === "function") ? scoreKpiLabel(raw) : raw;
+      if (mapped && mapped !== raw) return mapped;
+      return raw.replace(/[._]+/g, " ");
+    }
+    function scoreFiledFamily(name) {
+      const raw = String(name || "").trim();
+      const dot = raw.indexOf(".");
+      if (dot <= 0) return "";
+      return raw.slice(0, dot).replace(/[-_]+/g, " ");
+    }
+    function scoreFiledRank(k) {
+      if (typeof kpiMiss === "function" && kpiMiss(k.value, k.target)) return 0;
+      const last = (k && k.value == null) ? "" : String(k.value).trim();
+      if (last && last !== "-" && last !== "0") return 1;
+      return 2;
+    }
+    function paintScoreShow(d) {
+      const box = document.getElementById("score-show");
+      if (!box) return;
+      const names = scoreCatalog(d);
+      const sig = names.join("|");
+      function sync() {
+        box.querySelectorAll("input[data-score-kpi]").forEach(function (inp) {
+          inp.checked = !_scoreShowOff[inp.getAttribute("data-score-kpi") || ""];
+        });
+        box.querySelectorAll("input[data-score-group]").forEach(function (inp) {
+          const g = inp.getAttribute("data-score-group") || "";
+          inp.checked = !_scoreGroupOff[g];
+          const set = inp.closest(".score-show-set");
+          if (set) set.classList.toggle("is-off", !!_scoreGroupOff[g]);
+        });
+      }
+      if (box.getAttribute("data-sig") === sig) { sync(); return; }
+      function group(id, title, list) {
+        const items = list.map(function (n) {
+          const on = !_scoreShowOff[n] ? " checked" : "";
+          return `<label class="score-show-item"><input type="checkbox" data-score-kpi="${esc(n)}"${on}> ${esc(scoreShowLabel(n))}</label>`;
+        }).join("");
+        const gOn = !_scoreGroupOff[id] ? " checked" : "";
+        const off = _scoreGroupOff[id] ? " is-off" : "";
+        return `<fieldset class="score-show-set${off}"><legend><label><input type="checkbox" data-score-group="${id}"${gOn}> ${esc(title)}</label></legend>${items}</fieldset>`;
+      }
+      const platform = names.filter(function (n) { return scoreKpiBucket(n) === "platform"; });
+      const office = names.filter(function (n) { return scoreKpiBucket(n) === "office"; });
+      box.innerHTML = group("platform", "Platform", platform) + group("office", "Filed", office);
+      box.setAttribute("data-sig", sig);
+    }
+    function scoreEvidenceBase() {
+      const q = activitySpanQuery();
+      return { key: q.kind + ":" + q.id, kind: q.kind, id: q.id };
+    }
+    function paintScoreDeskTable(rows) {
+      void rows;
+      const el = document.getElementById("score-desk-table");
+      const commandsEl = document.getElementById("score-verbs");
+      const graphsEl = document.getElementById("score-graphs");
+      const humanEl = document.getElementById("score-human");
+      const productEl = document.getElementById("score-product");
+      if (!el) return;
+      const d = window._floor || window._floorRaw || {};
+      try { paintScoreShow(d); } catch (eShowPaint) {}
+      function deskOf(k) {
+        if (typeof scoreDeskSlug === "function") return scoreOwnerKey(scoreDeskSlug(k));
+        return scoreOwnerKey(k && k.owner);
+      }
+      function deskLabel(desk) {
+        return millName ? millName("desk", desk) : desk;
+      }
+      const books = [];
+      if (_officeScores && Array.isArray(_officeScores.kpis)) books.push(_officeScores.kpis);
+      if (d && Array.isArray(d.kpis)) books.push(d.kpis);
+      const showPlatform = !!scoreShown("system");
+      const showFiled = !_scoreGroupOff.office;
+      if (productEl) productEl.hidden = !showPlatform;
+      if (!showPlatform && !showFiled) {
+        if (humanEl) {
+          humanEl.hidden = false;
+          humanEl.innerHTML = `<div class="idle" style="padding:.45rem">No scores selected.</div>`;
+        }
+        return;
+      }
+      if (showPlatform) {
+        const byDesk = {};
+        books.forEach(function (list) {
+          list.forEach(function (k) {
+            if (hereKpiName(k) !== "system") return;
+            const desk = deskOf(k);
+            if (!desk || desk === "(unknown)") return;
+            const id = desk.toLowerCase();
+            if (!byDesk[id]) byDesk[id] = { desk: desk, kpi: k };
+          });
+        });
+        ((d.agents || []).filter(function (a) { return a && a.alive !== false; })).forEach(function (a) {
+          const desk = scoreOwnerKey(a.owner);
+          if (!desk) return;
+          const id = desk.toLowerCase();
+          if (!byDesk[id]) byDesk[id] = { desk: desk, kpi: null };
+        });
+        const desks = Object.keys(byDesk).map(function (id) { return byDesk[id]; });
+        desks.sort(function (a, b) { return deskLabel(a.desk).localeCompare(deskLabel(b.desk)); });
+        let selected = scoreOwnerKey(scoreSelectedDesk);
+        const found = desks.find(function (item) { return item.desk.toLowerCase() === selected.toLowerCase(); });
+        if (found) selected = found.desk;
+        else selected = desks.length ? desks[0].desk : "";
+        if (selected !== scoreSelectedDesk) {
+          scoreSelectedDesk = selected;
+          scoreSelectedCommand = "";
+          try { localStorage.setItem("factory-score-desk", scoreSelectedDesk); } catch (eDesk) {}
+        }
+        if (!desks.length) {
+          el.innerHTML = `<div class="score-office-h">Desks</div><div class="idle" style="padding:.45rem">No desk command scores yet.</div>`;
+          if (commandsEl) commandsEl.innerHTML = `<div class="idle">Pick a desk.</div>`;
+          if (graphsEl) graphsEl.innerHTML = `<div class="idle">Pick a command.</div>`;
+        } else {
+          const body = desks.map(function (item) {
+            const k = item.kpi;
+            const last = (!k || k.value == null || k.value === "") ? "-" : String(k.value);
+            const sel = item.desk === scoreSelectedDesk ? " sel" : "";
+            return `<tr class="${sel}" data-score-desk="${esc(item.desk)}"><td>${esc(deskLabel(item.desk))}</td><td>${esc(last)}</td></tr>`;
+          }).join("");
+          el.innerHTML = `<div class="score-office-h">Desks</div>` +
+            `<table data-table="score-platform"><thead><tr><th>desk</th><th>today</th></tr></thead><tbody>${body}</tbody></table>`;
+          const pane = document.getElementById("pane-score");
+          const scoreOn = !!(pane && pane.classList.contains("on"));
+          const evKey = scoreEvidenceBase().key;
+          const evReady = _scoreEv.key === evKey;
+          if (scoreOn && (!evReady || (Date.now() - _scoreEvAt) >= 15000)) loadScoreEvidence();
+          paintScoreCommands(commandsEl, graphsEl, scoreSelectedDesk, evReady, scoreOn);
+        }
+      }
+      if (!humanEl) return;
+      if (!showFiled) {
+        humanEl.hidden = true;
+        humanEl.innerHTML = "";
+        return;
+      }
+      humanEl.hidden = false;
+      const officeRows = scoreFiledList(d);
+      if (!officeRows.length) {
+        humanEl.innerHTML = `<div class="score-office-h">Filed</div><div class="idle" style="padding:.45rem">No filed scores yet. Ask your agent to file one.</div>`;
+        return;
+      }
+      const buckets = {};
+      const famOrder = [];
+      officeRows.forEach(function (k) {
+        const fam = scoreFiledFamily(hereKpiName(k));
+        if (!buckets[fam]) {
+          buckets[fam] = [];
+          famOrder.push(fam);
+        }
+        buckets[fam].push(k);
+      });
+      function famBest(fam) {
+        let n = 3;
+        buckets[fam].forEach(function (k) {
+          const r = scoreFiledRank(k);
+          if (r < n) n = r;
+        });
+        return n;
+      }
+      famOrder.sort(function (a, b) {
+        const d = famBest(a) - famBest(b);
+        if (d) return d;
+        return a.localeCompare(b);
+      });
+      famOrder.forEach(function (fam) {
+        buckets[fam].sort(function (a, b) {
+          const d = scoreFiledRank(a) - scoreFiledRank(b);
+          if (d) return d;
+          return scoreFiledFace(hereKpiName(a)).localeCompare(scoreFiledFace(hereKpiName(b)))
+            || deskOf(a).localeCompare(deskOf(b));
+        });
+      });
+      const filed = [];
+      famOrder.forEach(function (fam) {
+        if (fam) filed.push(`<tr class="score-family"><th colspan="3">${esc(fam)}</th></tr>`);
+        buckets[fam].forEach(function (k) {
+          const name = hereKpiName(k);
+          const desk = deskOf(k);
+          const miss = typeof kpiMiss === "function" && kpiMiss(k.value, k.target);
+          filed.push(
+            `<tr class="${miss ? "hot" : ""}">` +
+            `<td title="${esc(name)}">${esc(scoreFiledFace(name))}</td>` +
+            `<td>${esc(deskLabel(desk))}</td><td>${scoreKpiCell(k)}</td></tr>`
+          );
+        });
+      });
+      if (_scoreGlanceUser) _scoreGlanceScroll = humanEl.scrollTop;
+      humanEl.innerHTML = `<div class="score-office-h">Filed</div>` +
+        `<table data-table="score-filed"><thead><tr><th>score</th><th>desk</th><th>Last / target</th></tr></thead><tbody>${filed.join("")}</tbody></table>`;
+      wallWireScoreGlance();
+      wallQueueScoreGlance();
+    }
+    function wallWireScoreGlance() {
+      const box = document.getElementById("score-human");
+      if (!box || box._glanceWired) return;
+      box._glanceWired = true;
+      function markUser() { _scoreGlanceUser = true; }
+      box.addEventListener("wheel", markUser, { passive: true });
+      box.addEventListener("pointerdown", markUser);
+      box.addEventListener("touchstart", markUser, { passive: true });
+      box.addEventListener("scroll", function () {
+        if (_scoreGlanceLock || !_scoreGlanceUser) return;
+        _scoreGlanceScroll = box.scrollTop;
+      }, { passive: true });
+    }
+    function wallCenterScoreGlance() {}
+    function wallQueueScoreGlance() {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          try { wallCenterScoreGlance(); } catch (eGlance) {}
+          try { if (window.markOverflow) window.markOverflow(); } catch (eMore) {}
+        });
+      });
+    }
+
 var WALL_UI_DEFAULT_SCORE_PAINT = "WALL_UI_DEFAULT_SCORE_PAINT";

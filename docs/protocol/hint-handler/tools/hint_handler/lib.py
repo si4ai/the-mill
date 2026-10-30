@@ -31,9 +31,9 @@ class HintEvent:
 
     @property
     def ignore(self) -> bool:
-        # route.md / hints.md: PING never routed; JOIN ignore
+        # route.md / hints.md: PING never routed; DOING ignore
         h = self.hint.upper()
-        return h in ("", "PING", "JOIN") or self.type in ("heartbeat", "join")
+        return h in ("", "PING", "DOING") or self.type in ("heartbeat", "doing")
 
 
 def parse_stdin(raw: Optional[str] = None) -> HintEvent:

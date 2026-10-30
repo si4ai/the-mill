@@ -17,6 +17,7 @@ import html
 import re
 import json
 import os
+import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +28,7 @@ from agent_coord.server.redact import err_text
 from urllib.parse import parse_qs, urlparse
 
 from agent_coord.const import (
+    CONST_DESK,
     CONST_MAIL,
     CONST_OFFICE,
     CONST_TODO,
@@ -296,6 +298,23 @@ _STATIC_TYPES = {
 _PIN_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 STATIC_CACHE_PINNED = "public, max-age=31536000, immutable"
 STATIC_CACHE_SHORT = "public, max-age=60"
+# The board page sits behind the door: browser cache only, keyed on the session cookie.
+BOARD_CACHE = "private, max-age=60"
+
+# Sent on every response. The Wall has one inline onload handler and inline
+# style attributes, so script-src and style-src keep 'unsafe-inline' until
+# those move into files; everything else is same-origin only.
+WALL_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "same-origin"),
+    ("Content-Security-Policy", WALL_CSP),
+)
 
 
 def _static_cache_control(path_with_query: str, _ctype: str) -> str:
@@ -385,6 +404,59 @@ def _json(obj: Any) -> bytes:
     from agent_coord.server.mill_json import dumps_mill_bytes
 
     return dumps_mill_bytes(obj)
+
+
+_DOING_ITEM = re.compile(r"(mail|todo|hold|score)-([1-9][0-9]{0,18})")
+
+
+def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """#818 GET /api/v1/doing and /api/v1/doing/history: the `mill connected`
+    views, read-only, for the Wall (PR C). Behind the same door and on the same
+    office book as every other Wall GET; the Wall computes nothing itself.
+
+    /api/v1/doing takes exactly one of all=1, desk=D or project=R and returns
+    the _desk_view list. /api/v1/doing/history takes desk=D and/or on=ITEM
+    (mail-N, todo-N, hold-N, score-N), plus since= and page=, and returns
+    {history, page} with ended_by. A refusal is 400 {"error"}.
+    """
+    from agent_coord.server.api.mill import rpc
+
+    def one(key: str) -> str:
+        return str((qs.get(key) or [""])[0] or "").strip()
+
+    desk, project = one("desk"), one("project")
+    try:
+        if path == "/api/doing":
+            every = one("all").lower() in ("1", "true", "yes")
+            if int(every) + int(bool(desk)) + int(bool(project)) != 1:
+                return 400, {"error": "GET /api/v1/doing requires one of ?all=1 or ?desk= or ?project="}
+            body: dict[str, Any] = {"desk": desk, "project": project, "all": every}
+            with _office() as c:
+                return 200, rpc._h_session(c, body, project, None)
+        on_raw = one("on")
+        on = None
+        if on_raw:
+            hit = _DOING_ITEM.fullmatch(on_raw)
+            if not hit:
+                return 400, {"error": "GET /api/v1/doing/history: on= is mail-N, todo-N, hold-N or score-N"}
+            on = (hit.group(1), int(hit.group(2)))
+        if not desk and not on:
+            return 400, {"error": "GET /api/v1/doing/history requires ?desk= or ?on= (or both)"}
+        try:
+            page = rpc._doing_page(one("page")) or 1
+        except CoordError:
+            return 400, {"error": f"GET /api/v1/doing/history: page= is 1 to {rpc.DOING_PAGE_MAX}"}
+        body = {"desk": desk, "history": True, "since": one("since"), "page": page}
+        with _office() as c:
+            who = rpc._stored(desk) if desk else ""
+            if who:
+                from agent_coord.server.records import name as rec_name
+
+                if rec_name.get(c._cn, who, CONST_DESK) is None:
+                    return 400, {"error": f"connected: no desk {who[:64]}"}
+            return 200, rpc._doing_history(c, body, who, on)
+    except CoordError as e:
+        return 400, {"error": err_text(e)}
 
 
 _ERROR_PAGE = """<!DOCTYPE html>
@@ -492,15 +564,127 @@ def _send_not_found(handler: BaseHTTPRequestHandler, *, closed: bool) -> None:
     handler._send(404, b"not found\n", "text/plain; charset=utf-8")
 
 
-def _fail_closed(handler: BaseHTTPRequestHandler, exc: BaseException) -> None:
-    """One bad route must fail that request closed - never kill the 18765 listener."""
+def error_id(exc: BaseException, where: str) -> str:
+    """Log the exception under a fresh opaque id and return the id for the client."""
+    eid = secrets.token_hex(6)
     try:
-        body = _json({"error": "mill API error", "detail": str(exc)[:240]})
+        from agent_coord.server.push import api_log
+
+        api_log(f"500 error_id={eid} {where} {type(exc).__name__}: {exc}")
+    except Exception:
+        pass
+    return eid
+
+
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+_CRED_HEADERS = ("Authorization", "PRIVATE-TOKEN", "X-Mill-Invite")
+
+
+def _has_session_cookie(headers) -> bool:
+    from agent_coord.server.glance import GLANCE_COOKIE
+
+    for part in (headers.get("Cookie") or "").split(";"):
+        name = part.strip().partition("=")[0].strip()
+        if name == GLANCE_COOKIE or name.startswith("factory-door"):
+            return True
+    return False
+
+
+def _host_port(host: str, scheme: str) -> tuple[str, int] | None:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit("//" + (host or "").strip())
+        name = (parts.hostname or "").lower()
+        port = parts.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
+    return (name, port) if name else None
+
+
+def origin_matches(origin: str, headers, peer: str) -> bool:
+    """True when Origin names this wall: the Host header, or X-Forwarded-Host and
+    X-Forwarded-Proto when the TCP peer is a trusted proxy (allow.trusted_proxies).
+    The installed edge keeps Host and sends no proto, so the port defaults from
+    the Origin's own scheme."""
+    from urllib.parse import urlsplit
+
+    from agent_coord.server.allow import _in_rules, trusted_proxies
+
+    try:
+        want = urlsplit((origin or "").strip())
+        o_scheme = (want.scheme or "").lower()
+        o_host = (want.hostname or "").lower()
+        o_port = want.port or (443 if o_scheme == "https" else 80)
+    except ValueError:
+        return False
+    if o_scheme not in ("http", "https") or not o_host:
+        return False
+    host = (headers.get("Host") or "").strip()
+    proto = ""
+    if _in_rules(peer, trusted_proxies()):
+        host = (headers.get("X-Forwarded-Host") or "").split(",")[0].strip() or host
+        proto = (headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+    if proto and proto != o_scheme:
+        return False
+    got = _host_port(host, proto or o_scheme)
+    return got == (o_host, o_port)
+
+
+def cookie_write_refusal(command: str, headers, peer: str) -> tuple[int, str]:
+    """(status, reason) when a cookie-authenticated write is refused, else (0, "").
+
+    Only a write (any method but GET, HEAD, OPTIONS) that carries a door or
+    glance session cookie and no credential header is checked. It must be
+    application/json (a cross-origin page cannot send that without a CORS
+    preflight, which the wall never grants) and same-origin: Sec-Fetch-Site
+    same-origin, an Origin that matches the wall, or the X-Mill-Wall header.
+    """
+    if (command or "").upper() in _SAFE_METHODS or not _has_session_cookie(headers):
+        return 0, ""
+    if any((headers.get(h) or "").strip() for h in _CRED_HEADERS):
+        return 0, ""
+    ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if ctype != "application/json":
+        return 415, "a write with the session cookie must be Content-Type application/json"
+    site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site in ("cross-site", "same-site"):
+        return 403, "cross-origin write refused"
+    if site == "same-origin":
+        return 0, ""
+    origin = (headers.get("Origin") or "").strip()
+    if origin:
+        return (0, "") if origin_matches(origin, headers, peer) else (403, "cross-origin write refused")
+    if (headers.get("X-Mill-Wall") or "").strip():
+        return 0, ""
+    return 403, "a write with the session cookie needs a same-origin Origin or X-Mill-Wall"
+
+
+def _refuse_cookie_write(handler: BaseHTTPRequestHandler) -> bool:
+    """Answer a refused cookie-authenticated write (card 749); True when refused."""
+    peer = str((getattr(handler, "client_address", None) or ("", 0))[0] or "")
+    code, why = cookie_write_refusal(getattr(handler, "command", "") or "", handler.headers, peer)
+    if not code:
+        return False
+    handler._send(code, _json({"error": why}), "application/json; charset=utf-8")
+    return True
+
+
+def _fail_closed(handler: BaseHTTPRequestHandler, exc: BaseException) -> None:
+    """One bad route must fail that request closed - never kill the 18765 listener.
+
+    The client gets a fixed message and an error id; the text stays in the server log.
+    """
+    try:
+        where = f"{getattr(handler, 'command', '') or ''} {urlparse(getattr(handler, 'path', '') or '').path}"
+        body = _json({"error": "mill API error", "error_id": error_id(exc, where.strip())})
         if not getattr(handler, "headers_sent", False) and not handler.wfile.closed:
             handler.send_response(500)
             handler.send_header("Content-Type", "application/json; charset=utf-8")
             handler.send_header("Content-Length", str(len(body)))
             handler.send_header("Cache-Control", "no-store")
+            for key, val in SECURITY_HEADERS:
+                handler.send_header(key, val)
             handler.end_headers()
             handler.wfile.write(body)
     except Exception:
@@ -560,7 +744,7 @@ def _scope_strip(cn, kind: str, label: str) -> dict:
             "  OR j.time_connect >= j.time_disconnect)) AS connected"
             " FROM member m"
             " JOIN name d ON d.id = m.desk_id AND d.deleted IS NULL"
-            " LEFT JOIN `join` j ON j.desk_id = d.id"
+            " LEFT JOIN seat j ON j.desk_id = d.id"
             " WHERE m.name_id=%s ORDER BY d.name",
             (aid,),
         )
@@ -659,7 +843,7 @@ _RECENT_ACTIVITY_EXPR = (
     "   WHEN 'todo' THEN LEFT(td.body, 80)"
     "   WHEN 'hold' THEN hr.name"
     "   WHEN 'score' THEN sc.kpi"
-    "   WHEN 'join' THEN jd.name"
+    "   WHEN 'doing' THEN jd.name"
     "   ELSE NULL END))"
 )
 
@@ -675,7 +859,7 @@ _RECENT_ACTIVITY_JOINS = (
     " LEFT JOIN hold ho ON ra.type = 'hold' AND ho.id = ra.id"
     " LEFT JOIN name hr ON hr.id = ho.resource_id"
     " LEFT JOIN score sc ON ra.type = 'score' AND sc.id = ra.id"
-    " LEFT JOIN `join` js ON ra.type = 'join' AND js.id = ra.id"
+    " LEFT JOIN doing js ON ra.type = 'doing' AND js.id = ra.id"
     " LEFT JOIN name jd ON jd.id = js.desk_id"
 )
 
@@ -720,7 +904,7 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             elif scope != "mine":
                 return {"tab": tab, "rows": []}
             cur.execute(
-                "SELECT n.id FROM name n JOIN `join` j ON j.desk_id=n.id WHERE " + where,
+                "SELECT n.id FROM name n JOIN seat j ON j.desk_id=n.id WHERE " + where,
                 tuple(params),
             )
             ids = [int(r[0]) for r in cur.fetchall() if r and r[0]]
@@ -730,11 +914,11 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
         rows: list[dict] = []
         if tab == "here" and ids:
             cur.execute(
-                "SELECT n.name, j.doing,"
+                "SELECT n.name, (SELECT g.text FROM doing g WHERE g.desk_id = j.desk_id ORDER BY g.created DESC, g.id DESC LIMIT 1),"
                 " (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
                 "  OR j.time_connect >= j.time_disconnect)) AS connected,"
                 + _RECENT_ACTIVITY_EXPR
-                + " FROM name n JOIN `join` j ON j.desk_id=n.id"
+                + " FROM name n JOIN seat j ON j.desk_id=n.id"
                 + _RECENT_ACTIVITY_JOINS.format(desk="n.id")
                 + " WHERE n.id IN (" + marks + ") ORDER BY connected DESC, n.name LIMIT 40",
                 tuple(ids),
@@ -750,13 +934,13 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             ]
         elif tab == "here" and affil:
             cur.execute(
-                "SELECT d.name, j.doing,"
+                "SELECT d.name, (SELECT g.text FROM doing g WHERE g.desk_id = j.desk_id ORDER BY g.created DESC, g.id DESC LIMIT 1),"
                 " (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
                 "  OR j.time_connect >= j.time_disconnect)) AS connected,"
                 + _RECENT_ACTIVITY_EXPR
                 + " FROM member m"
                 " JOIN name d ON d.id=m.desk_id AND d.deleted IS NULL"
-                " LEFT JOIN `join` j ON j.desk_id=d.id"
+                " LEFT JOIN seat j ON j.desk_id=d.id"
                 + _RECENT_ACTIVITY_JOINS.format(desk="d.id")
                 + " WHERE m.name_id=%s ORDER BY connected DESC, d.name LIMIT 40",
                 (affil,),
@@ -890,11 +1074,11 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
 
 
 def _todo_title(body) -> str:
-    import json
+    from agent_coord.server.records.todo import unpack
+
     raw = str(body or "")
     try:
-        obj = json.loads(raw)
-        text = str(obj.get("doing") or obj.get("detail") or "")
+        text = str(unpack(raw, "").get("detail") or "")
     except Exception:
         text = raw
     return " ".join(text.split())[:80]
@@ -927,6 +1111,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                 self.send_header("X-Mill-Version", package_version())
             except Exception:
                 pass
+            have = {str(k).lower() for k, _ in extra}
+            extra.extend((k, v) for k, v in SECURITY_HEADERS if k.lower() not in have)
             for key, val in extra:
                 self.send_header(key, val)
             self.end_headers()
@@ -1031,6 +1217,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
         def do_GET(self) -> None:  # noqa: N802
             t0 = time.perf_counter()
             try:
+                if _refuse_cookie_write(self):
+                    return
                 self._do_GET_inner()
             except Exception as _route_exc:
                 _fail_closed(self, _route_exc)
@@ -1066,10 +1254,16 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                 if icon == "/mill/oidc/callback":
                     from urllib.parse import parse_qs as _parse_qs
 
-                    from agent_coord.server.admin.door import complete_login, set_cookie_header
+                    from agent_coord.server.admin.door import (
+                        clear_oidc_cookie_header,
+                        complete_login,
+                        set_cookie_header,
+                    )
 
-                    code = ((_parse_qs(urlparse(self.path).query).get("code") or [""])[0] or "").strip()
-                    got = complete_login(code)
+                    query = _parse_qs(urlparse(self.path).query)
+                    code = ((query.get("code") or [""])[0] or "").strip()
+                    state = ((query.get("state") or [""])[0] or "").strip()
+                    got = complete_login(code, state, self.headers.get("Cookie") or "")
                     if got:
                         from agent_coord.server.admin.human import seat
 
@@ -1079,15 +1273,24 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 302,
                                 b"",
                                 "text/plain; charset=utf-8",
-                                [("Location", "/"), ("Set-Cookie", set_cookie_header(bearer))],
+                                [
+                                    ("Location", "/"),
+                                    ("Set-Cookie", set_cookie_header(bearer)),
+                                    ("Set-Cookie", clear_oidc_cookie_header()),
+                                ],
                             )
                             return
                 if _is_nest_board_path(icon) and _wants_error_page(self):
                     from agent_coord.server.admin.door import login_redirect
 
-                    loc = login_redirect()
+                    loc, login_cookie = login_redirect()
                     if loc:
-                        self._send(302, b"", "text/plain; charset=utf-8", [("Location", loc)])
+                        self._send(
+                            302,
+                            b"",
+                            "text/plain; charset=utf-8",
+                            [("Location", loc), ("Set-Cookie", login_cookie)],
+                        )
                         return
                 if icon in ("/favicon.svg", "/favicon.ico"):
                     found = _safe_static("favicon.svg")
@@ -1149,7 +1352,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                         b"",
                         "text/html; charset=utf-8",
                         extra=[
-                            ("Cache-Control", "public, max-age=60"),
+                            ("Cache-Control", BOARD_CACHE),
+                            ("Vary", "Cookie"),
                             ("ETag", etag),
                         ],
                     )
@@ -1159,7 +1363,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     html_txt.encode("utf-8"),
                     "text/html; charset=utf-8",
                     extra=[
-                        ("Cache-Control", "public, max-age=60"),
+                        ("Cache-Control", BOARD_CACHE),
+                        ("Vary", "Cookie"),
                         ("ETag", etag),
                     ],
                 )
@@ -1236,7 +1441,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                     " j.lan_ip, j.updated,"
                                     + _RECENT_ACTIVITY_EXPR
                                     + " FROM name n"
-                                    " JOIN `join` j ON j.desk_id = n.id"
+                                    " JOIN seat j ON j.desk_id = n.id"
                                     + _RECENT_ACTIVITY_JOINS.format(desk="n.id")
                                     + " WHERE n.deleted IS NULL AND n.type = %s"
                                     " AND ("
@@ -1395,7 +1600,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 "SELECT n.id, n.name,"
                                 " (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
                                 "  OR j.time_connect >= j.time_disconnect)) AS connected"
-                                " FROM name n JOIN `join` j ON j.desk_id = n.id"
+                                " FROM name n JOIN seat j ON j.desk_id = n.id"
                                 " WHERE " + where,
                                 tuple(params),
                             )
@@ -1535,6 +1740,11 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                         _json({"error": err_text(e)}),
                         "application/json; charset=utf-8",
                     )
+                return
+
+            if path in ("/api/doing", "/api/doing/history"):
+                code, payload = _doing_read(path, parse_qs(urlparse(self.path).query))
+                self._send(code, _json(payload), "application/json; charset=utf-8")
                 return
 
             # GET /api/v1/{rooms,mailbox,tree-mail,tree-todo,todos,agents,scores,holds,watchers,events,names,map,timeline}
@@ -1978,6 +2188,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
         def do_POST(self) -> None:  # noqa: N802
             t0 = time.perf_counter()
             try:
+                if _refuse_cookie_write(self):
+                    return
                 self._do_POST_inner()
             except Exception as _route_exc:
                 _fail_closed(self, _route_exc)

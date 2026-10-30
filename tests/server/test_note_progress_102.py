@@ -78,7 +78,7 @@ class _Store:
 
 @pytest.fixture
 def store(monkeypatch):
-    st = _Store({"slug": "n102", "doing": "d", "detail": "seed"})
+    st = _Store({"slug": "n102", "detail": "seed"})
     monkeypatch.setattr(rec_todo, "find", lambda cn, p, n: {"id": 102, "body": st.body})
 
     def upd(cn, tid, desk, body=""):

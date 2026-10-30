@@ -24,7 +24,7 @@ ACTIVITIES: dict[str, str] = {
     "todo": "TODO",
     "hold": "HOLD",
     "score": "SCORE",
-    "join": "JOIN",
+    "doing": "DOING",
     "name": "NAME",
 }
 

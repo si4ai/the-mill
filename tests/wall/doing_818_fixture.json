@@ -1,0 +1,221 @@
+{
+ "_about": "#818 PR C glass fixture. Shapes copy PR #159's server views: 'doing' is the list _desk_view returns (GET /api/v1/doing), 'history' is _doing_history's entries (GET /api/v1/doing/history). The doing view's last.ended_by comes from the server too. Synthetic desks, no real data.",
+ "doing": [
+  {
+   "owner": "builder",
+   "heartbeat": "2026-10-23 03:47:58.572394",
+   "alive": true,
+   "stale": false,
+   "doing": "landing the doing routes",
+   "on": "todo-1",
+   "age": "42m",
+   "waiting_on_it": {
+    "letters": {
+     "n": 4,
+     "newest": [
+      {
+       "id": "mail-29",
+       "from": "wall-ui",
+       "age": "3m"
+      },
+      {
+       "id": "mail-26",
+       "from": "validator",
+       "age": "18m"
+      },
+      {
+       "id": "mail-21",
+       "from": "gardener",
+       "age": "1h"
+      }
+     ]
+    },
+    "cards": {
+     "n": 1,
+     "newest": [
+      {
+       "id": "todo-2",
+       "need": "wall doing strip",
+       "roster": "the-mill",
+       "watchers": [
+        "wall-ui",
+        "validator"
+       ],
+       "age": "2h"
+      }
+     ]
+    }
+   },
+   "line": "builder: doing \"landing the doing routes\" on todo-1 (42m)."
+  },
+  {
+   "owner": "wall-ui",
+   "heartbeat": "2026-10-23 03:47:58.572394",
+   "alive": true,
+   "stale": false,
+   "doing": "PR C doing glass",
+   "on": "todo-2",
+   "age": "1h",
+   "waiting_on_it": {
+    "letters": {
+     "n": 2,
+     "newest": [
+      {
+       "id": "mail-40",
+       "from": "builder",
+       "age": "5m"
+      },
+      {
+       "id": "mail-35",
+       "from": "gardener",
+       "age": "26m"
+      }
+     ]
+    },
+    "cards": {
+     "n": 0,
+     "newest": []
+    }
+   },
+   "line": "wall-ui: doing \"PR C doing glass\" on todo-2 (1h)."
+  },
+  {
+   "owner": "validator",
+   "heartbeat": "2026-10-23 03:47:58.572394",
+   "alive": true,
+   "stale": false,
+   "doing": "stage 2 on #159",
+   "on": "mail-1",
+   "age": "9m",
+   "waiting_on_it": {
+    "letters": {
+     "n": 0,
+     "newest": []
+    },
+    "cards": {
+     "n": 0,
+     "newest": []
+    }
+   },
+   "line": "validator: doing \"stage 2 on #159\" on mail-1 (9m)."
+  },
+  {
+   "owner": "gardener",
+   "heartbeat": "2026-10-23 03:47:58.572394",
+   "alive": true,
+   "stale": false,
+   "doing": "",
+   "idle": "14m",
+   "last": {
+    "doing": "skill.md doing bullet",
+    "on": "todo-3",
+    "age": "2h",
+    "ended_by": "finished"
+   },
+   "waiting_on_it": {
+    "letters": {
+     "n": 1,
+     "newest": [
+      {
+       "id": "mail-37",
+       "from": "wall-ui",
+       "age": "20m"
+      }
+     ]
+    },
+    "cards": {
+     "n": 0,
+     "newest": []
+    }
+   },
+   "line": "gardener: idle 14m."
+  },
+  {
+   "owner": "grok-tui",
+   "heartbeat": "2026-10-23 03:47:58.572394",
+   "alive": true,
+   "stale": false,
+   "doing": "",
+   "idle": "3h",
+   "last": {
+    "doing": "review of #159 text",
+    "on": "mail-12",
+    "age": "5h",
+    "ended_by": "cleared"
+   },
+   "waiting_on_it": {
+    "letters": {
+     "n": 0,
+     "newest": []
+    },
+    "cards": {
+     "n": 0,
+     "newest": []
+    }
+   },
+   "line": "grok-tui: idle 3h."
+  }
+ ],
+ "history": [
+  {
+   "id": 14,
+   "desk": "wall-ui",
+   "at": "2026-10-23 02:45:00",
+   "doing": "PR C doing glass",
+   "on": "todo-2",
+   "roster": "the-mill",
+   "ended": false,
+   "ended_by": null
+  },
+  {
+   "id": 12,
+   "desk": "builder",
+   "at": "2026-10-23 02:20:00",
+   "doing": "routes sketch for PR C",
+   "on": "todo-2",
+   "roster": "the-mill",
+   "ended": true,
+   "ended_by": "newer"
+  },
+  {
+   "id": 9,
+   "desk": "wall-ui",
+   "at": "2026-10-23 01:10:00",
+   "doing": "route gap write-up",
+   "on": "todo-2",
+   "roster": "the-mill",
+   "ended": true,
+   "ended_by": "finished"
+  },
+  {
+   "id": 7,
+   "desk": "validator",
+   "at": "2026-10-23 00:40:00",
+   "doing": "stage 1 read of the strip brief",
+   "on": "todo-2",
+   "roster": "the-mill",
+   "ended": true,
+   "ended_by": "cleared"
+  },
+  {
+   "id": 13,
+   "desk": "builder",
+   "at": "2026-10-23 03:05:00",
+   "doing": "landing the doing routes",
+   "on": "todo-1",
+   "roster": "the-mill",
+   "ended": false,
+   "ended_by": null
+  },
+  {
+   "id": 11,
+   "desk": "gardener",
+   "at": "2026-10-23 01:30:00",
+   "doing": "skill.md doing bullet",
+   "on": "todo-3",
+   "roster": "the-mill",
+   "ended": true,
+   "ended_by": "finished"
+  }
+ ]
+}

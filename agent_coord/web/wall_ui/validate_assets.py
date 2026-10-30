@@ -23,10 +23,7 @@ def _load_check():
         raise ImportError("cannot load wall_ui/lib/check.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    # Ensure ROOT is the install/repo root that contains agent_coord/
-    pkg_root = Path(__file__).resolve().parents[1]  # .../agent_coord
-    repo_or_site = pkg_root.parent
-    mod.ROOT = repo_or_site
+    # check.py sets ROOT itself: the folder that holds agent_coord/.
     # When editable/pip, wall_ui lives under agent_coord - point WALL_UI at package
     mod.WALL_UI = Path(__file__).resolve().parent
     mod.LIB = mod.WALL_UI / "lib"

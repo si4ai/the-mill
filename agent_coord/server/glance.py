@@ -24,7 +24,7 @@ from typing import Any
 from agent_coord.const import (
     CONST_ADMIN,
     CONST_HOLD,
-    CONST_JOIN,
+    CONST_DOING,
     CONST_MAIL,
     CONST_OFFICE,
     CONST_ROSTER,
@@ -127,7 +127,7 @@ _TRUST_CHART = {
     ),
     "assign": "Nobody overwrites an assignee. The assignee releases the card first.",
 }
-_TYPES = (CONST_MAIL, CONST_TODO, CONST_JOIN, CONST_HOLD, CONST_SCORE)
+_TYPES = (CONST_MAIL, CONST_TODO, CONST_DOING, CONST_HOLD, CONST_SCORE)
 
 
 _COMMAND_LINE = re.compile(r"(?:^|\s)op=(?:verb|api\.mill\.([^\s]+))(?:\s|$)")
@@ -516,7 +516,7 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
                 commands += n
     join_rows = _q(
         cn,
-        "SELECT d.name FROM `join` j "
+        "SELECT d.name FROM seat j "
         "JOIN name d ON d.id = j.desk_id /* glance:join-desks */",
     )
     here: list[str] = []
@@ -562,7 +562,7 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
     live = {
         "mail": _count(cn, "SELECT COUNT(*) FROM mail /* glance:live-mail */"),
         "todo": _count(cn, "SELECT COUNT(*) FROM todo /* glance:live-todo */"),
-        "join": _count(cn, "SELECT COUNT(*) FROM `join` /* glance:live-join */"),
+        "join": _count(cn, "SELECT COUNT(*) FROM seat /* glance:live-join */"),
         "hold": _count(cn, "SELECT COUNT(*) FROM hold /* glance:live-hold */"),
         "score": _count(cn, "SELECT COUNT(*) FROM score /* glance:live-score */"),
     }

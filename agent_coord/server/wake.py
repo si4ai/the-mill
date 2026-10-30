@@ -6,12 +6,18 @@ never returned by a read, a log line or an error. The URL is https only, on a
 host in this wall's wake_hosts allowlist, never an IP literal, and every address
 it resolves to must be public. Redirects are never followed.
 
-A POST is a doorbell: one per desk until that desk connects or WAKE_WINDOW_S
-passes. Every hint and letter stays in the desk's push queue as missed either
-way, so the woken desk's mill connect sync hands over all of them and its
-redirector chain walks each one there (the same walk as a /ws hint). Items
-held back by the window ring once more at its end when the desk has still not
-connected (#669, the trailing POST), so a burst is never left asleep.
+A POST is a doorbell, and it takes a wake lease for that desk (F144): one
+woken run at a time. A connect sync does not end the lease (a routine run
+connects once per shell call); the run ends it with `mill wake-done [--note TEXT]`,
+or it lapses after lease_s() seconds (wake_lease_s, default 900) when the run
+crashed or its client predates done. While it is held, new items post nothing.
+Every hint and letter stays in the desk's push queue as missed either way, so
+a woken desk's mill connect sync hands over all of them and its redirector
+chain walks each one there (the same walk as a /ws hint). Items held back by
+the lease ring exactly once more when it ends (#669, the trailing POST) with
+pending_count and the run's note, unless the run already read them all, so a
+burst is never left asleep and never starts overlapping runs. The queue-until-
+done design follows the grokbot-wake-relay repo.
 """
 from __future__ import annotations
 
@@ -32,7 +38,7 @@ def wake_url() -> str:
         return (os.environ.get("AGENT_COORD_WAKE_URL") or "").strip()
 
 
-def _log_hook_fail(desk: str, hint_id: int | None, *, status: int | None = None, exc_type: str = "") -> None:
+def _log_hook_fail(desk: str, hint_id: int | None, *, status: int | None = None, exc_type: str = "", why: str = "") -> None:
     """One failure line. Desk and hint id when the caller has them. Never the endpoint URL."""
     parts = ["webhook fail"]
     if desk:
@@ -41,6 +47,8 @@ def _log_hook_fail(desk: str, hint_id: int | None, *, status: int | None = None,
         parts.append(f"id={hint_id}")
     if status is not None:
         parts.append(f"status={int(status)}")
+        if why:
+            parts.append(f'why="{why}"')
     else:
         parts.append(f"err={exc_type or 'Exception'}")
     line = " ".join(parts)
@@ -50,6 +58,53 @@ def _log_hook_fail(desk: str, hint_id: int | None, *, status: int | None = None,
         _bc_log(line)
     except Exception:
         return
+
+
+_WHY_KEYS = ("error", "message", "detail", "reason")
+WHY_MAX = 120
+
+
+def _why(raw: bytes, *, url: str = "", key: str | None = None) -> str:
+    """#838: the receiver's short reason for a non-2xx answer, safe for a log line or
+    a letter: the error/message/detail/reason field of a JSON body, else the text;
+    one line, at most WHY_MAX chars, no URL, no key, no quotes."""
+    import re
+
+    try:
+        text = (raw or b"").decode("utf-8", "replace")
+    except Exception:
+        return ""
+    try:
+        got = json.loads(text)
+        while isinstance(got, dict):
+            nxt = next((got[k] for k in _WHY_KEYS if got.get(k) not in (None, "")), None)
+            if nxt is None:
+                break
+            got = nxt
+        if isinstance(got, (str, int, float)):
+            text = str(got)
+    except ValueError:
+        pass
+    secret = (key or "").strip()
+    if secret:
+        text = text.replace(secret, "<key>")
+    if url:
+        text = text.replace(url, "<url>")
+        # A receiver may echo only the path (with its query): drop that too.
+        from urllib.parse import urlsplit
+
+        path = urlsplit(url).path
+        if len(path) > 1:
+            text = re.sub(re.escape(path) + r"\S*", "<path>", text)
+    text = re.sub(r"https?://\S+", "<url>", text)
+    try:
+        from agent_coord.server.redact import redact_secrets
+
+        text = redact_secrets(text)
+    except Exception:
+        pass
+    text = " ".join(text.replace('"', "'").split())
+    return text[:WHY_MAX]
 
 
 def _open(req, timeout: float):
@@ -95,18 +150,26 @@ def _post_status(
         if secret and mangled in req.headers:
             req.headers["X-Automation-Key"] = req.headers.pop(mangled)
         with _open(req, timeout) as resp:
-            resp.read(256)
+            got = resp.read(256)
             status = getattr(resp, "status", None)
             if status is None:
                 status = getattr(resp, "code", None)
             status = 200 if status is None else int(status)
-            if not 200 <= status <= 299 and not quiet:
-                _log_hook_fail(desk, hint_id, status=status)
-            return status, ""
+            if 200 <= status <= 299:
+                return status, ""
+            why = _why(got if isinstance(got, bytes) else b"", url=u, key=secret)
+            if not quiet:
+                _log_hook_fail(desk, hint_id, status=status, why=why)
+            return status, why
     except urllib.error.HTTPError as e:
+        # #838: keep the receiver's reason (it was dropped, so 168 x 400 said nothing).
+        try:
+            why = _why(e.read(512) or b"", url=u, key=(key or "").strip())
+        except Exception:
+            why = ""
         if not quiet:
-            _log_hook_fail(desk, hint_id, status=int(e.code))
-        return int(e.code), ""
+            _log_hook_fail(desk, hint_id, status=int(e.code), why=why)
+        return int(e.code), why
     except Exception as e:
         if not quiet:
             _log_hook_fail(desk, hint_id, exc_type=type(e).__name__)
@@ -157,8 +220,10 @@ def fire_wake_hook(
 # --- desk webhook wake (#618) ------------------------------------------------
 
 WAKE_HOSTS_DEFAULT = "api2.cursor.sh/automations/webhook/"
-# One POST per desk until it connects or this many seconds pass.
-WAKE_WINDOW_S = 120.0
+# F144: the default wake lease. One POST per desk until its run says done or
+# this many seconds pass (wake_lease_s or AGENT_COORD_WAKE_LEASE_S overrides).
+WAKE_WINDOW_S = 900.0
+NOTE_MAX = 500
 WAKE_TIMEOUT_S = 8.0
 KEY_MAX = 512
 URL_MAX = 512
@@ -166,6 +231,25 @@ URL_MAX = 512
 
 class WakeRefused(ValueError):
     """A wake input refused before anything is stored. The text never holds the key."""
+
+
+def lease_s() -> float:
+    """F144: seconds a wake lease lasts without a done. wake_lease_s in the wall
+    config, else AGENT_COORD_WAKE_LEASE_S, else WAKE_WINDOW_S. A bad value is the default."""
+    raw: Any = None
+    try:
+        from agent_coord.config import settings
+
+        raw = settings().get("wake_lease_s")
+    except Exception:
+        raw = None
+    if raw in (None, ""):
+        raw = os.environ.get("AGENT_COORD_WAKE_LEASE_S") or ""
+    try:
+        got = float(raw)
+    except (TypeError, ValueError):
+        return WAKE_WINDOW_S
+    return got if got > 0 else WAKE_WINDOW_S
 
 
 def wake_hosts() -> list[tuple[str, str]]:
@@ -387,6 +471,9 @@ def wake_body(
     roster: str = "",
     reason: str | None = None,
     room: str | None = None,
+    pending_count: int = 0,
+    last_note: str | None = None,
+    lease: str | None = None,
 ) -> dict[str, Any]:
     """The POST body: the same frame a sitting desk gets on /ws (with its poke key, idem),
     trimmed to the keys the redirector walk reads, plus one wake block. No letter or card text.
@@ -394,6 +481,9 @@ def wake_body(
     #627: roster sits next to desk, so a receiver that routes many desks (a room
     barker) knows the target. wake.reason is addressed or room (null on the join
     test); wake.room is the room name, or null off a room.
+
+    F144: pending_count is how many items the last lease held back (0 on a
+    fresh wake); last_note is the note the last run left with mill wake-done, or null.
     """
     from agent_coord.server.mill_json import stamp_mill
 
@@ -410,12 +500,17 @@ def wake_body(
         "reason": None if test else (reason or ADDRESSED),
         "room": None if test else (room or None),
         "pending": int(pending),
-        "window_s": int(WAKE_WINDOW_S),
+        "pending_count": 0 if test else int(pending_count),
+        "last_note": None if test else (last_note or None),
+        "lease": None if test else (lease or None),
+        "window_s": int(lease_s()),
         "next": (
             "nothing to do: this is the join test"
             if test
-            else f"mill connect {desk}: the sync line hands over every waiting hint and letter, "
-            "and this desk's routes walk them"
+            else f"mill connect -r {desk}: the sync line hands over every waiting hint and letter, "
+            "and this desk's routes walk them. A busy answer means another session has the seat "
+            "and gets these letters: stop. Last step of the run: mill wake-done --lease LEASE --note TEXT "
+            "(LEASE is wake.lease; one wake at a time; letters that came meanwhile ring once after it)"
         ),
     }
     return stamp_mill(body)
@@ -469,20 +564,37 @@ def test_fire(url: str, key: str, desk: str, *, roster: str = "") -> dict[str, A
     return out
 
 
+# F144: desk -> the time its wake lease started. This wall serves one office
+# (one book), so a seat in two offices holds two independent leases.
 _GATE: dict[str, float] = {}
 _GATE_LOCK = threading.Lock()
-# #669: desk -> the window its coalesced items belong to (the gate time) and the
-# latest of them, for the one trailing POST at that window's end.
+# #669: desk -> the lease its held-back items belong to (the gate time), the
+# latest of them and the distinct item keys, for the one trailing POST.
 _TRAIL: dict[str, dict[str, Any]] = {}
+# F144: desk -> the note its last run left with mill wake-done, for the next wake.
+_NOTE: dict[str, str] = {}
+# F144b (card 888): desk -> the token of its current lease, sent as wake.lease;
+# mill wake-done --lease TOKEN ends only that lease.
+_EPOCH: dict[str, str] = {}
+
+
+def _new_lease(desk: str, now: float) -> str:
+    """Start a lease and return its id. Caller holds _GATE_LOCK."""
+    import uuid
+
+    token = uuid.uuid4().hex[:12]
+    _GATE[desk] = now
+    _EPOCH[desk] = token
+    return token
 
 
 def _gate_take(desk: str, now: float) -> bool:
-    """True when this desk may be POSTed now; then the window starts."""
+    """True when this desk may be POSTed now; then the lease starts."""
     with _GATE_LOCK:
         last = _GATE.get(desk)
-        if last is not None and now - last < WAKE_WINDOW_S:
+        if last is not None and now - last < lease_s():
             return False
-        _GATE[desk] = now
+        _new_lease(desk, now)
         return True
 
 
@@ -490,15 +602,27 @@ def _gate_open(desk: str, now: float) -> bool:
     """True when no window is running for this desk. Takes nothing."""
     with _GATE_LOCK:
         last = _GATE.get(desk)
-        return last is None or now - last >= WAKE_WINDOW_S
+        return last is None or now - last >= lease_s()
 
 
 def gate_clear(desk: str) -> None:
-    """The desk connected: its sync has the queue, so the next hint may wake it again."""
+    """Drop the desk's lease and held-back items with no trailing POST (an Admin
+    reset, a test). A connect sync no longer calls this (F144): mill wake-done does."""
     d = str(desk or "").strip()
     with _GATE_LOCK:
         _GATE.pop(d, None)
+        _EPOCH.pop(d, None)
         _TRAIL.pop(d, None)
+
+
+def lease_synced(desk: str) -> None:
+    """F144: a connect sync handed over the queue. The lease stays held; the
+    items it held back so far were delivered, so pending_count starts again."""
+    d = str(desk or "").strip()
+    with _GATE_LOCK:
+        t = _TRAIL.get(d)
+        if t is not None:
+            t["keys"] = set()
 
 
 def _schedule(delay: float, fn, *args) -> None:
@@ -515,33 +639,80 @@ def _book():
     return connect()
 
 
-def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None) -> None:
-    """Remember an item the window held back. The first one in a window schedules
-    the window-end check (#669); later ones only update the latest item."""
+def _item_key(frame: dict[str, Any], hint_id: int | None) -> str:
+    """One key per item, so a repeated item counts once in pending_count (F144)."""
+    idem = str(frame.get("idem") or "").strip()
+    if idem:
+        return idem
+    ident = hint_id if hint_id is not None else frame.get("id")
+    return f"{frame.get('kind') or ''}:{frame.get('type') or ''}:{ident}"
+
+
+def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | None,
+                 reason: str, room: str | None) -> float | None:
+    """Caller holds _GATE_LOCK. When a live lease is held, record the item under
+    it and return the lease start if this is its first held-back item (the
+    caller schedules the lease-end check), else -1.0. None: no live lease."""
+    at = _GATE.get(desk)
+    if at is None or now - at >= lease_s():
+        return None
+    t = _TRAIL.get(desk)
+    first = t is None or t.get("at") != at
+    if first:
+        t = _TRAIL[desk] = {"at": at, "reason": reason, "keys": set()}
+    elif reason == ADDRESSED:
+        t["reason"] = ADDRESSED  # #627: the burst is addressed when any item is
+    t["keys"].add(_item_key(frame, hint_id))
+    t.update(frame=dict(frame), hint_id=hint_id, room=room)
+    return at if first else -1.0
+
+
+def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
+                  *, take: bool) -> str | None:
+    """One lock hold (F144a, card 887). A live lease: record the item it holds back
+    and return "" (the first one in a lease schedules the lease-end check, #669).
+    No live lease: None, or with take=True start a lease in the same hold and
+    return its id, which the caller puts on its POST as is (F144b: never read
+    _EPOCH again, a done or a newer take may have changed it since)."""
     import time
 
+    now = time.monotonic()
     with _GATE_LOCK:
-        at = _GATE.get(desk)
-        if at is None:
-            return
-        t = _TRAIL.get(desk)
-        first = t is None or t.get("at") != at
-        if first:
-            t = _TRAIL[desk] = {"at": at, "reason": reason}
-        elif reason == ADDRESSED:
-            t["reason"] = ADDRESSED  # #627: the burst is addressed when any item is
-        t.update(frame=dict(frame), hint_id=hint_id, room=room)
-    if first:
-        _schedule(at + WAKE_WINDOW_S - time.monotonic(), trail, desk, at)
+        first = _hold_locked(desk, now, frame, hint_id, reason, room)
+        if first is None:
+            return _new_lease(desk, now) if take else None
+    if first >= 0:
+        _schedule(first + lease_s() - time.monotonic(), trail, desk, first)
+    return ""
+
+
+def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None) -> bool:
+    """True when a live lease held the item back (recorded in the same lock hold
+    as the check, so a wake-done can never land between them; F144a)."""
+    return _hold_or_take(desk, frame, hint_id, reason, room, take=False) == ""
+
+
+def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
+    """The one trailing POST for a lease's held-back items (F144). none when the
+    run's own connect syncs already took every waiting row (nothing to wake for)."""
+    from agent_coord.server.records import push as rec_push
+
+    waiting = rec_push.pending(cn, desk)
+    if waiting <= 0:  # the run's own syncs took every row
+        _bc_log_safe(f"webhook desk={desk} wake=none reason=drained held={len(t.get('keys') or ())}")
+        return "none"
+    return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
+                     reason=t.get("reason") or ADDRESSED, room=t.get("room"),
+                     trailing=why, pending_count=len(t.get("keys") or ()) or waiting)
 
 
 def trail(desk: str, at: float) -> str:
-    """Window end (#669): one trailing POST when items were coalesced in the window
-    that started at `at` and the desk has not connected since. sent | error | none.
+    """Lease end with no done (#669, F144): one trailing POST when items were held
+    back in the lease that started at `at`. sent | error | none.
 
-    none: the desk connected (gate_clear dropped the window), or a later POST
-    already took a new window and woke it. The trailing POST takes a window of
-    its own, so items after it coalesce and get at most one more POST.
+    none: the run said done (lease_done sent the trailing POST), a later POST
+    already took a new lease, or the run read every item itself. The trailing
+    POST takes a lease of its own, so items after it get at most one more POST.
     """
     with _GATE_LOCK:
         t = _TRAIL.get(desk)
@@ -550,14 +721,14 @@ def trail(desk: str, at: float) -> str:
         _TRAIL.pop(desk, None)
         if _GATE.get(desk) != at:
             return "none"
-        _GATE.pop(desk, None)  # this window is over; post_desk takes the next one
+        _GATE.pop(desk, None)  # this lease is over; post_desk takes the next one
+        _EPOCH.pop(desk, None)
     cn = None
     try:
         cn = _book()
-        return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
-                         reason=t.get("reason") or ADDRESSED, room=t.get("room"), trailing=True)
+        return _send_trailing(cn, desk, t, "lease-expired")
     except Exception as e:
-        _wake_log(desk, t.get("frame") or {}, t.get("hint_id"), f"fail err={type(e).__name__} reason=trailing")
+        _wake_log(desk, t.get("frame") or {}, t.get("hint_id"), f"fail err={type(e).__name__} reason=lease-expired")
         return "error"
     finally:
         if cn is not None:
@@ -565,6 +736,62 @@ def trail(desk: str, at: float) -> str:
                 cn.close()
             except Exception:
                 pass
+
+
+def _clean_note(raw: Any) -> str:
+    """One line, at most NOTE_MAX characters, secrets redacted."""
+    text = " ".join(str(raw or "").split())
+    try:
+        from agent_coord.server.redact import redact_secrets
+
+        text = redact_secrets(text)
+    except Exception:
+        pass
+    return text[:NOTE_MAX]
+
+
+def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
+    """mill wake-done (F144): the woken run is finished. Ends this desk's lease; when
+    items were held back and still wait, sends exactly one trailing wake with
+    pending_count and the note. sent | error | none | stale. A second done is a no-op.
+
+    lease (F144b, card 888): the wake.lease token the run was woken with. A token
+    that is not the current lease's is a stale done (a run that outlived its
+    lease): it keeps its note for the next wake, unless a newer one waits, and
+    ends nothing. No token (an older client) ends the current lease."""
+    import time
+
+    d = str(desk or "").strip()
+    text = _clean_note(note)
+    token = str(lease or "").strip()
+    now = time.monotonic()
+    with _GATE_LOCK:
+        if token and token != _EPOCH.get(d):
+            if text and d not in _NOTE:
+                _NOTE[d] = text
+            stale = True
+        else:
+            stale = False
+            at = _GATE.pop(d, None)
+            _EPOCH.pop(d, None)
+            t = _TRAIL.pop(d, None)
+            if text:
+                _NOTE[d] = text
+    if stale:
+        _bc_log_safe(f"webhook desk={d} wake=done stale=yes note={'yes' if text else 'no'}")
+        return "stale"
+    if t is not None and t.get("at") != at:
+        t = None
+    held = len((t or {}).get("keys") or ())
+    age = f"{now - at:.0f}" if at is not None else "none"
+    _bc_log_safe(f"webhook desk={d} wake=done held_s={age} queued={held} note={'yes' if text else 'no'}")
+    if not t:
+        return "none"
+    try:
+        return _send_trailing(cn, d, t, "trailing")
+    except Exception as e:
+        _wake_log(d, t.get("frame") or {}, t.get("hint_id"), f"fail err={type(e).__name__} reason=trailing")
+        return "error"
 
 
 def _wake_log(desk: str, frame: dict[str, Any], hint_id: int | None, outcome: str) -> None:
@@ -581,6 +808,74 @@ def _wake_log(desk: str, frame: dict[str, Any], hint_id: int | None, outcome: st
         return
 
 
+# #838: desk -> its current run of failed wakes {n, since, status, why, host}.
+# Server memory only: a restart forgets it, and the next failing wake starts again.
+_FAILS: dict[str, dict[str, Any]] = {}
+_FAILS_LOCK = threading.Lock()
+FAIL_ALERT_N = 3
+
+
+def _fail_run(cn, desk: str, status: int | None, err: str, host: str) -> None:
+    """Count one failed wake. At FAIL_ALERT_N in a row: one Admin letter for this run."""
+    import datetime as _dt
+
+    now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    with _FAILS_LOCK:
+        run = _FAILS.setdefault(desk, {"n": 0, "since": now})
+        run["n"] += 1
+        run.update(status=status, err=err)
+        n = run["n"]
+        since = run["since"]
+    if n != FAIL_ALERT_N:
+        return
+    answer = _answer(status, err)
+    _bc_log_safe(f"webhook desk={desk} failing n={n} since={since}")
+    try:
+        from agent_coord.server.push import mill_admin_alert
+
+        mill_admin_alert(
+            cn,
+            f"Webhook wakes for desk {desk} are failing: {n} in a row since {since}, last answer {answer}. "
+            f"Its letters stay queued and reach it on its next mill connect. {_fix_for(status, err, host)}.",
+            command="wake",
+        )
+    except Exception:
+        return
+
+
+def _answer(status: int | None, err: str) -> str:
+    """'400 (reason)' for an HTTP answer, else the error type."""
+    if status is None:
+        return err or "error"
+    return f"{status} ({err})" if err else f"{status}"
+
+
+def _fail_clear(desk: str) -> None:
+    with _FAILS_LOCK:
+        _FAILS.pop(desk, None)
+
+
+def fail_note(desk: str) -> str:
+    """'' or the desk's failing run, for its connect sync wake line (#838)."""
+    with _FAILS_LOCK:
+        run = dict(_FAILS.get(str(desk or "").strip()) or {})
+    if not run:
+        return ""
+    last = _answer(run.get("status"), str(run.get("err") or ""))
+    n = int(run["n"])
+    return (f"failing: {n} wake{'' if n == 1 else 's'} in a row since {run['since']}, last {last}; "
+            "letters wait for mill connect")
+
+
+def _bc_log_safe(line: str) -> None:
+    try:
+        from agent_coord.server.push import _bc_log
+
+        _bc_log(line)
+    except Exception:
+        return
+
+
 def post_desk(
     cn,
     desk: str,
@@ -589,18 +884,25 @@ def post_desk(
     hint_id: int | None = None,
     reason: str = ADDRESSED,
     room: str | None = None,
-    trailing: bool = False,
+    trailing: str = "",
+    ring: str = "",
+    pending_count: int = 0,
 ) -> str:
     """Wake an armed desk that is not sitting. sent | coalesced | skipped | error | off.
 
-    trailing (#669): the window-end POST for items this window held back; every
-    item is already in the queue, so pending is the queue size, and the log line
-    ends reason=trailing.
+    ring (#832): why a wake with no new item went out (leave: the last socket left
+    with rows it never got live; unsent: a live frame found no socket). The log
+    line ends reason=RING.
+
+    trailing (#669, F144): trailing (after mill wake-done) or lease-expired: the one
+    POST for items the lease held back; every item is already in the queue, so
+    pending is the queue size, pending_count the distinct items held back, and
+    the log line ends reason=TRAILING.
 
     skipped (#628): a room-only item for a desk armed with --wake-on addressed.
 
-    coalesced: a wake already went out in this window and the desk has not
-    connected since; the item waits in the push queue like every other one.
+    coalesced: a wake already went out and its lease is held (no done, not timed
+    out); the item waits in the push queue like every other one.
     Every outcome but off logs one line (#625): sent with the status, coalesced
     or skipped with the reason, fail with the status or error type.
     """
@@ -617,10 +919,10 @@ def post_desk(
         # the queue for its next connect; no window is taken.
         _wake_log(desk, frame, hint_id, "skipped reason=room-only")
         return "skipped"
-    if not _gate_open(desk, time.monotonic()):
-        # A wake already went out in this window: skip the checks and the DNS lookup.
-        _wake_log(desk, frame, hint_id, "coalesced reason=window")
-        _coalesced(desk, frame, hint_id, reason, room)
+    if _coalesced(desk, frame, hint_id, reason, room):
+        # A wake already went out and its lease is live: skip the checks and the DNS
+        # lookup. Checked and recorded in one lock hold (F144a, card 887).
+        _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
     try:
         url, host = check_url(url)
@@ -632,25 +934,37 @@ def post_desk(
         return "error"
     # The window starts only for a POST that is actually attempted: a refused or
     # unresolvable target takes no gate, so it never blocks the next valid wake.
-    # Taken here (not peeked) so two threads racing past the peek send one POST.
-    if not _gate_take(desk, time.monotonic()):
-        _wake_log(desk, frame, hint_id, "coalesced reason=window")
-        _coalesced(desk, frame, hint_id, reason, room)
+    # Taken here (not peeked) so two threads racing past the peek send one POST;
+    # the loser is recorded under the winner's lease in the same hold (card 887).
+    lease = _hold_or_take(desk, frame, hint_id, reason, room, take=True)
+    if not lease:
+        _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
     from agent_coord.server.records import push as rec_push
 
-    # A live item is queued after this call; a trailing POST's items are all queued.
-    pending = rec_push.pending(cn, desk) + (0 if trailing else 1)
+    # #832: every item is queued before this call, so pending is the queue size.
+    pending = rec_push.pending(cn, desk)
     # #627: a coalesced burst is addressed when any waiting item is addressed.
     if reason != ADDRESSED and rec_push.pending_addressed(cn, desk):
         reason = ADDRESSED
-    body = wake_body(desk, frame, pending=pending, roster=desk_roster(cn, desk), reason=reason, room=room)
+    with _GATE_LOCK:
+        note = _NOTE.get(desk)
+    body = wake_body(desk, frame, pending=pending, roster=desk_roster(cn, desk), reason=reason, room=room,
+                     pending_count=pending_count, last_note=note, lease=lease)
     status, err = _fire(url, body,
                         timeout=WAKE_TIMEOUT_S, key=key, desk=desk, hint_id=hint_id, quiet=True)
-    tag = " reason=trailing" if trailing else ""
+    tag = f" reason={trailing}" if trailing else (f" reason={ring}" if ring else "")
     if status is not None and 200 <= status <= 299:
+        if note is not None:
+            with _GATE_LOCK:
+                if _NOTE.get(desk) == note:
+                    _NOTE.pop(desk, None)  # the note rode this wake
+        _fail_clear(desk)
         _wake_log(desk, frame, hint_id, f"sent status={status}{tag}")
         return "sent"
     why = f"status={status}" if status is not None else f"err={err or 'Exception'}"
+    if status is not None and err:
+        why += f' why="{err}"'
     _wake_log(desk, frame, hint_id, f"fail {why}{tag}")
+    _fail_run(cn, desk, status, err, host)
     return "error"

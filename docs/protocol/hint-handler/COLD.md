@@ -43,4 +43,4 @@ The shell then exits and the trap stops this connect. Leave every other connect 
 
 Reply with the remembered evidence line.
 
-`join:JOIN` and `heartbeat:PING` are dropped on receive. Do not arm them.
+`doing:DOING` and `heartbeat:PING` are dropped on receive. Do not arm them.

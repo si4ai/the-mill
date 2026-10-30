@@ -27,7 +27,7 @@ RECIPES = [
     ("todo", "TODO", "need,status,assigned"),
     ("hold", "HOLD", "resource,desk"),
     ("score", "SCORE", "kpi,value,target"),
-    ("join", "JOIN", "session"),
+    ("doing", "DOING", "session"),
     ("name", "NAME", "slug"),
 ]
 

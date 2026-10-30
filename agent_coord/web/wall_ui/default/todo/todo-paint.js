@@ -335,9 +335,9 @@
         const open = !!_todoDetailId && !!path[detailKey] && !!path[key];
         const shrunk = todoStatusCollapsed(st) && !open;
         const rowFace = todoTreeCardRow(d, n);
-        const doingFull = rowFace ? String(rowFace.doing || "").trim() : "";
+        /* #818: cards have no title; the body line is the card's detail. */
         const detailFull = rowFace ? String(rowFace.detail || "").trim() : "";
-        const bodyLine = doingFull || detailFull || p.title;
+        const bodyLine = detailFull || p.title;
         const note = detailFull && detailFull !== bodyLine ? detailFull : "";
         const asker = rowFace ? todoTreeDesk(rowFace.creator || rowFace.asker || rowFace.src || "") : "";
         const holder = rowFace
@@ -355,7 +355,9 @@
               (note ? `<span class="todo-card-note">${esc(note)}</span>` : "") +
               (nid ? `<span class="todo-tree-id"><code>${esc(nid)}</code></span>` : "") +
               (asker ? `<span class="todo-tree-field"><span>asker</span> <b>${esc(asker)}</b></span>` : "") +
-              (holder ? `<span class="todo-tree-field"><span>holder</span> <b>${esc(holder)}</b></span>` : "")
+              (holder ? `<span class="todo-tree-field"><span>holder</span> <b>${esc(holder)}</b></span>` : "") +
+              (rowFace ? wallClaimedSlot(rowFace) : "") +
+              (n.id ? wallDoingTrailSlot("todo-" + String(n.id)) : "")
             : `<span class="st">${esc(st)}</span><b>${esc(p.title)}</b>`);
         const html = `<button type="button" class="todo-tree-card st-${esc(st)}${on}${shrunk ? " is-collapsed" : ""}${open ? " is-open" : ""}" data-plan="${esc(forest.planId)}" data-type="todo" data-id="${esc(String(n.id || ""))}" data-has-children="${todoTreeHasKidsHint(n) ? "1" : "0"}" title="${esc(open ? bodyLine : p.title)}">` +
           face + `</button>`;
@@ -630,6 +632,7 @@
         _todoTreeChainOpen = true;
         const has = card.getAttribute("data-has-children") === "1";
         if (window._floor) paintPlan(window._floor);
+        try { wallDoingTrail(); } catch (eTrail) {}
         const found = todoTreeFindNode(window._floor, planId, id);
         let cur = found && found.node;
         const seenOpen = {};
@@ -793,4 +796,88 @@
       }
       listEl.innerHTML = rows.map(issueCard).join("");
     }
+
+    /* Moved out of boot.js with the pane (#872, wall-contract rule-lazy-panes). */
+    function millPlanRowFace(label, rootPayload, root) {
+      const p = rootPayload || {};
+      const title = String(p.title || "").replace(/\s+/g, " ").trim();
+      const name = String(label || "").trim();
+      if (name) return { head: name, line: title, full: name };
+      if (title) {
+        const bits = [String(p.status || "").trim(), String(p.who || "").trim()].filter(Boolean);
+        /* The plans column is narrow: keep the head to about two lines. */
+        const head = title.length > 64 ? (title.slice(0, 63).replace(/\s+\S*$/, "") + "\u2026") : title;
+        return { head: head, line: bits.join(" | "), full: title };
+      }
+      const id = root && root.id != null && String(root.id) !== "" ? String(root.id) : "";
+      const head = id ? ("card " + id) : "plan";
+      return { head: head, line: String(p.status || "").trim(), full: head };
+    }
+    function wallFindTodoRow(id) {
+      const d = window._floor || {};
+      const want = String(id);
+      const pools = [d.needs, d.issues, d.on_it];
+      for (let p = 0; p < pools.length; p++) {
+        const arr = pools[p];
+        if (!Array.isArray(arr)) continue;
+        for (let i = 0; i < arr.length; i++) {
+          if (String(arr[i] && arr[i].id) === want) return arr[i];
+        }
+      }
+      return null;
+    }
+    function wallMergeTodoDetail(full) {
+      if (!full || full.id == null) return false;
+      const d = window._floor;
+      if (!d) return false;
+      const want = String(full.id);
+      const keys = ["needs", "issues", "on_it"];
+      let hit = false;
+      for (let p = 0; p < keys.length; p++) {
+        const arr = d[keys[p]];
+        if (!Array.isArray(arr)) continue;
+        for (let i = 0; i < arr.length; i++) {
+          if (String(arr[i] && arr[i].id) !== want) continue;
+          const merged = Object.assign({}, arr[i], full);
+          delete merged.detail_trunc;
+          arr[i] = merged;
+          hit = true;
+        }
+      }
+      if (!hit) {
+        if (!Array.isArray(d.needs)) d.needs = [];
+        const row = Object.assign({}, full);
+        delete row.detail_trunc;
+        d.needs.push(row);
+      }
+      return true;
+    }
+    async function wallOpenTodoIfTrunc(id) {
+      const tid = String(id || "").trim();
+      if (!tid) return false;
+      const row = wallFindTodoRow(tid);
+      if (row && !wallTodoIsTrunc(row)) return false;
+      const key = "todo:" + tid;
+      if (_wallLeanDetailInflight[key]) return _wallLeanDetailInflight[key];
+      const p = (async function () {
+        try {
+          const r = await fetch("/api/v1/todo/" + encodeURIComponent(tid), { cache: "no-store" });
+          if (!r.ok) return false;
+          const json = await r.json();
+          const full = json && json.todo;
+          if (!full) return false;
+          if (!wallMergeTodoDetail(full)) return false;
+          try { board(window._floor); } catch (ePaint) {}
+          try { paintPlan(window._floor); } catch (ePlan) {}
+          return true;
+        } catch (eFetch) {
+          return false;
+        } finally {
+          delete _wallLeanDetailInflight[key];
+        }
+      })();
+      _wallLeanDetailInflight[key] = p;
+      return p;
+    }
+
 var WALL_UI_DEFAULT_TODO_PAINT = "WALL_UI_DEFAULT_TODO_PAINT";

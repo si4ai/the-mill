@@ -4,6 +4,10 @@
 # JSON file or the API. No workflow expression puts event text into a shell
 # line. Same rules as the commit-message scan, read-only token, no secrets,
 # checkout pinned to a full SHA, system Python, nothing installed.
+# No review events (#823, F122): a review by a bot (Copilot's automatic review,
+# even one that fails on quota) starts a run GitHub holds for a maintainer's
+# approval, and a bot review must never hold or delay a merge. The sweep reads
+# every review body and review comment instead.
 name: pr_text
 
 on:
@@ -13,10 +17,6 @@ on:
     types: [opened, edited]
   issue_comment:
     types: [created, edited]
-  pull_request_review_comment:
-    types: [created, edited]
-  pull_request_review:
-    types: [submitted, edited]
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:

@@ -21,7 +21,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_prev = (
@@ -41,7 +41,7 @@ BEGIN
   IF v_n > 0 THEN
     UPDATE activity SET updated = v_ts WHERE type = 'mail' AND id = p_mail;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_mail AS id, v_ts AS updated, p_mail AS mail_id, v_desk AS desk_id, v_n AS n,
          v_receipt AS receipt, v_ts AS opened,
          IF(v_prev IS NULL AND v_n > 0 AND v_receipt <> 0, 1, 0) AS push_receipt,
@@ -50,28 +50,6 @@ BEGIN
     JOIN name sn ON sn.id = m.desk_id
     LEFT JOIN name dn ON dn.id = v_desk
    WHERE m.id = p_mail;
-END //
-
-CREATE PROCEDURE mill_opened_insert(
-  IN p_mail BIGINT UNSIGNED,
-  IN p_desk VARCHAR(64)
-)
-BEGIN
-  CALL mill_mail_open(p_mail, p_desk);
-END //
-
-CREATE PROCEDURE mill_opened_select(
-  IN p_mail BIGINT UNSIGNED,
-  IN p_desk VARCHAR(64)
-)
-BEGIN
-  SELECT 'mail' AS type, t.id, t.created, t.opened AS updated, t.desk_id AS desk_id,
-         t.id AS mail_id, 1 AS n, dn.name AS desk, dn.type AS desk_type
-    FROM mail_to t
-    LEFT JOIN name dn ON dn.id = t.desk_id
-   WHERE t.opened IS NOT NULL
-     AND (p_mail IS NULL OR p_mail = 0 OR t.id = p_mail)
-     AND (p_desk IS NULL OR p_desk = '' OR t.desk_id = MILL_NAME_GET('desk', p_desk));
 END //
 
 DELIMITER ;

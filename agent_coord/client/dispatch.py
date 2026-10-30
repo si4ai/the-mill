@@ -123,7 +123,7 @@ def dispatch_hint(desk: str, msg: dict[str, Any], *, replay: bool = False) -> st
     work: a redirector handled the frame. The vendor does not run.
     wake: every redirector returned next. Vendor poke.
     suppress: an empty route value stopped the chain.
-    skip: PING, a JOIN with no route (chart: ignore, no vendor poke),
+    skip: PING, a DOING with no route (chart: ignore, no vendor poke),
     a repeated idempotency key, or this desk's HINT filter file (want) said no.
     The idempotency key is checked before the chain. PING never enters it.
     Each return appends one hint.dispatch line to mill-perf.log.
@@ -152,7 +152,7 @@ def dispatch_hint(desk: str, msg: dict[str, Any], *, replay: bool = False) -> st
         return finish("work", session_vendor() or "")
     if decision == "suppress":
         return finish("suppress")
-    if hint == "JOIN":
+    if hint == "DOING":
         return finish("skip")
     if replay:
         return finish("left")

@@ -230,3 +230,16 @@ def test_health_503_when_the_book_is_down(monkeypatch) -> None:
         "ok": False,
         "error": "book unavailable",
     }
+
+
+def test_deadlock_and_lock_wait_retry_by_code_whatever_the_class() -> None:
+    """#818: the connector raises InternalError for 1213 and DatabaseError for 1205."""
+    from mysql.connector import errors
+
+    dead = errors.get_mysql_exception(1213, "Deadlock found", "40001")
+    wait = errors.get_mysql_exception(1205, "Lock wait timeout exceeded", "HY000")
+    assert type(dead).__name__ == "InternalError" and type(wait).__name__ == "DatabaseError"
+    assert db.retryable_db(dead) and db.retryable_db(wait)
+    assert db.retryable_db(errors.DatabaseError("x", errno=1213))
+    assert not db.retryable_db(errors.DatabaseError("x", errno=1146))
+    assert not db.retryable_db(errors.IntegrityError("Duplicate entry 'a'", errno=1062))

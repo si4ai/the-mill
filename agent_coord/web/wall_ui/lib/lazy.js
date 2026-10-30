@@ -70,14 +70,14 @@
       modules: ["mailPaint"]
     },
     score: {
-      js: "/score/score.js?v=wow182",
-      css: "/score/score.css?v=wow238",
+      js: "/score/score.js?v=wow320",
+      css: "/score/score.css?v=wow319",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow182",
-      css: "/todo/todo.css?v=wow311",
+      js: "/todo/todo.js?v=wow320",
+      css: "/todo/todo.css?v=wow319",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -103,7 +103,7 @@
       marker: "WALL_UI_DEFAULT_GLOSSARY"
     },
     floorMap: {
-      js: "/floor/map-paint.js?v=wow280",
+      js: "/floor/map-paint.js?v=wow319",
       marker: "WALL_UI_DEFAULT_FLOOR_MAP"
     },
     adminInvite: {
@@ -111,24 +111,47 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow318",
+      js: "/mail/mail-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
     scorePaint: {
-      js: "/score/score-paint.js?v=wow317",
+      js: "/score/score-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_SCORE_PAINT",
       domain: "score"
     },
     floorPaint: {
-      js: "/floor/floor-paint.js?v=wow318",
+      js: "/floor/floor-paint.js?v=wow319",
       marker: "WALL_UI_DEFAULT_FLOOR_PAINT",
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow318",
+      js: "/todo/todo-paint.js?v=wow321",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
+    },
+    /* #872 rule-lazy-panes: pane-only code split out of boot.js; each loads on first use. */
+    deskPaint: {
+      js: "/session/desk-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_DESK_PAINT"
+    },
+    servicePaint: {
+      js: "/session/service-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_SERVICE_PAINT"
+    },
+    listsPaint: {
+      js: "/lists/lists-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_LISTS_PAINT"
+    },
+    adminMint: {
+      js: "/admin/mint-paint.js?v=wow321",
+      marker: "WALL_UI_DEFAULT_ADMIN_MINT"
+    },
+    /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
+    doingPaint: {
+      js: "/doing/doing-paint.js?v=wow319",
+      css: "/doing/doing.css?v=wow319",
+      marker: "WALL_UI_DEFAULT_DOING_PAINT"
     }
   };
 
@@ -137,6 +160,8 @@
     if (!m) return Promise.resolve(null);
     /* #710: a module's "with" list loads alongside it (one round trip, not two). */
     var withP = (m.with || []).map(function (w) { return ensureModule(w); });
+    /* A module's own CSS loads beside it; a missing sheet is non-fatal. */
+    if (m.css) withP.push(loadCss(m.css).catch(function () {}));
     if (global[m.marker]) return Promise.all(withP).then(function () { return m.marker; });
     return Promise.all([loadScript(m.js)].concat(withP)).then(function () { return m.marker; });
   }

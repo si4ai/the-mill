@@ -42,10 +42,14 @@ def _shipped(cn, need):
     return book
 
 
-def _lose_asker(cn, monkeypatch):
+_NO_NAME = 2**40
+
+
+def _lose_asker(cn, monkeypatch, need):
     """The card's asker does not resolve: no asker or creator name on the row
     and no creator_id the name table answers for (the shape `_desk_slug`
-    returns "" for)."""
+    returns "" for). #867: cmd_pass reads the asker in SQL, so the row itself
+    points at a creator_id with no name (foreign key checks off for the one write)."""
     real = rpc._desk_slug
 
     def desk_slug(c, hit, *keys):
@@ -54,11 +58,39 @@ def _lose_asker(cn, monkeypatch):
         return real(c, hit, *keys)
 
     monkeypatch.setattr(rpc, "_desk_slug", desk_slug)
+    _creator(cn, need, _NO_NAME)
+
+
+def _creator(cn, need, nid):
+    cur = cn.cursor()
+    try:
+        cur.execute("SET FOREIGN_KEY_CHECKS = 0")
+        cur.execute("UPDATE todo SET creator_id = %s WHERE id = %s", (nid, rec_todo.find(cn, "unit", need)["id"]))
+        cur.execute("SET FOREIGN_KEY_CHECKS = 1")
+        cn.commit()
+    finally:
+        cur.close()
+
+
+@pytest.fixture(autouse=True)
+def _asker_back(cn):
+    """Put every lost asker back, so no row is left pointing at a missing name."""
+    yield
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "UPDATE todo SET creator_id = (SELECT id FROM name WHERE type = 'desk' AND name = %s)"
+            " WHERE creator_id = %s",
+            (ASKER, _NO_NAME),
+        )
+        cn.commit()
+    finally:
+        cur.close()
 
 
 def test_done_by_a_third_desk_is_refused_when_the_asker_is_missing(cn, monkeypatch):
     book = _shipped(cn, "p655-a")
-    _lose_asker(cn, monkeypatch)
+    _lose_asker(cn, monkeypatch, "p655-a")
     assert _ask(cn, "p655-a") == ""
     with pytest.raises(CoordError) as e:
         rpc._h_pass(book, {"need": "p655-a", "step": "done"}, "unit", OTHER)
@@ -68,7 +100,7 @@ def test_done_by_a_third_desk_is_refused_when_the_asker_is_missing(cn, monkeypat
 
 def test_back_by_a_third_desk_is_refused_when_the_asker_is_missing(cn, monkeypatch):
     book = _shipped(cn, "p655-b")
-    _lose_asker(cn, monkeypatch)
+    _lose_asker(cn, monkeypatch, "p655-b")
     with pytest.raises(CoordError) as e:
         rpc._h_pass(book, {"need": "p655-b", "step": "back"}, "unit", OTHER)
     assert str(e.value).startswith("who-may: pass --back is the asker or the volunteer")
@@ -77,7 +109,7 @@ def test_back_by_a_third_desk_is_refused_when_the_asker_is_missing(cn, monkeypat
 
 def test_the_volunteer_still_finishes_when_the_asker_is_missing(cn, monkeypatch):
     book = _shipped(cn, "p655-c")
-    _lose_asker(cn, monkeypatch)
+    _lose_asker(cn, monkeypatch, "p655-c")
     assert rpc._h_pass(book, {"need": "p655-c", "step": "done"}, "unit", VOL)["status"] == "done"
     assert rpc._h_pass(book, {"need": "p655-c", "step": "back"}, "unit", VOL)["status"] == "shipped"
     assert _status(cn, "p655-c") == "shipped"

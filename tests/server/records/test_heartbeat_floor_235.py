@@ -23,7 +23,7 @@ def _set_updated(cn, desk: str, when) -> None:
     cur = cn.cursor()
     try:
         cur.execute(
-            "UPDATE `join` j JOIN name n ON n.id = j.desk_id "
+            "UPDATE seat j JOIN name n ON n.id = j.desk_id "
             "SET j.updated = %s WHERE n.type = 'desk' AND n.name = %s",
             (when, desk),
         )

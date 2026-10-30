@@ -76,7 +76,7 @@ def test_fresh_time_overrides_the_activity_time():
 def test_every_desk_acting_poke_names_its_owner():
     src = (ROOT / "agent_coord" / "server" / "api" / "mill" / "rpc.py").read_text(encoding="utf-8")
     calls = re.findall(r"^\s+_poke(?:_tree)?\(c, .*\)$", src, flags=re.M)
-    acting = [c for c in calls if '"join", got.get("id")' not in c]
+    acting = [c for c in calls if 'got.get("id"), "join")' not in c]
     assert acting and all("owner=owner" in c for c in acting), acting
     assert any("fresh=True" in c for c in acting)
 

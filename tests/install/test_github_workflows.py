@@ -318,8 +318,7 @@ def test_pr_text_scans_every_posted_text_read_only() -> None:
     text = (WF / "pr_text.yml").read_text(encoding="utf-8")
     on = _on(text)
     assert "pull_request:\n    types: [opened, edited, synchronize, reopened]" in on, on
-    for ev in ("issues:", "issue_comment:", "pull_request_review_comment:", "pull_request_review:",
-               "schedule:", "workflow_dispatch:"):
+    for ev in ("issues:", "issue_comment:", "schedule:", "workflow_dispatch:"):
         assert f"\n  {ev}" in on, ev
     code = _code(WF / "pr_text.yml")
     assert "secrets." not in code and "write" not in code
@@ -328,6 +327,17 @@ def test_pr_text_scans_every_posted_text_read_only() -> None:
     assert "python3 tools/check_pr_text.py sweep" in _job(code, "sweep")
     assert "pip" not in code
 
+
+
+def test_pr_text_never_runs_on_a_review_event() -> None:
+    """F122 (#823): a review by a bot (Copilot's automatic review, even one that
+    fails on quota) starts a pr_text run GitHub holds at action_required until a
+    maintainer approves it. A bot review must never hold or delay a merge, so no
+    workflow runs on a review event; the sweep reads review text instead."""
+    for p in _workflows():
+        on = _on(p.read_text(encoding="utf-8"))
+        for ev in ("pull_request_review:", "pull_request_review_comment:"):
+            assert f"\n  {ev}" not in on, f"{p.name} runs on {ev}"
 
 def _on_block(text: str) -> str:
     return text.split("\non:\n", 1)[1].split("\n\n", 1)[0]

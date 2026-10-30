@@ -6,9 +6,6 @@ Remove those lines in the same MR as the fix.
 from __future__ import annotations
 
 GAPS: dict[str, str] = {
-    'connected project empty': '#238 gap, no card yet: connected project',
-    'connected project unknown': '#238 gap, no card yet: connected project',
-    'connected project over_length': '#238 gap, no card yet: connected project',
     'create todo parent_type bad_enum': '#238 gap, no card yet: create parent not checked',
     'create todo parent_id unknown': '#238 gap, no card yet: create parent not checked',
     'note project over_length': '#238 gap, no card yet: note project',
@@ -24,8 +21,4 @@ GAPS: dict[str, str] = {
     'score project over_length': '#238 gap, no card yet: score project',
     'score name unknown': '#238 gap, no card yet: score name',
     'score name over_length': '#238 gap, no card yet: score name',
-    'doing project empty': '#238 gap, no card yet: doing project',
-    'doing project unknown': '#238 gap, no card yet: doing project',
-    'doing project over_length': '#238 gap, no card yet: doing project',
-    'doing doing over_length': '#238 gap, no card yet: doing doing',
 }

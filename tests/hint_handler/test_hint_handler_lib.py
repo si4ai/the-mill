@@ -1,4 +1,4 @@
-"""HINT receiver lib: parse, ignore PING/JOIN, leftovers without board dump."""
+"""HINT receiver lib: parse, ignore PING/DOING, leftovers without board dump."""
 from __future__ import annotations
 
 import io
@@ -97,7 +97,7 @@ def test_cheap_default_detail_not_sufficient(hh):
 
 def test_ignore_ping_join_heartbeat(hh):
     assert hh.parse_hint({"type": "heartbeat", "id": 0, "hint": "PING"}).ignore
-    assert hh.parse_hint({"type": "join", "id": 1, "hint": "JOIN"}).ignore
+    assert hh.parse_hint({"type": "doing", "id": 1, "hint": "DOING"}).ignore
     assert hh.parse_hint({"type": "mail", "id": 1, "hint": "PING"}).ignore
     assert not hh.parse_hint({"type": "mail", "id": 1, "hint": "MAIL"}).ignore
 

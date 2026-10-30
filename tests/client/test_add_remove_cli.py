@@ -34,7 +34,7 @@ def _exit2(argv):
 
 @pytest.mark.parametrize("raw,want", [
     ("todo:256", ("todo", 256)), ("mail:1866", ("mail", 1866)), ("HOLD:3", ("hold", 3)),
-    ("join:7", ("join", 7)), ("score:40", ("score", 40)),
+    ("doing:8", ("doing", 8)), ("score:40", ("score", 40)),
 ])
 def test_target_parses(body, raw, want):
     b = body(["add", raw])
@@ -43,7 +43,7 @@ def test_target_parses(body, raw, want):
     assert (r["verb"], r["type"], r["id"], r["who"]) == ("remove", *want, "validator")
 
 
-@pytest.mark.parametrize("raw", ["todo:", ":5", "todo:0", "todo:-1", "todo:x", "tree:5", "name:1", "todo:5:6"])
+@pytest.mark.parametrize("raw", ["todo:", ":5", "todo:0", "todo:-1", "todo:x", "tree:5", "name:1", "todo:5:6", "join:7"])
 def test_bad_target_is_refused(body, raw):
     for command in ("add", "remove"):
         with pytest.raises(CoordError, match="type:id"):
@@ -78,3 +78,11 @@ def test_roster_form_still_maps_to_member_add(body):
 ])
 def test_old_command_and_flags_are_gone(argv):
     _exit2(argv)
+
+
+@pytest.mark.parametrize("command", ["watch", "unwatch"])
+def test_join_type_is_refused(command):
+    """#818: the activity type is doing; join is no TYPE (no alias)."""
+    _exit2([command, "join", "3"])
+    args = _build_parser().parse_args([command, "doing", "3"])
+    assert args.type == "doing"

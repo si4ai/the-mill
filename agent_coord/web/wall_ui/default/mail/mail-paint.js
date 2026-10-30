@@ -59,7 +59,7 @@
         if (card.need_id) eta.need_id = card.need_id;
         return eta;
       }
-      const doing = wallDoingFace(sess.doing).now;
+      const doing = wallDoingText(sess.owner, sess.doing);
       const idleNid = r => {
         const nid = String(r.need_id || "");
         return nid === "leftover" || nid.indexOf("idle-") === 0;
@@ -118,11 +118,11 @@
       const browser = document.querySelector(".mail-browser, .mail-split");
       if (browser) browser.setAttribute("data-mail-view", mailView);
       try { syncMailRoomsFiltersVisible(); } catch (eRoomsWin) {}
-      /* wow147: bump gen + overlay; stale ticks must not blank; keep theme. */
+      /* bump gen + overlay; stale ticks must not blank; keep theme. */
       const mailGen = wallBumpSwitchGen();
       try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestMail) {}
       try { wallShowPaneOverlay("pane-mail", "Checking\u2026"); } catch (eOvMail) {}
-            /* wow148/150: Checking overlay; reuse in-flight if same parts, else tick after fp decide. */
+            /* Checking overlay; reuse in-flight if same parts, else tick after fp decide. */
       if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
         /* keep Checking until in-flight settle */
       } else if (typeof tick === "function") {
@@ -461,7 +461,7 @@
         const aa = latestOf(a);
         const bb = latestOf(b);
         if (aa !== bb) return bb < aa ? -1 : 1;
-        /* wow168: tie-break higher max mail node id before label. */
+        /* tie-break higher max mail node id before label. */
         const ia = (typeof mailRoomMaxMailId === "function") ? mailRoomMaxMailId(a) : 0;
         const ib = (typeof mailRoomMaxMailId === "function") ? mailRoomMaxMailId(b) : 0;
         if (ia !== ib) return ib - ia;
@@ -606,7 +606,7 @@
         const hr = r.humanRequired > 0 ? `<span class="hr-cue" title="open human_required">HR</span>` : "";
         const castN = r.castN | 0;
         const castBit = castN ? (" / cast " + castN) : "";
-        /* wow168: short recency hint when latestAt is a real clock (not id-fallback). */
+        /* short recency hint when latestAt is a real clock (not id-fallback). */
         let whenBit = "";
         const lat = String(r.latestAt || "").trim();
         if (lat && !/^\d{16}$/.test(lat)) {
@@ -723,7 +723,7 @@
         const rootM = root ? mailRoomMailbox(d, root) : null;
         const castN = (rootM && typeof mailCastCount === "function") ? mailCastCount(rootM) : 0;
         const castTip = (rootM && typeof mailCastTip === "function") ? mailCastTip(rootM) : "";
-        /* wow168: latestAt = mailbox created/at (mailAt); else max mail id padded. */
+        /* latestAt = mailbox created/at (mailAt); else max mail id padded. */
         const latestAt = (typeof mailRoomLatestAt === "function")
           ? (mailRoomLatestAt(t, (d && d.mailbox) || []) || "")
           : "";
@@ -747,7 +747,7 @@
       });
       rooms = rooms.filter(function (r) { return (r.n | 0) > 1; });
       if (q) rooms = rooms.filter(function (r) { return mailRoomMatchesQ(d, r.tree, q); });
-      /* wow168: Left pane most-recent-first. latestAt = mailbox created/at else max id;
+      /* Left pane most-recent-first. latestAt = mailbox created/at else max id;
        * tie-break higher maxMailId before label (hex rooms without mb still rise). */
       rooms.sort(function (a, b) {
         const aa = String(a.latestAt || "");
@@ -828,7 +828,7 @@
         const picked0 = rooms.find(function (r) { return r.id === mailSelectedRoom; }) || rooms[0];
         const nestEl = document.getElementById("mail");
         if (nestEl && picked0) {
-          /* wow146: paint structure alone (no loading marker sibling that blanked on re-enter).
+          /* paint structure alone (no loading marker sibling that blanked on re-enter).
              Opaque pane overlay covers confirm; keep struct as last-good paint. */
           const struct = mailRoomsNestHtml(d, picked0.tree, q);
           nestEl.innerHTML = struct;
@@ -1161,4 +1161,73 @@
       if (typeof wallPerfFirst === "function") wallPerfFirst("mailbox_body");
       enhanceTables(el);
     }
+
+    /* Moved out of boot.js with the pane (#872, wall-contract rule-lazy-panes). */
+    function wallProjectName() {
+      const picked = (currentFilter().projects || []).filter(Boolean);
+      if (picked.length) return String(picked[0]).trim();
+      const floor = window._floor || {};
+      const fromFloor = (floor.wall && floor.wall[0]) || ((floor.groups || floor.projects) && (floor.groups || floor.projects)[0]) || "";
+      return String(fromFloor || "").trim();
+    }
+    function wallRoleNames() {
+      return Array.from(document.querySelectorAll("#rail-roster .rail-row"))
+        .map(el => String(el.getAttribute("data-id") || "").trim())
+        .filter(Boolean);
+    }
+    function wallFindMailRow(id) {
+      const box = (window._floor && window._floor.mailbox) || [];
+      const want = String(id);
+      for (let i = 0; i < box.length; i++) {
+        if (String(box[i] && box[i].id) === want) return box[i];
+      }
+      return null;
+    }
+    function wallMergeMailDetail(full) {
+      if (!full || full.id == null) return false;
+      const d = window._floor;
+      if (!d) return false;
+      if (!Array.isArray(d.mailbox)) d.mailbox = [];
+      const want = String(full.id);
+      const next = Object.assign({}, full);
+      delete next.body_trunc;
+      let i = -1;
+      for (let k = 0; k < d.mailbox.length; k++) {
+        if (String(d.mailbox[k] && d.mailbox[k].id) === want) { i = k; break; }
+      }
+      if (i < 0) {
+        d.mailbox.push(next);
+      } else {
+        d.mailbox[i] = Object.assign({}, d.mailbox[i], next);
+        delete d.mailbox[i].body_trunc;
+      }
+      return true;
+    }
+    async function wallOpenMailIfTrunc(id) {
+      const mid = String(id || "").trim();
+      if (!mid) return false;
+      const row = wallFindMailRow(mid);
+      if (!wallMailIsTrunc(row)) return false;
+      const key = "mail:" + mid;
+      if (_wallLeanDetailInflight[key]) return _wallLeanDetailInflight[key];
+      const p = (async function () {
+        try {
+          const r = await fetch("/api/v1/mail/" + encodeURIComponent(mid), { cache: "no-store" });
+          if (!r.ok) return false;
+          const json = await r.json();
+          const full = json && json.mail;
+          if (!full) return false;
+          if (!wallMergeMailDetail(full)) return false;
+          try { mail(window._floor); } catch (ePaint) {}
+          return true;
+        } catch (eFetch) {
+          return false;
+        } finally {
+          delete _wallLeanDetailInflight[key];
+        }
+      })();
+      _wallLeanDetailInflight[key] = p;
+      return p;
+    }
+
 var WALL_UI_DEFAULT_MAIL_PAINT = "WALL_UI_DEFAULT_MAIL_PAINT";

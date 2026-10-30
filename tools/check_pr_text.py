@@ -2,7 +2,7 @@
 
 Usage:
   python tools/check_pr_text.py event        # the text of the triggering event
-  python tools/check_pr_text.py sweep        # every PR and issue title, body, comment
+  python tools/check_pr_text.py sweep        # every PR and issue title, body, comment, review
   python tools/check_pr_text.py file PATH... # local text files (a body before posting)
 
 GitHub keeps every revision of a PR or issue body in its edit history, so a
@@ -96,6 +96,9 @@ def sweep_texts(repo: str, token: str) -> list[tuple[str, str]]:
         what = "PR" if "pull_request" in it else "issue"
         texts += [(f"{what} #{it['number']} title", it.get("title") or ""),
                   (f"{what} #{it['number']} body", it.get("body") or "")]
+        if what == "PR":  # review bodies: no workflow runs on a review event (#823, F122)
+            for rv in _all(f"{base}/pulls/{it['number']}/reviews?per_page=100", token):
+                texts.append((f"PR #{it['number']} review {rv['id']}", rv.get("body") or ""))
     for c in _all(f"{base}/issues/comments?per_page=100", token):
         n = (c.get("issue_url") or "").rsplit("/", 1)[-1]
         texts.append((f"#{n} comment {c['id']}", c.get("body") or ""))

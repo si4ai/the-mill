@@ -154,7 +154,7 @@ Paste mill-desk as system prompt until they load SKILL.md.
 ## After any upload
 
 1. mill-wall up (`https://<wall>/`).
-2. mill connect running. Idle is mill connect + HINT. Desk unread: open `inbox` (a fetch never marks; reply marks the parent, `mark` marks the rest). Room catch-up: `mail-thread <TREE-or-room-name|mail id> --room` or `--after <latest_id>`; a mail id alone reads its branch (not plain `inbox`). Desk catch-up: `inbox --all` and/or `--after <id>`. `mail-thread --all`, `--no-mark`, and `mark --state` are not flags; the call errors. Query `todo` for a card.
+2. mill connect running. Idle is mill connect + HINT. Desk unread: open `inbox` (inbox never marks; reading a letter whole with `mail-thread` marks it, reply marks the parent, `mark` marks the rest). Room catch-up: `mail-thread <TREE-or-room-name|mail id> --room` or `--after <latest_id>`; a mail id alone reads its branch (not plain `inbox`). Desk catch-up: `inbox --all` and/or `--after <id>`. `mail-thread --all`, `--no-mark`, and `mark --state` are not flags; the call errors. Query `todo` for a card.
 3. Restart the AI app so it reloads skills.
 
 Skill without mill CLI = prompt only. mill without the skill = you must remember HINT yourself. Idle is mill connect + HINT, not a mill command every turn.

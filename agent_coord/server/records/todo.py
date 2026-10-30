@@ -19,7 +19,6 @@ _GIT_SHA = re.compile(r"\bgit\s+([0-9a-f]{7,40})\b", re.I)
 
 def unpack(body: str, fallback_id: Any) -> dict[str, Any]:
     slug_s = str(fallback_id)
-    doing = ""
     detail = body or ""
     progress = ""
     payload = None
@@ -32,12 +31,15 @@ def unpack(body: str, fallback_id: Any) -> dict[str, Any]:
         if isinstance(got, dict):
             payload = got
             slug_s = str(got.get("slug") or slug_s)
-            doing = str(got.get("doing") or "")
+            # #818: cards have no title. A legacy stored "doing" key is shown
+            # as the head of the detail; nothing is migrated.
+            legacy = str(got.get("doing") or "").strip()
             detail = str(got.get("detail") or "")
+            if legacy and not detail.startswith(legacy):
+                detail = legacy + ("\n" + detail if detail else "")
             progress = str(got.get("progress") or "")
     return {
         "need_id": slug_s,
-        "doing": doing,
         "detail": detail,
         "progress": progress,
         "payload": payload,
@@ -250,7 +252,7 @@ def page(
 def select_rosters(cn, names: list[str], status: str = "") -> list[tuple[str, dict]]:
     """mill_todo_select for many projects/roles in one read: [(requested name, card row)].
 
-    Ids resolved once (name.roster_ids), then one IN (...) read with the
+    Ids resolved once (name.roster_ids), then one read SP with the
     mill_todo_select row shape. Input name order, then updated DESC. None resolved -> [].
     """
     from agent_coord.server.records.name import roster_ids
@@ -259,31 +261,8 @@ def select_rosters(cn, names: list[str], status: str = "") -> list[tuple[str, di
     if not pairs:
         return []
     ids = [aid for _n, aid in pairs]
-    marks = ",".join(["%s"] * len(ids))
-    st = (status or "").strip()
-    cur = cn.cursor(dictionary=True)
-    try:
-        cur.execute(
-            "SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,"
-            " t.status, t.assigned_id, t.body,"
-            " an.name AS roster, an.type AS roster_type, cn.name AS creator,"
-            " cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type,"
-            " un.name AS updated_by, un.type AS updated_by_type"
-            " FROM todo t"
-            " LEFT JOIN name an ON an.id = t.roster_id"
-            " LEFT JOIN name cn ON cn.id = t.creator_id"
-            " LEFT JOIN name sn ON sn.id = t.assigned_id"
-            " LEFT JOIN name un ON un.id = t.updated_id"
-            " WHERE t.roster_id IN (" + marks + ")"
-            " AND (%s = '' OR t.status = %s)"
-            " AND NOT EXISTS (SELECT 1 FROM activity ra"
-            "  WHERE ra.type = 'todo' AND ra.id = t.id AND ra.deleted IS NOT NULL)"
-            " ORDER BY t.updated DESC",
-            (*ids, st, st),
-        )
-        rows = list(cur.fetchall())
-    finally:
-        cur.close()
+    # #867: one read SP, same row shape as mill_todo_select (no raw SELECT).
+    rows = call(cn, "mill_todo_select_rosters", [json.dumps(ids), (status or "").strip()])
     by_aff: dict[int, list[dict]] = {}
     for r in rows:
         by_aff.setdefault(int(r.get("roster_id") or 0), []).append(r)
@@ -326,21 +305,7 @@ def find_retired(cn, project: str, need: str) -> dict | None:
     pairs = roster_ids(cn, [project]) if project else []
     if not pairs:
         return None
-    cur = cn.cursor(dictionary=True)
-    try:
-        cur.execute(
-            "SELECT t.id, t.status, t.body, t.creator_id, t.assigned_id,"
-            " cn.name AS creator, sn.name AS assigned"
-            " FROM todo t"
-            " JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NOT NULL"
-            " LEFT JOIN name cn ON cn.id = t.creator_id"
-            " LEFT JOIN name sn ON sn.id = t.assigned_id"
-            " WHERE t.roster_id = %s ORDER BY t.id",
-            (int(pairs[0][1]),),
-        )
-        rows = list(cur.fetchall())
-    finally:
-        cur.close()
+    rows = call(cn, "mill_todo_select_retired", [int(pairs[0][1])])  # #867: a read SP
     raw = str(need or "")
     for r in rows:
         if raw.isdigit() and int(r.get("id") or 0) == int(raw):
@@ -406,13 +371,6 @@ def progress_is_done(progress: str) -> bool:
 def progress_git_sha(progress: str) -> str:
     m = _GIT_SHA.search(progress or "")
     return (m.group(1).lower() if m else "")
-
-
-def next_status(status: str, progress: str, *, need_id: str = "") -> str:
-    st = (status or "").strip().lower()
-    if st == "claimed" and progress_is_done(progress):
-        return "shipped"
-    return st
 
 
 def is_progress_token(text: str) -> bool:

@@ -2,7 +2,7 @@
 """HINT chart regression: real watcher rows, default detail, and one custom recipe per activity.
 
 hints.md default-by-activity plus the example watcher.hint strings.
-JOIN is pushed and dispatch ignores it. A name is not a watcher target.
+DOING is pushed and dispatch ignores it. A name is not a watcher target.
 """
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def _frames(cn, typ: str, nid: int) -> dict[str, dict]:
     assert rows, f"no watchers type={typ} id={nid}"
     notified: list[tuple[str, dict]] = []
 
-    def capture(room, payload):
+    def capture(room, payload, row=None):  # row: #832 settle key
         notified.append((str(room), dict(payload)))
 
     rooms = {desk(str(r.get("desk") or "")): {object()} for r in rows}
@@ -164,7 +164,7 @@ def test_label_create_does_not_push_a_name_hint(cn) -> None:
 
     notified: list[tuple[str, dict]] = []
 
-    def capture(desk, payload):
+    def capture(desk, payload, row=None):  # row: #832 settle key
         notified.append((str(desk), dict(payload)))
 
     with pytest.MonkeyPatch.context() as mp:
@@ -205,7 +205,7 @@ def test_label_retire_does_not_push_a_name_hint(cn) -> None:
     nid = int(name.get(cn, "chart2", "label"))
     notified: list[tuple[str, dict]] = []
 
-    def capture(desk, payload):
+    def capture(desk, payload, row=None):  # row: #832 settle key
         notified.append((str(desk), dict(payload)))
 
     with pytest.MonkeyPatch.context() as mp:
@@ -223,7 +223,7 @@ def test_label_retire_does_not_push_a_name_hint(cn) -> None:
     assert nid
 
 
-def test_join_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
+def test_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
     project, alice, rec = _sit(cn)
     jid = int(rec[0]["id"])
     from agent_coord.server.api.mill import rpc
@@ -234,44 +234,50 @@ def test_join_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
 
     notified: list[tuple[str, dict]] = []
 
-    def capture(desk, payload):
+    def capture(desk, payload, row=None):  # row: #832 settle key
         notified.append((str(desk), dict(payload)))
 
     # #280: alice's own doing does not hint alice; another watcher (bob) gets it.
     bob = "bob"
     here.upsert(cn, project, bob, "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "join", jid, _desk_id(cn, bob))
+    watchers.put(cn, "doing", jid, _desk_id(cn, bob))
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(push.HUB, "rooms", {desk(alice): {object()}, desk(bob): {object()}})
         mp.setattr(push.HUB, "notify", capture)
-        rpc._h_doing(Book(cn), {"doing": "chart"}, project, "alice")
-    assert notified, "doing did not push JOIN"
+        # #818 PR B: --doing on a command writes the entry right after it.
+        from agent_coord.server.records import todo as rec_todo
+
+        tid = int(rec_todo.insert(cn, project, "alice", "open", '{"slug":"chart818"}')[0]["id"])
+        got = rpc._doing_after(Book(cn), "open", {}, {"id": tid}, project, "alice", "chart")["doing_entry"]
+    assert notified, "doing did not push DOING"
     assert [room for room, _ in notified] == [desk(bob)]
     payload = notified[0][1]
-    assert payload["type"] == "join"
+    # #818: a new doing entry; bob's watch followed alice's current entry to it.
+    assert payload["type"] == "doing"
+    jid = int(got["id"])
     assert int(payload["id"]) == jid
-    assert payload["hint"] == "JOIN"
+    assert payload["hint"] == "DOING"
     check_frame(payload)
     assert dispatch_hint(alice, payload) == "skip"
 
-    watchers.set_hint(cn, "join", jid, _desk_id(cn, alice), "session")
-    frames = _frames(cn, "join", jid)
+    watchers.set_hint(cn, "doing", jid, _desk_id(cn, alice), "session")
+    frames = _frames(cn, "doing", jid)
     assert frames[desk(alice)]["detail"] == "session"
-    assert frames[desk(alice)]["hint"] == "JOIN"
+    assert frames[desk(alice)]["hint"] == "DOING"
     check_frame(frames[desk(alice)], "session")
     assert dispatch_hint(alice, frames[desk(alice)]) == "skip"
 
 
-def test_note_connect_pushes_join(cn) -> None:
-    """Connect pushes JOIN to other watchers of the seat, not back to the connecting desk."""
+def test_note_connect_pushes_doing(cn) -> None:
+    """Connect pushes DOING to other watchers of the seat, not back to the connecting desk."""
     _, alice, rec = _sit(cn)
     jid = int(rec[0]["id"])
     bob = "bob"
     here.upsert(cn, "unit", bob, "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "join", jid, _desk_id(cn, bob))
+    watchers.put(cn, "doing", jid, _desk_id(cn, bob))
     notified: list[tuple[str, dict]] = []
 
-    def capture(room, payload):
+    def capture(room, payload, row=None):  # row: #832 settle key
         notified.append((str(room), dict(payload)))
 
     with pytest.MonkeyPatch.context() as mp:
@@ -280,26 +286,26 @@ def test_note_connect_pushes_join(cn) -> None:
         here.note_connect(cn, alice)
     rooms = [room for room, _ in notified]
     assert rooms == [desk(bob)], rooms
-    assert notified[0][1]["hint"] == "JOIN"
+    assert notified[0][1]["hint"] == "DOING"
     check_frame(notified[0][1])
 
 
-def test_dispatch_ignores_ping_and_join() -> None:
+def test_dispatch_ignores_ping_and_doing() -> None:
     assert dispatch_hint("alice", {"type": "heartbeat", "id": 0, "hint": "PING"}) == "skip"
-    assert dispatch_hint("alice", {"type": "join", "id": 1, "hint": "JOIN", "detail": "{}"}) == "skip"
+    assert dispatch_hint("alice", {"type": "doing", "id": 1, "hint": "DOING", "detail": "{}"}) == "skip"
 
 
-def test_dispatch_join_route_still_runs(tmp_path, monkeypatch) -> None:
+def test_dispatch_doing_route_still_runs(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
     from agent_coord.client.route_chain import save_routes
 
-    stamp = tmp_path / "join.json"
+    stamp = tmp_path / "doing.json"
     save_routes(
         "alice",
-        {"join:JOIN": subprocess.list2cmdline([sys.executable, str(PROGRAM), "--stamp", str(stamp)])},
+        {"doing:DOING": subprocess.list2cmdline([sys.executable, str(PROGRAM), "--stamp", str(stamp)])},
     )
     kind = dispatch_hint(
         "alice",
-        {"type": "join", "id": 3, "hint": "JOIN", "detail": '{"what":"join","id":3,"when":"t","watchers":1,"tree":[]}'},
+        {"type": "doing", "id": 3, "hint": "DOING", "detail": '{"what":"doing","id":3,"when":"t","watchers":1,"tree":[]}'},
     )
     assert kind == "work"

@@ -155,28 +155,31 @@ def test_score_update_then_delete_keeps_activity_and_id(cn) -> None:
 
 
 def test_join_updates_bump_activity_and_row_stays(cn) -> None:
+    """#818: seat events bump the current doing entry's activity; doing appends."""
     seed_names(cn, ("life_join", "roster"), ("life_join", "desk"))
     token = "a" * 64
     jid = int(here.upsert(cn, "life_join", "life_join", "", token, "working")[0]["id"])
-    assert _n(cn, "join", jid) == 1
-    here.doing(cn, "life_join", "life_join", "still working")
-    assert _n(cn, "join", jid) == 2
+    assert _n(cn, "doing", jid) == 1
+    nxt = int(here.upsert(cn, "life_join", "life_join", "", None, "still working")[0]["id"])
+    assert nxt > jid and _n(cn, "doing", nxt) == 1
+    assert scalar(cn, "SELECT text FROM doing WHERE id=%s", (jid,)) == "working"
     here.delete(cn, "life_join", "life_join")
-    assert scalar(cn, "SELECT doing FROM `join` WHERE id=%s", (jid,)) == ""
-    assert _n(cn, "join", jid) == 3
+    cur = int(scalar(cn, "SELECT MAX(id) FROM doing WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)", (jid,)))
+    assert cur > nxt and scalar(cn, "SELECT text FROM doing WHERE id=%s", (cur,)) == ""
+    assert _n(cn, "doing", cur) == 1
     here.reset(cn, "life_join", "life_join")
-    assert scalar(cn, "SELECT token_hash FROM `join` WHERE id=%s", (jid,)) is None
-    assert not _gone(cn, "join", jid)
-    assert _n(cn, "join", jid) == 4
+    seat = "SELECT {} FROM seat WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)"
+    assert scalar(cn, seat.format("token_hash"), (jid,)) is None
+    assert not _gone(cn, "doing", jid)
+    assert _n(cn, "doing", cur) == 2
     here.mark_socket(cn, "life_join", up=True)
-    assert scalar(cn, "SELECT time_connect FROM `join` WHERE id=%s", (jid,)) is not None
-    assert _n(cn, "join", jid) == 5
+    assert scalar(cn, seat.format("time_connect"), (jid,)) is not None
+    assert _n(cn, "doing", cur) == 3
     here.set_lan_ip(cn, "life_join", "203.0.113.10")
-    assert scalar(cn, "SELECT lan_ip FROM `join` WHERE id=%s", (jid,)) == "203.0.113.10"
-    assert _n(cn, "join", jid) == 6
+    assert scalar(cn, seat.format("lan_ip"), (jid,)) == "203.0.113.10"
+    assert _n(cn, "doing", cur) == 4
     again = int(here.upsert(cn, "life_join", "life_join", "", None, "back")[0]["id"])
-    assert again == jid
-    assert _n(cn, "join", jid) == 7
+    assert again > cur and scalar(cn, "SELECT text FROM doing WHERE id=%s", (again,)) == "back"
 
 
 def test_join_refuses_role_admin(cn) -> None:

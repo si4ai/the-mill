@@ -1,4 +1,4 @@
-"""A mail-thread read does not mark handled (#195)."""
+"""mail-thread marks only through _mark_shown, for a desk with a name row (#195, card 843 F129)."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -35,10 +35,6 @@ def _patch(monkeypatch, inserted: list[int]) -> None:
     monkeypatch.setattr(
         "agent_coord.server.records.mail.public_mail_chain",
         lambda cn, mid, ids=None, room=None: {"chain": [{"id": int(mid), "body": "hi"}]},
-    )
-    monkeypatch.setattr(
-        "agent_coord.server.records.opened.select",
-        lambda cn, mid, desk: [],
     )
 
     def _insert(cn, mid, desk):

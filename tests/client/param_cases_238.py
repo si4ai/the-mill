@@ -46,7 +46,6 @@ BOOK = {
     "add": ["todo:{TID}"],
     "remove": ["todo:{TID}"],
     "score": ["{P}", "c238-kpi", "5"],
-    "doing": ["{P}", "--doing", "testing"],
 }
 
 KIND = {
@@ -78,7 +77,8 @@ KIND = {
     ("unpark", "project"): "name", ("unpark", "need"): "name",
     ("unpark", "parent_type"): "enum", ("unpark", "parent_id"): "id",
     ("assign", "project"): "name", ("assign", "need"): "name", ("assign", "desk"): "name",
-    ("pass", "project"): "name", ("pass", "need"): "name",
+    ("pass", "project"): "name", ("pass", "need"): "name", ("pass", "evidence"): "text",
+    ("create todo", "done_when"): "text", ("note", "done_when"): "text",
     ("label", "type"): "enum", ("label", "id"): "cardref", ("label", "label"): "newname",  # high trust creates on first use
     ("label", "ord"): "int",
     ("unlabel", "type"): "enum", ("unlabel", "id"): "cardref",
@@ -90,7 +90,16 @@ KIND = {
     ("score", "target"): "int", ("score", "note"): "text",
     ("score", "better"): "enum", ("score", "unit"): "text", ("score", "limit"): "int",
     ("score", "at"): "text",
-    ("doing", "project"): "name", ("doing", "doing"): "text",
+    # #818 PR B: --doing on every activity write; connected reads doing.
+    ("send", "doing"): "text", ("reply", "doing"): "text", ("mark", "doing"): "text",
+    ("claim", "doing"): "text", ("unclaim", "doing"): "text", ("assign", "doing"): "text",
+    ("pass", "doing"): "text", ("note", "doing"): "text", ("unpark", "doing"): "text",
+    ("drop", "doing"): "text", ("score", "doing"): "text",
+    # #822: --waiting-on "WHAT [WHY]" rides --doing on the same commands.
+    **{(c, "waiting_on"): "text" for c in (
+        "send", "reply", "mark", "create todo", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold",
+        "drop", "score")},
+    ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
 }
 
 CASES = {

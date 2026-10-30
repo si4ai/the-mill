@@ -34,7 +34,7 @@ def main() -> int:
     kind = str(hint.get("hint") or "").upper()
     if not kind and str(hint.get("kind") or "").lower() == "mail":
         kind = "MAIL"
-    if kind in ("PING", "JOIN"):
+    if kind in ("PING", "DOING"):
         return 0
     owner = (
         os.environ.get("AGENT_COORD_OWNER")

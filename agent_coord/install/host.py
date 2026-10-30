@@ -3169,7 +3169,6 @@ def _write_desk(dest: Path, *, apply: bool) -> dict[str, Any]:
         "1. python -m pip install the-mill   (or pip install . from this repo)\n"
         "2. Use the CLI: leftover, peek, needs, inbox, presence. Do not dump /api/floor into Grok.\n"
         "   Do not take a MySQL password onto this desk. Wall host may use local Coord.\n"
-        "3. Clock in: mill presence <project> --owner <name> --doing \"...\"\n"
         "Any client agent can be assigned admin (manage book + wall).\n"
         "Do not start the wall or the database from this desk chat.\n"
         "If the wall is down: an admin runs install server --apply on the wall host, not `dashboard` in Grok.\n"

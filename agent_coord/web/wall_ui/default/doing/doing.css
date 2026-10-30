@@ -1,0 +1,56 @@
+/* WALL_UI_DEFAULT_DOING - #818 PR C: the doing view beside each CONNECTED row, the
+   waiting-on pill and its popover, card and desk trails, and the two blank slots. */
+.doing-meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .5rem;
+  margin-top: -.3rem; padding: 0 .4rem .4rem 1.45rem; font-size: 12px; color: var(--dim);
+}
+.doing-on { color: var(--cyan); font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; }
+a.doing-on { text-decoration: none; border-bottom: 1px dotted currentColor; }
+a.doing-on:hover, a.doing-on:focus-visible { color: var(--ink); }
+.doing-age { color: var(--dim); font-variant-numeric: tabular-nums; }
+.doing-ended:empty, .doing-asked:empty, .card-claimed:empty { display: none; }
+.doing-ended { color: var(--dim); font-size: 11px; letter-spacing: .03em; }
+.doing-ended[data-ended-by="finished"] { color: var(--green); }
+.doing-ended[data-ended-by="cleared"] { color: var(--amber); }
+.doing-wait { position: relative; display: inline-block; }
+.doing-wait > summary {
+  list-style: none; cursor: pointer; border: 1px solid var(--amber); color: var(--amber);
+  border-radius: 999px; padding: 0 .45rem; font-size: 11px; line-height: 1.5;
+}
+.doing-wait > summary::-webkit-details-marker { display: none; }
+.doing-wait[open] > summary { background: rgba(228, 181, 106, .16); }
+.doing-wait.zero {
+  border: 1px solid var(--edge); color: var(--dim); border-radius: 999px;
+  padding: 0 .45rem; font-size: 11px; line-height: 1.5;
+}
+.doing-pop {
+  position: absolute; right: 0; top: calc(100% + .25rem); z-index: 30;
+  display: flex; flex-direction: column; gap: .2rem;
+  min-width: 15rem; max-width: min(22rem, 86vw); padding: .45rem .55rem;
+  background: var(--panel, #12171e); border: 1px solid var(--edge); border-radius: var(--radius, 8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .35); white-space: normal; color: var(--ink);
+}
+.dw-head { color: var(--amber); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; }
+.dw-row { display: flex; flex-wrap: wrap; gap: .1rem .4rem; align-items: baseline; }
+.dw-from, .dw-age, .dw-more { color: var(--dim); }
+.dw-need { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.doing-asked { font-size: 10.5px; border: 1px solid var(--edge); border-radius: 4px; padding: 0 .25rem; color: var(--dim); }
+.here-doing.is-idle, .here-doing-now.is-idle { color: var(--dim); font-style: italic; }
+.doing-last { font-style: normal; }
+.doing-view .doing-facts { display: flex; flex-wrap: wrap; gap: .2rem .45rem; align-items: baseline; font-size: 12px; color: var(--dim); margin-top: .2rem; }
+.doing-view .doing-pop { left: 0; right: auto; }
+.doing-trail { display: flex; flex-direction: column; gap: .12rem; margin-top: .3rem; font-size: 12px; color: var(--dim); text-align: left; }
+.doing-trail:empty { display: none; }
+.dt-head { color: var(--amber); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; }
+.dt-row { display: block; line-height: 1.35; }
+.dt-at { font-variant-numeric: tabular-nums; margin-right: .2rem; }
+.dt-desk { color: var(--ink); font-weight: 600; }
+.dt-text { color: var(--ink); }
+.dt-more, .dt-none { font-style: italic; }
+.card-claimed { color: var(--dim); }
+.doing-flash { outline: 2px solid var(--amber); outline-offset: 2px; transition: outline-color .4s; }
+.doing-meta .doing-wait { margin-left: auto; }
+.doing-meta .doing-pop { right: 0; left: auto; }
+@media (max-width: 520px) {
+  .doing-meta { padding-left: 1.25rem; }
+}

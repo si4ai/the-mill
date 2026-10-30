@@ -1,4 +1,7 @@
-"""The join row is one desk's seat. One row per desk."""
+"""A desk's seat (one row per desk, table seat) and its doing entries (#818).
+
+The seat is per-desk state, not an activity. doing rows are the activity:
+append-only, the newest is the desk's current doing."""
 
 from __future__ import annotations
 
@@ -19,8 +22,13 @@ def upsert(
     token_hash: str | None = None,
     doing: str | None = None,
 ) -> list[dict]:
+    from agent_coord.server.records.doing_stack import PLACEHOLDERS
     from agent_coord.server.records.name import bare
 
+    # #818 PR B: join and invite placeholders ("present", "invited") are not
+    # something a desk is doing, so they never become a doing entry.
+    if doing is not None and doing.strip() in PLACEHOLDERS:
+        doing = None
     return call(
         cn,
         "mill_join_upsert",
@@ -46,8 +54,8 @@ def note_connect(cn, desk: str) -> None:
         return
     from agent_coord.server.push import fanout
 
-    # The connecting desk is not sitting yet; do not queue its own JOIN back to it.
-    fanout(cn, "join", int(jid), "JOIN", skip_desk=desk)
+    # The connecting desk is not sitting yet; do not queue its own DOING back to it.
+    fanout(cn, "doing", int(jid), "DOING", skip_desk=desk)
 
 
 def mark_socket(cn, desk: str, *, up: bool) -> None:
@@ -81,56 +89,17 @@ def set_lan_ip(cn, desk: str, ip: str) -> None:
             pass
 
 
-def doing(cn, project: str, desk: str, doing: str = "working") -> list[dict]:
-    from agent_coord.server.records.name import bare
-
-    return call(
-        cn,
-        "mill_join_doing",
-        [bare(project, CONST_ROSTER), bare(desk, CONST_DESK), doing],
-    )
-
-
-def push_doing(cn, project: str, desk: str, text: str) -> list[dict]:
-    """Push text on top of join.doing and bump join activity."""
-    from .db import scalar
-    from .doing_stack import push
-
-    from agent_coord.server.records.name import bare
-
-    piece = (text or "").strip()
-    desk_b = bare(desk, CONST_DESK) if desk else ""
-    if not piece or not desk_b:
-        return []
-    current = scalar(
-        cn,
-        "SELECT j.doing FROM `join` j "
-        "JOIN name n ON n.id = j.desk_id WHERE n.type = 'desk' AND n.name = %s",
-        (desk_b,),
-    )
-    stored = "" if current is None else str(current)
-    return doing(cn, project, desk_b, push(stored, piece))
-
-
 def touch(cn, project: str, desk: str) -> list[dict]:
-    """Bump the seat and join activity; doing keeps the desk's own text (#635)."""
-    from .db import scalar
-    from .doing_stack import clean
-
+    """Bump the seat and the current doing's activity; no new entry (#635, #818)."""
     from agent_coord.server.records.name import bare
 
     desk_b = bare(desk, CONST_DESK) if desk else ""
     if not desk_b:
         return []
-    current = scalar(
-        cn,
-        "SELECT j.doing FROM `join` j "
-        "JOIN name n ON n.id = j.desk_id WHERE n.type = 'desk' AND n.name = %s",
-        (desk_b,),
-    )
-    if current is None:
+    rows = call(cn, "mill_join_touch", [desk_b]) or []
+    if not rows or not (rows[0] or {}).get("id"):
         return []
-    return doing(cn, project, desk_b, clean(str(current)))
+    return rows
 
 
 def delete(cn, project: str, desk: str) -> list[dict]:
@@ -164,14 +133,14 @@ def seen(cn, project: str, desk_ids: list[int]) -> dict[int, object]:
     proj = bare(project, CONST_ROSTER) if project else ""
     if proj:
         sql = (
-            "SELECT h.desk_id, h.updated, h.created FROM `join` h"
+            "SELECT h.desk_id, h.updated, h.created FROM seat h"
             " JOIN member m ON m.desk_id = h.desk_id"
             " AND m.name_id = IFNULL((SELECT MILL_NAME_GET('roster', %s)), 0)"
             " WHERE h.desk_id IN (" + marks + ")"
         )
         args: tuple = (proj, *ids)
     else:
-        sql = "SELECT h.desk_id, h.updated, h.created FROM `join` h WHERE h.desk_id IN (" + marks + ")"
+        sql = "SELECT h.desk_id, h.updated, h.created FROM seat h WHERE h.desk_id IN (" + marks + ")"
         args = tuple(ids)
     out: dict[int, object] = {}
     for r in rows_done(cn, sql, args):
@@ -194,7 +163,7 @@ def _fetchone(cn, sql: str, args: tuple):
 
 
 def desk_for_token_hash(cn, digest: str) -> str:
-    """Desk whose join.token_hash equals digest. Empty when none or retired (#608).
+    """Desk whose seat.token_hash equals digest. Empty when none or retired (#608).
 
     Point lookup. Does not call mill_join_select.
     """
@@ -202,7 +171,7 @@ def desk_for_token_hash(cn, digest: str) -> str:
     if not digest:
         return ""
     find_hash = (
-        "SELECT d.name FROM `join` j "
+        "SELECT d.name FROM seat j "
         "JOIN name d ON d.id = j.desk_id AND d.type = 'desk' AND d.deleted IS NULL "
         "WHERE j.token_hash = %s LIMIT 1"
     )
@@ -220,7 +189,7 @@ def token_hash_for_desk(cn, desk: str) -> str | None:
     if not desk_b:
         return None
     find_desk = (
-        "SELECT j.token_hash FROM `join` j "
+        "SELECT j.token_hash FROM seat j "
         "JOIN name d ON d.id = j.desk_id AND d.type = 'desk' AND d.deleted IS NULL "
         "WHERE d.name = %s LIMIT 1"
     )
@@ -249,10 +218,10 @@ def prune_dead(cn) -> dict:
     """
     cur = cn.cursor()
     cur.execute(
-        "SELECT COUNT(*) FROM `join` WHERE token_hash IS NULL OR token_hash = ''"
+        "SELECT COUNT(*) FROM seat WHERE token_hash IS NULL OR token_hash = ''"
     )
     n = int((cur.fetchone() or [0])[0] or 0)
-    cur.execute("SELECT COUNT(*) FROM `join`")
+    cur.execute("SELECT COUNT(*) FROM seat")
     left = int((cur.fetchone() or [0])[0] or 0)
     return {
         "ok": True,
@@ -263,7 +232,7 @@ def prune_dead(cn) -> dict:
     }
 
 
-def wake_arm(cn, desk: str, url: str, key: str, wake_on: str = "all") -> list[dict]:
+def wake_arm(cn, desk: str, url: str, key: str, wake_on: str = "addressed") -> list[dict]:
     """#618: store the desk's webhook URL and its own key; delivery becomes webhook.
     #628: wake_on is all or addressed (room-only items do not POST)."""
     from agent_coord.server.records.name import bare
@@ -287,7 +256,7 @@ def wake_state(cn, desk: str) -> dict:
     return {
         "armed": bool(int(row.get("armed") or 0)),
         "host": str(row.get("host") or ""),
-        "wake_on": str(row.get("wake_on") or "all"),
+        "wake_on": str(row.get("wake_on") or "addressed"),
     }
 
 

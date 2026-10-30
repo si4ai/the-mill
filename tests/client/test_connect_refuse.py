@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Card #332: client side of mill connect -r/--refuse. Regression row F43 (connect-refuse)."""
+"""Card #332: client side of mill connect -r/--refuse. Regression row F43 (connect-refuse).
+
+Card 834 (F125) made refusing the default and a busy seat exit 0; `--take` takes it.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +47,7 @@ def _mill_home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
     # _sit_session prints the ready line once per desk per process; keep that set local.
     monkeypatch.setattr(ws_cli, "_READY_DESKS", set())
+    monkeypatch.setattr(ws_cli, "BUSY_SETTLE_S", ())
     yield
 
 
@@ -52,7 +56,8 @@ def test_refuse_flag_parses(command: str) -> None:
     p = _build_parser()
     assert p.parse_args([command, "alice", "-r"]).refuse is True
     assert p.parse_args([command, "alice", "--refuse"]).refuse is True
-    assert p.parse_args([command, "alice"]).refuse is False
+    assert p.parse_args([command, "alice"]).refuse is True  # card 834: the default
+    assert p.parse_args([command, "alice", "--take"]).refuse is False
 
 
 def test_refuse_adds_query_param() -> None:
@@ -73,15 +78,12 @@ def test_in_use_close_is_terminal_with_distinct_exit(capsys) -> None:
         await ws_cli._sit_session(fake, "alice", stop, None, reconnect=reopen, outcome=outcome)
 
     asyncio.run(go())
-    assert outcome["exit"] == 6
-    assert len({4, 5, outcome["exit"]}) == 3
+    assert outcome["exit"] == 0  # card 834: busy is not an error
     line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert line["ok"] is False
-    assert "seat in use" in line["error"]
-    assert "since 2026-10-19T23:00:00Z" in line["error"]
+    assert line["busy"] is True
+    assert "since 2026-10-19T23:00:00Z" in line["next"]
     # Names the command that does take the seat.
-    assert "mill connect alice" in line["error"]
-    assert "without -r" in line["error"]
+    assert "mill connect --take alice" in line["next"]
     assert ws_cli.reconnect_stopped(ws_cli.WS_IN_USE_CLOSE, {}) is True
 
 
@@ -93,9 +95,9 @@ def test_connect_wait_refused_returns_in_use_with_exit(monkeypatch) -> None:
     monkeypatch.setattr(asyncio, "run", _run)
     got = ws_cli.wait_one_hint("alice", "seat", refuse=True)
     assert got["ok"] is False
-    assert got["exit"] == 6
-    assert "seat in use" in got["error"]
-    assert "mill connect alice" in got["error"]
+    assert got["exit"] == 0
+    assert got["busy"] is True
+    assert "mill connect --take alice" in got["next"]
 
 
 def test_connect_wait_exits_with_the_in_use_code(monkeypatch, capsys) -> None:
@@ -166,7 +168,7 @@ def test_refused_connect_leaves_the_local_holder_bridge(monkeypatch, capsys) -> 
     outcome: dict = {}
     ws_cli.run_ws_loop("alice", "seat", stop, None, outcome, True)
     assert seen == ["ws://127.0.0.1/ws/alice?refuse=1"]
-    assert outcome["exit"] == 6
+    assert outcome["exit"] == 0
     assert holder.read_text(encoding="utf-8") == before
     assert '"ready"' not in capsys.readouterr().out
 
@@ -220,7 +222,7 @@ def test_reconnect_retries_4409_from_its_own_stale_socket(_fast_retry, capsys) -
     assert "seat in use" not in capsys.readouterr().out
 
 
-def test_reconnect_4409_after_the_window_exits_6(_fast_retry, monkeypatch, capsys) -> None:
+def test_reconnect_4409_after_the_window_is_busy(_fast_retry, monkeypatch, capsys) -> None:
     monkeypatch.setattr(ws_cli, "_STALE_SEAT_S", 0.0)
     stop = threading.Event()
     outcome: dict = {}
@@ -233,8 +235,8 @@ def test_reconnect_4409_after_the_window_exits_6(_fast_retry, monkeypatch, capsy
         await ws_cli._sit_session(first, "alice", stop, None, reconnect=reopen, outcome=outcome)
 
     asyncio.run(go())
-    assert outcome["exit"] == 6
-    assert "seat in use" in capsys.readouterr().out
+    assert outcome["exit"] == 0
+    assert '"busy": true' in capsys.readouterr().out
 
 
 def test_first_sit_4409_is_not_retried(_fast_retry) -> None:
@@ -249,4 +251,4 @@ def test_first_sit_4409_is_not_retried(_fast_retry) -> None:
         await ws_cli._sit_session(first, "alice", stop, None, reconnect=reopen, outcome=outcome)
 
     asyncio.run(go())
-    assert outcome["exit"] == 6
+    assert outcome["exit"] == 0

@@ -6,6 +6,7 @@ DROP PROCEDURE IF EXISTS mill_mail_select;
 DROP PROCEDURE IF EXISTS mill_mail_inbox;
 DROP PROCEDURE IF EXISTS mill_mail_get;
 DROP PROCEDURE IF EXISTS mill_mail_to_put;
+DROP PROCEDURE IF EXISTS mill_mail_to_copied;
 DROP PROCEDURE IF EXISTS mill_mail_to_node_put;
 DROP PROCEDURE IF EXISTS mill_mail_to_node_delete;
 
@@ -36,6 +37,22 @@ BEGIN
   END IF;
 END //
 
+-- #818 D1: the desks a reply reaches only as room members (reply-all, not
+-- named) are copied on it; every other recipient stays asked (the default).
+-- p_desks is a JSON array of desk names. Called by reply right after the
+-- letter's recipients are written, before the wakes.
+CREATE PROCEDURE mill_mail_to_copied(
+  IN p_id    BIGINT UNSIGNED,
+  IN p_desks JSON
+)
+BEGIN
+  UPDATE mail_to mt
+    JOIN name d ON d.id = mt.desk_id AND d.type = 'desk'
+    JOIN JSON_TABLE(p_desks, '$[*]' COLUMNS (desk VARCHAR(64) PATH '$')) j ON j.desk = d.name
+     SET mt.asked = 0
+   WHERE mt.type = 'mail' AND mt.id = p_id;
+END //
+
 CREATE PROCEDURE mill_mail_to_node_put(
   IN p_id  BIGINT UNSIGNED,
   IN p_who BIGINT UNSIGNED
@@ -61,7 +78,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM mail WHERE type = 'mail' AND id = p_id) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'add: no such mail';
   END IF;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   INSERT IGNORE INTO mail_to (type, id, desk_id, opened, receipt)
   WITH nodes AS (
@@ -81,7 +98,7 @@ BEGIN
     FROM nodes n CROSS JOIN desks d
    WHERE n.sender_id <> d.id;
   SET v_added = ROW_COUNT();
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_added AS added,
          (WITH nodes AS (
       SELECT m.id, m.desk_id AS sender_id FROM mail m
@@ -136,7 +153,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM mail WHERE type = 'mail' AND id = p_id) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'remove: no such mail';
   END IF;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   WITH nodes AS (
       SELECT m.id, m.desk_id AS sender_id FROM mail m
        WHERE m.type = 'mail'
@@ -209,7 +226,7 @@ BEGIN
        WHERE mb.name_id = p_who AND v_type = 'roster'
     ) SELECT id FROM desks) AS dd);
   SET v_gone = ROW_COUNT();
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_gone AS removed;
 END //
 
@@ -237,7 +254,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   -- Roster: the sender roster name.
   SET v_proj = MILL_NAME_GET('roster', p_project);
@@ -263,7 +280,7 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'mail: no recipients (empty mail_to; refuse orphan mail)';
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, MILL_NAME_GET(v_to_type, v_to) AS dest_id;
 END //
 
@@ -285,7 +302,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);
@@ -303,7 +320,7 @@ BEGIN
   END IF;
   UPDATE mail SET body = IFNULL(p_body, body) WHERE id = p_id;
   CALL mill_activity_put('mail', p_id, v_ts, v_desk, v_proj, MILL_WEIGHT('mail'), LENGTH(p_body));
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
 END //
 
@@ -324,7 +341,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = IFNULL(MILL_NAME_GET('desk', p_desk), 0);
   SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);
@@ -348,7 +365,7 @@ BEGIN
     UPDATE activity SET deleted = v_ts, updated = v_ts
      WHERE type = 'mail' AND id = p_id;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated, 'deleted' AS op;
 END //
 
@@ -439,9 +456,9 @@ BEGIN
    ORDER BY m.id DESC;
 END //
 
--- Desk inbox page, cut in SQL. Unread (default): the oldest p_limit unread
--- letters, oldest first, the order inbox has always printed. p_all: the newest
--- p_limit letters, newest first. Drives from mail_to idx_desk_unread
+-- Desk inbox page, cut in SQL. Unread (default): the newest p_limit unread
+-- letters, newest first, so a new letter is never buried (F137). p_all: the
+-- newest p_limit letters, newest first. Drives from mail_to idx_desk_unread
 -- (desk_id, opened, id) in a derived table, so an unread page reads p_limit index
 -- entries, not the whole mailbox. Same columns as mill_mail_select.
 CREATE PROCEDURE mill_mail_inbox(
@@ -463,12 +480,12 @@ BEGIN
            affn.name AS sender_roster, affn.type AS sender_roster_type
       FROM (SELECT id, desk_id, receipt, opened FROM mail_to
              WHERE type = 'mail' AND desk_id = v_desk AND opened IS NULL
-             ORDER BY id LIMIT v_lim) t
+             ORDER BY id DESC LIMIT v_lim) t
       JOIN mail m ON m.type = 'mail' AND m.id = t.id
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
-     ORDER BY t.id;
+     ORDER BY t.id DESC;
   ELSE
     SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
            m.roster_id AS sender_roster_id,

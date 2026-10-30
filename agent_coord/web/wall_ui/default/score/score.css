@@ -71,8 +71,8 @@
       padding: .08rem .35rem; border-radius: 999px; font-size: 10px; letter-spacing: .06em;
       border: 1px solid var(--edge); color: var(--dim);
     }
-    .spend-row.kind-here { border-left-color: var(--green); }
-    .spend-row.kind-here .k { color: var(--green); border-color: var(--green); }
+    .spend-row.kind-doing { border-left-color: var(--green); }
+    .spend-row.kind-doing .k { color: var(--green); border-color: var(--green); }
     .spend-row.kind-mail { border-left-color: var(--cyan); }
     .spend-row.kind-mail .k { color: var(--cyan); border-color: var(--cyan); }
     .spend-row.kind-todo { border-left-color: var(--amber); }

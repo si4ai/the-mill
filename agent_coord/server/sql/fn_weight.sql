@@ -3,7 +3,7 @@
 DROP FUNCTION IF EXISTS MILL_WEIGHT;
 
 DELIMITER //
-CREATE FUNCTION MILL_WEIGHT(p_type ENUM('mail','todo','join','hold','score')) RETURNS INT
+CREATE FUNCTION MILL_WEIGHT(p_type ENUM('mail','todo','doing','hold','score')) RETURNS INT
   DETERMINISTIC
   NO SQL
 BEGIN
@@ -12,7 +12,7 @@ BEGIN
     WHEN 'todo' THEN 2
     WHEN 'hold' THEN 2
     WHEN 'score' THEN 1
-    WHEN 'join' THEN 1
+    WHEN 'doing' THEN 1
     ELSE 1
   END;
 END //

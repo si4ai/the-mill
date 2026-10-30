@@ -1,7 +1,7 @@
 /* WALL_UI_LIB_PERF - opt-in Wall Performance marks/measures (cold/load debug).
  * Loaded ONLY when board.html WALL_UI_PERF_GATE sees ?wall_perf=1 or localStorage.wall_perf=1.
  * Default path: this file is never fetched - zero marks, zero fetch wrap, zero timers, zero HUD.
- * wow161: append timings=1 on /api/v1/* GET; parse body.timings; opt-in strip under tab strip.
+ * append timings=1 on /api/v1/* GET; parse body.timings; opt-in strip under tab strip.
  * Marker: WALL_UI_LIB_PERF
  */
 (function (global) {

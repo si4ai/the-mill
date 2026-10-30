@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .db import call
+from agent_coord.const import CONST_DESK
+
+from .db import Inline, call
 
 
 # #627: a stored row carries this key only when it reached the desk as a room
@@ -53,22 +55,11 @@ def _payload_dict(raw: Any) -> dict:
 
 
 def _put_back(cn, row_id: int, raw_payload: Any, idem: str) -> None:
-    """A sent row did not reach a redirector. It waits again. Same frame."""
+    """A sent row did not reach a redirector. It waits again. Same frame (#867: an SP)."""
     payload = _payload_dict(raw_payload)
     if idem and not str(payload.get("idem") or "").strip():
         payload["idem"] = idem
-    raw = json.dumps(payload, default=str)
-    cur = cn.cursor()
-    try:
-        # Named SQL. The first execute argument must not be a literal with % and payload.
-        mark_back = (
-            "UPDATE push_queue SET outcome = 'missed', payload = %s "
-            "WHERE id = %s AND outcome = 'sent'"
-        )
-        cur.execute(mark_back, (raw, int(row_id)))
-        cn.commit()
-    finally:
-        cur.close()
+    call(cn, "cmd_push_put_back", [int(row_id), json.dumps(payload, default=str)])
 
 
 def note_drop(cn, desk: str, frame: dict) -> str:
@@ -175,8 +166,51 @@ def expire(cn) -> dict[str, Any]:
     return {"deleted": int(row.get("deleted") or 0), "cut": str(row.get("cut") or "")}
 
 
+class Held(list):
+    """Sync items read without deleting their rows. ids are the push_queue rows behind
+    them; ack(cn, ids) deletes those rows once the frame that carries them is sent (#831)."""
+
+    ids: tuple = ()
+
+
+# #831: the same rows mill_push_take hands out, read without deleting them.
+_PEEK_SQL = (
+    "SELECT p.id, p.kind, p.payload, p.outcome, p.created FROM push_queue p"
+    " WHERE p.desk_id = MILL_NAME_GET('desk', %s)"
+    " AND (p.kind = 'expired' OR p.created >= CURRENT_TIMESTAMP(6) - INTERVAL 30 DAY)"
+    " ORDER BY p.id"
+)
+
+
+def peek(cn, desk: str) -> Held:
+    """#831: the desk's sync items, rows left in place. A frame that is never sent
+    (the socket was superseded or closed) leaves them for the next sync."""
+    from .db import rows_done
+
+    rows = rows_done(cn, _PEEK_SQL, (str(desk or "").strip(),))
+    out = Held(_items(rows))
+    out.ids = tuple(int(r["id"]) for r in rows if r.get("id") is not None)
+    return out
+
+
+def ack(cn, desk: str, ids) -> int:
+    """#831: delete the rows a sent frame carried. Only those ids: a row put after the
+    read stays queued. A second ack of the same ids deletes nothing. #867: only the
+    desk's own rows, in cmd_push_sent."""
+    from agent_coord.server.records.name import bare
+
+    keep = [int(i) for i in ids or () if int(i) > 0]
+    if not keep:
+        return 0
+    rows = call(cn, "cmd_push_sent", [Inline("MILL_DESK_ID(%s)", bare(desk, CONST_DESK)), json.dumps(keep)])
+    return int((rows[0].get("sent") if rows else 0) or 0)
+
+
 def take(cn, desk: str) -> list[dict]:
-    rows = call(cn, "mill_push_take", [desk])
+    return _items(call(cn, "mill_push_take", [desk]))
+
+
+def _items(rows) -> list[dict]:
     out: list[dict] = []
     for row in rows or []:
         payload = row.get("payload")
@@ -234,6 +268,52 @@ def fold_hints(items: list[dict]) -> list[dict]:
         elif last[key] == pos:
             out.append({**item, "n": counts[key], "first": first[key]})
     return out
+
+
+# #832: the newest hint or letter this desk has not had live (receipts never ring).
+_WAITING_SQL = (
+    "SELECT p.id, p.kind, p.payload FROM push_queue p"
+    " WHERE p.desk_id = MILL_NAME_GET('desk', %s)"
+    " AND p.outcome IN ('missed', 'error') AND p.kind IN ('hint', 'mail')"
+    " ORDER BY p.id DESC LIMIT 1"
+)
+
+
+def row_id(got) -> int:
+    """The id put() returned (0 when unknown)."""
+    try:
+        return int(((got or [{}])[0] or {}).get("id") or 0)
+    except (TypeError, ValueError, IndexError, AttributeError):
+        return 0
+
+
+def mark(cn, rid: int, outcome: str) -> int:
+    """#832: set a missed row's outcome (sent or error). 0 when the row is gone.
+    Emit and fanout put a row as missed before the live send; a send that reached a
+    socket marks it sent. A row already taken by a sync is left alone (cmd_push_mark)."""
+    if int(rid or 0) <= 0 or outcome not in ("sent", "error"):
+        return 0
+    rows = call(cn, "cmd_push_mark", [int(rid), outcome])
+    return int((rows[0].get("marked") if rows else 0) or 0)
+
+
+def waiting(cn, desk: str) -> dict | None:
+    """#832: the newest hint or letter row not handed over live, or None."""
+    from .db import rows_done
+
+    rows = rows_done(cn, _WAITING_SQL, (str(desk or "").strip(),))
+    if not rows:
+        return None
+    row = rows[0]
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return {"id": int(row.get("id") or 0), "kind": row.get("kind"), "payload": payload}
 
 
 def pending(cn, desk: str) -> int:

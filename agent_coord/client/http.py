@@ -161,7 +161,10 @@ def mill_http_call(body: dict[str, Any]) -> Any:
         if not who:
             who = (wait_for_sitting_desk() or "").strip()
         if not who:
-            raise CoordError(SESSION_WS_BRIDGE_REQUIRED)
+            from agent_coord.client.ws import busy_for_parent
+
+            # Card 834: this shell's connect was refused as busy; say so, not "no connect".
+            raise CoordError(busy_for_parent() or SESSION_WS_BRIDGE_REQUIRED)
         key = mill_api_key(who)
         if not key:
             raise CoordError(SESSION_TOKEN_REQUIRED)
@@ -654,9 +657,8 @@ def todo_find_text(args: Any) -> str:
 
 
 FIND_SNIPPET = 120
-FIND_TITLE = 120
-# Lower rank lists first: a title (doing) or need-name hit, then the roster, then the body.
-_FIND_RANK = (("doing", 0, "title"), ("need_id", 0, "need"), ("project_id", 1, "roster"), ("detail", 2, "detail"))
+# Lower rank lists first: a need-name hit, then the roster, then the body (#818: cards have no title).
+_FIND_RANK = (("need_id", 0, "need"), ("project_id", 1, "roster"), ("detail", 2, "detail"))
 
 
 def _find_snippet(text: str, needle: str) -> str:
@@ -676,18 +678,15 @@ def _find_snippet(text: str, needle: str) -> str:
 def _find_card(r: dict, needle: str, match: str) -> dict:
     """The card as --find prints it: the body becomes a short snippet (ux12)."""
     out = {k: v for k, v in r.items() if k not in ("detail", "progress")}
-    doing = " ".join(str(r.get("doing") or "").split())
-    if len(doing) > FIND_TITLE:
-        out["doing"] = doing[:FIND_TITLE] + "..."
     out["match"] = match
     out["snippet"] = _find_snippet(str(r.get("detail") or ""), needle)
     return out
 
 
 def _todo_find(row: Any, text: str) -> Any:
-    """Keep the cards whose title, need, roster or detail holds text (any case).
+    """Keep the cards whose need, roster or detail holds text (any case).
 
-    Title and need-name hits list first, then roster, then body-only hits; each
+    Need-name hits list first, then roster, then body-only hits; each
     card carries a short snippet instead of its whole body (ux12).
     """
     if not text or not isinstance(row, dict) or not isinstance(row.get("result"), list):
@@ -1051,7 +1050,9 @@ def mill_here_over_http(args: Any) -> int:
             )
             return 130
         print(json.dumps(got, default=str), flush=True)
-        return 0 if got.get("ok") else int(got.get("exit") or 1)
+        if got.get("ok"):
+            return 0
+        return int(got["exit"]) if "exit" in got else 1  # busy exits 0 (card 834)
     stop = threading.Event()
     outcome: dict = {}
     from agent_coord.client.ws import clear_connect_starting, write_connect_starting

@@ -22,9 +22,9 @@ metadata:
 
 ### Guards
 
-No poll. No invented mill commands. Exit **0**. `heartbeat:PING` and `join:JOIN` are dropped on receive, before any route program. Do not arm `join:JOIN`. A missing route does not vendor-poke JOIN.
+No poll. No invented mill commands. Exit **0**. `heartbeat:PING` and `doing:DOING` are dropped on receive, before any route program. Do not arm `doing:DOING`. A missing route does not vendor-poke DOING.
 
-A watcher is one desk on one of `todo`, `join`, `hold`, or `score`. Mail is not a watcher type. Nothing emits `name:NAME`. Mail arrives as `{kind: mail}`. Trees, labels, and memberships organize work. They are not watch targets. `roster_id` is only the project or role collection. Another desk attaches its own watcher. Do not expect every project member to be watched.
+A watcher is one desk on one of `todo`, `doing`, `hold`, or `score`. Mail is not a watcher type. Nothing emits `name:NAME`. Mail arrives as `{kind: mail}`. Trees, labels, and memberships organize work. They are not watch targets. `roster_id` is only the project or role collection. Another desk attaches its own watcher. Do not expect every project member to be watched.
 
 Vendor poke, when no route hits, is the fallback. It is not this playbook. A future vendor webhook is that same fallback, not a second router.
 
@@ -52,7 +52,7 @@ wait'
 
 `mill route` waits for that connect to sit. Everything after the key is the program. The catch-all key is `"*"`, quoted so the shell does not expand it. The list is a chain in add order. Exit 0 with any last stdout line other than `not-mine` means handled (stop). Print `not-mine` last and exit 0 to pass to the next redirector. mill connect re-reads the chain on every frame. No restart. The route file stays after the shell exits.
 
-Every other `mill connect` for this desk takes the seat from this one (`superseded (4000)`), and this one does not come back. Run later desk commands before `wait`, or stop this shell first.
+Every other `mill connect` for this desk is refused as busy while this one is up; `mill connect --take` takes the seat from this one (`superseded (4000)`), and this one does not come back. Run later desk commands before `wait`, or stop this shell first.
 
 `--session` on connect is the Grok session id for a grok-build poke. Omit it unless that poke needs it.
 

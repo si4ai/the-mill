@@ -32,7 +32,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -63,7 +63,7 @@ BEGIN
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_kpi AS kpi;
 END //
 
@@ -88,7 +88,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_office = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
   SET v_admin = MILL_NAME_GET('roster', 'Admin');
@@ -119,7 +119,7 @@ BEGIN
   CALL mill_activity_put('score', v_id, v_ts, v_admin, v_office, MILL_WEIGHT('score'), NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_kpi AS kpi;
 END //
 
@@ -138,7 +138,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   IF EXISTS (SELECT 1 FROM score WHERE id = p_id) THEN
     CALL mill_tree_detach('score', p_id);
@@ -146,7 +146,7 @@ BEGIN
     UPDATE activity SET deleted = v_ts, updated = v_ts
      WHERE type = 'score' AND id = p_id AND deleted IS NULL;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'deleted' AS op;
 END //
 
@@ -226,7 +226,7 @@ BEGIN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: --at is in the future';
     END IF;
   END IF;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF v_proj IS NULL THEN
@@ -263,7 +263,7 @@ BEGIN
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_pt AS point_id, v_ts AS updated, p_kpi AS kpi;
 END //
 
@@ -298,7 +298,7 @@ BEGIN
   IF p_target IS NULL AND p_better IS NULL AND p_unit IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: give VALUE, --target, --better or --unit';
   END IF;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -328,7 +328,7 @@ BEGIN
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   CALL mill_watcher_roster('score', v_id, v_proj, v_desk);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_kpi AS kpi;
 END //
 
@@ -353,7 +353,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -380,7 +380,7 @@ BEGIN
   DELETE FROM watcher WHERE type = 'score' AND id = v_id;
   UPDATE activity SET deleted = v_ts, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NULL;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, p_kpi AS kpi, 'retired' AS op;
 END //
 
@@ -523,7 +523,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
   SET v_proj = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
@@ -599,7 +599,7 @@ BEGIN
            updated = v_ts
      WHERE id = v_id;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
 -- One office score, kpi wall, hung on Office. Not a desk.
@@ -630,7 +630,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
   SET v_office = (SELECT id FROM name WHERE id = 1 AND type = 'roster');  -- #722: Office by id
@@ -694,7 +694,7 @@ BEGIN
            updated = v_ts
      WHERE id = v_id;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
 -- Day documents older than 30 days, every score. Hour slots stay (1970-01-01).

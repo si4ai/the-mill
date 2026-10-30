@@ -26,7 +26,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -43,7 +43,7 @@ BEGIN
   SET v_id = LAST_INSERT_ID();
   CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_status AS status;
 END //
 
@@ -72,7 +72,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_GET('roster', p_project);
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -106,7 +106,7 @@ BEGIN
   END IF;
   IF v_name IS NULL THEN
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, 1, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
   END IF;
@@ -119,7 +119,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM tree WHERE name_id = v_name LIMIT 1) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree parent not found';
     END IF;
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, 1, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
     SELECT rgt INTO v_r FROM tree
@@ -129,7 +129,7 @@ BEGIN
   UPDATE tree SET lft = lft + 2 WHERE name_id = v_name AND lft > v_r ORDER BY lft DESC;
   INSERT INTO tree (name_id, type, id, lft, rgt)
   VALUES (v_name, 'todo', v_id, v_r, v_r + 1);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, p_status AS status, v_name AS name_id, v_r AS lft;
 END //
 
@@ -150,7 +150,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_vol = CASE
@@ -159,8 +159,18 @@ BEGIN
     ELSE MILL_NAME_GET('desk', p_volunteer)
   END;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id;
+  -- #818 D2: claimed_at is first, so it reads the old status and volunteer
+  -- (MySQL assigns left to right). A claim, a new volunteer or a step back to
+  -- claimed stamps it; leaving claimed clears it; anything else keeps it.
   UPDATE todo
-     SET updated = v_ts,
+     SET claimed_at = CASE
+           WHEN IFNULL(NULLIF(p_status, ''), status) <> 'claimed' THEN NULL
+           WHEN status <> 'claimed' OR claimed_at IS NULL THEN v_ts
+           WHEN p_volunteer IS NOT NULL AND p_volunteer NOT IN ('', '-')
+                AND NOT (v_vol <=> assigned_id) THEN v_ts
+           ELSE claimed_at
+         END,
+         updated = v_ts,
          updated_id = v_desk,
          status = IFNULL(NULLIF(p_status, ''), status),
          assigned_id = CASE
@@ -175,7 +185,7 @@ BEGIN
   IF v_vol IS NOT NULL THEN
     CALL mill_watcher_put('todo', p_id, v_vol);
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
 END //
 
@@ -203,7 +213,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   IF EXISTS (SELECT 1 FROM todo WHERE id = p_id) THEN
     SET v_desk = NULL;
@@ -237,7 +247,7 @@ BEGIN
         updated = v_ts;
     END IF;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'deleted' AS op;
 END //
 
@@ -258,7 +268,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_proj = NULL;
@@ -276,7 +286,7 @@ BEGIN
   VALUES ('todo', p_id, v_ts, v_ts, v_ts, v_desk, v_proj, MILL_WEIGHT('todo'), 1, NULL)
   ON DUPLICATE KEY UPDATE deleted = v_ts, updated = v_ts;
   UPDATE todo SET updated = v_ts, updated_id = v_desk WHERE id = p_id;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'retired' AS op;
 END //
 
@@ -292,7 +302,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF v_desk IS NULL THEN
@@ -305,7 +315,7 @@ BEGIN
   END IF;
   UPDATE activity SET deleted = NULL, updated = v_ts WHERE type = 'todo' AND id = p_id;
   UPDATE todo SET updated = v_ts, updated_id = v_desk WHERE id = p_id;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'reclaimed' AS op;
 END //
 
@@ -313,7 +323,8 @@ CREATE PROCEDURE mill_todo_get(IN p_id BIGINT UNSIGNED)
 BEGIN
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
          t.status, t.assigned_id, t.body,
-         an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type
+         an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
+         t.done_when, t.evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -346,7 +357,8 @@ BEGIN
          tr.tree_id, trn.name AS tree,
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
-           WHERE l.type = 'todo' AND l.id = t.id) AS labels
+           WHERE l.type = 'todo' AND l.id = t.id) AS labels,
+         t.done_when, t.evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -391,7 +403,8 @@ BEGIN
          tr.tree_id, trn.name AS tree,
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
-           WHERE l.type = 'todo' AND l.id = t.id) AS labels
+           WHERE l.type = 'todo' AND l.id = t.id) AS labels,
+         t.done_when, t.evidence
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id

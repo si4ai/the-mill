@@ -118,7 +118,7 @@ def test_polling_desk_mail_is_an_activity_row(cn) -> None:
     here.upsert(cn, p, desk, "builder", token_hash="c" * 64)
     cur = cn.cursor()
     cur.execute(
-        "UPDATE `join` SET delivery_mode='polling' WHERE desk_id=(SELECT id FROM name WHERE name=%s)",
+        "UPDATE seat SET delivery_mode='polling' WHERE desk_id=(SELECT id FROM name WHERE name=%s)",
         (desk,),
     )
     cn.commit()
@@ -129,7 +129,7 @@ def test_polling_desk_mail_is_an_activity_row(cn) -> None:
 
 
 def test_fanout_pokes_connected_desk_even_if_polling() -> None:
-    """A desk sitting on /ws gets the poke even when join.delivery_mode is still polling."""
+    """A desk sitting on /ws gets the poke even when seat.delivery_mode is still polling."""
     import asyncio
     import json
 

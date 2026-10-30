@@ -169,11 +169,13 @@ class Hub:
             if last:
                 self.rooms.pop(room_key, None)
                 _mark_join_socket(stored, up=False)
+                # #832: the last socket left; rows it never got live ring an armed desk.
+                _off_loop(_ring_after, stored, "leave")
             _bc_log(f"ws leave desk={stored} n={len(self.rooms.get(room_key) or ())}")
         except Exception as e:
             _bc_log(f"ws leave fail desk={desk} err={e}")
 
-    async def _broadcast(self, desk: str, payload: dict[str, Any]) -> None:
+    async def _broadcast(self, desk: str, payload: dict[str, Any], row: tuple | None = None) -> None:
         try:
             room = list(self.rooms.get(desk) or ())
             dead = []
@@ -196,20 +198,92 @@ class Hub:
                 except Exception:
                     pass
             _bc_log(f"ws push desk={desk} hint={hint} ok={n_ok} dead={len(dead)} frame_b={len(text.encode('utf-8'))}")
+            if row and row[1]:
+                # #832: a frame that reached a socket marks its row sent; one that found
+                # no socket (the desk left after the sitting read) leaves it missed and rings.
+                _off_loop(_settle_row, row[0], int(row[1]), n_ok > 0)
         except Exception as e:
             _bc_log(f"ws broadcast fail desk={desk} err={e}")
 
-    def notify(self, desk: str, payload: dict[str, Any]) -> None:
-        """Thread-safe: mill RPC is sync inside uvicorn."""
+    def notify(self, desk: str, payload: dict[str, Any], row: tuple | None = None) -> None:
+        """Thread-safe: mill RPC is sync inside uvicorn.
+
+        row (#832): (desk, push_queue id) of the row this frame stands for; the
+        broadcast marks it sent when a socket took the frame.
+        """
         try:
             loop = self.loop
             if loop is None or not loop.is_running():
                 _bc_log(f"ws skip no-loop desk={desk} hint={(payload or {}).get('hint')}")
                 return
-            asyncio.run_coroutine_threadsafe(self._broadcast(desk, payload), loop)
+            asyncio.run_coroutine_threadsafe(self._broadcast(desk, payload, row), loop)
         except Exception as e:
             _bc_log(f"ws notify fail desk={desk} err={e}")
 
+
+
+def _off_loop(fn, *args) -> None:
+    """Run fn(*args) off the event loop: a worker of the running loop, else a thread."""
+    try:
+        asyncio.get_running_loop().run_in_executor(None, fn, *args)
+    except RuntimeError:
+        threading.Thread(target=fn, args=args, daemon=True).start()
+    except Exception as e:
+        _bc_log(f"ws off-loop fail err={type(e).__name__}")
+
+
+def _settle_row(desk: str, rid: int, delivered: bool) -> None:
+    """#832: mark a live-sent row sent, or ring when its frame reached no socket."""
+    try:
+        from agent_coord.server.book import Book
+        from agent_coord.server.records import push as rec_push
+
+        with Book() as c:
+            if delivered:
+                rec_push.mark(c._cn, rid, "sent")
+            else:
+                ring_waiting(c._cn, desk, "unsent")
+    except Exception as e:
+        _bc_log(f"push settle err desk={desk} err={type(e).__name__}")
+
+
+def _ring_after(desk: str, why: str) -> None:
+    try:
+        from agent_coord.server.book import Book
+
+        with Book() as c:
+            ring_waiting(c._cn, desk, why)
+    except Exception as e:
+        _bc_log(f"push ring err desk={desk} why={why} err={type(e).__name__}")
+
+
+def ring_waiting(cn, desk: str, why: str) -> str:
+    """#832: wake an armed desk that is not sitting and has rows it never got live.
+
+    Runs when its last socket leaves and when a live frame found no socket. The POST
+    names the newest waiting hint or letter; post_desk's window, wake_on and checks
+    apply as for any other wake. sitting | none | post_desk's result.
+    """
+    from agent_coord.server.mill_json import stamp_mill
+    from agent_coord.server.poke_key import FIELD, hint_key, letter_key
+    from agent_coord.server.records import push as rec_push
+    from agent_coord.server.wake import ADDRESSED, ROOM, post_desk
+
+    if any(k in HUB.rooms for k in _desk_room_keys(desk)):
+        return "sitting"
+    row = rec_push.waiting(cn, desk)
+    if not row:
+        return "none"
+    kind = str(row.get("kind") or "hint")
+    frame = dict(row.get("payload") or {})
+    frame.setdefault("kind", kind)
+    reason = ROOM if frame.pop(rec_push.WAKE_REASON, None) == "room" else ADDRESSED
+    num = int(frame.get("id") or 0)
+    if kind == "mail":
+        frame[FIELD] = letter_key(num, desk)
+    else:
+        frame[FIELD] = hint_key(str(frame.get("type") or ""), num, desk)
+    return post_desk(cn, desk, stamp_mill(frame), hint_id=num, reason=reason, ring=why)
 
 
 def _ws_gone(ws: Any) -> bool:
@@ -402,7 +476,7 @@ def fanout(
     """After a records write: poke watchers (ws / webhook / poll no-op).
 
     skip_desk leaves out the desk whose own act caused the write. Its /ws connect
-    runs before its socket sits in the Hub, so without this the desk's own JOIN
+    runs before its socket sits in the Hub, so without this the desk's own DOING
     would be queued as missed and handed straight back in its connect sync.
 
     rows, when passed, is the watcher list to poke. probe-delete reads it before
@@ -410,9 +484,17 @@ def fanout(
 
     when, when passed, is the hint time; a write that leaves the activity row
     alone (a label) passes its own time so the hint is not stale (#280).
+
+    Inside a request transaction (#818) the pokes wait for its commit and are
+    dropped if it rolls back; the return is then [].
     """
     import time
 
+    from agent_coord.server.records.db import after_commit, in_request_tx
+
+    if in_request_tx(cn):
+        after_commit(cn, lambda: fanout(cn, type, id, hint, rows=rows, skip_desk=skip_desk, when=when))
+        return []
     t0 = time.perf_counter()
     try:
         from agent_coord.server.wake import post_desk
@@ -442,7 +524,6 @@ def fanout(
 
                 payload[FIELD] = hint_key(type, int(id), desk)
                 keys = _desk_room_keys(desk)
-                sitting = any(k in HUB.rooms for k in keys)
                 report = {
                     "kind": "hint",
                     "type": type,
@@ -450,18 +531,27 @@ def fanout(
                     "hint": hint,
                     "detail": detail,
                 }
-                outcome = "missed"
+                from agent_coord.server.records import push as rec_push
+
+                # #832: the row goes in first, as missed, so a sync at any later point
+                # (the woken desk's connect included) hands it over. A live send that
+                # reaches a socket marks it sent.
+                rid = 0
+                try:
+                    rid = rec_push.row_id(rec_push.put(cn, desk, "hint", report, "missed"))
+                except Exception as e:
+                    _bc_log(f"push log err desk={desk} kind=hint err={e}")
+                sitting = any(k in HUB.rooms for k in keys)
                 if sitting:
                     n_sit += 1
                     try:
-                        _notify_rooms(keys or [desk], payload)
-                        outcome = "sent"
+                        _notify_rooms(keys or [desk], payload, row=(desk, rid))
                     except Exception as e:
-                        outcome = "error"
+                        _mark_error(cn, rid)
                         _bc_log(f"fanout notify err desk={desk} err={e}")
                 elif mode == "webhook" and url:
-                    # #618: a doorbell, one per desk per window. The hint stays missed either
-                    # way, so the woken desk's connect sync hands it over and its chain walks it.
+                    # #618: a doorbell, one per desk per window. The hint is already queued as
+                    # missed, so the woken desk's connect sync hands it over and its chain walks it.
                     try:
                         got = post_desk(cn, desk, payload, hint_id=int(id))
                     except Exception as e:
@@ -475,12 +565,6 @@ def fanout(
                 else:
                     n_miss += 1
                     _bc_log(f"fanout miss desk={desk} type={type} id={id} hint={hint} mode={mode}")
-                try:
-                    from agent_coord.server.records import push as rec_push
-
-                    rec_push.put(cn, desk, "hint", report, outcome)
-                except Exception as e:
-                    _bc_log(f"push log err desk={desk} kind=hint err={e}")
             except Exception as e:
                 _bc_log(f"fanout row err type={type} id={id} err={e}")
         ms = (time.perf_counter() - t0) * 1000.0
@@ -513,31 +597,50 @@ def fanout(
         return []
 
 
-def _notify_rooms(rooms: list[str], frame: dict) -> None:
-    """One /ws send. If the frame has an idempotency key, a raised send retries once."""
+def _notify_rooms(rooms: list[str], frame: dict, row: tuple | None = None) -> None:
+    """One /ws send. If the frame has an idempotency key, a raised send retries once.
+
+    row (#832): (desk, push_queue id); the broadcast marks that row sent.
+    """
     from agent_coord.server.poke_key import FIELD
 
     idem = str((frame or {}).get(FIELD) or "")
+    extra = {"row": row} if row and row[1] else {}  # no stored row: nothing to settle
     for room in rooms:
         try:
-            HUB.notify(room, frame)
+            HUB.notify(room, frame, **extra)
         except Exception:
             if not idem:
                 raise
-            HUB.notify(room, frame)
+            HUB.notify(room, frame, **extra)
+
+
+def _mark_error(cn, rid: int) -> None:
+    """#832: a live send that raised leaves its row as error (still waiting)."""
+    try:
+        from agent_coord.server.records import push as rec_push
+
+        rec_push.mark(cn, rid, "error")
+    except Exception as e:
+        _bc_log(f"push mark err id={rid} err={type(e).__name__}")
 
 
 def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", room: str | None = None) -> str:
     """Hand one async item to a sitting socket, and keep it for the sync report.
 
-    outcome is sent, missed, or error. The book row is what a later mill sync returns.
+    outcome is sent, missed, or error (deferred inside a #818 request transaction). The book row is what a later mill sync returns.
     The live frame carries an idempotency key. The stored row does not: connect
     drain picking up that key is a later change.
     """
     from agent_coord.server.mill_json import stamp_mill
     from agent_coord.server.poke_key import FIELD, letter_key, receipt_key
     from agent_coord.server.records import push as rec_push
+    from agent_coord.server.records.db import after_commit, in_request_tx
 
+    if in_request_tx(cn):
+        # #818: the letter goes out after its command commits, never for a rolled-back one.
+        after_commit(cn, lambda: emit(cn, desk, kind, payload, reason=reason, room=room))
+        return "deferred"
     frame = dict(payload)
     frame.setdefault("kind", kind)
     who = str(desk or "").strip()
@@ -547,33 +650,39 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
         live[FIELD] = receipt_key(mid, who)
     else:
         live[FIELD] = letter_key(mid, who)
+    if reason == "room":
+        # #627: kept on the stored row only, so a later wake knows the burst
+        # held no addressed item; take() drops it before the sync.
+        frame[rec_push.WAKE_REASON] = "room"
+    # #832: the row goes in first, as missed. A sync at any later point (the woken
+    # desk's connect included) hands it over; a live send that reaches a socket
+    # marks it sent. Before, the row was written after the wake POST, so a desk
+    # woken fast enough synced before the row existed and was not woken again.
+    rid = 0
+    try:
+        rid = rec_push.row_id(rec_push.put(cn, desk, kind, frame, "missed"))
+    except Exception as e:
+        _bc_log(f"push log err desk={desk} kind={kind} err={e}")
     outcome = "missed"
     keys = _desk_room_keys(desk)
     sitting = any(k in HUB.rooms for k in keys)
     if sitting:
         try:
-            _notify_rooms(keys or [desk], stamp_mill(live))
+            _notify_rooms(keys or [desk], stamp_mill(live), row=(who, rid))
             outcome = "sent"
         except Exception as e:
             outcome = "error"
+            _mark_error(cn, rid)
             _bc_log(f"push notify err desk={desk} kind={kind} err={e}")
     elif kind == "mail":
         # #618: a letter rings an armed desk's webhook too. The letter text never
-        # rides the POST; the row stays missed, so the connect sync hands it over.
+        # rides the POST; the row is already queued, so the connect sync hands it over.
         try:
             from agent_coord.server.wake import post_desk
 
             post_desk(cn, desk, live, hint_id=mid, reason=reason, room=room)
         except Exception as e:
             _bc_log(f"webhook desk={desk} kind=mail err={type(e).__name__}")
-    if reason == "room":
-        # #627: kept on the stored row only, so a later wake knows the burst
-        # held no addressed item; take() drops it before the sync.
-        frame[rec_push.WAKE_REASON] = "room"
-    try:
-        rec_push.put(cn, desk, kind, frame, outcome)
-    except Exception as e:
-        _bc_log(f"push log err desk={desk} kind={kind} err={e}")
     return outcome
 
 
@@ -606,23 +715,45 @@ def expire_sweep() -> dict[str, Any]:
                 pass
 
 
-def take_sync(cn, desk: str) -> list[dict]:
-    """Rows pushed since this desk's last mill sync. Deletes them."""
+def take_sync(cn, desk: str, *, hold: bool = False) -> list[dict]:
+    """Rows pushed since this desk's last mill sync. Deletes them.
+
+    hold=True (#831) reads them without deleting: the list carries .ids, and the
+    caller deletes them with ack_sync once the frame that carries them is sent.
+    """
     from agent_coord.server.records import push as rec_push
 
     try:
-        return rec_push.take(cn, desk)
+        return rec_push.peek(cn, desk) if hold else rec_push.take(cn, desk)
     except Exception as e:
         _bc_log(f"push take err desk={desk} err={e}")
         return []
 
 
-def connect_sync_frame(cn, desk: str) -> dict:
+def sync_ids(items) -> list[int]:
+    """#831: the queue rows behind a held sync list ([] for a plain list)."""
+    return [int(i) for i in getattr(items, "ids", ()) or ()]
+
+
+def ack_sync(cn, desk: str, ids) -> int:
+    """#831: delete the rows a sent frame carried. Logs and returns 0 on error; the
+    rows then stay queued and the next sync hands them over again."""
+    from agent_coord.server.records import push as rec_push
+
+    try:
+        return rec_push.ack(cn, desk, ids)
+    except Exception as e:
+        _bc_log(f"push ack err desk={desk} err={e}")
+        return 0
+
+
+def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     """Connect sync plus this desk's holds. Holds are not queue items.
 
     An empty push queue stays an empty list. If the hold read fails, holds is [].
+    hold=True (#831): the queue rows stay until ack_sync after the frame is sent.
     """
-    sync = take_sync(cn, desk)
+    sync = take_sync(cn, desk, hold=hold)
     holds: list = []
     try:
         from agent_coord.server.records import hold as rec_hold
@@ -632,14 +763,43 @@ def connect_sync_frame(cn, desk: str) -> dict:
     except Exception as e:
         _bc_log(f"hold own err desk={desk} err={e}")
         holds = []
-    # #618: this sync hands over the queue, so the desk's next hint may ring its webhook.
+    # F144: a sync does not end the desk's wake lease. A routine run connects once
+    # per shell call; only mill wake-done or the lease timeout lets the next item POST.
+    # The sync did hand over what was held back, so those no longer count.
     try:
-        from agent_coord.server.wake import gate_clear
+        from agent_coord.server.wake import lease_synced
 
-        gate_clear(desk)
+        lease_synced(desk)
     except Exception:
         pass
-    return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk)}
+    return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk), "hello": hello_line(cn)}
+
+
+def sp_stamp() -> str:
+    """The SP stamp this pack ships: sp-<first 12 hex of its SQL digest> (#614, #867).
+    The book's mill_sp_version() reads the same digest from MILL_SQL_STAMP."""
+    try:
+        from agent_coord.install.migrate import sql_digest
+
+        return "sp-" + sql_digest()[:12]
+    except Exception:
+        return ""
+
+
+def hello_line(cn) -> str:
+    """#867: the pack's SP stamp against the office's (mill_hello, warn mode).
+    'ok' on a match, else the SP's warn line. A failed check says so; connect goes on."""
+    from agent_coord.server.records.db import call
+
+    try:
+        rows = call(cn, "mill_hello", [sp_stamp() or None, "warn"])
+    except Exception as e:
+        _bc_log(f"mill_hello err={type(e).__name__}")
+        return "check failed"
+    row = rows[-1] if rows else {}
+    if str(row.get("status") or "") == "ok":
+        return "ok"
+    return str(row.get("message") or row.get("status") or "").strip() or "check failed"
 
 
 def wake_line(cn, desk: str) -> str:
@@ -653,7 +813,14 @@ def wake_line(cn, desk: str) -> str:
         return "unknown"
     if st.get("armed"):
         on = ", wake on addressed" if st.get("wake_on") == "addressed" else ""
-        return f"webhook armed (host {st.get('host') or '?'}{on})"
+        line = f"webhook armed (host {st.get('host') or '?'}{on})"
+        try:
+            from agent_coord.server.wake import fail_note
+
+            note = fail_note(desk)
+        except Exception:
+            note = ""
+        return f"{line}; {note}" if note else line
     return "off"
 
 

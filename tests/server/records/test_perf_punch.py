@@ -118,7 +118,7 @@ def test_floor_part_mail_one_row_per_letter(cn, seeded) -> None:
     seed_names(cn, ("pp_lan_p", "roster"))
     rec_join.upsert(cn, "pp_lan_p", "pp_r2", "", "1" * 64, "")
     cur = cn.cursor()
-    cur.execute("UPDATE `join` SET lan_ip='192.0.2.77' WHERE desk_id=(SELECT id FROM name WHERE type='desk' AND name='pp_r2')")
+    cur.execute("UPDATE seat SET lan_ip='192.0.2.77' WHERE desk_id=(SELECT id FROM name WHERE type='desk' AND name='pp_r2')")
     cn.commit()
     cur.close()
     rows = call(cn, "mill_floor_part", ["lan", "192.0.2.77", "mail"])

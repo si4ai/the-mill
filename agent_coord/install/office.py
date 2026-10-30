@@ -391,7 +391,6 @@ def init_office(
         "Install the wall as an OS web service: mill install wall --apply",
         "Do not keep `mill wall` running in this chat.",
         f"Humans open the wall: {dash}",
-        "This agent clocks in: mill presence <project> --owner <name> --doing \"...\"",
         "Sibling mill reads ~/.mill/session/<owner>.token (do not paste the token)",
         "Other agents: mill briefing join",
         "Do not treat the config file as a login token",

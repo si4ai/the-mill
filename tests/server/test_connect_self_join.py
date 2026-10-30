@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""A desk's own /ws connect must not come back to it as a missed JOIN in the sync queue.
+"""A desk's own /ws connect must not come back to it as a missed DOING in the sync queue.
 
-The connect write fans out JOIN before the socket sits in the Hub, so the connecting
-desk used to get its own JOIN recorded as missed and replayed in the connect sync.
-A JOIN another desk genuinely missed must still be queued for that desk.
+The connect write fans out DOING before the socket sits in the Hub, so the connecting
+desk used to get its own DOING recorded as missed and replayed in the connect sync.
+A DOING another desk genuinely missed must still be queued for that desk.
 """
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _joins(items: list[dict], jid: int) -> list[dict]:
     return [
         it
         for it in items
-        if str(it.get("type") or "") == "join" and int(it.get("id") or 0) == jid and it.get("hint") == "JOIN"
+        if str(it.get("type") or "") == "doing" and int(it.get("id") or 0) == jid and it.get("hint") == "DOING"
     ]
 
 
@@ -79,7 +79,7 @@ def test_connect_does_not_echo_own_join_as_missed(cn, monkeypatch) -> None:
     monkeypatch.setattr(HUB, "rooms", {})
     rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN), doing="present")
     jid = int(rec[0]["id"])
-    assert watchers.select(cn, "join", jid), "alice should watch her own join row"
+    assert watchers.select(cn, "doing", jid), "alice should watch her own doing entry"
     take_sync(cn, "alice")
 
     client = _client(monkeypatch)
@@ -94,12 +94,12 @@ def test_connect_join_still_queued_for_other_watcher(cn, monkeypatch) -> None:
     rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN), doing="present")
     jid = int(rec[0]["id"])
     here.upsert(cn, "unit", "bob", "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "join", jid, int(name.get(cn, "bob", "desk")))
+    watchers.put(cn, "doing", jid, int(name.get(cn, "bob", "desk")))
     take_sync(cn, "alice")
     take_sync(cn, "bob")
 
     client = _client(monkeypatch)
     assert _joins(_connect_sync(client, "alice"), jid) == []
     missed = _joins(take_sync(cn, "bob"), jid)
-    assert missed, "bob is not sitting and should find alice's JOIN in his queue"
+    assert missed, "bob is not sitting and should find alice's DOING in his queue"
     assert missed[0]["outcome"] == "missed"

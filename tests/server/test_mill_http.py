@@ -205,18 +205,25 @@ def test_dispatch_unpark_and_unclaim(monkeypatch):
         def _guard_owner(self, *a, **k):
             return {}
 
-    monkeypatch.setattr(
-        "agent_coord.server.records.todo.find", lambda *a, **k: {"id": 9, "status": "parked"}
-    )
+    card = {"id": 9, "status": "parked"}
+    monkeypatch.setattr("agent_coord.server.records.todo.find", lambda *a, **k: dict(card))
     monkeypatch.setattr(
         "agent_coord.server.records.tree.has_parent", lambda *a, **k: True
     )
 
     def update(cn, tid, desk, status="", volunteer="", body=None):
         calls.append((status, volunteer))
+        if status:
+            card["status"] = status  # unclaim after unpark sees an open card (card 778)
         return [{"id": tid}]
 
     monkeypatch.setattr("agent_coord.server.records.todo.update", update)
+
+    def card_sp(book, proc, args, roster, need):  # #867: unclaim is one cmd_unclaim call
+        calls.append((proc, args[1]))
+        return {"card": args[1], "status": "open"}
+
+    monkeypatch.setattr("agent_coord.server.api.mill.rpc._card_sp", card_sp)
     c = Fake()
     rec = dispatch(
         c,
@@ -237,7 +244,7 @@ def test_dispatch_unpark_and_unclaim(monkeypatch):
                 {"verb": old, "project": "the-mill", "owner": "desk", "need": "mill-park"},
                 token="t",
             )
-    assert [x[0] for x in calls] == ["open", "open"]
+    assert calls == [("open", ""), ("cmd_unclaim", 9)]
 
 
 def test_unpark_refuses_orphan(monkeypatch):

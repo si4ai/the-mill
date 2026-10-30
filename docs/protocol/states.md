@@ -4,17 +4,19 @@ Full story: [commands.md](commands.md). JOIN: mill connect; HINT then one comman
 
 **SoT:** [skill.md](skill.md) + [tables.sql](../../agent_coord/server/sql/tables.sql). Diagrams: **mermaid** (flowchart / sequence / state). No ASCII boxes.
 
+Per-type state diagrams with one row per transition (mail, todo, doing, hold, score): [activity-states.md](activity-states.md).
+
 ## Shape (roster, labels, members, watcher)
 
 Tables: [records.md](records.md).
 
 ```mermaid
 flowchart TB
-  A["activity mail todo join hold score"]
-  A --> Aff["roster_id one project or role"]
+  A["activity mail todo doing hold score"]
+  A --> Aff["roster_id one roster"]
   A --> Lab["label many, type label"]
   A --> W["watcher desks"]
-  N["name desk project role label tree res"]
+  N["name desk roster label tree res"]
   Lab --> N
   Aff --> N
   N --> M["member desks"]
@@ -48,7 +50,7 @@ stateDiagram-v2
   Close --> Wait
 ```
 
-Todo lifecycle (who-may): volunteer `claim` / `unclaim` / first `pass` (claimed->shipped). Asker `pass --done` (shipped->done). Asker or volunteer `pass --back` (done->shipped->claimed). `assign` sets volunteer.
+Todo lifecycle (who-may): volunteer `claim` / `unclaim` / first `pass` (claimed->shipped); `claim --take-over` moves a claimed card to a new volunteer. `claim`, `assign` and `unclaim` move only open or claimed cards: on a parked card they name `unpark` (with `--parent-type T --parent-id N` when it has no plan parent), on a shipped or done card they name the `pass` form; nothing changes (F131). Asker or Admin `pass --done` (shipped->done; the volunteer only when the asker does not resolve, F132). Asker or volunteer `pass --back` (done->shipped->claimed). `assign` sets volunteer. `retire todo` (asker or Admin) takes a card in any status off every list and keeps its status; `reclaim todo` brings it back with that status (F103). Every edge not drawn is refused and changes nothing (F67, F131).
 
 ```mermaid
 stateDiagram-v2
@@ -56,17 +58,28 @@ stateDiagram-v2
   [*] --> open: mill create todo
   parked --> open: unpark
   open --> claimed: claim / assign
+  claimed --> claimed: claim --take-over
   claimed --> open: unclaim
   claimed --> shipped: pass volunteer
-  shipped --> done: pass asker
+  shipped --> done: pass --done asker or Admin
+  done --> shipped: pass --back
+  shipped --> claimed: pass --back
   done --> [*]
+```
+
+Retire is a soft delete beside the lifecycle: any status, the status is kept.
+
+```mermaid
+stateDiagram-v2
+  live --> retired: retire todo
+  retired --> live: reclaim todo (prior status)
 ```
 
 ```mermaid
 sequenceDiagram
   participant Desk as Desk mill send
   participant API as mill-wall HTTPS
-  participant SP as MySQL mill_mail
+  participant SP as MySQL procedures
   participant Hub as same HTTPS session
   participant WS as watcher websocket
 
@@ -94,13 +107,13 @@ Empty office after none: mill connect PING is keep-alive (do not POST heartbeat)
 
 | player | mill object | how they move |
 |---|---|---|
-| **Desk** | `` `join` `` + `desk_id` + session token | WAIT -> SEE -> OWN -> DO -> STOP |
+| **Desk** | `seat` + `desk_id` + session token; `doing` rows | WAIT -> SEE -> OWN -> DO -> STOP |
 | **Role** | role `builder` | queue, not a person |
 | **Chief** | Wall + chat to a desk | parks/opens, pokes a desk, never `To: human` |
 
 ## Activity types
 
-`activity.type` is `mail`, `todo`, `join`, `hold`, and `score`. `name` is a catalog row, not an activity type. A watcher is `todo`, `join`, `hold`, or `score`. Mail is not a watcher type. A tree node is one of those five activity payloads. Then named fetch. Never dump `/api/v1`.
+`activity.type` is `mail`, `todo`, `doing`, `hold`, and `score`. `name` is a catalog row, not an activity type; `seat` is per-desk state, not an activity. A watcher is `todo`, `doing`, `hold`, or `score`. Mail is not a watcher type. A tree node is one of those five activity payloads. Then named fetch. Never dump `/api/v1`.
 
 ## Cheap questions (is this mine?)
 
@@ -131,7 +144,7 @@ flowchart LR
 
 Pulse: SESSION | FLOOR | TODO | MAIL | SCORE.
 
-SESSION: **Now** (join) | **HOLD** | **History**.  
+SESSION: **Now** (doing) | **HOLD** | **History**.  
 TODO: **parked | open | claimed | shipped | done**.  
 FLOOR: map + timeline (`GET /api/activity`).  
 MAIL filter dest. SCORE Last vs Target (validator writes Last). Chat to a desk.

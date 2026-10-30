@@ -54,7 +54,7 @@ def test_http_pinned_asset_year(client) -> None:
 def test_http_page_and_unpinned_short_with_etag(client) -> None:
     page = client.get("/")
     assert page.status_code == 200
-    assert page.headers["cache-control"] == _SHORT
+    assert page.headers["cache-control"] == "private, max-age=60"
     r = client.get("/gutter.js")
     assert r.status_code == 200
     assert r.headers["cache-control"] == _SHORT

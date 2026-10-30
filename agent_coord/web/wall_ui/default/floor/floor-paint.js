@@ -153,7 +153,7 @@
       try { wallRestoreActivePaneFromFloor({ force: true }); } catch (eRestF) {}
       try { wallShowPaneOverlay("pane-floor", "Checking\u2026"); } catch (eOvF) {}
       if (typeof wallReuseInflightForReturn === "function" && wallReuseInflightForReturn()) {
-        /* wow150: reuse in-flight */
+        /* reuse in-flight */
       } else {
         tick(true);
       }
@@ -175,7 +175,7 @@
           floorEdgeLabel: floorEdgeLabel,
           esc: esc,
           hereGlance: hereGlance,
-          wallDoingFace: wallDoingFace,
+          wallDoingText: wallDoingText,
           millNameBare: millNameBare,
           floorSpanLabel: floorSpanLabel,
           showFloorEdge: showFloorEdge,
@@ -429,7 +429,6 @@
       const desk = ((gMap.desks || []).find(d => d.owner === owner)) || ((g.desks || []).find(d => d.owner === owner)) || { owner };
       const isWs = (kind === "workstation") || desk.kind === "workstation";
       if (isWs) {
-        const wsFace = wallDoingFace(desk.doing || "");
         const members = desk.desks || [];
         const pills = members.map(m => {
           const unreadM = Math.max(0, Number(((g.desks || []).find(x => x.owner === m) || {}).unread || ((window._floor || {}).desk_unread || {})[m] || 0) | 0);
@@ -442,15 +441,14 @@
           `<span class="chip">usd ${esc(desk.usd || 0)}</span>` +
           `<span class="chip">done ${esc(floorSpanLabel(g.window || floorSpan))} ${esc(desk.jobs_done || 0)}</span>` +
           `<div style="margin-top:.35rem">desks: ${pills || esc("(none)")}</div>` +
-          wallDoingBlock(wsFace.now, wsFace.older);
+          `<div class="here-doing"><div class="here-doing-now">${esc(String(desk.doing || "").trim() || "-")}</div></div>`;
         floorDetailSel = { type: "workstation", owner };
         return;
       }
       const lane = ((((g.timeline || {}).lanes) || []).find(L => L.owner === owner)) || null;
       const d = window._floor || {};
       const agent = (d.agents || []).find(a => a.owner === owner && a.alive) || {};
-      const storedFace = wallDoingFace((agent && agent.doing) || desk.doing || "");
-      const glance = agent.owner ? hereGlance(d, agent) : { state: (lane && lane.now_state) || "?", doing: storedFace.now, doingOlder: storedFace.older };
+      const glance = agent.owner ? hereGlance(d, agent) : { state: (lane && lane.now_state) || "?", doing: String(desk.doing || "").trim() };
       const unread = Math.max(0, Number(desk.unread != null ? desk.unread : ((d.desk_unread || {})[owner] || 0)) | 0);
       const badge = unread > 0
         ? `<span class="fd-unread" data-n="${unread}" title="${unread} agent-unread">${unread > 99 ? "99+" : unread}</span>`
@@ -462,7 +460,7 @@
         `<span class="chip">tok ${esc(tok || 0)}</span>` +
         `<span class="chip">usd ${esc(desk.usd || (lane && lane.usd) || 0)}</span>` +
         `<span class="chip">done ${esc(floorSpanLabel(g.window || floorSpan))} ${esc(done || 0)}</span>` +
-        wallDoingBlock(glance.doing || storedFace.now || "(no doing)", (glance.doingOlder && glance.doingOlder.length) ? glance.doingOlder : storedFace.older);
+        wallDoingBlock(owner, glance.doing || desk.doing || "(no doing)");
       floorDetailSel = { type: "desk", owner };
     }
     function showFloorEdge(a, b) {
@@ -509,7 +507,7 @@
         return `<li><b>${esc(who)}</b> to ${esc(to)} <span class="meta">${esc(dt(m.at || m.created))}</span> - ${esc(String(m.body || "").slice(0, 100))}</li>`;
       });
       const cardList = listOf("Cards", cards, function (r) {
-        const title = String(r.doing || r.detail || r.need_id || "card").replace(/\s+/g, " ").trim().slice(0, 80);
+        const title = String(r.detail || r.need_id || "card").replace(/\s+/g, " ").trim().slice(0, 80);
         const asker = r.creator || r.asker || "";
         const holder = r.assigned || r.volunteer || "";
         return `<li><b>${esc(asker)}</b> to ${esc(holder)} - ${esc(title)}</li>`;

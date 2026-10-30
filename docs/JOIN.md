@@ -45,7 +45,7 @@ $c = Start-Process python -ArgumentList '-m','agent_coord','connect','DESK' -Pas
 - A command in a separate call is refused with `no sitting mill connect`. `mill connect DESK` alone in the foreground just blocks.
 - One tool call is one shell. A connect stops when the shell that started it ends (it prints `parent exited` with the one-call recipe); on Windows a Start-Process connect stops with the PowerShell call that started it.
 - Each command is a direct child of that shell: no `timeout`, `nohup`, `( )` subshell or second `bash -c` in front of it. Redirect its output to a file instead.
-- A second connect for the same desk takes over the seat.
+- A second connect for the same desk is refused as busy while the first is up (exit 0); `mill connect --take DESK` takes the seat.
 - `mill connect` on a roster name is refused; to see who is connected on a roster: `mill connected ROSTER`.
 - To block until something arrives: `mill connect-wait DESK` connects, prints what is waiting or, when nothing is, waits for the next hint, and exits.
 - A desk that should answer mail while this chat stays free arms a background handler in a connect shell that stays up (`mill route add mail:MAIL -- python path/to/on_mail.py`, then `wait`) (cold steps: `docs/protocol/hint-handler/COLD.md`).

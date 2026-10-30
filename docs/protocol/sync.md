@@ -14,7 +14,7 @@ Three kinds:
 
 | Kind | Who gets it | Watcher |
 | :--- | :--- | :--- |
-| HINT | A desk watching that activity (todo, hold, name, join, score) | Yes |
+| HINT | A desk watching that activity (todo, hold, name, doing, score) | Yes |
 | MAIL | Each desk in `mail_to` | No |
 | receipt | The sender, when a receiver first opens a mail whose `receipt` is set | No |
 
@@ -24,7 +24,7 @@ MAIL is not updated after send. Nothing watches a mail. The receiver hears it be
 
 Sync is the report of what async already pushed **to you**, since your last mill sync. It is not a second copy sent as more frames.
 
-A mill sync is `mill connect`, or any mill command. PING is not a sync. The list is oldest first. A hint is a poke about one object, so the list carries one item per hinted object and outcome: when several hint rows name the same `type` and `id` with the same `outcome` (every change of one hold while the desk was away), the sync hands over the latest of them, at its place, with `n` (how many rows it stands for) and `first` (the oldest row's time); `time` is the latest. A sent row and a missed row of one object stay apart. Letters, receipts, route exit lines, drop lines and the expired line are never folded. Regression row F-sync-hint-fold (#671). When the reply is handed back, those rows are deleted. The next command only has pushes that happened after that. Rows older than 30 days are not returned. The wall deletes them in one sweep at start and then twice a day (`mill_push_expire`), not on each sync. Each desk that lost rows gets one `expired` line from that sweep: window start, window end, and the counts (hint, mail, receipt, missed, error). No bodies. A poke that arrives after that line has a later id, so it comes out after the line. A desk that connects inside 30 days gets the original rows and no expired line. A row past 30 days waits for the next sweep, so its count can reach the desk up to half a day later. Regression row F17 (push-expire-off-take). A later window adds to the same line and moves its time forward. The 30-day delete skips `kind=expired`. The line is deleted only when that desk's sync returns it.
+A mill sync is `mill connect`, or any mill command. PING is not a sync. The list is oldest first. A hint is a poke about one object, so the list carries one item per hinted object and outcome: when several hint rows name the same `type` and `id` with the same `outcome` (every change of one hold while the desk was away), the sync hands over the latest of them, at its place, with `n` (how many rows it stands for) and `first` (the oldest row's time); `time` is the latest. A sent row and a missed row of one object stay apart. Letters, receipts, route exit lines, drop lines and the expired line are never folded. Regression row F-sync-hint-fold (#671). Those rows are deleted after the wall has sent the frame that carries them (the connect sync frame or the command reply), and only those rows. A frame that is never sent (the socket was kicked by a newer connect, or closed) deletes nothing, so the next sync hands the rows over again. A row is always queued, delivered, or both; a frame that went out just before the wall stopped can come again, and the chain dedupes it by poke key. Regression row F123 (sync-rows-deleted-after-send, #831). The next command only has pushes that happened after that. Rows older than 30 days are not returned. The wall deletes them in one sweep at start and then twice a day (`mill_push_expire`), not on each sync. Each desk that lost rows gets one `expired` line from that sweep: window start, window end, and the counts (hint, mail, receipt, missed, error). No bodies. A poke that arrives after that line has a later id, so it comes out after the line. A desk that connects inside 30 days gets the original rows and no expired line. A row past 30 days waits for the next sweep, so its count can reach the desk up to half a day later. Regression row F17 (push-expire-off-take). A later window adds to the same line and moves its time forward. The 30-day delete skips `kind=expired`. The line is deleted only when that desk's sync returns it.
 
 A sit buffer holds 256 frames. When it drops the oldest, it does not throw that frame away. If `push_queue` still has the row and that row is not marked sent, the row stays. The next sync returns it. The idempotency key makes that replay the same poke. If the row is marked sent, the frame goes back on the desk queue as missed, and the frame's idempotency key is kept when the frame had one. The next sync returns that frame. If the row is already gone, one hint line is written: `route`, `id`, `dropped` 1, and `idem` when the frame had one. No body. The cap stays 256. This does not take sync. The hub does not wait.
 
@@ -48,7 +48,7 @@ When the desk has cards it can work on under the label named after it, a focus l
 
 It is not a queue and not a frame; nothing else reads it. No focus card: no line.
 
-`kind: sync` is a JSON list, the push queue. A missed JOIN inside that list is a queue item, not a frame to ignore. Print-and-exit or hold is the model skill, not this page.
+`kind: sync` is a JSON list, the push queue. A missed DOING inside that list is a queue item, not a frame to ignore. Print-and-exit or hold is the model skill, not this page.
 
 ### A mill command
 
@@ -87,7 +87,7 @@ On success, the command prints **one** JSON object: the full host reply (`ok`, `
 
 `mill --raw <command>` prints `result` alone when `sync` is empty; `sync` merged onto a result object when both exist; `{"result": [...], "sync": [...]}` when `result` is a list and `sync` is not empty.
 
-On failure the command prints one JSON object on stderr: the full failure reply when available (`ok` false, `mill`, `id`, `result` null, `error`, `sync`), else `{"ok": false, "error": "...", "sync": []}`. That reply still deletes the list. A deleted list is not sent again.
+On failure the command prints one JSON object on stderr: the full failure reply when available (`ok` false, `mill`, `id`, `result` null, `error`, `sync`), else `{"ok": false, "error": "...", "sync": []}`. Once that reply is sent, its list is deleted. A deleted list is not sent again.
 
 ## What is in each sync item
 

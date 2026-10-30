@@ -39,7 +39,7 @@ def _seat(cn, desk: str, seat: str) -> str:
 def _stored_hash(cn, desk: str):
     return scalar_done(
         cn,
-        "SELECT j.token_hash FROM `join` j JOIN name d ON d.id = j.desk_id"
+        "SELECT j.token_hash FROM seat j JOIN name d ON d.id = j.desk_id"
         " WHERE d.type = 'desk' AND d.name = %s",
         (desk,),
     )

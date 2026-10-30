@@ -217,7 +217,7 @@ def seat_known(token: str) -> bool:
         cur = cn.cursor()
         try:
             cur.execute(
-                "SELECT token_hash FROM `join` WHERE token_hash=%s LIMIT 1",
+                "SELECT token_hash FROM seat WHERE token_hash=%s LIMIT 1",
                 (digest,),
             )
             row = cur.fetchone()

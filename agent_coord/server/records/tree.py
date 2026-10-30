@@ -143,7 +143,7 @@ _TREE_GLANCE_FROM = (
     " LEFT JOIN todo td ON t.type = 'todo' AND td.id = t.id"
     " LEFT JOIN mail mb ON t.type = 'mail' AND mb.id = t.id"
     " LEFT JOIN name msn ON msn.id = mb.desk_id"
-    " LEFT JOIN `join` j ON t.type = 'join' AND j.id = t.id"
+    " LEFT JOIN doing j ON t.type = 'doing' AND j.id = t.id"
     " LEFT JOIN name jd ON jd.id = j.desk_id"
     " LEFT JOIN hold h ON t.type = 'hold' AND h.id = t.id"
     " LEFT JOIN name hd ON hd.id = h.desk_id"
@@ -206,7 +206,7 @@ def glance_rows(cn, roster_ids: list[int] | None = None) -> list[dict]:
             " t.type, t.id, t.lft, t.rgt, a.roster_id,"
             " td.status AS todo_status, td.body AS todo_body,"
             " mb.body AS mail_body, msn.name AS mail_src,"
-            " jd.name AS join_desk, j.doing AS join_doing,"
+            " jd.name AS join_desk, j.text AS join_doing,"
             " hd.name AS hold_desk, hr.name AS hold_resource,"
             " s.kpi AS score_kpi, sd.name AS score_desk"
             + _TREE_GLANCE_FROM
@@ -241,7 +241,7 @@ def activity_forest_rows(
             " t.type, t.id, t.lft, t.rgt, a.roster_id,"
             " td.status AS todo_status, td.body AS todo_body,"
             " mb.body AS mail_body, msn.name AS mail_src,"
-            " jd.name AS join_desk, j.doing AS join_doing,"
+            " jd.name AS join_desk, j.text AS join_doing,"
             " hd.name AS hold_desk, hr.name AS hold_resource,"
             " s.kpi AS score_kpi, sd.name AS score_desk"
             + _TREE_GLANCE_FROM

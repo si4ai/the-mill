@@ -55,7 +55,7 @@ def ws_auth_close(exc: BaseException) -> tuple[int, str]:
 
 
 def _note_connect(c: Any, want: str) -> None:
-    """Record the /ws connect (JOIN fanout). Only a connect that sits is recorded (#332)."""
+    """Record the /ws connect (DOING fanout). Only a connect that sits is recorded (#332)."""
     from agent_coord.server.records import join as rec_join
 
     try:
@@ -135,7 +135,23 @@ def record_access(
 
 
 
-async def _ws_handle_client_text(desk: str, websocket: Any, raw: str) -> dict[str, Any] | None:
+def _ack_rows(desk: str, ids: list) -> None:
+    """#831: delete the queue rows a sent frame carried. An error leaves them queued."""
+    try:
+        from agent_coord.helpers.ident import desk_name
+        from agent_coord.server.book import Book
+        from agent_coord.server.push import ack_sync
+
+        with Book() as c:
+            ack_sync(c._cn, desk_name(desk), ids)
+    except Exception as e:
+        err = type(e).__name__  # the class only; no desk path or exception text reaches the log
+        _log.warning("ws ack fail err=%s", err)
+
+
+async def _ws_handle_client_text(
+    desk: str, websocket: Any, raw: str, acks: list | None = None
+) -> dict[str, Any] | None:
     """Parse client text. Valid RPC -> reply dict. Non-RPC -> None (ignore). Bad RPC shape -> error reply."""
     import asyncio
 
@@ -149,12 +165,20 @@ async def _ws_handle_client_text(desk: str, websocket: Any, raw: str) -> dict[st
 
     text = raw if isinstance(raw, str) else str(raw or "")
 
+    def _held(items: list) -> list:
+        # #831: with acks, the reply's queue rows are deleted only after it is sent.
+        if acks is not None:
+            from agent_coord.server.push import sync_ids
+
+            acks.extend(sync_ids(items))
+        return items
+
     def _sync_now(who: str) -> list:
         from agent_coord.server.push import take_sync
 
         try:
             with Book() as c:
-                return take_sync(c._cn, who)
+                return _held(take_sync(c._cn, who, hold=acks is not None))
         except Exception:
             return []
 
@@ -263,7 +287,7 @@ async def _ws_handle_client_text(desk: str, websocket: Any, raw: str) -> dict[st
         from agent_coord.server.push import take_sync
 
         with Book() as c:
-            return take_sync(c._cn, who)
+            return _held(take_sync(c._cn, who, hold=acks is not None))
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(None, _run)
@@ -350,21 +374,24 @@ def make_asgi_app(
         try:
             return await _dispatch_inner(request, t0)
         except Exception as e:
+            from agent_coord.server.middleware import SECURITY_HEADERS, error_id
+
+            eid = error_id(e, f"{request.method} {path} dispatch")
             try:
-                from agent_coord.server.push import api_log, mill_admin_alert
+                from agent_coord.server.push import mill_admin_alert
                 from agent_coord.server.middleware import _office
 
-                api_log(f"{request.method} {path} 500 dispatch err={e}")
                 with _office() as c:
-                    mill_admin_alert(c._cn, f"asgi {request.method} {path}: {e}", command="asgi")
+                    mill_admin_alert(c._cn, f"asgi {request.method} {path} error_id={eid}: {e}", command="asgi")
             except Exception:
                 pass
             from agent_coord.server.mill_json import dumps_mill_bytes
 
             return Response(
-                content=dumps_mill_bytes({"error": err_text(e)}),
+                content=dumps_mill_bytes({"error": "mill API error", "error_id": eid}),
                 status_code=500,
                 media_type="application/json; charset=utf-8",
+                headers={"Cache-Control": "no-store", **dict(SECURITY_HEADERS)},
             )
 
     def _body_refusal(code: int, text: str) -> Response:
@@ -604,14 +631,19 @@ def make_asgi_app(
             from agent_coord.helpers.ident import desk_name
             from agent_coord.server.book import Book
             from agent_coord.server.mill_json import stamp_mill
-            from agent_coord.server.push import connect_sync_frame
+            from agent_coord.server.push import connect_sync_frame, sync_ids
 
             def _connect_sync() -> dict:
                 with Book() as c:
-                    return connect_sync_frame(c._cn, desk_name(desk))
+                    return connect_sync_frame(c._cn, desk_name(desk), hold=True)
 
             frame = await asyncio.get_running_loop().run_in_executor(None, _connect_sync)
+            # #831: the rows are deleted only after send_text returns. A socket kicked
+            # or closed before then leaves them queued for the next sync.
+            sent_ids = sync_ids(frame.get("sync"))
             await websocket.send_text(json.dumps(stamp_mill(frame), default=str))
+            if sent_ids:
+                await asyncio.get_running_loop().run_in_executor(None, _ack_rows, desk, sent_ids)
         except Exception as e:
             _log.warning("%s", redact_format("ws sync fail desk=%s err=%s", desk, e))
         try:
@@ -620,8 +652,9 @@ def make_asgi_app(
                     raw = await websocket.receive_text()
                 except Exception:
                     break
+                acks: list = []
                 try:
-                    reply = await _ws_handle_client_text(desk, websocket, raw)
+                    reply = await _ws_handle_client_text(desk, websocket, raw, acks)
                 except Exception as e:
                     _log.warning("%s", redact_format("ws rpc fail desk=%s err=%s", desk, e))
                     reply = None
@@ -630,7 +663,9 @@ def make_asgi_app(
                 try:
                     await websocket.send_text(json.dumps(reply, default=str))
                 except Exception:
-                    break
+                    break  # #831: not sent, so its sync rows stay queued
+                if acks:
+                    await asyncio.get_running_loop().run_in_executor(None, _ack_rows, desk, acks)
         finally:
             try:
                 HUB.discard(desk, websocket)

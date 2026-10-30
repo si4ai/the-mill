@@ -167,8 +167,8 @@ class _Join:
         from agent_coord.server.records import join as rec_join
 
         monkeypatch.setattr(rec_join, "wake_target", lambda cn, desk: self.row)
-        monkeypatch.setattr(rec_join, "wake_arm", lambda cn, desk, url, key, wake_on="all": (self.calls.append("arm"), setattr(self, "row", (url, key))))
-        monkeypatch.setattr(rec_join, "wake_state", lambda cn, desk: {"armed": bool(self.row), "host": "", "wake_on": "all"})
+        monkeypatch.setattr(rec_join, "wake_arm", lambda cn, desk, url, key, wake_on="addressed": (self.calls.append("arm"), setattr(self, "row", (url, key))))
+        monkeypatch.setattr(rec_join, "wake_state", lambda cn, desk: {"armed": bool(self.row), "host": "", "wake_on": "addressed"})
         monkeypatch.setattr(rec_join, "wake_off", lambda cn, desk: (self.calls.append("off"), setattr(self, "row", None)))
 
 
@@ -191,8 +191,8 @@ def test_join_arms_once_and_a_repeat_is_a_no_op(monkeypatch) -> None:
     with patch("agent_coord.server.wake._open", ok):
         first = _deliver({"mode": "webhook", "url": HOOK_URL, "key": "Bearer " + HOOK_KEY})
         again = _deliver({"mode": "webhook", "url": HOOK_URL, "key": HOOK_KEY})
-    assert first == {"webhook": "armed", "host": HOOK_HOST, "test": 200, "wake_on": "all"}
-    assert again == {"webhook": "armed", "host": HOOK_HOST, "test": "unchanged", "wake_on": "all"}
+    assert first == {"webhook": "armed", "host": HOOK_HOST, "test": 200, "wake_on": "addressed"}
+    assert again == {"webhook": "armed", "host": HOOK_HOST, "test": "unchanged", "wake_on": "addressed"}
     assert len(posts) == 1 and posts[0]["kind"] == "wake-test"
     assert j.calls == ["arm"] and j.row == (HOOK_URL, HOOK_KEY)
 
@@ -296,14 +296,17 @@ def test_a_burst_of_ten_hints_rings_once_and_the_sync_has_all_ten(monkeypatch) -
         body = posts[0]
         assert body["idem"] == "hint:todo:6180:away"
         assert body["wake"]["pending"] == 1 and body["wake"]["window_s"] == int(wake.WAKE_WINDOW_S)
-        assert "mill connect away" in body["wake"]["next"]
+        assert "mill connect -r away" in body["wake"]["next"]
         frame = push.connect_sync_frame(cn, "away")
         assert [r["id"] for r in frame["sync"]] == list(range(6180, 6190))
         assert {r["outcome"] for r in frame["sync"]} == {"missed"}
         assert frame["wake"] == f"webhook armed (host {HOOK_HOST})"
-        # The sync handed the queue over, so the next hint rings again.
+        # F144: the sync does not end the wake lease; the next hint waits for done.
         _hint(cn, 6190)
+        assert len(posts) == 1
+        assert wake.lease_done(cn, "away") == "sent"
     assert len(posts) == 2
+    assert posts[1]["wake"]["pending_count"] == 1
 
 
 def test_the_window_ends_without_a_connect(monkeypatch) -> None:

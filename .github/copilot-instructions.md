@@ -45,7 +45,9 @@ docs/dev/CONTRIBUTING-PR.md; this section adds what is specific to you.
 - Never create or push a tag, never bump the version, never touch
   `.github/workflows/release.yml`, never publish to PyPI or approve a
   deployment. Tags, versions and PyPI stay with Builder.
-- Do not merge. Builder reviews and merges.
+- Do not merge or enqueue. Builder enqueues the pull request; GitHub's merge
+  queue merges it after the required CI checks and Validator's `validator`
+  status pass.
 
 ## Before you open the pull request
 

@@ -230,7 +230,7 @@ def test_no_delete_in_tree_triggers_exist(cn) -> None:
     rows = [r[0] for r in cur.fetchall()]
     cur.close()
     assert rows == [
-        "join_no_delete_in_tree",
+        "doing_no_delete_in_tree",
         "mail_no_delete_in_tree",
         "score_no_delete_in_tree",
         "todo_no_delete_in_tree",

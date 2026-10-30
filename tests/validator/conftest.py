@@ -36,12 +36,24 @@ pytestmark = pytest.mark.mill_live
 _DEFAULT_URL = "https://192.0.2.10"
 
 
+def _under_this_dir(item: pytest.Item) -> bool:
+    """True only for an item collected from a file under tests/validator/."""
+    try:
+        Path(str(item.path)).resolve().relative_to(_VDIR)
+    except ValueError:
+        return False
+    return True
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # This hook gets every item in the session, not only this package's, so
+    # it skips by the item's path under this directory, never by a substring
+    # of the path: tests/install/test_validator_*.py must still run (#663, F113).
     if os.environ.get("MILL_LIVE") == "1":
         return
     skip = pytest.mark.skip(reason="MILL_LIVE=1 required for tests/validator")
     for item in items:
-        if "validator" in str(item.fspath).replace("\\", "/"):
+        if _under_this_dir(item):
             item.add_marker(skip)
 
 

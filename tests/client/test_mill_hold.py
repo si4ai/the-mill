@@ -57,8 +57,8 @@ def test_nonempty_sync_returns_empty_sync_does_not(monkeypatch):
         "sync": [
             {
                 "kind": "hint",
-                "type": "join",
-                "hint": "JOIN",
+                "type": "doing",
+                "hint": "DOING",
                 "outcome": "missed",
             }
         ],
@@ -75,7 +75,7 @@ def test_nonempty_sync_returns_empty_sync_does_not(monkeypatch):
     )
     assert got["ok"] is True
     assert got["hint"]["sync"] == queued["sync"]
-    assert got["hint"]["sync"][0]["hint"] == "JOIN"
+    assert got["hint"]["sync"][0]["hint"] == "DOING"
 
     _patch_socket(
         monkeypatch,
@@ -139,7 +139,7 @@ def test_mill_hold_prints_queue_and_does_not_join(monkeypatch, capsys):
             "mode": "hold",
             "hint": {
                 "kind": "sync",
-                "sync": [{"kind": "hint", "hint": "JOIN", "outcome": "missed"}],
+                "sync": [{"kind": "hint", "hint": "DOING", "outcome": "missed"}],
             },
         }
 
@@ -156,4 +156,4 @@ def test_mill_hold_prints_queue_and_does_not_join(monkeypatch, capsys):
     assert "sync" not in skipped
     printed = json.loads(capsys.readouterr().out)
     assert printed["kind"] == "sync"
-    assert printed["sync"][0]["hint"] == "JOIN"
+    assert printed["sync"][0]["hint"] == "DOING"

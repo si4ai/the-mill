@@ -339,8 +339,8 @@ def clear_connect_starting(desk: str, *, pid: int | None = None) -> bool:
     return True
 
 
-def _starting_files() -> list[Path]:
-    """Starting markers for the selected office, else the legacy session directory."""
+def _starting_files(leaf: str = "ws.starting") -> list[Path]:
+    """Starting markers (or busy notes) for the selected office, else the legacy session directory."""
     from agent_coord.client.offices import current_host_key, host_dir
     from agent_coord.config import mill_home
 
@@ -360,8 +360,8 @@ def _starting_files() -> list[Path]:
     for root in roots:
         if not root.is_dir():
             continue
-        found.extend(sorted(p for p in root.glob("*.ws.starting") if p.is_file()))
-        found.extend(sorted(p for p in root.glob("*/ws.starting") if p.is_file()))
+        found.extend(sorted(p for p in root.glob(f"*.{leaf}") if p.is_file()))
+        found.extend(sorted(p for p in root.glob(f"*/{leaf}") if p.is_file()))
     return found
 
 
@@ -744,35 +744,86 @@ def foreground_close_result(exc: BaseException, desk: str) -> dict[str, Any] | N
     ConnectionClosed is not an OSError. Both must become ok:false, not a traceback (#140).
     """
     if close_code_of(exc) == WS_IN_USE_CLOSE:
-        return {"ok": False, "error": close_error(WS_IN_USE_CLOSE, exc, desk), "desk": desk,
+        return {"ok": False, **close_line(WS_IN_USE_CLOSE, exc, desk),
                 "exit": _CLOSE_EXIT[WS_IN_USE_CLOSE]}
     if isinstance(exc, OSError) or "ConnectionClosed" in type(exc).__name__:
         return {"ok": False, "error": "connect closed", "desk": desk}
     return None
 
 
-# Distinct from exit 0 (clean sit) and from each other (#136, #332).
-_CLOSE_EXIT = {4401: 4, 4000: 5, WS_IN_USE_CLOSE: 6}
+# 4401 and 4000 are distinct from exit 0 and from each other (#136, #332). A busy
+# seat (4409) exits 0 (card 834): the session holding the seat gets the letters.
+_CLOSE_EXIT = {4401: 4, 4000: 5, WS_IN_USE_CLOSE: 0}
 _CLOSE_ERROR = {
     4401: "token rejected (4401): mill join again or ask the office to reset this seat",
     4000: "superseded (4000): another connect took this seat",
-    WS_IN_USE_CLOSE: "seat in use (4409): another connect holds this seat",
+    WS_IN_USE_CLOSE: "busy",
 }
 
 
 def close_error(code: int, exc: BaseException | None, desk: str) -> str:
-    """Error line for a terminal close. A refused -r names the command that takes the seat."""
-    text = _CLOSE_ERROR[code]
+    """Line for a terminal close. Busy (4409) says to stop and names --take (card 834)."""
     if code != WS_IN_USE_CLOSE:
-        return text
+        return _CLOSE_ERROR[code]
     reason = str(getattr(getattr(exc, "rcvd", None), "reason", "") or "")
-    reason = reason.removeprefix("seat in use: ")
-    if reason:
-        text = f"{text} ({reason})"
+    since = reason.split(" since ", 1)[1].strip() if " since " in reason else ""
+    when = f" (since {since})" if since else ""
     return (
-        f"{text}; plain mill connect {desk} (without -r) takes the seat "
-        "and disconnects the holder"
+        f"busy: another session has the seat for {desk}{when} and gets this desk's letters; "
+        f"stop. To take a dead or stale seat: mill connect --take {desk}"
     )
+
+
+def close_line(code: int, exc: BaseException | None, desk: str) -> dict[str, Any]:
+    """The one JSON line a terminal close prints. Busy is not an error (card 834)."""
+    text = close_error(code, exc, desk)
+    if code == WS_IN_USE_CLOSE:
+        return {"busy": True, "desk": desk, "next": text}
+    return {"ok": False, "error": text}
+
+
+# Card 834: a first refusal retries after these waits, so a per-call connect whose
+# socket the office has not dropped yet does not read as busy.
+BUSY_SETTLE_S: tuple[float, ...] = (1.0, 2.0)
+# A busy note answers commands in the same shell for this long.
+BUSY_NOTE_S = 120.0
+
+
+def connect_busy_path(desk: str) -> Path:
+    """Note that this desk's connect in some shell was refused as busy (card 834)."""
+    start = connect_starting_path(desk)
+    return start.with_name(start.name.removesuffix(".starting") + ".busy")
+
+
+def write_connect_busy(desk: str, text: str, *, parent_pid: int | None = None) -> Path:
+    path = connect_busy_path(desk)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "desk": _stored_desk(desk),
+        "parent_pid": int(parent_pid if parent_pid is not None else _shell_ppid()),
+        "next": text,
+    }
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(row, separators=(",", ":")) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def busy_for_parent(parent_pid: int | None = None) -> str:
+    """The busy text a connect of this parent left in the last BUSY_NOTE_S, else ""."""
+    want = int(_shell_ppid() if parent_pid is None else parent_pid)
+    if want <= 0:
+        return ""
+    for busy in _starting_files("ws.busy"):
+        try:
+            if time.time() - busy.stat().st_mtime > BUSY_NOTE_S:
+                continue
+            row = json.loads(busy.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(row, dict) and int(row.get("parent_pid") or 0) == want:
+            return str(row.get("next") or "busy")
+    return ""
 
 
 def bridge_close_error(exc: BaseException | None) -> str:
@@ -810,6 +861,14 @@ def sync_view(msg: dict[str, Any]) -> dict[str, Any]:
     # #618: armed or off, from the wall; an older wall sends none.
     if isinstance(msg.get("wake"), str) and msg.get("wake"):
         out["wake"] = msg["wake"]
+    # Card 866: the office version check. A match is quiet. A warning is the message text.
+    hello = msg.get("hello")
+    if isinstance(hello, dict):
+        hello = hello.get("message") or hello.get("status") or ""
+    if isinstance(hello, str):
+        hello = hello.strip()
+        if hello and hello != "ok":
+            out["hello"] = hello
     return out
 
 
@@ -1252,10 +1311,10 @@ async def _sit_session(
             opened = time.monotonic()
     finally:
         if terminal_code in _CLOSE_EXIT:
-            print(
-                json.dumps({"ok": False, "error": close_error(terminal_code, err_box.get("exc"), who)}),
-                flush=True,
-            )
+            line = close_line(terminal_code, err_box.get("exc"), who)
+            print(json.dumps(line), flush=True)
+            if line.get("busy"):
+                write_connect_busy(who, line["next"])
             if outcome is not None:
                 outcome["exit"] = _CLOSE_EXIT[terminal_code]
         clear_rpc_bridge(who, pid=my_pid)
@@ -1362,23 +1421,29 @@ def run_ws_loop(
     write_connect_starting(desk, pid=os.getpid(), parent_pid=_shell_ppid())
     attempt = 0
     first_open = True
+    settle = list(BUSY_SETTLE_S) if refuse else []
     try:
         while not stop.is_set():
             try:
                 asyncio.run(_once())
             except Exception as e:
+                code = close_code_of(e)
+                if first_open and code == WS_IN_USE_CLOSE and settle:
+                    # Card 834: the holder may be a per-call connect the office has
+                    # not dropped yet. Look again before calling the seat busy.
+                    stop.wait(settle.pop(0))
+                    continue
                 if first_open:
                     clear_connect_starting(desk, pid=os.getpid())
                 first_open = False
                 if stop.is_set():
                     return
-                if reconnect_stopped(close_code_of(e), outcome):
-                    code = close_code_of(e)
+                if reconnect_stopped(code, outcome):
                     if code in _CLOSE_ERROR:
-                        print(
-                            json.dumps({"ok": False, "error": close_error(code, e, slug_desk(desk))}),
-                            flush=True,
-                        )
+                        line = close_line(code, e, slug_desk(desk))
+                        print(json.dumps(line), flush=True)
+                        if line.get("busy"):
+                            write_connect_busy(desk, line["next"])
                     stop.set()
                     return
                 print(open_retry_notice(ws_host(url), e), flush=True)
@@ -1423,7 +1488,7 @@ def wait_one_hint(
 
     skip_ping drops hub PING. skip_kinds drops those top-level kinds.
     kind sync is not in the default skip set: it is the push queue.
-    A missed JOIN inside that list is a queue item, not a frame to ignore.
+    A missed DOING inside that list is a queue item, not a frame to ignore.
 
     hold_empty_sync defaults false: an empty sync list returns. mill
     connect-wait and mill-hold pass true: an empty list keeps the socket
@@ -1515,7 +1580,7 @@ def wait_one_hint(
                 if kind == "sync":
                     items = msg.get("sync")
                     queued = items if isinstance(items, list) else []
-                    # Whole list is the queue. Do not drop a missed JOIN inside it.
+                    # Whole list is the queue. Do not drop a missed DOING inside it.
                     # An item a sitting connect of this desk already got (outcome
                     # sent) does not end the wait; an undelivered one does (#328).
                     if hold_empty_sync and not any(_undelivered(it) for it in queued):
@@ -1540,15 +1605,20 @@ def wait_one_hint(
                     "url": sit_url,
                 }
 
-    try:
-        return asyncio.run(_go())
-    except KeyboardInterrupt:
-        raise
-    except Exception as exc:
-        closed = foreground_close_result(exc, who)
-        if closed is not None:
-            return closed
-        raise
+    settle = list(BUSY_SETTLE_S) if refuse else []
+    while True:
+        try:
+            return asyncio.run(_go())
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            if close_code_of(exc) == WS_IN_USE_CLOSE and settle:
+                time.sleep(settle.pop(0))  # card 834: a holder that just closed is not busy
+                continue
+            closed = foreground_close_result(exc, who)
+            if closed is not None:
+                return closed
+            raise
 
 
 def start_ws_thread(

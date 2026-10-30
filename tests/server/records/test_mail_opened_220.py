@@ -77,7 +77,6 @@ def test_opened_is_on_the_inbox_row_and_unread_skips_it(cn, monkeypatch) -> None
         raise AssertionError("inbox must not read opened again")
 
     monkeypatch.setattr("agent_coord.server.records.opened.read_ids", _boom)
-    monkeypatch.setattr("agent_coord.server.records.opened.select", _boom)
 
     fresh = rpc._h_inbox(book, {"dst": "other", "all": True}, "unit", "other")
     assert {int(r["id"]) for r in fresh} >= {one, two}

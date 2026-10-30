@@ -226,7 +226,7 @@ def test_connect_prints_a_start_line(monkeypatch, capsys):
     assert "mill connect: d1 on roster Office" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("cmd", ["watch todo 0", "unwatch score 0", "watch hold 0", "unwatch join -1"])
+@pytest.mark.parametrize("cmd", ["watch todo 0", "unwatch score 0", "watch hold 0", "unwatch doing -1"])
 def test_watch_id_must_be_positive_number(body, cmd):
     with pytest.raises(CoordError, match="a number above 0"):
         body(cmd)

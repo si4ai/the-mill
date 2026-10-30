@@ -51,7 +51,7 @@ Entries that match the frame are walked in list order: the frame's own key and `
 - The vendor poke runs only if every matching redirector returned `not-mine`, or no entry matched. A non-zero exit is not `not-mine`, so it also keeps the vendor quiet.
 - PING never enters the chain.
 - A frame whose idempotency key (`idem`) this sit already handled never enters the chain. The check runs before the first redirector.
-- A JOIN with no route stays skip, not a poke.
+- A DOING with no route stays skip, not a poke.
 - The webhook POST uses the same walk for that desk, with the same key check. A receiver that runs mill passes the POST body to `accept_wake`. That checks the poke key (`idem` must be the one the wall stamps for this desk and frame; a forged key or another desk's key is skipped), then walks the chain. A webhook desk's missed and held-back hints reach the chain when it connects: the sync rows that were `missed` walk the same chain, and a hint no route takes stays on the sync line with no vendor poke ([connect.md](connect.md#webhook-wake)).
 
 ## Two chain styles
@@ -76,7 +76,7 @@ mill route add "*" -- python C:\work\desk.py
 
 A TODO frame walks `on_todo.py`, then `desk.py` if the first said `not-mine`. A letter walks `on_mail.py`, then `desk.py`. Order is the order of add. `*` is a normal entry and sits where it was added; it is not moved to the end. Adding a key that is already in the list replaces that entry and keeps its place.
 
-A watcher frame's key is `type:hint` (`todo:TODO`, `join:JOIN`, `hold:HOLD`, `score:SCORE`). A letter is `{kind: mail}` with no `type` or `hint`; its key is `mail:MAIL`. Mail is not a watcher type. Nothing emits `name:NAME`. There is no name watcher and no mail watcher (`mill add mail:ID` changes recipients).
+A watcher frame's key is `type:hint` (`todo:TODO`, `doing:DOING`, `hold:HOLD`, `score:SCORE`). A letter is `{kind: mail}` with no `type` or `hint`; its key is `mail:MAIL`. Mail is not a watcher type. Nothing emits `name:NAME`. There is no name watcher and no mail watcher (`mill add mail:ID` changes recipients).
 
 No matching entry -> mill connect default spawn. Empty value on a key -> suppress for that frame (not even default).
 
@@ -99,7 +99,7 @@ HINT is enough to **dispatch**, not always enough to **do the job**. Hub is dumb
 | HINT | Enough to know | Still mill-fetch |
 | :--- | :--- | :--- |
 | `heartbeat:PING` | ignore | nothing |
-| `join:JOIN` | ignore | nothing |
+| `doing:DOING` | ignore | nothing |
 | `{kind: mail}` id=N | a letter arrived. No `type` or `hint` | `mill inbox` or `mill mail-thread` |
 | `todo:TODO` id=N | a card moved | `mill todo` that card |
 | `hold:HOLD` id=N | a lock | `mill hold` / don't write |
@@ -144,7 +144,7 @@ stdin = the frame JSON. The template handles MAIL and TODO with `mill inbox` / `
 
 Two layers decide it:
 
-1. **`mill watch TYPE ID`** adds a `watcher` row in the book, so the hub pushes a HINT to you when that activity changes. `mill unwatch TYPE ID` removes it. TYPE is `todo`, `hold`, `score` or `join`; a todo can also be named `ROSTER/NEED`. `--hint` sets this row's recipe ([hints.md](hints.md)).
+1. **`mill watch TYPE ID`** adds a `watcher` row in the book, so the hub pushes a HINT to you when that activity changes. `mill unwatch TYPE ID` removes it. TYPE is `todo`, `hold`, `score` or `doing`; a todo can also be named `ROSTER/NEED`. `--hint` sets this row's recipe ([hints.md](hints.md)).
 2. **The HINT filter file** `~/.mill/<host>/<desk>/want` (`~/.mill/session/<desk>.want` when no office host is selected) is a local list of route keys that mill connect acts on, one `KEY =` per line:
 
 ```

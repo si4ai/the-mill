@@ -87,7 +87,7 @@ def test_v1_detail_builders(monkeypatch) -> None:
             {
                 "id": tid,
                 "status": "open",
-                "body": '{"slug":"need","doing":"D","detail":"%s"}' % ("Y" * 300),
+                "body": '{"slug":"need","detail":"%s"}' % ("Y" * 300),
                 "roster": "PROJ_demo",
                 "assigned": "DESK_a",
                 "creator": "DESK_b",

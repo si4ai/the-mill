@@ -10,8 +10,82 @@ DROP PROCEDURE IF EXISTS mill_join_wake_arm;
 DROP PROCEDURE IF EXISTS mill_join_wake_off;
 DROP PROCEDURE IF EXISTS mill_join_wake_state;
 DROP PROCEDURE IF EXISTS mill_join_wake_target;
+DROP PROCEDURE IF EXISTS mill_join_touch;
+DROP PROCEDURE IF EXISTS mill_doing_anchor;
+DROP PROCEDURE IF EXISTS mill_doing_clear;
+DROP PROCEDURE IF EXISTS mill_doing_insert;
 
 DELIMITER //
+
+-- #818: the seat is per-desk state (not an activity). doing rows are the
+-- activity: append-only, the newest row is the desk's current doing. A seat
+-- event (join, connect, socket, lan, clock-out, reset) bumps the activity row
+-- of the desk's newest doing entry; it writes no new entry. When a desk has
+-- no entry yet, an empty one is written so the bump has a row to land on.
+-- The one writer of a doing row. A watcher on the desk's current entry follows
+-- it to the new one, so watching a desk's doing keeps working as entries append.
+CREATE PROCEDURE mill_doing_insert(
+  IN  p_desk   BIGINT UNSIGNED,
+  IN  p_roster BIGINT UNSIGNED,
+  IN  p_text   VARCHAR(512),
+  IN  p_ts     DATETIME(6),
+  OUT p_id     BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_prev BIGINT UNSIGNED;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_prev = NULL;
+  SET v_prev = NULL;
+  SELECT id INTO v_prev FROM doing
+   WHERE desk_id = p_desk ORDER BY created DESC, id DESC LIMIT 1;
+  INSERT INTO doing (created, desk_id, roster_id, text)
+  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), LEFT(IFNULL(p_text, ''), 512));
+  SET p_id = LAST_INSERT_ID();
+  IF v_prev IS NOT NULL THEN
+    INSERT IGNORE INTO watcher (type, id, desk_id, hint)
+    SELECT 'doing', p_id, w.desk_id, w.hint FROM watcher w
+     WHERE w.type = 'doing' AND w.id = v_prev;
+  END IF;
+END //
+
+CREATE PROCEDURE mill_doing_anchor(
+  IN  p_desk BIGINT UNSIGNED,
+  IN  p_text VARCHAR(512),
+  OUT p_id   BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET p_id = NULL;
+  SET p_id = NULL;
+  SELECT id INTO p_id FROM doing
+   WHERE desk_id = p_desk
+   ORDER BY created DESC, id DESC
+   LIMIT 1;
+  IF p_id IS NULL THEN
+    CALL mill_doing_insert(p_desk, 1, p_text, MILL_NOW(), p_id);
+  END IF;
+END //
+
+
+-- Clock-out and reset end the current doing: an empty entry, unless the
+-- current one is already empty. p_id is the entry that is current after;
+-- p_roster is the roster on the ended entry's activity row (the new entry keeps it).
+CREATE PROCEDURE mill_doing_clear(
+  IN  p_desk   BIGINT UNSIGNED,
+  IN  p_ts     DATETIME(6),
+  OUT p_id     BIGINT UNSIGNED,
+  OUT p_roster BIGINT UNSIGNED
+)
+BEGIN
+  DECLARE v_text VARCHAR(512);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET p_id = NULL;
+  SET p_id = NULL;
+  SET v_text = NULL;
+  SELECT id, text INTO p_id, v_text FROM doing
+   WHERE desk_id = p_desk ORDER BY created DESC, id DESC LIMIT 1;
+  SET p_roster = IFNULL((SELECT roster_id FROM activity WHERE type = 'doing' AND id = p_id), 1);
+  IF p_id IS NULL OR IFNULL(v_text, '') <> '' THEN
+    CALL mill_doing_insert(p_desk, p_roster, '', p_ts, p_id);
+  END IF;
+END //
 
 CREATE PROCEDURE mill_join_upsert(
   IN p_project    VARCHAR(64),
@@ -23,9 +97,11 @@ CREATE PROCEDURE mill_join_upsert(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_have CHAR(64);
+  DECLARE v_text VARCHAR(512);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -39,28 +115,34 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'Admin is not granted by join: roster Admin is granted only by member-add on the office host';
   END IF;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_proj = MILL_NAME_PUT('roster', p_project);
   SET v_desk = MILL_NAME_PUT('desk', p_desk);
-  SET v_id = NULL;
+  SET v_seat = NULL;
   SET v_have = NULL;
-  SELECT id, token_hash INTO v_id, v_have FROM `join` WHERE desk_id = v_desk LIMIT 1;
+  SELECT id, token_hash INTO v_seat, v_have FROM seat WHERE desk_id = v_desk LIMIT 1;
   IF v_have IS NOT NULL AND p_token_hash IS NOT NULL AND v_have <> p_token_hash THEN
     ROLLBACK;
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'desk live: token required (no steal)';
   END IF;
-  IF v_id IS NULL THEN
-    INSERT INTO `join` (updated, desk_id, token_hash, doing, delivery_mode)
-    VALUES (v_ts, v_desk, p_token_hash, LEFT(IFNULL(p_doing, ''), 512), 'websocket');
-    SET v_id = LAST_INSERT_ID();
+  IF v_seat IS NULL THEN
+    INSERT INTO seat (updated, desk_id, token_hash, delivery_mode)
+    VALUES (v_ts, v_desk, p_token_hash, 'websocket');
   ELSE
-    UPDATE `join`
+    UPDATE seat
        SET updated = v_ts,
            token_hash = IFNULL(p_token_hash, token_hash),
-           doing = IF(p_doing IS NULL, doing, LEFT(p_doing, 512)),
            delivery_mode = IF(delivery_mode = 'polling', 'websocket', delivery_mode)
-     WHERE id = v_id;
+     WHERE id = v_seat;
+  END IF;
+  -- #818: a doing text on join is a new entry unless it is already the current one.
+  SET v_id = NULL;
+  SET v_text = NULL;
+  SELECT id, text INTO v_id, v_text FROM doing
+   WHERE desk_id = v_desk ORDER BY created DESC, id DESC LIMIT 1;
+  IF v_id IS NULL OR (p_doing IS NOT NULL AND v_text <> LEFT(p_doing, 512)) THEN
+    CALL mill_doing_insert(v_desk, 1, p_doing, v_ts, v_id);
   END IF;
   INSERT IGNORE INTO member (name_id, desk_id) VALUES (1, v_desk);
   IF ROW_COUNT() = 1 THEN
@@ -82,12 +164,13 @@ BEGIN
       UPDATE name SET n = n + 1 WHERE id = @v_role;
     END IF;
   END IF;
-  CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
-  CALL mill_watcher_put('join', v_id, v_desk);
-  COMMIT;
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+  CALL mill_watcher_put('doing', v_id, v_desk);
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_desk AS owner;
 END //
 
+-- Clock-out: the current doing ends (an empty entry), the seat stays.
 CREATE PROCEDURE mill_join_delete(
   IN p_project VARCHAR(64),
   IN p_desk    VARCHAR(64)
@@ -95,16 +178,16 @@ CREATE PROCEDURE mill_join_delete(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  UPDATE `join` SET doing = '' WHERE desk_id = v_desk;
-  SET v_id = (SELECT id FROM `join` WHERE desk_id = v_desk LIMIT 1);
-  IF v_id IS NOT NULL THEN
-    CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
+  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_desk AS owner, 'clocked-out' AS op;
 END //
 
@@ -115,109 +198,87 @@ CREATE PROCEDURE mill_join_reset(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  START TRANSACTION;
+  DECLARE v_released INT DEFAULT 0;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_desk = NULL;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   -- #608: a retired desk resolves too, so reset still revokes its seat.
   SELECT id INTO v_desk FROM name WHERE type = 'desk' AND name = TRIM(p_desk) LIMIT 1;
-  -- #96: reset is a disconnect stamp. Never DELETE join or its activity.
+  -- #96: reset is a disconnect stamp. Never DELETE the seat, a doing row or its activity.
   -- #618: a reset seat keeps no webhook wake; the next holder arms its own.
-  UPDATE `join` SET token_hash = NULL, doing = '', time_disconnect = v_ts,
+  UPDATE seat SET token_hash = NULL, time_disconnect = v_ts,
          delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
          endpoint_url = NULL, endpoint_key = NULL
    WHERE desk_id = v_desk;
-  SET v_id = (SELECT id FROM `join` WHERE desk_id = v_desk LIMIT 1);
-  IF v_id IS NOT NULL THEN
-    -- NULL roster: keep the seat's activity roster (not 1/Office).
-    CALL mill_activity_put('join', v_id, v_ts, v_desk, NULL, MILL_WEIGHT('join'), NULL);
+  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
+    -- Keep the ended entry's activity roster (not 1/Office).
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, MILL_WEIGHT('doing'), NULL);
   END IF;
-  COMMIT;
-  SELECT p_desk AS owner, 'reset' AS op;
+  -- Card 842: a reset desk owns no lock. Free its holds like a drop would.
+  IF v_desk IS NOT NULL THEN
+    CALL mill_hold_release_desk(v_desk, v_ts, v_released);
+  END IF;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
+  SELECT p_desk AS owner, 'reset' AS op, v_released AS released;
 END //
 
+-- Seat plus the desk's current doing (newest entry). type/id name that entry.
 CREATE PROCEDURE mill_join_select(IN p_project VARCHAR(64))
 BEGIN
   DECLARE v_proj BIGINT UNSIGNED;
-  IF p_project IS NULL OR p_project = '' THEN
-    SELECT h.type, h.id, h.created, h.updated, h.desk_id, h.token_hash, h.doing,
-           h.delivery_mode, h.endpoint_url, h.lan_ip, h.time_connect, h.time_disconnect,
-           dsk.name AS desk, dsk.type AS desk_type,
-           IF(ra.id IS NULL, NULL, JSON_OBJECT(
-             'type', ra.type,
-             'id', ra.id,
-             'roster_id', ra.roster_id,
-             'roster', aff.name,
-             'roster_type', aff.type,
-             'thing', CASE ra.type
-               WHEN 'mail' THEN LEFT(ml.body, 80)
-               WHEN 'todo' THEN LEFT(td.body, 80)
-               WHEN 'hold' THEN hr.name
-               WHEN 'score' THEN sc.kpi
-               WHEN 'join' THEN jd.name
-               ELSE NULL
-             END
-           )) AS recent_activity
-    FROM `join` h
-    LEFT JOIN name dsk ON dsk.id = h.desk_id
-    LEFT JOIN LATERAL (
-      SELECT type, id, roster_id, updated
-      FROM activity USE INDEX (idx_desk_updated)
-      WHERE desk_id = h.desk_id
-      ORDER BY updated DESC
-      LIMIT 1
-    ) ra ON TRUE
-    LEFT JOIN name aff ON aff.id = ra.roster_id
-    LEFT JOIN mail ml ON ra.type = 'mail' AND ml.id = ra.id
-    LEFT JOIN todo td ON ra.type = 'todo' AND td.id = ra.id
-    LEFT JOIN hold ho ON ra.type = 'hold' AND ho.id = ra.id
-    LEFT JOIN name hr ON hr.id = ho.resource_id
-    LEFT JOIN score sc ON ra.type = 'score' AND sc.id = ra.id
-    LEFT JOIN `join` js ON ra.type = 'join' AND js.id = ra.id
-    LEFT JOIN name jd ON jd.id = js.desk_id
-    ORDER BY h.updated DESC;
-  ELSE
-    SET v_proj = MILL_NAME_GET('roster', p_project);
-    IF v_proj IS NULL THEN
-      SET v_proj = 0;
-    END IF;
-    SELECT h.type, h.id, h.created, h.updated, h.desk_id, h.token_hash, h.doing,
-           h.delivery_mode, h.endpoint_url, h.lan_ip, h.time_connect, h.time_disconnect,
-           dsk.name AS desk, dsk.type AS desk_type,
-           IF(ra.id IS NULL, NULL, JSON_OBJECT(
-             'type', ra.type,
-             'id', ra.id,
-             'roster_id', ra.roster_id,
-             'roster', aff.name,
-             'roster_type', aff.type,
-             'thing', CASE ra.type
-               WHEN 'mail' THEN LEFT(ml.body, 80)
-               WHEN 'todo' THEN LEFT(td.body, 80)
-               WHEN 'hold' THEN hr.name
-               WHEN 'score' THEN sc.kpi
-               WHEN 'join' THEN jd.name
-               ELSE NULL
-             END
-           )) AS recent_activity
-    FROM `join` h
-    JOIN member m ON m.desk_id = h.desk_id AND m.name_id = v_proj
-    LEFT JOIN name dsk ON dsk.id = h.desk_id
-    LEFT JOIN LATERAL (
-      SELECT type, id, roster_id, updated
-      FROM activity USE INDEX (idx_desk_updated)
-      WHERE desk_id = h.desk_id
-      ORDER BY updated DESC
-      LIMIT 1
-    ) ra ON TRUE
-    LEFT JOIN name aff ON aff.id = ra.roster_id
-    LEFT JOIN mail ml ON ra.type = 'mail' AND ml.id = ra.id
-    LEFT JOIN todo td ON ra.type = 'todo' AND td.id = ra.id
-    LEFT JOIN hold ho ON ra.type = 'hold' AND ho.id = ra.id
-    LEFT JOIN name hr ON hr.id = ho.resource_id
-    LEFT JOIN score sc ON ra.type = 'score' AND sc.id = ra.id
-    LEFT JOIN `join` js ON ra.type = 'join' AND js.id = ra.id
-    LEFT JOIN name jd ON jd.id = js.desk_id
-    ORDER BY h.updated DESC;
+  SET v_proj = NULL;
+  IF NOT (p_project IS NULL OR p_project = '') THEN
+    SET v_proj = IFNULL(MILL_NAME_GET('roster', p_project), 0);
   END IF;
+  SELECT 'doing' AS type, cur.id, h.created, h.updated, h.desk_id, h.token_hash,
+         IFNULL(cur.text, '') AS doing,
+         h.delivery_mode, h.endpoint_url, h.lan_ip, h.time_connect, h.time_disconnect,
+         dsk.name AS desk, dsk.type AS desk_type,
+         IF(ra.id IS NULL, NULL, JSON_OBJECT(
+           'type', ra.type,
+           'id', ra.id,
+           'roster_id', ra.roster_id,
+           'roster', aff.name,
+           'roster_type', aff.type,
+           'thing', CASE ra.type
+             WHEN 'mail' THEN LEFT(ml.body, 80)
+             WHEN 'todo' THEN LEFT(td.body, 80)
+             WHEN 'hold' THEN hr.name
+             WHEN 'score' THEN sc.kpi
+             WHEN 'doing' THEN jd.name
+             ELSE NULL
+           END
+         )) AS recent_activity
+  FROM seat h
+  LEFT JOIN name dsk ON dsk.id = h.desk_id
+  LEFT JOIN LATERAL (
+    SELECT g.id, g.text
+    FROM doing g
+    WHERE g.desk_id = h.desk_id
+    ORDER BY g.created DESC, g.id DESC
+    LIMIT 1
+  ) cur ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT type, id, roster_id, updated
+    FROM activity USE INDEX (idx_desk_updated)
+    WHERE desk_id = h.desk_id
+    ORDER BY updated DESC
+    LIMIT 1
+  ) ra ON TRUE
+  LEFT JOIN name aff ON aff.id = ra.roster_id
+  LEFT JOIN mail ml ON ra.type = 'mail' AND ml.id = ra.id
+  LEFT JOIN todo td ON ra.type = 'todo' AND td.id = ra.id
+  LEFT JOIN hold ho ON ra.type = 'hold' AND ho.id = ra.id
+  LEFT JOIN name hr ON hr.id = ho.resource_id
+  LEFT JOIN score sc ON ra.type = 'score' AND sc.id = ra.id
+  LEFT JOIN doing js ON ra.type = 'doing' AND js.id = ra.id
+  LEFT JOIN name jd ON jd.id = js.desk_id
+  WHERE v_proj IS NULL
+     OR EXISTS (SELECT 1 FROM member m WHERE m.desk_id = h.desk_id AND m.name_id = v_proj)
+  ORDER BY h.updated DESC;
 END //
 
 CREATE PROCEDURE mill_join_connect(
@@ -227,43 +288,39 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_id = NULL;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  SELECT id INTO v_id FROM `join` WHERE desk_id = v_desk LIMIT 1;
-  IF v_id IS NULL THEN
+  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     ROLLBACK;
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill connect: desk has not joined';
   END IF;
-  CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
-  COMMIT;
+  CALL mill_doing_anchor(v_desk, '', v_id);
+  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
 END //
 
-CREATE PROCEDURE mill_join_doing(
-  IN p_project VARCHAR(64),
-  IN p_desk    VARCHAR(64),
-  IN p_doing   VARCHAR(512)
+-- A command that writes nothing else (#635): bump the seat and the current
+-- entry's activity. No new doing entry.
+CREATE PROCEDURE mill_join_touch(
+  IN p_desk VARCHAR(64)
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_id = NULL;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  UPDATE `join`
-     SET updated = v_ts,
-         doing = LEFT(IFNULL(p_doing, ''), 512)
-   WHERE desk_id = v_desk;
-  SELECT id INTO v_id FROM `join` WHERE desk_id = v_desk LIMIT 1;
-  IF v_id IS NOT NULL THEN
-    CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
+  SET v_id = NULL;
+  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
+    CALL mill_doing_anchor(v_desk, '', v_id);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
   END IF;
-  COMMIT;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, IFNULL(p_doing, '') AS doing;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
+  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
 END //
 
 CREATE PROCEDURE mill_join_socket(
@@ -274,19 +331,20 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
+  SET v_id = NULL;
   IF p_up = 1 THEN
-    UPDATE `join` SET time_connect = v_ts, time_disconnect = NULL WHERE desk_id = v_desk;
+    UPDATE seat SET time_connect = v_ts, time_disconnect = NULL WHERE desk_id = v_desk;
   ELSE
-    UPDATE `join` SET time_disconnect = v_ts WHERE desk_id = v_desk;
+    UPDATE seat SET time_disconnect = v_ts WHERE desk_id = v_desk;
   END IF;
-  SET v_id = (SELECT id FROM `join` WHERE desk_id = v_desk LIMIT 1);
-  IF v_id IS NOT NULL THEN
-    CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
+  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    CALL mill_doing_anchor(v_desk, '', v_id);
+    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_up AS up;
 END //
 
@@ -298,15 +356,18 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  UPDATE `join` SET lan_ip = LEFT(IFNULL(p_ip, ''), 45) WHERE desk_id = v_desk;
-  SET v_id = (SELECT id FROM `join` WHERE desk_id = v_desk LIMIT 1);
-  IF v_id IS NOT NULL AND IFNULL(p_ip, '') <> '' THEN
-    CALL mill_activity_put('join', v_id, v_ts, v_desk, 1, MILL_WEIGHT('join'), NULL);
+  SET v_id = NULL;
+  UPDATE seat SET lan_ip = LEFT(IFNULL(p_ip, ''), 45) WHERE desk_id = v_desk;
+  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
+    CALL mill_doing_anchor(v_desk, '', v_id);
+    IF IFNULL(p_ip, '') <> '' THEN
+      CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, MILL_WEIGHT('doing'), NULL);
+    END IF;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_ip AS lan_ip;
 END //
 
@@ -324,17 +385,17 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake arm: url and key required';
   END IF;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM `join` WHERE desk_id = v_desk) THEN
+  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake: desk has not joined';
   END IF;
-  IF IFNULL(p_wake_on, 'all') NOT IN ('all', 'addressed') THEN
+  IF IFNULL(p_wake_on, 'addressed') NOT IN ('all', 'addressed') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake arm: wake_on is all or addressed';
   END IF;
-  UPDATE `join`
+  UPDATE seat
      SET delivery_mode = 'webhook', endpoint_url = p_url, endpoint_key = p_key,
-         wake_on = IFNULL(p_wake_on, 'all'), updated = updated
+         wake_on = IFNULL(p_wake_on, 'addressed'), updated = updated
    WHERE desk_id = v_desk;
-  SELECT TRIM(p_desk) AS desk, 'webhook' AS delivery_mode, IFNULL(p_wake_on, 'all') AS wake_on;
+  SELECT TRIM(p_desk) AS desk, 'webhook' AS delivery_mode, IFNULL(p_wake_on, 'addressed') AS wake_on;
 END //
 
 CREATE PROCEDURE mill_join_wake_off(
@@ -343,12 +404,12 @@ CREATE PROCEDURE mill_join_wake_off(
 BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM `join` WHERE desk_id = v_desk) THEN
+  IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake: desk has not joined';
   END IF;
-  UPDATE `join`
+  UPDATE seat
      SET delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
-         endpoint_url = NULL, endpoint_key = NULL, wake_on = 'all', updated = updated
+         endpoint_url = NULL, endpoint_key = NULL, wake_on = 'addressed', updated = updated
    WHERE desk_id = v_desk;
   SELECT TRIM(p_desk) AS desk, 'off' AS wake;
 END //
@@ -363,7 +424,7 @@ BEGIN
          IF(j.endpoint_url IS NULL, NULL,
             SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(j.endpoint_url, '://', -1), '/', 1), ':', 1)) AS host,
          j.wake_on
-    FROM `join` j
+    FROM seat j
     JOIN name d ON d.id = j.desk_id AND d.type = 'desk' AND d.deleted IS NULL
    WHERE d.name = TRIM(p_desk)
    LIMIT 1;
@@ -375,7 +436,7 @@ CREATE PROCEDURE mill_join_wake_target(
 )
 BEGIN
   SELECT j.endpoint_url, j.endpoint_key
-    FROM `join` j
+    FROM seat j
     JOIN name d ON d.id = j.desk_id AND d.type = 'desk' AND d.deleted IS NULL
    WHERE d.name = TRIM(p_desk)
      AND j.delivery_mode = 'webhook'

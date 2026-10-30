@@ -113,7 +113,7 @@ def _plant_stale(cn) -> None:
 def test_tip_watcher_enum_has_no_name(cn) -> None:
     for proc in ("mill_watcher_put", "mill_watcher_delete"):
         enum = _watcher_type_enum(cn, proc)
-        assert "'join'" in enum
+        assert "'doing'" in enum and "'join'" not in enum
         assert "'name'" not in enum, proc
 
 
@@ -142,7 +142,7 @@ def test_ensure_refreshes_name_watcher_callers(cn) -> None:
     for name in _STALE:
         assert not _name_watcher_calls(_body(cn, name)), name
     up = _body(cn, "mill_join_upsert").lower().replace(" ", "")
-    assert "mill_watcher_put('join'" in up
+    assert "mill_watcher_put('doing'" in up
     for f in ("sp_name.sql", "sp_member.sql", "sp_join.sql"):
         assert f in out["applied"], out["applied"]
 

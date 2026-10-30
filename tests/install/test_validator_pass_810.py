@@ -12,6 +12,7 @@ REPO = "example-org/the-mill"
 BASE = "b" * 40
 QHEAD = "c" * 40
 SHA = {150: "1" * 40, 151: "2" * 40}
+BOT = "si4ai-validator[bot]"
 
 
 def _mod():
@@ -32,8 +33,9 @@ def _fake(states: dict[str, list[tuple[str, str]]], subjects: list[str]):
         for n, sha in SHA.items():
             if path == f"/repos/{REPO}/pulls/{n}":
                 return {"number": n, "head": {"sha": sha}}
-            if path == f"/repos/{REPO}/commits/{sha}/status?per_page=100":
-                return {"statuses": [{"context": c, "state": st} for c, st in states.get(sha, [])]}
+            if path == f"/repos/{REPO}/commits/{sha}/statuses?per_page=100&page=1":
+                # newest first, posted by the Validator app (#811)
+                return [{"context": c, "state": st, "creator": {"login": BOT, "type": "Bot"}} for c, st in states.get(sha, [])]
         raise AssertionError(path)
 
     return fetch, seen
@@ -67,7 +69,7 @@ def test_queue_entry_fails_when_one_pr_lacks_a_pass() -> None:
 
 
 def test_latest_validator_status_wins() -> None:
-    # the combined status lists the latest state per context first
+    # the status list is newest first
     fetch, _ = _fake({SHA[151]: [("validator", "failure"), ("validator", "success")]}, ["#2 second (#151)"])
     rc, lines = _run("merge_group", _mg(), fetch)
     assert rc == 1, lines
@@ -94,4 +96,5 @@ def test_pull_request_reports_state_and_passes() -> None:
     ev = {"pull_request": {"number": 150, "head": {"sha": SHA[150]}}}
     rc, lines = _run("pull_request", ev, fetch)
     assert rc == 0
-    assert "PR #150" in lines[0] and "validator pending" in lines[0] and "report only" in lines[0], lines
+    assert lines[0].startswith("WAITING:") and SHA[150] in lines[0] and "is pending" in lines[0], lines
+    assert "report only; merge queue enforces" in lines[0], lines

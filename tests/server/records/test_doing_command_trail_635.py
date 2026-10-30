@@ -30,7 +30,7 @@ def test_read_command_does_not_push_its_name() -> None:
     c = MagicMock(spec=Book)
     c._cn = MagicMock()
     with patch("agent_coord.server.records.join.touch") as touch, patch(
-        "agent_coord.server.records.join.push_doing"
+        "agent_coord.server.records.doing.put"
     ) as pushed:
         for command in ("todo", "member", "mail-thread", "trail", "session"):
             rpc._note_doing(c, "the-mill", "builder", command)

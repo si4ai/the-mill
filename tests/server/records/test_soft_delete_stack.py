@@ -265,7 +265,7 @@ def test_trigger_set(cn) -> None:
     assert "hold_no_delete_in_tree" not in names
     assert "activity_del_watchers" in names
     assert "name_no_delete" in names
-    for t in ("todo_no_delete_in_tree", "mail_no_delete_in_tree", "join_no_delete_in_tree", "score_no_delete_in_tree"):
+    for t in ("todo_no_delete_in_tree", "mail_no_delete_in_tree", "doing_no_delete_in_tree", "score_no_delete_in_tree"):
         assert t in names
 
 
@@ -273,8 +273,9 @@ def test_trigger_set(cn) -> None:
 
 
 def test_join_desk_fk_restrict(cn) -> None:
-    assert _rule(cn, "join", "fk_join_desk") in ("RESTRICT", "NO ACTION")
-    assert _rule(cn, "join", "fk_join_activity") == "NONE"  # #216
+    assert _rule(cn, "seat", "fk_seat_desk") in ("RESTRICT", "NO ACTION")  # #818: was join
+    assert _rule(cn, "doing", "fk_doing_desk") in ("RESTRICT", "NO ACTION")
+    assert _rule(cn, "doing", "fk_join_activity") == "NONE"  # #216
     # F1: activity desk RESTRICT so name delete cannot cascade through activity to join
     assert _rule(cn, "activity", "fk_activity_desk") in ("RESTRICT", "NO ACTION")
 
@@ -282,16 +283,18 @@ def test_join_desk_fk_restrict(cn) -> None:
 def test_join_reset_stamps_disconnect_keeps_row(cn) -> None:
     seed_names(cn, ("sj_proj", "roster"), ("sj_desk", "desk"))
     jid = int(here.upsert(cn, "sj_proj", "sj_desk", "", "d" * 64, "busy")[0]["id"])
-    assert scalar(cn, "SELECT time_disconnect FROM `join` WHERE id=%s", (jid,)) is None
+    did = _desk_id(cn, "sj_desk")
+    assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is None
     here.reset(cn, "sj_proj", "sj_desk")
-    assert scalar(cn, "SELECT token_hash FROM `join` WHERE id=%s", (jid,)) is None
-    assert scalar(cn, "SELECT time_disconnect FROM `join` WHERE id=%s", (jid,)) is not None
-    assert scalar(cn, "SELECT id FROM activity WHERE type='join' AND id=%s", (jid,)) == jid
-    # --dead no longer prunes: the seat and its activity stay
+    assert scalar(cn, "SELECT token_hash FROM seat WHERE desk_id=%s", (did,)) is None
+    assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is not None
+    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
+    # --dead no longer prunes: the seat, its doing rows and their activity stay
     out = here.prune_dead(cn)
     assert out["pruned"] == 0 and out["dead"] >= 1
-    assert scalar(cn, "SELECT id FROM `join` WHERE id=%s", (jid,)) == jid
-    assert scalar(cn, "SELECT id FROM activity WHERE type='join' AND id=%s", (jid,)) == jid
+    assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
+    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
+    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
 
 
 def test_name_delete_with_seat_refused(cn) -> None:
@@ -300,7 +303,8 @@ def test_name_delete_with_seat_refused(cn) -> None:
     did = _desk_id(cn, "sjr_desk")
     with pytest.raises(Exception):
         _exec(cn, "DELETE FROM name WHERE id=%s", (did,))
-    assert scalar(cn, "SELECT id FROM `join` WHERE id=%s", (jid,)) == jid
+    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
+    assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
 
 
 def test_name_hard_delete_refused_even_unreferenced(cn) -> None:
@@ -344,10 +348,10 @@ def test_mill_fks_to_name_are_restrict(cn) -> None:
 def test_ensure_fk_rules_flips_cascade(cn) -> None:
     from agent_coord.install.migrate import _ensure_fk_rules
 
-    _exec(cn, "ALTER TABLE `join` DROP FOREIGN KEY fk_join_desk")
+    _exec(cn, "ALTER TABLE seat DROP FOREIGN KEY fk_seat_desk")
     _exec(
         cn,
-        "ALTER TABLE `join` ADD CONSTRAINT fk_join_desk FOREIGN KEY (desk_id) "
+        "ALTER TABLE seat ADD CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) "
         "REFERENCES name (id) ON DELETE CASCADE",
     )
     _exec(cn, "ALTER TABLE score_evidence DROP FOREIGN KEY fk_score_evidence_score")
@@ -374,11 +378,11 @@ def test_ensure_fk_rules_flips_cascade(cn) -> None:
         "ALTER TABLE member ADD CONSTRAINT fk_member_desk FOREIGN KEY (desk_id) "
         "REFERENCES name (id) ON DELETE CASCADE",
     )
-    assert _rule(cn, "join", "fk_join_desk") == "CASCADE"
+    assert _rule(cn, "seat", "fk_seat_desk") == "CASCADE"
     assert _rule(cn, "activity", "fk_activity_desk") == "CASCADE"
     assert _rule(cn, "tree", "fk_tree_activity") == "CASCADE"
     applied = _ensure_fk_rules(cn)
-    assert "fk_join_desk:RESTRICT" in applied
+    assert "fk_seat_desk:RESTRICT" in applied
     assert "fk_score_evidence_score:RESTRICT" in applied
     assert "fk_activity_desk:RESTRICT" in applied
     assert "fk_tree_activity:RESTRICT" in applied
@@ -386,7 +390,7 @@ def test_ensure_fk_rules_flips_cascade(cn) -> None:
     assert _rule(cn, "tree", "fk_tree_activity") in ("RESTRICT", "NO ACTION")
     assert _rule(cn, "mail", "fk_mail_activity") == "NONE"  # #216: never re-added
     assert _rule(cn, "member", "fk_member_desk") in ("RESTRICT", "NO ACTION")
-    assert _rule(cn, "join", "fk_join_desk") in ("RESTRICT", "NO ACTION")
+    assert _rule(cn, "seat", "fk_seat_desk") in ("RESTRICT", "NO ACTION")
     assert _rule(cn, "score_evidence", "fk_score_evidence_score") in ("RESTRICT", "NO ACTION")
     assert _rule(cn, "activity", "fk_activity_desk") in ("RESTRICT", "NO ACTION")
     assert _ensure_fk_rules(cn) == []

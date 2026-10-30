@@ -5,6 +5,7 @@ from __future__ import annotations
 from agent_coord.const import CONST_DESK, CONST_MAIL, CONST_ROSTER
 
 from .db import call, scalar, scalar_done
+from .db import commit as _db_commit
 
 
 def _stored(value) -> str:
@@ -60,7 +61,7 @@ def select(cn, desk: str) -> list[dict]:
 
 
 def inbox(cn, desk: str, *, all_mail: bool = False, limit: int = 100) -> list[dict]:
-    """Inbox page cut in SQL. Unread: oldest `limit` unread, oldest first.
+    """Inbox page cut in SQL. Unread: newest `limit` unread, newest first (card 846).
     all_mail: newest `limit` letters, newest first. Same rows as select()."""
     from agent_coord.server.records.name import bare
 
@@ -318,31 +319,13 @@ def to_put(
 
 
 
-def set_sender_roster(
-    cn,
-    mail_id: int,
-    roster: str | None,
-    kind: str = CONST_ROSTER,
-) -> None:
-    """Tag the letter (mail.roster_id). Required; empty/unresolved refuses."""
-    from agent_coord.helpers.errors import CoordError
-    from agent_coord.server.records import name as rec_name
+def to_copied(cn, mail_id: int, desks) -> None:
+    """#818 D1: mark these recipients copied (room members only) on one letter."""
+    import json
 
-    aff = (roster or "").strip()
-    if not aff:
-        raise CoordError("mail: roster required (card roster_id is NOT NULL)")
-    aff_id = rec_name.ensure_roster(cn, aff, kind)
-    if aff_id is None:
-        raise CoordError("mail: unresolved roster (card roster_id is NOT NULL)")
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "UPDATE mail SET roster_id = %s WHERE type = 'mail' AND id = %s",
-            (aff_id, int(mail_id)),
-        )
-        cn.commit()
-    finally:
-        cur.close()
+    names = sorted({str(d or "").strip() for d in (desks or ()) if str(d or "").strip()})
+    if names:
+        call(cn, "mill_mail_to_copied", [int(mail_id), json.dumps(names)])
 
 
 def letters_by_id(cn, mail_ids: list[int]) -> dict[int, dict]:
@@ -512,41 +495,14 @@ def room_cast(pub_or_sender, mail_tos: list[dict] | None = None) -> list[dict]:
 
 
 def read_cursor(cn, desk_id: int, tree_id: int) -> int:
-    """Last id this desk read on this tree (tree_id = tree.name_id). 0 when unset or the table is absent."""
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "SELECT last_id FROM tree_read WHERE desk_id = %s AND tree_id = %s",
-            (int(desk_id), int(tree_id)),
-        )
-        row = cur.fetchone()
-    except Exception as exc:
-        if int(getattr(exc, "errno", 0) or 0) == 1146:
-            return 0
-        raise
-    finally:
-        cur.close()
-    if not row:
-        return 0
-    return int(row[0] or 0)
+    """Last id this desk read on this tree (tree_id = tree.name_id). 0 when unset."""
+    rows = call(cn, "mill_read_cursor", [int(desk_id), int(tree_id)])
+    return int((rows[0].get("last_id") if rows else 0) or 0)
 
 
 def advance_read_cursor(cn, desk_id: int, tree_id: int, last_id: int) -> None:
-    """Move the cursor forward (tree_id = tree.name_id). A missing table is a no-op until ensure adds it."""
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO tree_read (desk_id, tree_id, last_id) VALUES (%s, %s, %s) AS new "
-            "ON DUPLICATE KEY UPDATE last_id = GREATEST(tree_read.last_id, new.last_id)",
-            (int(desk_id), int(tree_id), int(last_id)),
-        )
-        cn.commit()
-    except Exception as exc:
-        if int(getattr(exc, "errno", 0) or 0) == 1146:
-            return
-        raise
-    finally:
-        cur.close()
+    """Move the cursor forward, never back (#867: an SP, not an upsert)."""
+    call(cn, "cmd_read_upto", [int(desk_id), int(tree_id), int(last_id)])
 
 
 def room_tree_id(cn, mail_id: int) -> int | None:
@@ -576,6 +532,12 @@ def lean_body(text: str | None, n: int = MAIL_BODY_LIST_MAX) -> tuple[str, bool]
     return body[:limit], True
 
 
+def _to_desk(t) -> str:
+    if isinstance(t, dict):
+        return str(t.get("deskId") or t.get("desk") or "").strip()
+    return str(t or "").strip()
+
+
 def public_mail(
     row: dict,
     dest_rows: list[dict] | None = None,
@@ -584,7 +546,11 @@ def public_mail(
     lean: bool = False,
     lean_n: int = MAIL_BODY_LIST_MAX,
 ) -> dict:
-    """Public MAIL: id, created, sender, body, mail_tos (+ crumbs).
+    """Public MAIL: id, created, from, sender, body, mail_tos (+ crumbs).
+
+    `from` is the sender desk name, the one key every letter row carries
+    (short rows and push arrivals too, card 837); `sender` adds its roster.
+    `to` is the recipient desk names on every full letter and push arrival.
 
     lean=True (list/poll): truncate body to lean_n and set body_trunc when clipped.
     """
@@ -615,9 +581,12 @@ def public_mail(
     out: dict = {
         "id": mid,
         "created": created,
+        "from": sender["deskId"],
         "sender": sender,
         "body": body,
         "mail_tos": mail_tos,
+        # The plain recipient list, as `from` is the plain sender (card 837).
+        "to": [d for d in (_to_desk(t) for t in mail_tos) if d],
     }
     if trunc:
         out["body_trunc"] = True
@@ -851,7 +820,7 @@ def room_participant(cn, mail_id: int, desk: str, room: "RoomRead | None" = None
         cur.close()
     if not dids:
         try:
-            cn.commit()
+            _db_commit(cn)  # #818: not inside a request transaction
         except Exception:
             pass
         return False

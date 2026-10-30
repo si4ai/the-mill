@@ -96,6 +96,9 @@ person or host leaks:
    disabled to save AI credits). Builder may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
    Builder still merges.
+   A Copilot review never holds a merge: when it fails (quota, error, no
+   review) nothing waits on it, and no workflow runs on a review event, so a
+   bot review cannot start a run that needs a maintainer's approval (F122).
 
    A card can also go to the Copilot coding agent (desk `github-pilot`):
    Builder files it as an issue and assigns Copilot, which opens the PR.
@@ -136,6 +139,39 @@ person or host leaks:
 
    Force-push only your own branch. Never force-push `main` or another
    desk's branch.
+
+## The Validator gate
+
+Main requires a check named `validator` that only the Validator app can
+satisfy (F110, F111, F112):
+
+- The ruleset on `main` pins the required `validator` check to the
+  si4ai-validator GitHub App (app id 5431726). A `validator` status from
+  anyone else, a person, a token seat or a workflow, does not satisfy it.
+- After review, Validator posts the verdict as a commit status with
+  context `validator` on the exact PR head sha. PASS and PASS WITH WARN
+  are `success`; FAIL is `failure`. Any new push is a new head and needs a
+  fresh verdict. A PR without an app `success` on its head cannot be
+  enqueued.
+- In the merge queue, Validator's queue watcher posts `validator` on the
+  queued commit (the `merge_group` sha). It runs on Validator's box, not
+  in this repo, so a PR cannot change it. It reads the queue for `main` in
+  order and posts `success` on an entry only when that entry and every
+  entry ahead of it have, on their current PR head, a newest `validator`
+  status from `si4ai-validator[bot]` that is `success`.
+- It fails safe: it never posts `failure`, and on a missing verdict, a
+  stale head or an API error it posts nothing. No post means the entry
+  waits and the queue times it out (60 minutes).
+- The old `validator_pass` check (`.github/workflows/validator.yml`)
+  still runs and is still required. It runs the queued commit's own
+  workflow and script, so a PR could edit its own gate; the app-pinned
+  check closes that. It counts only a `validator` status whose creator is
+  `si4ai-validator[bot]` with creator type `Bot`. Until it goes: on `pull_request` it only reports and
+  stays green (the PR must stay enqueue-able), with its log line,
+  `::notice` annotation and job summary starting `WAITING:` or `REPORT:`,
+  so green there is not a PASS; on `merge_group` it enforces, fail-closed.
+  `validator_pass` is dropped once this gate has carried a PR through the
+  queue (card 812).
 
 ## Moving an old branch that carries commits main already has
 

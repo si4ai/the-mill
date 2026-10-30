@@ -69,7 +69,7 @@ def test_a_skipped_room_item_takes_no_window(desk):
     assert len(desk.posts) == 1
 
 
-def test_all_is_the_default_and_wakes_for_room_letters(desk):
+def test_wake_on_all_wakes_for_room_letters(desk):
     desk.state["wake_on"] = "all"
     _letter({"away"})
     assert len(desk.posts) == 1 and desk.posts[0]["wake"]["reason"] == "room"
@@ -78,7 +78,7 @@ def test_all_is_the_default_and_wakes_for_room_letters(desk):
 class _Join:
     def __init__(self):
         self.row = None
-        self.on = "all"
+        self.on = "addressed"  # card 836: the default
         self.calls: list[str] = []
 
     def install(self, monkeypatch):
@@ -87,7 +87,7 @@ class _Join:
         monkeypatch.setattr(rec_join, "wake_target", lambda cn, d: self.row)
         monkeypatch.setattr(rec_join, "wake_state", lambda cn, d: {"armed": bool(self.row), "host": "h", "wake_on": self.on})
 
-        def arm_(cn, d, url, key, wake_on="all"):
+        def arm_(cn, d, url, key, wake_on="addressed"):
             self.calls.append("arm")
             self.row, self.on = (url, key), wake_on
 
@@ -106,11 +106,12 @@ def test_join_stores_wake_on_and_a_change_alone_sends_no_test_post(monkeypatch):
     j.install(monkeypatch)
     posts: list[int] = []
     with patch("agent_coord.server.wake._open", lambda req, timeout=0: posts.append(1) or _Resp()):
-        got = _deliver({"mode": "webhook", "url": HOOK_URL, "key": HOOK_KEY, "wake_on": "addressed"})
-        assert got["wake_on"] == "addressed" and j.on == "addressed" and len(posts) == 1
+        got = _deliver({"mode": "webhook", "url": HOOK_URL, "key": HOOK_KEY, "wake_on": "all"})
+        assert got["wake_on"] == "all" and j.on == "all" and len(posts) == 1
         got = _deliver({"mode": "webhook", "url": HOOK_URL, "key": HOOK_KEY})
-        assert got == {"webhook": "armed", "host": got["host"], "test": "unchanged", "wake_on": "all"}
-        assert j.on == "all" and len(posts) == 1  # last join wins, no second test POST
+        # Card 836: no --wake-on means addressed.
+        assert got == {"webhook": "armed", "host": got["host"], "test": "unchanged", "wake_on": "addressed"}
+        assert j.on == "addressed" and len(posts) == 1  # last join wins, no second test POST
         got = _deliver({"mode": "webhook", "url": HOOK_URL, "key": HOOK_KEY})
         assert j.calls == ["arm", "arm"]  # same values again: nothing written
 

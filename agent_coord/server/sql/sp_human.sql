@@ -42,7 +42,7 @@ BEGIN
           directory_sub = IFNULL(v_sub, directory_sub)
       WHERE id = v_id;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_sub AS directory_sub;
 END //
 
@@ -59,7 +59,7 @@ BEGIN
       INSERT IGNORE INTO human_member (human_id, name_id) VALUES (p_id, v_name);
     END IF;
   END IF;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, IFNULL(p_role, '') AS role;
 END //
 

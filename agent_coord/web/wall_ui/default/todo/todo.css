@@ -385,7 +385,7 @@
     .mill-outline-row.ty-todo.st-parked { border-left-color: var(--mag); }
     .mill-outline-row.ty-todo.st-done { border-left-color: var(--dim); opacity: .78; }
     .mill-outline-row.ty-mail { border-left-color: var(--cyan); }
-    .mill-outline-row.ty-join { border-left-color: var(--green); }
+    .mill-outline-row.ty-doing { border-left-color: var(--green); }
     .mill-outline-row.ty-hold { border-left-color: var(--red); }
     .mill-outline-row.ty-score { border-left-color: var(--mag); }
     .mill-outline-row.ty-name { border-left-color: var(--dim); }

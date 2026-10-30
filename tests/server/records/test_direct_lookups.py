@@ -41,7 +41,7 @@ def book(cn):
 def _age(cn, desk, minutes):
     cur = cn.cursor()
     cur.execute(
-        "UPDATE `join` h JOIN name n ON n.id = h.desk_id SET h.updated = %s WHERE n.type='desk' AND n.name=%s",
+        "UPDATE seat h JOIN name n ON n.id = h.desk_id SET h.updated = %s WHERE n.type='desk' AND n.name=%s",
         (datetime.now() - timedelta(minutes=minutes), desk),
     )
     cn.commit()

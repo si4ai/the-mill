@@ -27,7 +27,8 @@ SQL = Path("agent_coord/server/sql")
 PAYLOAD_FKS = (
     ("mail", "fk_mail_activity"),
     ("todo", "fk_todo_activity"),
-    ("join", "fk_join_activity"),
+    # fk_join_activity: a book that still has it has a `join` table, and the
+    # #818 migration drops it while turning that table into doing.
     ("hold", "fk_hold_activity"),
     ("score", "fk_score_activity"),
 )

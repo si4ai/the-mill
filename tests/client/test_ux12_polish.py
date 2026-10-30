@@ -13,8 +13,9 @@ from agent_coord.client.language import translate
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _card(i, need, doing="", detail="", roster="cold-test"):
-    return {"project_id": roster, "need_id": need, "id": i, "status": "open", "doing": doing,
+def _card(i, need, detail="", roster="cold-test"):
+    # #818: cards have no title (no doing field).
+    return {"project_id": roster, "need_id": need, "id": i, "status": "open",
             "detail": detail, "progress": ["x" * 400], "volunteer": "", "asker": "u1",
             "tree": None, "labels": []}
 
@@ -52,26 +53,26 @@ def test_plain_add_reply_is_untouched():
     assert _said_command(row, "") is row
 
 
-def test_find_ranks_title_and_need_before_body_hits():
+def test_find_ranks_need_before_body_hits():
     big = "unrelated " * 600 + "login " + "tail " * 200
-    rows = [_card(1, "big-card", "big card", big), _card(2, "other", "other", "x"),
-            _card(3, "fix-thing", "fix login 500", "short"), _card(4, "login-page", "page", "")]
+    rows = [_card(1, "big-card", big), _card(2, "other", "x"),
+            _card(3, "fix-thing", "fix login 500"), _card(4, "login-page", "")]
     out = _todo_find({"ok": True, "result": rows}, "login")
-    assert [c["id"] for c in out["result"]] == [3, 4, 1]
-    assert [c["match"] for c in out["result"]] == ["title", "need", "detail"]
+    assert [c["id"] for c in out["result"]] == [4, 1, 3]
+    assert [c["match"] for c in out["result"]] == ["need", "detail", "detail"]
     assert out["note"].startswith("3 card(s)")
 
 
 def test_find_body_hit_prints_a_short_snippet():
     big = "unrelated " * 600 + "login " + "tail " * 200
-    out = _todo_find({"ok": True, "result": [_card(1, "big-card", "big", big)]}, "LOGIN")
+    out = _todo_find({"ok": True, "result": [_card(1, "big-card", big)]}, "LOGIN")
     c = out["result"][0]
     assert "detail" not in c and "progress" not in c
     assert "login" in c["snippet"] and len(c["snippet"]) <= 126
 
 
-def test_one_title_hit_prints_under_1kb():
-    rows = [_card(9, "ux12-fix-login", "fix login 500 on the door", "steps " * 900)]
+def test_one_need_hit_prints_under_1kb():
+    rows = [_card(9, "ux12-fix-login", "steps " * 900)]
     out = _todo_find({"ok": True, "result": rows}, "login")
     assert len(out["result"]) == 1
     assert len(json.dumps(out).encode()) < 1024

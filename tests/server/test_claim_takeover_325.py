@@ -24,16 +24,26 @@ def _card(monkeypatch, volunteer: str, detail: str = "seed"):
     def fake_find(cn, project, need):
         return dict(state["row"])
 
-    def fake_update(cn, tid, desk, status="", volunteer="", body=None):
-        state["updates"].append({"status": status, "volunteer": volunteer, "body": body})
-        if volunteer:
-            state["row"]["assigned"] = volunteer
+    def fake_card_sp(c, proc, args, roster, need):
+        # Stands in for cmd_claim (#867: the guard runs in the SP; the SQL suite
+        # test_claim_takeover_sql_325 checks the real one). args: MILL_DESK_ID(desk), card, take_over, prior, body.
+        assert proc == "cmd_claim"
+        desk_arg, tid, take_over, _prior, body = args
+        desk = desk_arg.params[0]
+        prior = state["row"]["assigned"]
+        if prior and prior != desk and not take_over:
+            raise CoordError(
+                f"claim: {roster}/{need} is claimed by {prior}; ask {prior} to mill unclaim {roster} {need}, "
+                f"or run mill claim {roster} {need} --take-over to take it (the card records the prior volunteer)"
+            )
+        state["updates"].append({"status": "claimed", "volunteer": desk, "body": body})
+        state["row"]["assigned"] = desk
         if body is not None:
             state["row"]["body"] = body
-        return [{"id": tid}]
+        return {"card": tid, "status": "claimed", "prior_volunteer": prior if prior and prior != desk else None}
 
     monkeypatch.setattr("agent_coord.server.records.todo.find", fake_find)
-    monkeypatch.setattr("agent_coord.server.records.todo.update", fake_update)
+    monkeypatch.setattr(rpc, "_card_sp", fake_card_sp)
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
     return state
 

@@ -72,15 +72,15 @@ cases.explicit = tree(40, 3, 12, 13000).map((o, i) => (i % 7 ? o : Object.assign
 const bad = [];
 Object.keys(cases).forEach(name => {
   const nodes = cases[name];
-  const d = { needs: nodes.filter(Boolean).map((n, i) => ({ id: n.id, need_id: 'need-' + n.id, status: 'open', doing: (i % 9 ? 'card ' : 'hit ') + n.id })) };
+  const d = { needs: nodes.filter(Boolean).map((n, i) => ({ id: n.id, need_id: 'need-' + n.id, status: 'open', detail: (i % 9 ? 'card ' : 'hit ') + n.id })) };
   nodes.forEach((n, i) => {
     if (api.millTreeDepth(nodes, n) !== refDepth(nodes, n)) bad.push([name, 'depth', i]);
     if (n && JSON.stringify(ids(api.millOutlineKidsOf(nodes, n))) !== JSON.stringify(ids(refOutlineKids(nodes, n)))) bad.push([name, 'outline-kids', i]);
     if (!n) return;
     if (api.millTodoParentOf(nodes, n) !== refParent(nodes, n)) bad.push([name, 'parent', i]);
     if (JSON.stringify(ids(api.millTodoKidsOf(nodes, n))) !== JSON.stringify(ids(refKids(nodes, n)))) bad.push([name, 'kids', i]);
-    const refSpine = n.id && (d.needs.find(r => r.id === n.id) || {}).doing.indexOf('hit') === 0 ||
-      nodes.some(o => o && o !== n && num(o.lft) > num(n.lft) && num(o.rgt) < num(n.rgt) && (d.needs.find(r => r.id === o.id) || { doing: '' }).doing.indexOf('hit') === 0);
+    const refSpine = n.id && (d.needs.find(r => r.id === n.id) || {}).detail.indexOf('hit') === 0 ||
+      nodes.some(o => o && o !== n && num(o.lft) > num(n.lft) && num(o.rgt) < num(n.rgt) && (d.needs.find(r => r.id === o.id) || { detail: '' }).detail.indexOf('hit') === 0);
     if (api.todoTreeOnSpine(nodes, n, d, 'hit') !== !!refSpine) bad.push([name, 'spine', i]);
   });
   const todos = nodes.filter(Boolean);

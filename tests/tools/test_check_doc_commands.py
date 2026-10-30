@@ -29,8 +29,8 @@ def test_repo_docs_match_the_cli(capsys):
         ("`mill todo the-mill --bogus`", "unknown-flag"),
         ("`mill connect --owner desk-a`", "unknown-flag"),
         ("`mill invite --seat d1 --project p`", "unknown-flag"),
-        ("```\nmill connected\n```", "missing-arg"),
-        ("```\nbash -c 'mill connect d1 & mill connected'\n```", "missing-arg"),
+        ("```\nmill reply\n```", "missing-arg"),
+        ("```\nbash -c 'mill connect d1 & mill reply'\n```", "missing-arg"),
         ("`mill route chain`", "unknown-sub"),
         ("`mill install nowhere`", "bad-choice"),
         ("`mill claim <project> fix-x`", "stale-placeholder"),
@@ -47,6 +47,7 @@ def test_drift_fails(text, kind):
     "text",
     [
         "```\nmill connected the-mill --limit 5\n```",
+        "```\nmill connected --history --desk builder --page 2\n```",
         "`mill send --to-desk gardener --body-file PATH`",
         "`mill inbox [--full | --page N]`",
         "`mill mail-thread <mail_id|room> [--room | --subtree | --full] [--after ID] [--page N]`",

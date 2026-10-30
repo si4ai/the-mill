@@ -92,13 +92,13 @@ def test_all_next_wakes_vendor(tmp_path, monkeypatch) -> None:
     assert woke == ["grok-build"]
 
 
-def test_join_with_no_route_stays_skip(tmp_path, monkeypatch) -> None:
+def test_doing_with_no_route_stays_skip(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
     monkeypatch.setattr(
         "agent_coord.client.connectors.poke",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("wake")),
     )
-    assert dispatch_hint("builder", {"type": "join", "hint": "JOIN", "id": 1}) == "skip"
+    assert dispatch_hint("builder", {"type": "doing", "hint": "DOING", "id": 1}) == "skip"
 
 
 def test_other_desk_chain_is_not_used(tmp_path, monkeypatch) -> None:

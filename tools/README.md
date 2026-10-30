@@ -28,6 +28,17 @@ python -m tools.git_changes --names
 
 TTY -> pretty table. Pipe/redirect -> `--names` (no color). Override with `--pretty` / `--patch` / `--stat`.
 
+## glance.py
+
+Time a Wall page cold (lab tool, not run by CI). Each run loads the page with the HTTP cache off, then records the JS, CSS and HTML bytes at first paint, the time from click to painted for the desk panel and each strip pane, and the scripts each step loads. The first run also saves each pane's text and a screenshot, so a before and an after report can be diffed. It only reads; it never logs in or posts. Needs `playwright` with a `chromium` build.
+
+```bash
+python tools/glance.py URL before --roster ROSTER_ID
+python tools/glance.py URL after --roster ROSTER_ID --out glance-report --runs 3
+```
+
+Writes `glance-report/TAG.json` and `glance-report/shots/`.
+
 ## check_pr_text.py
 
 Scan PR and issue text with the commit-message hygiene rules (address, home path, email). CI runs it from `.github/workflows/pr_text.yml` on every PR, issue, comment and review, and once a day over all of them. Run `file` on a body before you post it: GitHub keeps every revision of a body in its edit history.
@@ -52,6 +63,16 @@ python tools/check_sql.py --sql path/to/agent_coord/server/sql
 ```
 
 Exit 1 when a pack routine is missing. Extra live routines are listed and do not fail the check. It does not apply SQL.
+
+## book_shape.py
+
+Compare a book's schema with a fresh install (card 840). Build a fresh book with `migrate.ensure` on an empty database, then name both: the fresh one and the book to check, such as a throwaway copy of an office dump after ensure. It reads the information schema only (tables, columns and enum values, indexes, foreign keys, triggers, routine bodies) and prints part names, never rows.
+
+```bash
+python tools/book_shape.py FRESH_DB BOOK_DB
+```
+
+Exit 1 when a part differs that is not in `KNOWN_LIVE_DRIFT`. CI runs the same comparison on a 0.7.6 book upgraded by tip ensure (`tests/server/records/test_book_schema_parity_840.py`).
 
 ## check_doc_commands.py
 
@@ -89,7 +110,7 @@ It starts from `pyproject.toml` console scripts (`mill`, `mill-hold`, `agent-coo
 
 `web/wall_ui_save/` is a snapshot and is not scanned.
 
-A module can be an orphan and still be a stub you meant to keep (`install/todo_diary.py` is the todo snapshot across a schema wipe; it is just not wired to a command). The scan does not decide keep or delete.
+A module can be an orphan and still be a stub you meant to keep. The scan does not decide keep or delete.
 
 ## probe_deleted_rows.py
 

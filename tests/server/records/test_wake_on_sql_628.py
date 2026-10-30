@@ -1,5 +1,5 @@
 """#628 on a real book: join.wake_on is stored by the arm, read by wake_state,
-and reset to all when the webhook is forgotten. Row F74 (wake-on)."""
+and reset to addressed (the default, card 836) when the webhook is forgotten. Row F74 (wake-on)."""
 from __future__ import annotations
 
 import pytest
@@ -20,6 +20,8 @@ def test_wake_on_round_trip(cn):
     rec_join.upsert(cn, "fx628", "fx628-d1", "", token_hash("seat-fx628"), None)
     cn.commit()
     rec_join.wake_arm(cn, "fx628-d1", URL, KEY)
+    assert rec_join.wake_state(cn, "fx628-d1")["wake_on"] == "addressed"
+    rec_join.wake_arm(cn, "fx628-d1", URL, KEY, wake_on="all")
     assert rec_join.wake_state(cn, "fx628-d1")["wake_on"] == "all"
     rec_join.wake_arm(cn, "fx628-d1", URL, KEY, wake_on="addressed")
     assert rec_join.wake_state(cn, "fx628-d1") == {"armed": True, "host": "hooks.example.test", "wake_on": "addressed"}
@@ -27,4 +29,4 @@ def test_wake_on_round_trip(cn):
     with pytest.raises(Exception):
         call(cn, "mill_join_wake_arm", ["fx628-d1", URL, KEY, "room"])
     rec_join.wake_off(cn, "fx628-d1")
-    assert rec_join.wake_state(cn, "fx628-d1")["wake_on"] == "all"
+    assert rec_join.wake_state(cn, "fx628-d1")["wake_on"] == "addressed"

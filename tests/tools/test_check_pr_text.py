@@ -80,6 +80,7 @@ def test_sweep_reads_titles_bodies_and_both_comment_kinds(monkeypatch: pytest.Mo
                      {"number": 4, "title": "t", "body": None}],
         "/issues/comments?": [{"id": 11, "issue_url": "https://h/repos/o/r/issues/4", "body": HOME_PATH}],
         "/pulls/comments?": [{"id": 12, "pull_request_url": "https://h/repos/o/r/pulls/3", "body": "fine"}],
+        "/reviews?": [],
     }
 
     def fake_all(url: str, token: str) -> list:
@@ -89,6 +90,26 @@ def test_sweep_reads_titles_bodies_and_both_comment_kinds(monkeypatch: pytest.Mo
     fails = pt.scan(pt.sweep_texts("o/r", ""))
     assert fails == ["PR #3 body:1: email outside placeholder domains", "#4 comment 11:1: home path with a login name"]
 
+
+
+def test_sweep_reads_every_pr_review_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F122 (#823): no workflow runs on a review event, so the sweep reads each
+    PR's review bodies (issues are skipped; a review with no body is fine)."""
+    seen: list[str] = []
+
+    def fake_all(url: str, token: str) -> list:
+        seen.append(url)
+        if "/pulls/3/reviews?" in url:
+            return [{"id": 21, "body": f"see {HOME_PATH}"}, {"id": 22, "body": None}]
+        if "/issues?" in url:
+            return [{"number": 3, "title": "t", "body": "", "pull_request": {}},
+                    {"number": 4, "title": "t", "body": ""}]
+        return []
+
+    monkeypatch.setattr(pt, "_all", fake_all)
+    fails = pt.scan(pt.sweep_texts("o/r", ""))
+    assert fails == ["PR #3 review 21:1: home path with a login name"]
+    assert not [u for u in seen if "/pulls/4/" in u]
 
 def test_file_mode_scans_a_body_before_posting(tmp_path: Path) -> None:
     f = tmp_path / "body.md"

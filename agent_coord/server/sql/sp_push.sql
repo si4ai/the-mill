@@ -69,7 +69,7 @@ BEGIN
     RESIGNAL;
   END;
   SET v_cut = CURRENT_TIMESTAMP(6) - INTERVAL 30 DAY;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
 
   -- One expired line per desk. A later window adds counts and moves created forward.
   UPDATE push_queue AS e
@@ -153,7 +153,7 @@ BEGIN
    WHERE created < v_cut
      AND kind IN ('hint', 'mail', 'receipt');
   SET v_gone = ROW_COUNT();
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_gone AS deleted, DATE_FORMAT(v_cut, '%Y-%m-%d %H:%i:%s.%f') AS cut;
 END //
 

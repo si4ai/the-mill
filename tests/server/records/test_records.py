@@ -93,16 +93,15 @@ def test_opened_n_and_unread(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
     ins = mail.insert(cn, "unit", "a", "b", "private")
     mid = int(ins[0]["id"])
-    before = opened.select(cn, mid, "b")
-    assert not any(int(r["mail_id"]) == mid for r in before)
-    opened.insert(cn, mid, "b")
-    rows = opened.select(cn, mid, "b")
+    assert opened.read_ids(cn, [mid], "b") == set()
+    rows = opened.insert(cn, mid, "b")
     assert rows and int(rows[0]["n"]) == 1
+    assert opened.read_ids(cn, [mid], "b") == {mid}
     assert _presence_row(cn, "mail", mid) is not None
     opened.insert(cn, mid, "b")
-    assert opened.select(cn, mid, "b")
+    assert opened.read_ids(cn, [mid], "b") == {mid}
     mail.delete(cn, mid, "a")
-    assert opened.select(cn, mid, "b") == []
+    assert opened.read_ids(cn, [mid], "b") == set()
 
 
 def test_todo_kanban_status_select(cn) -> None:
@@ -121,20 +120,20 @@ def test_todo_kanban_status_select(cn) -> None:
     assert _presence_row(cn, "todo", tid) is not None
 
 
-def test_doing_stack_lands_on_the_join_row(cn) -> None:
-    from agent_coord.server.records.db import scalar
-    from agent_coord.server.records.doing_stack import split
+def test_doing_appends_a_row_per_entry(cn) -> None:
+    """#818: each doing is its own row; a pipe in the text is just text."""
+    from agent_coord.server.records.db import rows_done
 
     here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="present")
-    here.push_doing(cn, "unit", "stack", "a | b")
-    stored = scalar(
+    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="a | b")
+    rows = rows_done(
         cn,
-        "SELECT j.doing FROM `join` j JOIN name n ON n.id = j.desk_id "
-        "WHERE n.type='desk' AND n.name=%s",
+        "SELECT g.text FROM doing g JOIN name n ON n.id = g.desk_id "
+        "WHERE n.type='desk' AND n.name=%s ORDER BY g.id",
         ("stack",),
     )
-    assert stored == "a \\| b"
-    assert split(str(stored)) == ["a | b"]
+    # #818 PR B: the join placeholder writes no doing text.
+    assert [r["text"] for r in rows if r["text"]] == ["a | b"]
 
 
 def test_hold_unique(cn) -> None:
@@ -323,23 +322,25 @@ def test_tree_auto_and_named_plans(cn) -> None:
     todo.delete(cn, cid, "a")
 
 
-def test_touch_bumps_the_seat_and_cleans_the_trail(cn) -> None:
+def test_touch_bumps_the_seat_and_writes_no_entry(cn) -> None:
+    """#635 / #818: a command that writes nothing else bumps the seat; no doing row."""
     from agent_coord.server.records.db import scalar
 
     here.upsert(cn, "unit", "trail635", "", token_hash="c" * 64, doing="present")
     cn.cursor().execute(
-        "UPDATE `join` j JOIN name n ON n.id = j.desk_id SET j.doing = %s, "
+        "UPDATE seat j JOIN name n ON n.id = j.desk_id SET "
         "j.updated = '2000-01-01' WHERE n.type='desk' AND n.name=%s",
-        ("todo | purpose | member | present", "trail635"),
+        ("trail635",),
     )
     cn.commit()
+    count = "SELECT COUNT(*) FROM doing g JOIN name n ON n.id = g.desk_id WHERE n.type='desk' AND n.name=%s"
+    before = scalar(cn, count, ("trail635",))
     here.touch(cn, "unit", "trail635")
-    doing, updated = cn.cursor(), None
-    doing.execute(
-        "SELECT j.doing, j.updated FROM `join` j JOIN name n ON n.id = j.desk_id "
+    updated = scalar(
+        cn,
+        "SELECT j.updated FROM seat j JOIN name n ON n.id = j.desk_id "
         "WHERE n.type='desk' AND n.name=%s",
         ("trail635",),
     )
-    doing, updated = doing.fetchone()
-    assert doing == "purpose | present"
     assert str(updated) > "2001"
+    assert scalar(cn, count, ("trail635",)) == before

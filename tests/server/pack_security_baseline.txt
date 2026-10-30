@@ -1,10 +1,9 @@
 agent_coord/server/sql/sp_activity.sql|unbounded-read|SELECT w.desk_id, n.name AS desk, n.type AS desk_type, w.hint, h.delivery_mode, h.endpoint_url
 agent_coord/server/sql/sp_hold.sql|unbounded-read|SELECT h.type, h.id, h.created, h.updated, h.desk_id, h.resource_id,
-agent_coord/server/sql/sp_join.sql|unbounded-read|SELECT h.type, h.id, h.created, h.updated, h.desk_id, h.token_hash, h.doing,
+agent_coord/server/sql/sp_join.sql|unbounded-read|SELECT 'doing' AS type, cur.id, h.created, h.updated, h.desk_id, h.token_hash,
 agent_coord/server/sql/sp_label.sql|unbounded-read|SELECT l.type, l.id, l.name_id, l.ord, n.name AS label, n.type AS label_type, l.created
 agent_coord/server/sql/sp_mail.sql|unbounded-read|SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
 agent_coord/server/sql/sp_member.sql|unbounded-read|SELECT m.name_id, m.desk_id, m.created, sn.name AS slot, sn.type AS slot_type, dn.name AS desk, dn.type AS desk_type
-agent_coord/server/sql/sp_opened.sql|unbounded-read|SELECT 'mail' AS type, t.id, t.created, t.opened AS updated, t.desk_id AS desk_id,
 agent_coord/server/sql/sp_score.sql|unbounded-read|SELECT s.type, s.id, s.created, s.updated, s.desk_id, s.roster_id, s.kpi,
 agent_coord/server/sql/sp_todo.sql|unbounded-read|SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
 agent_coord/server/sql/sp_tree.sql|unbounded-read|SELECT t.name_id, t.type, t.id, t.lft, t.rgt, n.name AS tree, n.type AS tree_type

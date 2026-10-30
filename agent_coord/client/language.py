@@ -198,6 +198,8 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
 
     if cmd == "rename":
         if args.kind == "desk":
+            # Card 880: your own desk stays on the self path; another desk needs --yes (Admin path, outbound).
+            args.desk_admin = yes
             args.yes = False
             return args
         retype(args.new, f"rename {args.kind} {args.old}", yes=yes, ask=ask)
@@ -233,6 +235,8 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
             raise CoordError(f"retire: {args.kind} takes one NAME")
         if args.kind == "desk":
             retype(args.slug, f"retire desk {args.slug}", yes=yes, ask=ask)
+            # Card 880: the name was typed twice; outbound sends the Admin path for another desk.
+            args.desk_admin = True
             args.yes = False
             args.confirm = ""
             return args

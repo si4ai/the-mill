@@ -26,14 +26,22 @@ init office
 hold (command)
 hold resource
 hold peek
-hold doing
 hold group_by
 hold office
 hold yes
+hold doing
+hold waiting_on
 drop (command)
 drop resource
 drop office
 drop yes
+drop doing
+drop waiting_on
+wake-done (command)
+wake-done note
+wake-done lease
+wake-done office
+wake-done yes
 send (command)
 send to
 send to_desk
@@ -42,6 +50,8 @@ send roster
 send name
 send office
 send yes
+send doing
+send waiting_on
 reply (command)
 reply mail_id
 reply body_file
@@ -49,6 +59,8 @@ reply to_desk
 reply roster
 reply office
 reply yes
+reply doing
+reply waiting_on
 mail-thread (command)
 mail-thread mail_id
 mail-thread scope
@@ -61,6 +73,8 @@ mark (command)
 mark ids
 mark office
 mark yes
+mark doing
+mark waiting_on
 trail (command)
 trail node
 trail label
@@ -95,6 +109,8 @@ score limit
 score at
 score office
 score yes
+score doing
+score waiting_on
 score-add (command)
 score-add name
 score-add target
@@ -255,23 +271,20 @@ unlabel id
 unlabel label
 unlabel office
 unlabel yes
-doing (command)
-doing project
-doing doing
-doing office
-doing yes
 create (command)
 create todo (command)
 create todo project
 create todo need
-create todo doing
 create todo detail
 create todo detail_file
 create todo status
 create todo parent_type
 create todo parent_id
+create todo done_when
 create todo yes
 create todo office
+create todo doing
+create todo waiting_on
 create roster (command)
 create roster slug
 create roster yes
@@ -304,8 +317,11 @@ note supersedes
 note eta
 note started
 note full
+note done_when
 note office
 note yes
+note doing
+note waiting_on
 claim (command)
 claim project
 claim need
@@ -314,11 +330,15 @@ claim msg
 claim take_over
 claim office
 claim yes
+claim doing
+claim waiting_on
 unclaim (command)
 unclaim project
 unclaim need
 unclaim office
 unclaim yes
+unclaim doing
+unclaim waiting_on
 unpark (command)
 unpark project
 unpark need
@@ -326,19 +346,29 @@ unpark parent_type
 unpark parent_id
 unpark office
 unpark yes
+unpark doing
+unpark waiting_on
 assign (command)
 assign project
 assign need
 assign desk
 assign office
 assign yes
+assign doing
+assign waiting_on
 pass (command)
 pass project
 pass need
 pass done
 pass back
+pass evidence
 pass office
 pass yes
+pass doing
+pass waiting_on
+glance (command)
+glance office
+glance yes
 invite (command)
 invite door
 invite rotate
@@ -366,6 +396,11 @@ admin office
 admin yes
 connected (command)
 connected project
+connected desk
+connected all
+connected history
+connected since
+connected page
 connected limit
 connected office
 connected yes

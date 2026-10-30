@@ -30,14 +30,14 @@ NAME_TYPES = (
 # activity.type, and the payload type that points at an activity
 CONST_MAIL = "mail"
 CONST_TODO = "todo"
-CONST_JOIN = "join"
+CONST_DOING = "doing"
 CONST_HOLD = "hold"
 CONST_SCORE = "score"
 
 ACTIVITY_TYPES = (
     CONST_MAIL,
     CONST_TODO,
-    CONST_JOIN,
+    CONST_DOING,
     CONST_HOLD,
     CONST_SCORE,
 )

@@ -24,7 +24,7 @@
     var floorEdgeLabel = D("floorEdgeLabel");
     var esc = D("esc");
     var hereGlance = D("hereGlance");
-    var wallDoingFace = D("wallDoingFace");
+    var wallDoingText = D("wallDoingText");
     var millNameBare = D("millNameBare");
     var floorSpanLabel = D("floorSpanLabel");
     var showFloorEdge = D("showFloorEdge");
@@ -67,11 +67,11 @@
         st = gState.state || (n.stale ? "stale" : "idle");
         if (!doingStored) doingStored = String(agent.doing || "").trim();
       }
-      var face = wallDoingFace(doingStored);
+      var now = isWs ? doingStored : wallDoingText(n.owner, doingStored);
       var unread = Number(n.unread || 0);
       var label = isWs ? String(n.owner || "").replace(/^Workstation-/i, "WS-") : millNameBare("desk", n.owner);
-      var doing = face.now.length > 22 ? face.now.slice(0, 21) + "..." : face.now;
-      var tip = [label, st, face.now].concat(face.older).concat(unread ? [unread + " unread"] : []).filter(Boolean).join(" | ");
+      var doing = now.length > 22 ? now.slice(0, 21) + "..." : now;
+      var tip = [label, st, now].concat(unread ? [unread + " unread"] : []).filter(Boolean).join(" | ");
       var badge = unread > 0
         ? '<circle cx="' + (n.x + 18).toFixed(1) + '" cy="' + (n.y - 18).toFixed(1) + '" r="9" fill="var(--amber)" /><text text-anchor="middle" x="' + (n.x + 18).toFixed(1) + '" y="' + (n.y - 14).toFixed(1) + '" style="fill:#111;font-size:9px;font-weight:800">' + (unread > 99 ? "99+" : unread) + "</text>"
         : "";

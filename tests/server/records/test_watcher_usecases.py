@@ -64,7 +64,7 @@ def test_w4_todo_watchers(cn) -> None:
 def test_w5_here_watchers(cn) -> None:
     p, alice, rec = _sit(cn)
     hid = int(rec[0]["id"])
-    _watched(cn, "join", hid)
+    _watched(cn, "doing", hid)
 
 
 def test_w7_hold_watchers(cn) -> None:

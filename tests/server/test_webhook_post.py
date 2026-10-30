@@ -40,7 +40,10 @@ def _fanout(rows: list[dict], *, sitting: set[str], urlopen, outcomes: list[str]
     def capture(desk, payload):
         notified.append((desk, dict(payload)))
 
+    queued: list[str] = []
+
     def _put(cn, desk, kind, payload, outcome):
+        queued.append(desk)
         if outcomes is not None:
             outcomes.append(outcome)
         return []
@@ -48,7 +51,9 @@ def _fanout(rows: list[dict], *, sitting: set[str], urlopen, outcomes: list[str]
     with patch("agent_coord.server.records.watcher.select", return_value=rows), patch(
         "agent_coord.server.records.activity.select",
         return_value=[],
-    ), patch("agent_coord.server.records.push.put", _put), patch.object(
+    ), patch("agent_coord.server.records.push.put", _put), patch(
+        "agent_coord.server.records.push.pending", lambda cn, desk: queued.count(desk)
+    ), patch.object(
         push.HUB, "rooms", rooms
     ), patch.object(push.HUB, "notify", side_effect=capture), patch(
         "agent_coord.server.wake._open", urlopen
@@ -92,7 +97,7 @@ def test_fanout_webhook_posts_once_with_key(monkeypatch, caplog) -> None:
     assert body["hint"] == "TODO"
     assert body["detail"] == "need"
     assert body["idem"] == "hint:todo:14:DESK_away"
-    assert body["wake"]["pending"] == 1
+    assert body["wake"]["pending"] == 1  # #832: the hint is queued before the POST
     assert HOOK_KEY not in caplog.text
 
 

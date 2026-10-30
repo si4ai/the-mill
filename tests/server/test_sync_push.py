@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_watcher_type_has_no_mail():
     text = (ROOT / "agent_coord" / "server" / "sql" / "tables.sql").read_text(encoding="utf-8")
     body = text.split("CREATE TABLE IF NOT EXISTS watcher", 1)[1].split("CREATE TABLE", 1)[0]
-    assert "ENUM('todo','join','hold','score')" in body
+    assert "ENUM('todo','doing','hold','score')" in body
     assert "'name'" not in body
     assert "'mail'" not in body
 
@@ -91,23 +91,32 @@ def test_compact_receipt_names_the_opener_and_the_open_time():
 
 
 def test_emit_records_sent_missed_and_error(monkeypatch):
+    """#832: the row is put first, always as missed; a raised live send marks it error.
+    A send that reaches a socket marks it sent from the broadcast (row id in notify)."""
     logged: list[tuple] = []
+    marks: list[tuple] = []
     monkeypatch.setattr(hub.HUB, "rooms", {})
     monkeypatch.setattr(
         rec_push,
         "put",
-        lambda cn, desk, kind, payload, outcome: logged.append((desk, kind, outcome, payload["id"])) or [],
+        lambda cn, desk, kind, payload, outcome: logged.append((desk, kind, outcome, payload["id"]))
+        or [{"id": 70 + len(logged)}],
     )
+    monkeypatch.setattr(rec_push, "mark", lambda cn, rid, outcome: marks.append((rid, outcome)) or 1)
     assert hub.emit(object(), "DESK_one", "mail", {"id": 9}) == "missed"
     hub.HUB.rooms["DESK_one"] = {object()}
-    monkeypatch.setattr(hub.HUB, "notify", lambda desk, frame: None)
+    rows: list = []
+    monkeypatch.setattr(hub.HUB, "notify", lambda desk, frame, row=None: rows.append(row))
     assert hub.emit(object(), "DESK_one", "mail", {"id": 9}) == "sent"
-    def _boom(desk, frame):
+    assert rows == [("DESK_one", 72)]
+
+    def _boom(desk, frame, row=None):
         raise RuntimeError("down")
 
     monkeypatch.setattr(hub.HUB, "notify", _boom)
     assert hub.emit(object(), "DESK_one", "mail", {"id": 9}) == "error"
-    assert [row[2] for row in logged] == ["missed", "sent", "error"]
+    assert [row[2] for row in logged] == ["missed", "missed", "missed"]
+    assert marks == [(73, "error")]
 
 
 def test_take_merges_outcome_and_time(monkeypatch):

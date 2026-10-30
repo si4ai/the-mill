@@ -32,7 +32,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_name = MILL_NAME_PUT('tree', p_tree);
   SELECT id FROM name WHERE id = v_name FOR UPDATE;
@@ -41,13 +41,13 @@ BEGIN
   END IF;
   SET v_type = NULLIF(TRIM(p_type), '');
   SET v_id = IFNULL(p_id, 0);
-  IF v_type IS NULL OR v_id = 0 OR v_type NOT IN ('mail','todo','join','hold','score') THEN
+  IF v_type IS NULL OR v_id = 0 OR v_type NOT IN ('mail','todo','doing','hold','score') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree node requires a payload';
   END IF;
-  CALL mill_activity_put(v_type, v_id, v_ts, 1, 1, MILL_WEIGHT(v_type), NULL);
+  CALL mill_activity_put(v_type, v_id, v_ts, 1, NULL, MILL_WEIGHT(v_type), NULL);
   INSERT INTO tree (name_id, type, id, lft, rgt)
   VALUES (v_name, v_type, v_id, 1, 2);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, v_type AS type, v_id AS id, 1 AS lft, 2 AS rgt, 'created' AS op;
 END //
 
@@ -68,7 +68,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_n = 0;
   SET v_name = NULL;
@@ -88,7 +88,7 @@ BEGIN
   END IF;
   IF v_name IS NULL THEN
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, 1, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
   END IF;
@@ -100,7 +100,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM tree WHERE name_id = v_name LIMIT 1) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree parent not found';
     END IF;
-    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, 1, MILL_WEIGHT(p_parent_type), NULL);
+    CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, MILL_WEIGHT(p_parent_type), NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
     SELECT rgt INTO v_r FROM tree
@@ -110,7 +110,7 @@ BEGIN
   UPDATE tree SET lft = lft + 2 WHERE name_id = v_name AND lft > v_r ORDER BY lft DESC;
   INSERT INTO tree (name_id, type, id, lft, rgt)
   VALUES (v_name, p_type, p_id, v_r, v_r + 1);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, p_type AS type, p_id AS id, v_r AS lft, (v_r + 1) AS rgt, 'added' AS op;
 END //
 
@@ -135,7 +135,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_name = NULL;
   SET v_n = 0;
   IF p_tree IS NOT NULL AND TRIM(p_tree) <> '' THEN
@@ -183,7 +183,7 @@ BEGIN
      SET lft = v_pr + (lft - v_shift - v_nl),
          rgt = v_pr + (rgt - v_shift - v_nl)
    WHERE name_id = v_name AND lft >= v_shift;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, p_type AS type, p_id AS id, 'moved' AS op;
 END //
 
@@ -200,7 +200,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_name = NULL;
   SET v_n = 0;
   IF p_tree IS NOT NULL AND TRIM(p_tree) <> '' THEN
@@ -222,7 +222,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree node not found';
   END IF;
   CALL mill_tree_detach_one(v_name, p_type, p_id);
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, p_type AS type, p_id AS id, 'removed' AS op;
 END //
 
@@ -280,7 +280,7 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_name = NULL;
   SET v_n = 0;
   IF p_tree IS NOT NULL AND TRIM(p_tree) <> '' THEN
@@ -307,7 +307,7 @@ BEGIN
   DELETE FROM tree WHERE name_id = v_name AND lft BETWEEN v_l AND v_r;
   UPDATE tree SET rgt = rgt - v_w WHERE name_id = v_name AND rgt > v_r ORDER BY rgt ASC;
   UPDATE tree SET lft = lft - v_w WHERE name_id = v_name AND lft > v_r ORDER BY lft ASC;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, p_type AS type, p_id AS id, v_w AS width, 'pruned' AS op;
 END //
 
@@ -319,10 +319,10 @@ BEGIN
     ROLLBACK;
     RESIGNAL;
   END;
-  START TRANSACTION;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_name = MILL_NAME_GET('tree', p_tree);
   DELETE FROM tree WHERE name_id = v_name;
-  COMMIT;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_name AS name_id, 'deleted' AS op;
 END //
 

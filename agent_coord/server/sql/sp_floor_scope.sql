@@ -20,11 +20,11 @@ BEGIN
   DELETE FROM mill_floor_desk;
   INSERT IGNORE INTO mill_floor_desk (desk_id)
   SELECT h.desk_id
-    FROM `join` h
+    FROM seat h
    WHERE p_kind = 'lan' AND h.lan_ip = p_id
   UNION ALL
   SELECT h.desk_id
-    FROM `join` h
+    FROM seat h
     JOIN member mr ON mr.name_id = v_role AND mr.desk_id = h.desk_id
    WHERE p_kind = 'role' AND v_role IS NOT NULL;
 END //
@@ -48,7 +48,8 @@ BEGIN
   IF p_part = 'agents' THEN
     SELECT
       IFNULL(dsk.name, '') AS owner, IFNULL(dsk.type, '') AS owner_type,
-      IFNULL(h.doing, '') AS doing,
+      IFNULL((SELECT g.text FROM doing g WHERE g.desk_id = h.desk_id
+              ORDER BY g.created DESC, g.id DESC LIMIT 1), '') AS doing,
       IF(h.time_connect IS NOT NULL AND (h.time_disconnect IS NULL OR h.time_connect >= h.time_disconnect), 1, 0) AS alive,
       IFNULL(h.lan_ip, '') AS lan_ip,
       '' AS roster_id,
@@ -56,7 +57,7 @@ BEGIN
       '' AS waiting_on,
       '' AS root,
       DATE_FORMAT(h.updated, '%Y-%m-%dT%H:%i:%s') AS heartbeat
-    FROM `join` h
+    FROM seat h
     JOIN name dsk ON dsk.id = h.desk_id AND dsk.deleted IS NULL AND dsk.type = 'desk'
     LEFT JOIN mill_floor_desk fd ON fd.desk_id = h.desk_id
     WHERE h.token_hash IS NOT NULL AND h.token_hash <> ''
@@ -229,7 +230,7 @@ BEGIN
         IFNULL(MAX(h.id), 0),
         IFNULL(DATE_FORMAT(MAX(h.updated), '%Y%m%d%H%i%s%f'), '0')
       )) AS fp
-      FROM `join` h
+      FROM seat h
       WHERE h.token_hash IS NOT NULL AND h.token_hash <> ''
         AND v_proj IS NOT NULL
         AND EXISTS (
@@ -271,7 +272,7 @@ BEGIN
       IFNULL(MAX(h.id), 0),
       IFNULL(DATE_FORMAT(MAX(h.updated), '%Y%m%d%H%i%s%f'), '0')
     )) AS fp
-    FROM `join` h
+    FROM seat h
     JOIN name dsk ON dsk.id = h.desk_id AND dsk.deleted IS NULL AND dsk.type = 'desk'
     WHERE h.token_hash IS NOT NULL AND h.token_hash <> ''
       AND (

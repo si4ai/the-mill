@@ -7,7 +7,7 @@ from agent_coord.install import migrate
 def test_sql_dir_has_core_tables() -> None:
     tables = (migrate.sql_dir() / "tables.sql").read_text(encoding="utf-8")
     blob = tables.lower()
-    for table in ("name", "activity", "mail", "mail_to", "member", "todo", "join", "hold", "score", "tree", "watcher", "label"):
+    for table in ("name", "activity", "mail", "mail_to", "member", "todo", "seat", "doing", "hold", "score", "tree", "watcher", "label"):
         needle = f"create table if not exists `{table}`" if table == "join" else f"create table if not exists {table}"
         assert needle in blob, table
     for gone in ("agent_msg", "agent_need", "agent_proc", "agent_issue", "agent_leftover"):

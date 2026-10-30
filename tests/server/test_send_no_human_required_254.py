@@ -66,7 +66,6 @@ def test_h_send_ignores_human_required(monkeypatch):
         "agent_coord.client.outbound.addressing.parse_mail_to",
         lambda dst, project_id="": [{"dst": "validator", "kind": "desk"}],
     )
-    monkeypatch.setattr("agent_coord.server.records.mail.set_sender_roster", lambda *a, **k: None)
     monkeypatch.setattr("agent_coord.server.records.mail.dest_count", lambda *a, **k: 1)
     monkeypatch.setattr(
         "agent_coord.server.records.mail.to_list",
