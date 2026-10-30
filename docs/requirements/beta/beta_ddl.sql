@@ -60,7 +60,7 @@
 -- its procedure is granted to the host database user, not to the app user.
 --
 -- BETA. Ids and id references are BIGINT UNSIGNED, as on main (owner decision 2026-10-24: the INT narrowing is
--- withdrawn). Isolation READ COMMITTED.
+-- withdrawn).
 
 CREATE TABLE IF NOT EXISTS name (
   id          BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
