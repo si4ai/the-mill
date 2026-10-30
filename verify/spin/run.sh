@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh - run every SPIN check of the wake path and holds models with fixed flags.
+# run.sh - run every SPIN check of the wake path, holds and 0.8.0 activity models with fixed flags.
 #
 # Each check has an expected result: pass, or violated (a known finding or a
 # mutation that must fail). The run exits nonzero when any check differs from
@@ -23,17 +23,32 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which these models were last confirmed to describe the code.
-SYNC=e7b231b
+SYNC=8a80dc1
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
 agent_coord/server/api/mill/rpc.py agent_coord/client/http.py
-agent_coord/client/ws.py agent_coord/__main__.py agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_name.sql"
+agent_coord/client/ws.py agent_coord/__main__.py agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_name.sql agent_coord/server/sql/sp_beta_name.sql"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$ROOT" ] && git -C "$ROOT" cat-file -e "$SYNC^{commit}" 2>/dev/null; then
   # shellcheck disable=SC2086
   changed=$(cd "$ROOT" && git diff --name-only "$SYNC" -- $COVERED | tr '\n' ' ')
   [ -n "$changed" ] && echo "note: covered code changed since $SYNC: $changed- recheck the models (SKILL.md)"
+fi
+
+# The 0.8.0 activity models (todo, doing, mail, score, name) describe the design in
+# docs/requirements/beta/activity-states-080.md at DOC_080 and the code at SYNC_080
+# (the 0.8.0 release, main 8a80dc1). Move both when that code changes.
+DOC_080=c2a91f9
+SYNC_080=8a80dc1
+COVERED_080="agent_coord/server/sql/sp_todo.sql agent_coord/server/sql/sp_cmd.sql
+agent_coord/server/sql/sp_doing.sql agent_coord/server/sql/sp_join.sql agent_coord/server/sql/sp_hold.sql
+agent_coord/server/sql/sp_opened.sql agent_coord/server/sql/sp_score.sql agent_coord/server/sql/sp_beta_name.sql
+agent_coord/server/sql/fn_name.sql agent_coord/server/api/mill/rpc.py"
+if [ -n "$ROOT" ] && git -C "$ROOT" cat-file -e "$SYNC_080^{commit}" 2>/dev/null; then
+  # shellcheck disable=SC2086
+  changed=$(cd "$ROOT" && git diff --name-only "$SYNC_080" -- $COVERED_080 | tr '\n' ' ')
+  [ -n "$changed" ] && echo "note: 0.8.0 covered code in this checkout differs from $SYNC_080: $changed- recheck todo, doing, mail, score, name"
 fi
 
 # id | model | defines | mode | expect | what it shows
@@ -67,9 +82,11 @@ L01|wake|-DN=2 -DMAXFAIL=0|no_stale_done|pass|card 888 fix (PR #218): wake-done 
 L02|wake|-DN=2 -DMAXFAIL=1 -DLEASE=0 -DMULTI=1 -DONE_RUN=1|safety|violated|pre-886 design: a connect frees the gate mid-run, a second POST lands (the storm)
 L03|wake|-DN=2 -DMAXFAIL=1|safety|pass|lease: no new POST while the last lease is held (done or timeout ends it)
 L04|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|lease with emits atomic: done or timeout, every item delivered
+L06|wake|-DN=2 -DMAXFAIL=0 -DLAPSE_FIRING=1|no_stale_done|pass|card 890: a lease lapses while its POST is in flight and a newer lease starts; the run still holds the token of its own take
 L05|wake|-DN=2 -DMAXFAIL=0 -DTOKEN=0|no_stale_done|violated|no token (older client): a run that outlives its lease ends the lease of the next run
 M06|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DMUT_DONE_ANY|live|violated|mutation of the lease: wake-done sends no trailing POST
 M07|wake|-DN=2 -DMAXFAIL=0 -DMUT_RUN_CURRENT|no_stale_done|violated|mutation of card 888: the run binds the lease current at its start, not the token its POST carried
+M21|wake|-DN=2 -DMAXFAIL=0 -DLAPSE_FIRING=1 -DMUT_LATE_TOKEN|no_stale_done|violated|mutation of card 890: the POST body reads the lease current at send time, not the token its take returned
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
 M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
@@ -88,6 +105,47 @@ H12|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|np|pass|card 842: reset or reti
 H13|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|mutex|pass|card 842: the release keeps mutual exclusion
 M05|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1 -DMUT_RESET_KEEPS|np|violated|mutation of card 842: reset that keeps the holds leaves the others stuck
 M03|holds|-DDESKS=2 -DPOLICY=0 -DMUT_HOLD_NOLOCK|mutex|violated|mutation: no FOR UPDATE breaks mutual exclusion
+T01|todo|-DCHECK_EDGES|inv|pass|0.8.0 todo at 8a80dc1: every committed move is an edge (guards under the card lock; T8 from open with a volunteer)
+T02|todo|-DCHECK_EDGES -DUNPARK_GUARD=0|inv|violated|mutation (pre-F186): unpark has no status guard; a claimed, shipped or done card goes open
+T03|todo|-DCHECK_EDGES -DASSIGN_LOCKED=0|inv|violated|mutation (pre-F186): assign checks an unlocked read, then writes blind
+T04|todo|-DCHECK_EDGES -DDELETED_GUARD=0|inv|violated|mutation (pre-F186): no deleted check under the card lock
+T05|todo||ltl:act_last|pass|invariant 4: activity.act is the act of the last committed step
+T06|todo|-DMIGRATED=1|inv|pass|migration seed carries the volunteer in peer_id (invariants 3, 5, 6)
+T07|todo|-DMIGRATED=1 -DSEED_VOL=0|inv|violated|mutation: a seed row for a shipped or done card without its volunteer
+R01|todo||ltl:reach_card|violated|REACHABLE (goal 1): filed -> claimed -> shipped -> done
+M08|todo|-DMUT_WAS_NOLOCK|inv|violated|mutation: the card write reads the old status before the lock (invariant 5)
+M09|todo|-DMUT_STATUS_ONLY|inv|violated|mutation (#214 draft filter): no move row for a volunteer change (invariant 3)
+M10|todo|-DMUT_ACT_LATE|ltl:act_last|violated|mutation: the activity act lands after the card lock is released (invariant 4)
+D01|doing||inv|pass|0.8.0 doing, holds, reset, retire at 8a80dc1: invariants 1, 2, 3, 10-13, 15 at commit (desk 0: 2 shells x 2 commands)
+D02|doing|-DSHELLS0=1 -DK=3|inv|pass|same, desk 0: 1 shell x 3 commands
+D03|doing|-DSHELLS0=1 -DK=3 -DHOLD_SEAT_FIRST=0|safety|violated|mutation (pre-F183): take or drop (hold, then seat) vs reset or retire (seat, then holds) deadlock
+D04|doing|-DSHELLS0=1 -DK=3|safety|pass|hold paths lock the seat first: no deadlock
+D05|doing|-DCHECK_FIN -DFINISH_SPLIT=1|inv|violated|mutation (pre-F186): the finish is a second transaction; it can end a focus written after the move
+D06|doing|-DCHECK_FIN|inv|pass|no finish row: the move ends only the focus current at its move (invariant 12)
+D07|doing|-DSHELLS0=1 -DK=3 -DLIVE_CHECK=0|ltl:retire_clean|violated|mutation (pre-F186): a request authenticated before the retire takes a hold or sets a focus after it
+D08|doing|-DSHELLS0=1 -DK=3|ltl:retire_clean|pass|a live token re-checked under the seat lock (any live token, as coded: LIVE_GEN=0), seat first: a retired desk stays clean
+R02|doing|-DSHELLS0=1 -DK=3 -DREACH|ltl:reach_hold|violated|REACHABLE (goal 2): a hold passes desk 0 -> free -> desk 1
+R03|doing|-DSHELLS0=1 -DK=3 -DREACH|ltl:reach_focus|violated|REACHABLE (goal 3): desk 0 idle -> active -> waiting -> idle
+M11|doing|-DSHELLS0=1 -DK=3 -DMUT_NO_SEATLOCK|inv|violated|mutation: a focus write without the seat lock points seat.doing_id at an older row (invariants 1, 11)
+M12|doing|-DSHELLS0=1 -DK=3 -DMUT_MOVE_FOCUS|inv|violated|mutation: a move row moves the focus (invariant 2)
+M13|doing|-DSHELLS0=1 -DK=3 -DFINISH_SPLIT=1 -DMUT_FINISH_NEWEST|inv|violated|mutation (0.7.19 test): finish reads the newest row, the move row: a drop never finishes (invariant 12)
+M14|doing|-DSHELLS0=1 -DK=3 -DMUT_END_ANY_EMPTY|inv|violated|mutation (0.7.19 mill_doing_end): an empty move row on the item reads as finished
+M15|doing|-DSHELLS0=1 -DK=3 -DMUT_HEARTBEAT_BUMP|inv|violated|mutation (pre-0.8.0): a heartbeat writes an anchor row and bumps activity (invariant 13)
+M16|doing|-DSHELLS0=1 -DK=3 -DMUT_RETIRE_KEEPS|inv|violated|mutation: retire frees no hold (invariant 15)
+E01|mail||safety|pass|0.8.0 mail at 8a80dc1: first open kept, opening leaves activity alone, one receipt per row (invariants 7, 8)
+E02|mail|-DFIRST_OPEN=0|safety|violated|mutation (0.7.19): a second open re-stamps opened (invariant 7)
+E03|mail|-DOPEN_LOCKED=0 -DFIRST_OPEN=0 -DSKIP_INV7|safety|violated|mutation (pre-F186): two concurrent opens both read v_prev NULL and push two receipts
+E04|mail|-DQUIET_OPEN=0|safety|violated|mutation (0.7.19): an open bumps the activity of the letter (invariant 8)
+M17|mail|-DOPEN_LOCKED=0 -DMUT_RC_MATCHED|safety|violated|mutation: unlocked v_prev + matched-row ROW_COUNT allows two receipts even with IFNULL
+S01|score||safety|pass|0.8.0 score S1-S6, Wall writer included: act is the last step, retired iff the last step was S5, no doing rows
+M18|score|-DMUT_REVIVE_KEEPS|safety|violated|mutation: S6 leaves activity.deleted set
+N01|name||safety|pass|self check under the seat lock: only Admin or the desk with its current token retires it (invariant 14)
+N02|name|-DSELF_LOCK=0|safety|violated|mutation (pre-F186): the self check is a plain read; a reset in between, and a revoked token still retires the desk
+N03|name||ltl:retired_no_token|violated|FINDING (open at 8a80dc1): join locks the name row, but its re-check is a plain read; under REPEATABLE READ (the MySQL default) it reads the snapshot from before the lock, and a retire in between leaves a retired desk with a token
+N04|name|-DRC=1|ltl:retired_no_token|pass|same join under READ COMMITTED (as tables.sql states): the re-check after the lock sees the retire; a retired desk holds no token
+N05|name|-DJOIN_NAME_LOCK=0 -DRC=1|ltl:retired_no_token|violated|mutation (pre-F186): no name-row lock, only the plain read in MILL_NAME_PUT: a retired desk keeps a token at any isolation
+M19|name|-DMUT_SELF_ANY|safety|violated|mutation: the self check forgets target = caller (invariant 14)
+M20|name|-DMUT_RECLAIM_ANY|safety|violated|mutation: reclaim forgets the Admin check
 '
 
 fail=0; n=0; t0=$(date +%s)
@@ -105,7 +163,11 @@ while IFS='|' read -r id model defs mode expect what; do
       live) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N all_delivered";;
       starve) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N no_starve0";;
       np) flags="-DNP -DNOCLAIM -DNFAIR=3"; run="-l -f -m$DEPTH";;
+      inv) flags="-DNOCLAIM -DSAFETY"; run="-m$DEPTH -E";;       # assertions only (a lock cycle is D03's)
+      ltl:*) flags="-DSAFETY"; run="-m$DEPTH -N ${mode#ltl:}";;  # a safety claim named after ltl:
     esac
+    # The 0.8.0 models store states compressed (their vectors are larger).
+    case "$model" in wake|holds) ;; *) flags="$flags -DCOLLAPSE";; esac
     # shellcheck disable=SC2086
     "$CC" -O2 $flags -o pan pan.c > cc.txt 2>&1 || exit 4
     s=$(date +%s.%N)
