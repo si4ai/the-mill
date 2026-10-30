@@ -33,7 +33,7 @@ def _admin():
 def test_the_named_type_is_used_without_a_lookup(command, body, call):
     seen = {}
 
-    def fake(cn, *a):
+    def fake(cn, *a, **kw):
         seen["args"] = a
         return [{"ok": 1}]
 
@@ -54,7 +54,7 @@ def test_a_shared_name_without_a_type_is_refused_naming_both():
 def test_one_live_type_still_works_without_a_type():
     seen = {}
     with patch("agent_coord.server.records.db.rows_done", _rows(["roster"])), \
-            patch("agent_coord.server.records.name.retire", lambda cn, n, k: seen.setdefault("k", k) and []):
+            patch("agent_coord.server.records.name.retire", lambda cn, n, k="", **kw: seen.setdefault("k", k) and []):
         catalog.retire(object(), "admin-desk", {"slug": "r1", "confirm": "r1", "yes": True})
     assert seen["k"] == "roster"
 

@@ -23,6 +23,9 @@ BEGIN
   DECLARE v_held BIGINT UNSIGNED;
   DECLARE v_n INT DEFAULT 0;
   DECLARE v_ok TINYINT DEFAULT 1;
+  DECLARE v_move BIGINT UNSIGNED;
+  DECLARE v_tok CHAR(64);
+  DECLARE v_disc DATETIME(6);
   DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN SET v_id = NULL; SET v_held = NULL; END;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -36,6 +39,15 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  -- Lock order (F183): the taking desk's seat first, then the hold, as retire (name, seat, hold) does.
+  -- F186 (spin D07): re-check a live token under the seat lock so a retire that commits after
+  -- auth cannot still take a hold.
+  SELECT id, token_hash, time_disconnect INTO v_move, v_tok, v_disc FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  -- F186 (spin D07): a reset or retired desk (token cleared, disconnect stamped) cannot take a hold.
+  IF v_tok IS NULL AND v_disc IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold: desk has no live seat';
+  END IF;
+  SET v_move = NULL;
   SET v_id = NULL;
   SET v_held = NULL;
   SELECT id, desk_id INTO v_id, v_held
@@ -47,7 +59,8 @@ BEGIN
     VALUES (v_ts, v_desk, v_res);
     SET v_id = LAST_INSERT_ID();
     SET v_held = v_desk;
-    CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, MILL_WEIGHT('hold'), NULL);
+    CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
+    CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
     CALL mill_watcher_put('hold', v_id, v_desk);
     SET v_ok = 1;
   ELSEIF v_held IS NULL THEN
@@ -57,7 +70,8 @@ BEGIN
     SET v_n = ROW_COUNT();
     IF v_n = 1 THEN
       SET v_held = v_desk;
-      CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, MILL_WEIGHT('hold'), NULL);
+      CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
+      CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
       CALL mill_watcher_put('hold', v_id, v_desk);
       SET v_ok = 1;
     ELSE
@@ -65,7 +79,7 @@ BEGIN
       SELECT desk_id INTO v_held FROM hold WHERE id = v_id;
     END IF;
   ELSEIF v_held = v_desk THEN
-    -- Same holder again refreshes the row (#194). It does not stack a second lock.
+    -- Same holder again refreshes the row (#194). It does not stack a second lock and writes no move row.
     UPDATE hold SET updated = v_ts WHERE id = v_id;
     SET v_ok = 1;
   ELSE
@@ -84,6 +98,10 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_gone INT DEFAULT 0;
+  DECLARE v_move BIGINT UNSIGNED;
+  DECLARE v_roster BIGINT UNSIGNED;
+  DECLARE v_tok CHAR(64);
+  DECLARE v_disc DATETIME(6);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -95,29 +113,44 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  SELECT id, token_hash, time_disconnect INTO v_move, v_tok, v_disc FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  IF v_tok IS NULL AND v_disc IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold: desk has no live seat';
+  END IF;
   UPDATE hold
      SET desk_id = NULL, updated = v_ts
    WHERE id = p_id AND desk_id = v_desk;
   SET v_gone = ROW_COUNT();
   IF v_gone = 1 THEN
     -- NULL roster: keep the hold's activity roster (not 1/Office).
-    CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, NULL, NULL);
+    CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, 'drop', NULL);
+    SET v_roster = (SELECT roster_id FROM activity WHERE type = 'hold' AND id = p_id);
+    CALL mill_doing_move(v_desk, v_roster, 'hold', p_id, 'drop', NULL, '', v_ts, v_move);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;
 END //
 
--- Card 842: free every hold one desk owns (reset, retire). The caller owns the
--- transaction. Each freed hold's activity row is stamped the way a drop stamps
--- it (updated, desk, n + 1; roster kept). p_n = holds freed.
+-- Card 842: free every hold one desk owns (reset). The caller owns the transaction and has locked the
+-- seat. Each freed hold gets a drop move row by the acting desk p_by (C5; peer = the holder when another
+-- desk acts) and its activity row is stamped the way a drop stamps it (roster kept). p_n = holds freed.
 CREATE PROCEDURE mill_hold_release_desk(
   IN p_desk BIGINT UNSIGNED,
+  IN p_by   BIGINT UNSIGNED,
   IN p_ts   DATETIME(6),
   OUT p_n   INT
 )
 BEGIN
+  DECLARE v_n INT DEFAULT 0;
+  -- Lock the holds first (X), so the read under the INSERT below never upgrades a shared lock.
+  SELECT COUNT(*) INTO v_n FROM hold WHERE desk_id = p_desk FOR UPDATE;
+  INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
+  SELECT p_ts, p_by, IFNULL(a.roster_id, 1), '', 'hold', h.id, 'drop', NULLIF(p_desk, p_by)
+    FROM hold h LEFT JOIN activity a ON a.type = 'hold' AND a.id = h.id
+   WHERE h.desk_id = p_desk
+   ORDER BY h.id;
   UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
-     SET a.updated = p_ts, a.desk_id = p_desk, a.n = a.n + 1
+     SET a.updated = p_ts, a.desk_id = p_by, a.act = 'drop'
    WHERE h.desk_id = p_desk;
   UPDATE hold SET desk_id = NULL, updated = p_ts WHERE desk_id = p_desk;
   SET p_n = ROW_COUNT();

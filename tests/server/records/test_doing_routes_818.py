@@ -119,11 +119,15 @@ def test_history_on_one_card_without_a_desk(w, wall):
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}")
     assert code == 200, got
     rows = got["history"]
-    assert [(e["desk"], e["doing"]) for e in rows] == [(PEER, "peer on the card"), (ME, "mine on the card")]
-    assert {e["on"] for e in rows} == {f"todo-{tid}"} and rows[1]["ended_by"] == "newer"
-    assert got["page"]["entries"] == 2
+    # 0.8.0 F188: on=ITEM also returns move rows (empty doing); focus entries stay.
+    focus = [(e["desk"], e["doing"]) for e in rows if e.get("act") == "focus" or e.get("doing")]
+    assert focus == [(PEER, "peer on the card"), (ME, "mine on the card")]
+    assert {e["on"] for e in rows} == {f"todo-{tid}"}
+    mine = [e for e in rows if e["desk"] == ME and e.get("doing") == "mine on the card"][0]
+    assert mine["ended_by"] in ("newer", "finished")
+    assert got["page"]["entries"] >= 2
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}&desk={PEER}")
-    assert code == 200 and [e["desk"] for e in got["history"]] == [PEER]
+    assert code == 200 and got["history"] and {e["desk"] for e in got["history"]} == {PEER}
 
 
 def test_history_needs_a_desk_or_an_item(wall):

@@ -2,8 +2,8 @@
 """Publish mill-wall.ticks, mill-desk.idle_verbs, mill-desk.hint_drop from dest logs.
 
 Not a sit keep-alive. Interval minutes, not 15s. Office host KPIs go through
-mill_score_admin_upsert (roster Office, owned by the Admin roster; Admin is a
-roster, not a desk). Per-desk KPIs use mill_score_upsert on that desk.
+mill_score_admin_upsert (roster Office, owned by the office: desk_id NULL, beta
+0.8.0). Per-desk KPIs use mill_score_upsert on that desk.
 mill-wall 500 must not kill this.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ KPI_WS_PUSH = "mill-wall.ws_push"
 KPI_WS_MISS = "mill-wall.ws_miss"
 KPI_ERR_N = "mill-wall.err_n"
 ROSTER = CONST_OFFICE
-OWNER = CONST_ADMIN  # the Admin roster; written only through rec_score.admin_upsert
+OWNER = CONST_ADMIN  # never a desk: office rows are written only through rec_score.admin_upsert (desk NULL)
 TARGET = "0"
 TARGET_MS = "100"
 HOST_KPIS = (
@@ -738,22 +738,15 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
 
 
 def _publish_sql(cn, counts: dict[str, Any]) -> None:
-    """Last resort: update the existing Office/Admin-roster rows (the reserved ids 1 and 2, #722)."""
+    """Last resort: update the existing office rows (roster id 1, desk NULL; #722, beta 0.8.0)."""
     cur = cn.cursor()
     try:
-        cur.execute(
-            "SELECT (SELECT id FROM name WHERE type='roster' AND id=1 AND deleted IS NULL LIMIT 1),"
-            " (SELECT id FROM name WHERE type='roster' AND id=2 AND deleted IS NULL LIMIT 1)",
-        )
-        office, admin = cur.fetchone() or (None, None)
-        if office is None or admin is None:
-            raise RuntimeError("score fallback: Office or Admin roster missing")
         for kpi in (KPI_TICKS, KPI_IDLE, KPI_DROP):
             val = str(int(counts.get(kpi) or 0))
             cur.execute(
                 "UPDATE score SET value=%s, target=%s, updated=CURRENT_TIMESTAMP(6) "
-                "WHERE kpi=%s AND roster_id=%s AND desk_id=%s",
-                (val, TARGET, kpi, office, admin),
+                "WHERE kpi=%s AND roster_id=1 AND desk_id IS NULL",
+                (val, TARGET, kpi),
             )
         cn.commit()
     finally:

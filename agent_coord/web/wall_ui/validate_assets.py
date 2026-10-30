@@ -4,7 +4,7 @@ Run before www sync:
   python -m agent_coord.web.wall_ui.validate_assets
   python -m agent_coord.web.wall_ui.validate_assets --json
 
-SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md (pre-www CSS/JS validator amend).
+SoR: wall-contract rule-asset-bytes (card 874); tests/wall/test_wall_asset_bytes.py
 Prefer mill. Fail non-zero so bad assets never land in ~/.mill/www.
 """
 from __future__ import annotations

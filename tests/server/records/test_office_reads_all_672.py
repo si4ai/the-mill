@@ -19,6 +19,7 @@ from agent_coord.server.records import label as rec_label
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import admin_desk
 
 
 class _Book:

@@ -1,6 +1,6 @@
 /* WALL_UI_LIB_THEME_JS - apply sanitized --* css_vars onto :root (Path A).
  * DB knobs css_vars still Cut 6; this applies static/default + stub overlays.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md (theme amend)
+ * SoR: wall-contract; lib/theme.js
  * Marker: WALL_UI_LIB_THEME_JS
  */
 (function (global) {

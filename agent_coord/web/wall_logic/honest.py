@@ -1,6 +1,6 @@
 """Wall honest empty vs mill API down - pure classifiers (Path A).
 
-SoR: docs/acceptance/ACCEPTANCE-WALL-HONEST-EMPTY-VS-DOWN.md
+SoR: wall-contract; tests/wall/test_wall_honest_empty_vs_down.py
 Parent: ACCEPTANCE-OOTB-UX.md items 4-5; SCORECARDS token-detail honesty.
 
 Paint/render throws are NOT API down. Empty JSON/rows are honest empty.

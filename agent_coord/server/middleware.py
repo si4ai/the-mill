@@ -792,9 +792,11 @@ def _scope_strip(cn, kind: str, label: str) -> dict:
             {"desk": _stored(str(r[0] or "")), "n": int(r[1] or 0)}
             for r in cur.fetchall()
         ]
+        # A roster-owned score has no desk (beta 0.8.0): it shows under the roster's name.
         cur.execute(
-            "SELECT d.name, s.kpi, s.value, s.target FROM score s"
-            " JOIN name d ON d.id = s.desk_id"
+            "SELECT COALESCE(d.name, r.name), s.kpi, s.value, s.target FROM score s"
+            " LEFT JOIN name d ON d.id = s.desk_id"
+            " JOIN name r ON r.id = s.roster_id"
             " WHERE s.roster_id=%s",
             (aid,),
         )
@@ -1050,8 +1052,9 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             ]
         elif tab == "misses":
             sql = (
-                "SELECT d.name, s.kpi, s.value, s.target FROM score s"
-                " JOIN name d ON d.id=s.desk_id WHERE "
+                "SELECT COALESCE(d.name, r.name), s.kpi, s.value, s.target FROM score s"
+                " LEFT JOIN name d ON d.id=s.desk_id"
+                " JOIN name r ON r.id=s.roster_id WHERE "
             )
             if affil:
                 cur.execute(sql + "s.roster_id=%s LIMIT 80", (affil,))

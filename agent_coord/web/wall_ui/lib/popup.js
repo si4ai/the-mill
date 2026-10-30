@@ -1,6 +1,6 @@
 /* WALL_UI_LIB_POPUP - shared help-float / popup helpers (Path A).
  * Extract from board.html mountHelpBox / openMailPopup chrome.
- * SoR: docs/acceptance/ACCEPTANCE-WALL-JS-LIB.md
+ * SoR: wall-contract; tests/wall
  * Marker: WALL_UI_LIB_POPUP
  */
 (function (global) {

@@ -71,6 +71,11 @@ def _card(cn, project: str, desk: str, need: str) -> int:
     return int(todo.insert(cn, project, desk, "open", todo.pack({"slug": need}))[0]["id"])
 
 
+def _card_0630(cn, project: str, desk: str, need: str) -> int:
+    """A card as the 0.6.30 delete saw it (0.8.0: no todo_event table; doing holds history)."""
+    return _card(cn, project, desk, need)
+
+
 def _score(cn, project: str, desk: str, kpi: str) -> int:
     return int(score.upsert(cn, project, desk, kpi, "1", "", "")[0]["id"])
 
@@ -270,7 +275,7 @@ def test_todo_with_no_activity_row_is_stamped(cn) -> None:
 
 
 def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
-    """#185: activity's key is (type, id), so claim, note, and pass bump n on one row."""
+    """#185: activity's key is (type, id), so claim, note, and pass keep one row (no n column)."""
     tid = _card(cn, FIX, "pd_me", "pd-history")
     todo.update(cn, tid, "pd_me", status="claimed", volunteer="pd_me")
     rpc._h_note(_Book(cn), {"need": "pd-history", "note": "noted"}, FIX, "pd_me")
@@ -278,7 +283,7 @@ def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
     todo.update(cn, tid, "pd_me", status="done")
     assert scalar(cn, "SELECT status FROM todo WHERE id=%s", (tid,)) == "done"
     assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='todo' AND id=%s", (tid,)) == 1
-    assert int(scalar(cn, "SELECT n FROM activity WHERE type='todo' AND id=%s", (tid,)) or 0) >= 2
+    assert scalar(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None
     out = _probe(cn, "pd_me", "todo", tid)
     assert out["state"] == "deleted"
     _assert_deleted(cn, "todo", tid)
@@ -502,18 +507,18 @@ def test_aws_0630_procedure_replay_explains_unchanged(aws_cn) -> None:
     """
     cn = aws_cn
     _install_proc(cn, _OLD_0630_DELETE)
-    clean = _card(cn, FIX, "pd_me", "aws-clean")
+    clean = _card_0630(cn, FIX, "pd_me", "aws-clean")
     _probe(cn, "pd_me", "todo", clean)
     assert _gone(cn, "todo", clean) is not None
 
-    missing = _card(cn, FIX, "pd_me", "aws-missing")
+    missing = _card_0630(cn, FIX, "pd_me", "aws-missing")
     _drop_activity(cn, missing)
     out = _probe(cn, "pd_me", "todo", missing)
     assert out["state"] == "unchanged"
     assert scalar(cn, "SELECT id FROM todo WHERE id=%s", (missing,)) is None
     assert scalar(cn, "SELECT id FROM activity WHERE type='todo' AND id=%s", (missing,)) is None
 
-    tripped = _card(cn, FIX, "pd_me", "aws-trigger")
+    tripped = _card_0630(cn, FIX, "pd_me", "aws-trigger")
     cur = cn.cursor()
     try:
         cur.execute("DROP TRIGGER IF EXISTS todo_del_drop_activity_aws")

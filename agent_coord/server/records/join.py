@@ -90,7 +90,7 @@ def set_lan_ip(cn, desk: str, ip: str) -> None:
 
 
 def touch(cn, project: str, desk: str) -> list[dict]:
-    """Bump the seat and the current doing's activity; no new entry (#635, #818)."""
+    """Bump the seat; no doing row and no activity bump (#635, #818; 0.8.0 heartbeats)."""
     from agent_coord.server.records.name import bare
 
     desk_b = bare(desk, CONST_DESK) if desk else ""
@@ -131,16 +131,21 @@ def seen(cn, project: str, desk_ids: list[int]) -> dict[int, object]:
         return {}
     marks = ",".join(["%s"] * len(ids))
     proj = bare(project, CONST_ROSTER) if project else ""
+    # Same visibility as mill_join_select: token or a past disconnect (F190).
+    live = " AND (h.token_hash IS NOT NULL OR h.time_disconnect IS NOT NULL)"
     if proj:
         sql = (
             "SELECT h.desk_id, h.updated, h.created FROM seat h"
             " JOIN member m ON m.desk_id = h.desk_id"
             " AND m.name_id = IFNULL((SELECT MILL_NAME_GET('roster', %s)), 0)"
-            " WHERE h.desk_id IN (" + marks + ")"
+            " WHERE h.desk_id IN (" + marks + ")" + live
         )
         args: tuple = (proj, *ids)
     else:
-        sql = "SELECT h.desk_id, h.updated, h.created FROM seat h WHERE h.desk_id IN (" + marks + ")"
+        sql = (
+            "SELECT h.desk_id, h.updated, h.created FROM seat h"
+            " WHERE h.desk_id IN (" + marks + ")" + live
+        )
         args = tuple(ids)
     out: dict[int, object] = {}
     for r in rows_done(cn, sql, args):

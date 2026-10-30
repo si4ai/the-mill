@@ -47,6 +47,7 @@ a.doing-on:hover, a.doing-on:focus-visible { color: var(--ink); }
 .dt-desk { color: var(--ink); font-weight: 600; }
 .dt-text { color: var(--ink); }
 .dt-more, .dt-none { font-style: italic; }
+.dt-card-evidence:empty { display: none; }
 .card-claimed { color: var(--dim); }
 .doing-flash { outline: 2px solid var(--amber); outline-offset: 2px; transition: outline-color .4s; }
 .doing-meta .doing-wait { margin-left: auto; }

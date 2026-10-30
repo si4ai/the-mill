@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from agent_coord.const import CONST_ADMIN, CONST_ROSTER
+from agent_coord.server import perf
 from agent_coord.server.redact import redact_format, redact_secrets
 
 _log = logging.getLogger("mill.push")
@@ -61,13 +62,16 @@ def dest_log(filename: str, msg: str) -> None:
 
         p = mill_home() / filename
         p.parent.mkdir(parents=True, exist_ok=True)
-        text = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
+        now = datetime.now(timezone.utc)
         if filename == _PERF_LOG:
+            # Milliseconds, so the lines of one command sort and join (F171).
+            text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "\n"
             with _perf_lock:
                 _rotate_perf(p)
                 with p.open("a", encoding="utf-8") as f:
                     f.write(text)
         else:
+            text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
             with p.open("a", encoding="utf-8") as f:
                 f.write(text)
     except Exception:
@@ -82,14 +86,27 @@ def api_log(msg: str) -> None:
     dest_log("mill-api.log", msg)
 
 
-def perf_log(op: str, ms: float, **kv: Any) -> None:
+def perf_write(op: str, ms: float, kv: dict[str, Any], rid: str | None = None) -> None:
+    """One mill-perf.log line: op, ms, the command's rid when there is one, then kv."""
     try:
-        parts = [f"op={op}", f"ms={ms:.1f}"]
+        parts = [f"op={op}", f"ms={ms:.2f}"]
+        if rid:
+            parts.append(f"rid={rid}")
         for k, v in kv.items():
             if v is None:
                 continue
             parts.append(f"{k}={v}")
-        dest_log("mill-perf.log", " ".join(parts))
+        dest_log(_PERF_LOG, " ".join(parts))
+    except Exception:
+        pass
+
+
+def perf_log(op: str, ms: float, **kv: Any) -> None:
+    """A perf line, unless perf is off (F171). Inside a /ws command it carries its rid."""
+    if not perf.ON:
+        return
+    try:
+        perf_write(op, ms, kv, perf.note(op, ms, kv))
     except Exception:
         pass
 
