@@ -173,6 +173,22 @@ satisfy (F110, F111, F112):
   `validator_pass` is dropped once this gate has carried a PR through the
   queue (card 812).
 
+When a Pass request has no validator doing-ack within 30 minutes, or the
+validator desk says busy, the auditor desk posts the same `validator`
+status with its own key on the si4ai-validator app (never for its own work
+or partner-reviewed work it did). The status names the auditor desk and its
+verdict letter; count backup passes per release; another desk grades that
+run. There is no standing bypass actor. Only when both desks are out does
+the owner add a one-PR bypass in pull_request mode and remove it after the
+merge: the consensus letter names the PR, the head sha, the reason, and two
+builder-type desks that are not the author, with all seven CI checks green
+at that sha; the merge desk is not the author and re-checks before
+enqueueing. After a bypass, the validator desk re-measures within one
+session; the auditor desk's weekly pass matches bypasses to letters. The
+ruleset keeps `validator` required (both desks can post it through the same
+app). For 0.8.1 the release-candidate trial adds the full measure and the
+cold test on the release candidate.
+
 ## Moving an old branch that carries commits main already has
 
 If your branch was cut from an old `main` (or carries commits that are
