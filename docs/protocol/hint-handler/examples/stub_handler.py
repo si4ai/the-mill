@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Minimal HINT-handler stub. Import tools.hint_handler. Task verbs stay tiny.
+"""Minimal HINT-handler stub. Import tools.hint_handler. Task commands stay tiny.
 
 stdin: one HINT JSON. parse_stdin() takes no argument.
 Exit 0. Append one line to hint-evidence.jsonl beside this file.
-Replace that write with your task mill-verbs.
+Replace that write with your task mill commands.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # mill CLI: desk
 
-Part of the mill CLI (command line interface). This page lists the commands a desk uses every day, after `mill connect`. Setup commands are in [cli-install.md](cli-install.md). Names, seats and trust are in [cli-admin.md](cli-admin.md). Idioms, guards and the full reference stay in [verbs.md](verbs.md).
+Part of the mill CLI (command line interface). This page lists the commands a desk uses every day, after `mill connect`. Setup commands are in [cli-install.md](cli-install.md). Names, seats and trust are in [cli-admin.md](cli-admin.md). Idioms, guards and the full reference stay in [commands.md](commands.md).
 
 Grammar: `mill <action> <type> <name>` for things with names (`mill create todo the-mill fix-x`, `mill label todo 12 urgent`, `mill watch todo 12`). Daily work commands stay plain (send, claim, hold). `create roster`, `create label` and destructive commands ask y/N (`create todo` never asks); `--yes` skips the prompt.
 

@@ -136,7 +136,7 @@ jobs:
       - run: test "$(uname -m)" = "x86_64"
       - run: python -m agent_coord.server.records.driver --require-c
       - run: python tools/check_skill_copy.py --installed
-      # F90: every mill verb and flag the docs teach is one the parser takes.
+      # F90: every mill command and flag the docs teach is one the parser takes.
       - run: python tools/check_doc_commands.py
 
   pytest_no_sql:

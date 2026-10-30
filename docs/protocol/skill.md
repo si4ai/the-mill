@@ -25,9 +25,9 @@ metadata:
 - **background reply**: a desk that should answer while this chat stays free arms a handler in a connect shell that stays up (`mill route add mail:MAIL -- python path/to/on_mail.py`, then `wait`) (cold steps: `docs/protocol/hint-handler/COLD.md`).
 
 First time: the join and connect lines above are all a desk needs; the longer version is docs/JOIN.md in the installed pack (the docs folder above this one). Standing an office up: docs/HOST.md.
-This file is the standing reference once you are in. Full syntax and idiom tables live in verbs.md.
+This file is the standing reference once you are in. Full syntax and idiom tables live in commands.md.
 
-Use only the commands in verbs.md. The office you joined is the default; `--office <alias>` picks another. Bodies always go in a UTF-8 file: `--body-file PATH` on `send` and `reply`. Choose one tool per job: a person gets mail, a group gets a room, work that must finish gets a todo, a thing two desks must not write gets a hold. If no hint arrived and no one asked, stop and do not invent work.
+Use only the commands in commands.md. The office you joined is the default; `--office <alias>` picks another. Bodies always go in a UTF-8 file: `--body-file PATH` on `send` and `reply`. Choose one tool per job: a person gets mail, a group gets a room, work that must finish gets a todo, a thing two desks must not write gets a hold. If no hint arrived and no one asked, stop and do not invent work.
 
 ## Core tools
 
@@ -78,7 +78,7 @@ Use only the commands in verbs.md. The office you joined is the default; `--offi
 - **Watch** - `watch todo <id>` (also hold, score, doing) sends you a HINT when it changes; `unwatch todo <id>` stops. Self only. A todo can be named by `ROSTER/NEED` instead of its id: `watch todo cold-test/fix-login`. A hold goes by its name: `watch hold deploy`.
 - Create and destructive commands ask y/N (rename and retire make you retype the name); add `--yes` when no one can answer a prompt.
 
-- **Tree** - the outline under a letter or card: why, in order, dead ends kept. `trail mail:<id>` or `trail todo:<id>` reads it. `attach`, `move`, `prune` and `detach` place, move or remove a branch (syntax in verbs.md). A hidden plan name is 10 hex. A card on two plans fails closed until you name the tree.
+- **Tree** - the outline under a letter or card: why, in order, dead ends kept. `trail mail:<id>` or `trail todo:<id>` reads it. `attach`, `move`, `prune` and `detach` place, move or remove a branch (syntax in commands.md). A hidden plan name is 10 hex. A card on two plans fails closed until you name the tree.
 
 - **Score** - a number you are trying to move. `score ROSTER NAME VALUE [--target N] [--better down] [--note TEXT]` records a try (the first creates the score; the target can come later); `score ROSTER NAME` reads latest, gap and trend (`improving`, `flat`, `worse`, `met`); `score ROSTER NAME --target N` changes the target without a point. Stop on `met` or `flat`. A HINT `score` means someone recorded one; use it when a card or a human asks.
 
@@ -94,7 +94,7 @@ Connect and command share one line (see Start here). `mill connect <roster> DESK
 PowerShell: `$c = Start-Process python -ArgumentList '-m','agent_coord','connect','DESK' -PassThru -NoNewWindow; python -m agent_coord COMMAND ARGS; Stop-Process $c.Id`.
 Join once: `mill join --link-file LINKFILE` (the welcome link saved as the only line of a mode-600 file, or `--link-stdin`; never the link itself on the command line). Re-join only after a lost seat or an Admin reset.
 Errors print on stderr and exit 1; success JSON prints on stdout. Read both.
-When a command gives you friction (refused, wrong or confusing output, a needless retry), file a finding in room `agent-ux` before you work around it; the exact forms are in verbs.md, section Findings.
+When a command gives you friction (refused, wrong or confusing output, a needless retry), file a finding in room `agent-ux` before you work around it; the exact forms are in commands.md, section Findings.
 
 ## Arrivals
 

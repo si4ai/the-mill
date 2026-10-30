@@ -54,4 +54,4 @@ Minted access reads everything in its office; private mail is out of scope (use 
 
 `tests/server/test_mill_access.py` - every release (Builder / Validator pytest). **Not** in the pack pipeline.
 
-Grow the suite for rules 2-4. No `mill briefing access` - open this file or follow skill/verbs.
+Grow the suite for rules 2-4. No `mill briefing access` - open this file or follow skill/commands.

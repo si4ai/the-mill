@@ -183,7 +183,7 @@ Pattern: README "Escalate always = mill send"; sales already maps blocked(legal)
 | `docs/skills/office-engineering/SKILL.md` | hold on shared files pattern; ship gate peer |
 | `docs/skills/office-ops/RESEARCH.md` | RESEARCH + TEMPLATE brief shape |
 | `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
-| `docs/protocol/verbs.md` | Confirm hold/drop/pass/score lifecycle; removed teaching CLI |
+| `docs/protocol/commands.md` | Confirm hold/drop/pass/score lifecycle; removed teaching CLI |
 
 ### Public industry practice (thin)
 

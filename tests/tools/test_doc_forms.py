@@ -1,7 +1,7 @@
 """F42 (doc-forms): every mill form the agent docs teach parses with the mill parser (#303, #304).
 
 Checked: code spans that start with `mill COMMAND`, fenced lines that start with
-`mill COMMAND`, and every code span in the Command column of the verbs.md idiom tables.
+`mill COMMAND`, and every code span in the Command column of the commands.md idiom tables.
 A retired form (label-add, member-add, invite-seat) fails. A word that is named
 only to say it is not a command passes when its line says so (not, no, never).
 """

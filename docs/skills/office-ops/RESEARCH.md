@@ -176,7 +176,7 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 | `docs/skills/office-support/SKILL.md` | Escalate -> eng/ops; waiting_on; forge SoR |
 | `docs/skills/office-qa/SKILL.md` + `RESEARCH.md` | Prod-only -> Ops; RESEARCH shape + TEMPLATE brief pattern |
 | `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
-| `docs/protocol/verbs.md` | Confirm wake/score/pass lifecycle; removed teaching CLI |
+| `docs/protocol/commands.md` | Confirm wake/score/pass lifecycle; removed teaching CLI |
 
 ### Public industry practice (thin)
 
@@ -318,5 +318,5 @@ Asker/Gardener GO: append cold-run ladder only (no SKILL.md patch this wake).
 | B Handoff | H11-H15 | Asker+Producer+Handoff; `assign`/`send` peer; src!=dst; ~half gap; no invent desks |
 | C Watcher | H16-H20 | `mill add <type>:<id> [--hint]`; Watcher actor on >=2; >=1 gap (dest/card id); waiting_on speech-only |
 
-Day-one add: `watcher` per `docs/protocol/verbs.md`. Reject invent escalate/sev/deploy/drain/oncall CLI. Desk via `--owner`; no `AGENT_COORD_OWNER` teaching.
+Day-one add: `watcher` per `docs/protocol/commands.md`. Reject invent escalate/sev/deploy/drain/oncall CLI. Desk via `--owner`; no `AGENT_COORD_OWNER` teaching.
 

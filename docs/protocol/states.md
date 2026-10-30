@@ -1,6 +1,6 @@
 # States, players, forks
 
-Full story: [verbs.md](verbs.md). JOIN: mill connect; HINT then one command.
+Full story: [commands.md](commands.md). JOIN: mill connect; HINT then one command.
 
 **SoT:** [skill.md](skill.md) + [tables.sql](../../agent_coord/server/sql/tables.sql). Diagrams: **mermaid** (flowchart / sequence / state). No ASCII boxes.
 

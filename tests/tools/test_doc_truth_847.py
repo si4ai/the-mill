@@ -1,7 +1,7 @@
 """Card 847 (F139): the record docs say what the schema and the commands do.
 
 Reads tables.sql and the procedure files, then checks records.md, states.md
-and verbs.md against them, so a renamed table, type or procedure fails here
+and commands.md against them, so a renamed table, type or procedure fails here
 instead of drifting in prose (PROPOSAL 2.8 D1-D5, D9).
 """
 import re
@@ -88,7 +88,7 @@ def test_states_activity_types_match_the_enum():
 
 def test_every_routine_the_docs_name_exists():
     have = _routines()
-    for name in ("records.md", "states.md", "verbs.md"):
+    for name in ("records.md", "states.md", "commands.md"):
         named = set(re.findall(r"\b(mill_[a-z0-9_]+)\b", _doc(name))) - NOT_ROUTINES
         assert not named - have, (name, sorted(named - have))
 
@@ -110,3 +110,20 @@ def test_records_mail_to_snapshot_names_the_backfill():
     doc = _doc("records.md")
     assert "late joiners miss old mail" not in doc
     assert "mill_mail_to_node_put" in doc
+
+
+def test_f139_row_points_at_commands_md():
+    """M3 pin: F139's evidence path stays on commands.md, not verbs.md."""
+    matrix = (ROOT / "docs" / "security" / "REGRESSION-MATRIX.md").read_text(encoding="utf-8")
+    row = next(ln for ln in matrix.splitlines() if ln.startswith("| F139 "))
+    assert "docs/protocol/commands.md" in row
+    assert "verbs.md" not in row
+
+
+def test_commands_md_table_headers_say_command_not_verb():
+    """M4 pin: every command table header is '| command |', never '| verb |'."""
+    doc = _doc("commands.md")
+    headers = [ln for ln in doc.splitlines() if ln.startswith("| ") and " intent " in ln and " CALL " in ln]
+    assert headers, "commands.md has no command/intent/CALL tables"
+    assert all(ln.startswith("| command |") for ln in headers), headers
+    assert "| verb |" not in doc

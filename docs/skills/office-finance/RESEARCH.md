@@ -185,7 +185,7 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 | `docs/skills/office-sales/SKILL.md` + sales RESEARCH | Sibling: finance pricing/approve handoff; CRM SoR pattern analogue to ledger |
 | `docs/skills/office-legal/SKILL.md` | Sibling human_required / clear-hold cluster; hold on docs |
 | `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
-| `docs/protocol/verbs.md` | Confirm score/pass lifecycle; removed teaching CLI (open/yield/bare create/done) |
+| `docs/protocol/commands.md` | Confirm score/pass lifecycle; removed teaching CLI (open/yield/bare create/done) |
 
 ### Public industry practice (thin)
 

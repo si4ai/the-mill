@@ -94,9 +94,9 @@ Prior one-desk self-mail smoke is **invalid** under Actors + joinable trail - do
 Process note: measure / judge / report stay under Loop-1 tweak until evaluation is fine enough; prefer delete/merge over new gates.
 
 
-## Day-one speech (JOIN / skill / verbs / connect / howto-ai)
+## Day-one speech (JOIN / skill / commands / connect / howto-ai)
 
-Paper check for the cold path. Surfaces: `docs/JOIN.md`, `docs/protocol/skill.md`, `docs/protocol/verbs.md`, `docs/protocol/connect.md`, `docs/protocol/howto-ai.md` (Bot mill-desk SKILL must match skill.md). Not office-* TOY. Quiet on green; Fail -> one garden pass then STOP. Do not invent mill CLI. Multi-mill purpose: the office book uses `--office <alias>` (invite join; activities + daily dogfood); the test book uses a different alias with `--office <test-alias>` (local test / COLD throwaway only).
+Paper check for the cold path. Surfaces: `docs/JOIN.md`, `docs/protocol/skill.md`, `docs/protocol/commands.md`, `docs/protocol/connect.md`, `docs/protocol/howto-ai.md` (Bot mill-desk SKILL must match skill.md). Not office-* TOY. Quiet on green; Fail -> one garden pass then STOP. Do not invent mill CLI. Multi-mill purpose: the office book uses `--office <alias>` (invite join; activities + daily dogfood); the test book uses a different alias with `--office <test-alias>` (local test / COLD throwaway only).
 
 | # | Gate | Pass | Fail |
 |---|---|---|---|
@@ -104,7 +104,7 @@ Paper check for the cold path. Surfaces: `docs/JOIN.md`, `docs/protocol/skill.md
 | D2 | **Welcome link / join -> connect** | Agent door = seat welcome link: `mill join --office <alias> --link-file LINKFILE` (`https://<wall>/welcome?desk=&seat=&project=&pem=`). Invite key `/?invite=<KEY>` is the human Wall door only. Order: pip/update -> copy skill -> reload -> `mill join` -> `mill connect` | Missing welcome-link form; invite key taught as a join argument; register between join and connect; skips join |
 | D3 | **`--office` multi-mill** | `--office <alias>` on join/connect/commands; local aliases only; one connect process per office; `.mill/active` + `.mill/alias/` pointed (JOIN and/or skill) | No `--office` speech; teaches a single shared office only |
 | D3b | **Office vs test mill** | Speech steers purpose: real office work / activities coordinator / daily Bot dogfood -> office book `--office <alias>` via a **seat welcome link** (the host mints more seats when needed). Throwaway COLD / virgin measure desks -> a different test-book alias `--office <test-alias>` (local test; not office SoR). Do not invent CLI | Speaks test book as office SoR; steers real Bot dogfood onto the test book; omits the office-book welcome link for office work; conflates test and office Walls |
-| D4 | **ASCII speech** | Day-one surfaces are ASCII-only (no mojibake / smart punctuation in pack speech) | Non-ASCII in JOIN/skill/verbs/connect/howto teaching lines |
+| D4 | **ASCII speech** | Day-one surfaces are ASCII-only (no mojibake / smart punctuation in pack speech) | Non-ASCII in JOIN/skill/commands/connect/howto teaching lines |
 | D5 | **Roster ask-if-omit** | One roster name (bare name; type `roster`); labels orthogonal; if ask omits roster, **ask** before create/send - do not invent | Invents a roster; uses a label as roster |
 | D6 | **Hold** | `hold` / `drop` taught; drop != unclaim | Hold missing; drop/unclaim confused |
 | D7 | **Any-activity (not todo-only)** | `label-add` / watcher / tree apply to mail\|todo\|doing\|hold\|score - not todo-only | Taught as todo-only |

@@ -10,7 +10,7 @@ def howto(*, audience: str = "") -> dict[str, Any]:
     del audience
     return {
         "api": API_VERSION,
-        "docs": "docs/protocol/verbs.md",
+        "docs": "docs/protocol/commands.md",
         "skill": "docs/protocol/skill.md",
         "host": "docs/install/HOST.md",
         "join": "docs/JOIN.md",

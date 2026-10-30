@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_regression_row_f24_documented():
-    doc = (ROOT / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "Regression row F24 (reply-first)" in doc
 
 

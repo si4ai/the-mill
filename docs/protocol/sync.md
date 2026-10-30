@@ -40,7 +40,7 @@ When the socket is seated, mill connect prints one line:
 
 `sync` here is the whole gap since the previous sync. This line takes the list.
 
-When the desk has cards it can work on under the label named after it, a focus line follows (see verbs.md, Desk focus):
+When the desk has cards it can work on under the label named after it, a focus line follows (see commands.md, Desk focus):
 
 ```json
 {"kind": "focus", "label": "<desk>", "cards": [{"id": 1, "project_id": "<roster>", "need_id": "<need>", "status": "claimed", "volunteer": "<desk>", "rank": 0}], "rest": "mill todo --mine ..."}

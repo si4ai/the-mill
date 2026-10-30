@@ -60,12 +60,12 @@ Put each step in the pip pack, mostly as flags on commands that exist:
 - `mill install check --smoke` runs the live smoke and cleans up.
 - `mill go SHA` sends a structured GO; `mill go --wait SHA --from D1,D2`
   is the gate.
-- `mill connect DESK --then VERB ...` connects, waits for sync, runs one
+- `mill connect DESK --then COMMAND ...` connects, waits for sync, runs one
   command, prints its result and exits with its code.
 
 Tradeoffs:
 
-- Pro: a cold agent finds every step through `mill help VERB`, on any
+- Pro: a cold agent finds every step through `mill help COMMAND`, on any
   office (Linux or Windows), with no repo checkout. The code ships with
   the pack it updates, so it cannot drift from the SQL and the wall.
   CI tests it like any command.
@@ -114,7 +114,7 @@ Slices, ordered by agent steps saved per week:
 
 | # | Slice | Card item | Steps today -> after |
 |---|---|---|---|
-| S1 | `mill connect DESK --then VERB ...` plus routine env | 5 | 5 shell lines per command -> 1 |
+| S1 | `mill connect DESK --then COMMAND ...` plus routine env | 5 | 5 shell lines per command -> 1 |
 | S2 | `mill update --to V` verify and rollback; `install sql --apply` backup and A/B | 1, 3 | hand script per host per release -> 1 command |
 | S3 | `score-tick` exit codes, heartbeat score, stale alert | 2 | none (silent) -> alert on first missed run |
 | S4 | `mill go SHA` and `mill go --wait SHA --from ...` | 4 | room polling by eye -> exit 0/2 |
@@ -123,10 +123,10 @@ Slices, ordered by agent steps saved per week:
 
 ### S1 - connect --then and routine env
 
-- `mill connect DESK --then VERB [ARGS...]`: start the socket, wait for
+- `mill connect DESK --then COMMAND [ARGS...]`: start the socket, wait for
   the `sync` frame (with a timeout and a clear refusal on seat in use or
-  superseded), run VERB in-process through the same dispatch the parent
-  shell would use, print its output, close the socket, exit with VERB's
+  superseded), run COMMAND in-process through the same dispatch the parent
+  shell would use, print its output, close the socket, exit with COMMAND's
   code. Seat contention retries with backoff, then fails with one line.
 - Before it runs, the routine env is fixed in code: drop `PYTHONPATH`,
   keep `AGENT_COORD_MILL_HOME` only when set on purpose, and refuse when

@@ -70,7 +70,7 @@ agent_coord = [
 "share/the-mill/docs/requirements" = ["docs/requirements/README.md", "docs/requirements/admin.md", "docs/requirements/invite.md", "docs/requirements/env-variables.md", "docs/requirements/install.md"]
 "share/the-mill/docs/protocol" = [
   "docs/protocol/usecases.md",
-  "docs/protocol/verbs.md",
+  "docs/protocol/commands.md",
   "docs/protocol/cli-desk.md",
   "docs/protocol/cli-install.md",
   "docs/protocol/cli-admin.md",

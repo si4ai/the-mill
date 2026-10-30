@@ -50,7 +50,7 @@ The hour and the day are `mill_score_event`. The wall calls it when a command fi
 
 | Field | Meaning |
 |---|---|
-| `op=` | `sql.<SP>` | `api.mill.<verb>` | `api.floor` | `fanout` | `ws.recv` | `hint.drain` | `ws.reconnect` |
+| `op=` | `sql.<SP>` | `api.mill.<command>` | `api.floor` | `fanout` | `ws.recv` | `hint.drain` | `ws.reconnect` |
 | `ms=` | wall clock |
 | `req_b=` | mill HTTPS **request** JSON bytes |
 | `body_b=` | mill `body` / `need` / `note` only (the letter/card) |

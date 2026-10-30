@@ -80,7 +80,7 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 
 ## More
 
-Office docs (ship in pip): [docs/JOIN.md](docs/JOIN.md), [docs/protocol/skill.md](docs/protocol/skill.md), [docs/protocol/verbs.md](docs/protocol/verbs.md), [docs/HOST.md](docs/HOST.md).
+Office docs (ship in pip): [docs/JOIN.md](docs/JOIN.md), [docs/protocol/skill.md](docs/protocol/skill.md), [docs/protocol/commands.md](docs/protocol/commands.md), [docs/HOST.md](docs/HOST.md).
 
 Contributors: [docs/dev/](docs/dev/).
 

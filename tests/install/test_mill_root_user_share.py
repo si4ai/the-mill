@@ -12,7 +12,7 @@ from agent_coord.install import office
 def _fake_share(root: Path) -> Path:
     share = root / "share" / "the-mill"
     (share / "docs" / "protocol").mkdir(parents=True)
-    (share / "docs" / "protocol" / "verbs.md").write_text("# commands\n", encoding="utf-8")
+    (share / "docs" / "protocol" / "commands.md").write_text("# commands\n", encoding="utf-8")
     (share / "docs" / "protocol" / "skill.md").write_text("# skill\n", encoding="utf-8")
     return share
 

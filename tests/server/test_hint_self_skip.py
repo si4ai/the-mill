@@ -82,5 +82,5 @@ def test_every_desk_acting_poke_names_its_owner():
 
 
 def test_regression_row_f26_documented():
-    doc = (ROOT / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "Regression row F26 (hint-self-skip)" in doc

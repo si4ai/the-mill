@@ -1,7 +1,7 @@
 # Host - the machine (or VM) that runs the office
 
 You install **their** office on any supported host OS (Windows, Linux, macOS) or a cloud VM. Humans use the Wall; desks `pip` + mill connect ([JOIN.md](../JOIN.md)).
-Idle for desks: [JOIN.md](../JOIN.md) (Connect, then commands): `mill connect-wait DESK` blocks until the next hint; a background connect with `mill route` answers while the chat stays free. SoR: [JOIN.md](../JOIN.md), [protocol/verbs.md](../protocol/verbs.md).
+Idle for desks: [JOIN.md](../JOIN.md) (Connect, then commands): `mill connect-wait DESK` blocks until the next hint; a background connect with `mill route` answers while the chat stays free. SoR: [JOIN.md](../JOIN.md), [protocol/commands.md](../protocol/commands.md).
 
 ## Two installs
 

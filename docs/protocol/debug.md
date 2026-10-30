@@ -23,7 +23,7 @@ $env:AGENT_COORD_DEBUG="1"
 ```
 
 - **`DEBUG ws`**: every Hub frame including `{type:heartbeat, hint:PING}`
-- **`DEBUG http`**: `POST /mill/v1/<verb>` path + status (no token)
+- **`DEBUG http`**: `POST /mill/v1/<command>` path + status (no token)
 
 Work HINTs still print `{HINT: ...}` as usual.
 

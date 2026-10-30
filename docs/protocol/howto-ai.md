@@ -31,7 +31,7 @@ Clock-in order: **pip/update -> recopy skill -> reload -> join -> connect**. Aft
 mill connect <desk> --vendor VENDOR
 ```
 
-HINT map (not skill.md): [route.md](route.md). mill connect is the default HINT receiver. **Local** mill route = HINT->program map on the mill-connect host (product Arm / shipped CLI may still be open - Loop-2). HINT is a doorbell - then mill inbox (desk unread) / mill mail-thread (room) / mill todo. Day-one commands: [verbs.md](verbs.md) / [skill.md](skill.md) (no leftover/peek).
+HINT map (not skill.md): [route.md](route.md). mill connect is the default HINT receiver. **Local** mill route = HINT->program map on the mill-connect host (product Arm / shipped CLI may still be open - Loop-2). HINT is a doorbell - then mill inbox (desk unread) / mill mail-thread (room) / mill todo. Day-one commands: [commands.md](commands.md) / [skill.md](skill.md) (no leftover/peek).
 
 Lost seat (mill connect spoof / desk live, **not** mill-wall 500): Lost seat: `mill join`, or Admin `mill reset seat <desk>`, then `mill join` and `mill connect <desk>`. mill-wall 500 -> MAIL to role `Admin`. Do not reset for a 500.
 

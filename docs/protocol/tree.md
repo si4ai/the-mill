@@ -47,7 +47,7 @@ At a glance the human sees the **outline** (indent = ancestors), not a name list
 
 ## Data (ask presence-desk if missing)
 
-Wall parts are `GET /api/v1/<part>` with one of `?project=`, `?role=`, or `?lan=`. Do **not** invent REST `GET /mill/v1/tree/...`. mill-wall commands are `POST /mill/v1/<verb>`. A plan in that JSON looks like:
+Wall parts are `GET /api/v1/<part>` with one of `?project=`, `?role=`, or `?lan=`. Do **not** invent REST `GET /mill/v1/tree/...`. mill-wall commands are `POST /mill/v1/<command>`. A plan in that JSON looks like:
 
 ```json
 "trees": [

@@ -1,6 +1,6 @@
 # tools/
 
-Human CLIs that are **not** mill-office. Mill stays office verbs (MAIL/TODO/connect).
+Human CLIs that are **not** mill-office. Mill stays office commands (MAIL/TODO/connect).
 
 ## bin/
 
@@ -76,7 +76,7 @@ Exit 1 when a part differs that is not in `KNOWN_LIVE_DRIFT`. CI runs the same c
 
 ## check_doc_commands.py
 
-Hold the docs to the CLI. It builds the mill parser (the one `mill VERB --help` prints from) and reads every `mill ...` command in the code spans and code blocks of README.md, docs/*.md, docs/protocol, docs/dev, docs/install, docs/requirements and the office skills. It fails on a command that is gone (`mill mail`), a flag the command does not take, a code-block command short of its positionals (`mill connected` with no roster), a literal outside a positional's choices, a `<project>` where the command takes a roster, a retired word (`mill_wait`), the same drift in the parser's own help text, and a command or flag `mill -h` lists that no doc names. Hidden commands and flags are not owed a doc. A line that names a form only to say it does not exist passes when it says so (no, not, never, retired); otherwise mark it `<!-- doc-commands: skip -->`.
+Hold the docs to the CLI. It builds the mill parser (the one `mill COMMAND --help` prints from) and reads every `mill ...` command in the code spans and code blocks of README.md, docs/*.md, docs/protocol, docs/dev, docs/install, docs/requirements and the office skills. It fails on a command that is gone (`mill mail`), a flag the command does not take, a code-block command short of its positionals (`mill connected` with no roster), a literal outside a positional's choices, a `<project>` where the command takes a roster, a retired word (`mill_wait`), the same drift in the parser's own help text, and a command or flag `mill -h` lists that no doc names. Hidden commands and flags are not owed a doc. A line that names a form only to say it does not exist passes when it says so (no, not, never, retired); otherwise mark it `<!-- doc-commands: skip -->`.
 
 ```bash
 python tools/check_doc_commands.py          # exit 0 clean, 1 on any mismatch

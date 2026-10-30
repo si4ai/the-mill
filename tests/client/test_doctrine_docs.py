@@ -40,7 +40,7 @@ DOCS = [
     "docs/protocol/hints.md",
     "docs/protocol/howto-ai.md",
     "docs/protocol/sync.md",
-    "docs/protocol/verbs.md",
+    "docs/protocol/commands.md",
     "docs/protocol/usecases.md",
     "docs/protocol/skill.md",
     "docs/protocol/grok-foreground.md",
@@ -78,7 +78,7 @@ ACT_BAD = re.compile(
 ACT_DOCS = [
     "README.md",
     "docs/protocol/records.md",
-    "docs/protocol/verbs.md",
+    "docs/protocol/commands.md",
     "docs/requirements/activity.md",
     "docs/protocol/skill.md",
 ]

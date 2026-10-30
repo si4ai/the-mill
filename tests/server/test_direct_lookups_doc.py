@@ -12,7 +12,7 @@ def _body(src: str, name: str) -> str:
 
 
 def test_regression_row_f23_documented():
-    doc = (ROOT / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "Regression row F23 (direct-lookups)" in doc
 
 

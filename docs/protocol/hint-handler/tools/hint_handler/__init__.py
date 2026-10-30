@@ -1,6 +1,6 @@
 """Thin HINT-handler helpers - parse / detail / mill-fetch leftovers / exit.
 
-Not a second mill CLI. Verbs stay on `mill` (or `python -m agent_coord`).
+Not a second mill CLI. Commands stay on `mill` (or `python -m agent_coord`).
 Cite: share/the-mill/docs/protocol/{hints,route,connect}.md
 """
 from .lib import (

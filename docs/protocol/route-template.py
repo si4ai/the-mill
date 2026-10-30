@@ -3,7 +3,7 @@
 """mill route template - one redirector in this desk's chain.
 
 stdin: one JSON frame {type, id, hint, desk, route, ...}, or a letter {kind: mail, id, ...}.
-Do the mill verb; do not expect the letter body on the frame. Do not call a model.
+Do the mill command; do not expect the letter body on the frame. Do not call a model.
 
 Exit marks (mill connect reads them, in chain order):
   exit 0, last stdout line "not-mine"  -> next redirector (vendor poke if none handle it)

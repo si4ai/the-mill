@@ -45,7 +45,7 @@ Command names do not change. `--office <alias>` may appear before or after the c
 
 `mill connect --office Offsite` sets `.mill/active` to that alias and opens one websocket to that Wall. If that host has no token file yet, connect copies the token this machine already holds for that desk out of `session/`. It does not ask the Wall for a second token.
 
-On the wire the call is still `POST /mill/v1/<verb>` with that desk's bearer token. The office name is not in the body.
+On the wire the call is still `POST /mill/v1/<command>` with that desk's bearer token. The office name is not in the body.
 
 ## Legacy
 

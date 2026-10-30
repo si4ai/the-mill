@@ -217,7 +217,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 ## How office-function skills should talk
 
 1. Lead with **their product noun** (release, Pass evidence, incident closed, ticket resolved).
-2. Use **their collab verbs** in the When/Handoffs sections.
+2. Use **their collaboration words** in the When/Handoffs sections.
 3. Map once to mill commands in a small table - don't rename mill CLI to "open PR."
 4. Must-not: pretend mill *is* Jira/GitHub/Zendesk/PagerDuty.
 

@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_regression_row_f20_documented():
-    doc = (ROOT / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "regression row F20, room-read-once" in doc
 
 

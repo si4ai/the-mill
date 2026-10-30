@@ -182,7 +182,7 @@ Pattern: README "Escalate always = mill send"; qa Fail->Engineering; ops->Engine
 | `docs/skills/office-qa/SKILL.md` + `RESEARCH.md` | Claims/Fail handoff mirror; Pass mail -> asker/eng `pass`; RESEARCH shape |
 | `docs/skills/office-ops/SKILL.md` + `RESEARCH.md` | Deploy/incident handoff; hotfix runtime; RESEARCH shape |
 | `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass lifecycle; no open/yield/teaching done |
-| `docs/protocol/verbs.md` | Confirm create todo / unclaim replaces yield / pass shipped->done; hold/drop; score |
+| `docs/protocol/commands.md` | Confirm create todo / unclaim replaces yield / pass shipped->done; hold/drop; score |
 
 ### Public industry practice (thin)
 

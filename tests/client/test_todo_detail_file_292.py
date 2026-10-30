@@ -96,6 +96,6 @@ def test_docs_name_the_row():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    commands = (root / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    commands = (root / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "--detail-file PATH" in commands
     assert "Regression row F29 (todo-detail-file)" in commands

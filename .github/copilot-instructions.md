@@ -89,7 +89,7 @@ need to read it. Use exactly this form:
 
 The seat is on roster `the-mill`, so connect names it and your mail is
 stamped with it. Replace `mill todo; mill inbox` with the commands you need (docs/protocol/skill.md
-and verbs.md). Bodies go in a UTF-8 file: `--body-file PATH`.
+and commands.md). Bodies go in a UTF-8 file: `--body-file PATH`.
 
 Stop rules. When one of these happens, stop using desk commands, write the
 reason in the PR body, and finish the code work without the desk:

@@ -21,7 +21,7 @@ def _card(i, need, detail="", roster="cold-test"):
 
 
 def test_regression_row_f25_documented():
-    doc = (ROOT / "docs" / "protocol" / "verbs.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "protocol" / "commands.md").read_text(encoding="utf-8")
     assert "Regression row F25 (ux12-polish)" in doc
 
 

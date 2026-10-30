@@ -36,7 +36,7 @@ _BRIEFING_PATH = {
     "human": ("README.md",),
     "join": ("docs", "JOIN.md"),
     "usecases": ("docs", "protocol", "usecases.md"),
-    "commands": ("docs", "protocol", "verbs.md"),
+    "commands": ("docs", "protocol", "commands.md"),
     "skill": ("docs", "protocol", "skill.md"),
     "howto-ai": ("docs", "protocol", "howto-ai.md"),
     "spawn": ("docs", "protocol", "spawn.md"),
@@ -93,10 +93,10 @@ def mill_root() -> Path:
     """Git checkout, else pip share/the-mill (wheel data-files; env or user install)."""
     here = Path(__file__).resolve()
     git = here.parents[2]
-    if (git / "docs" / "protocol" / "verbs.md").is_file():
+    if (git / "docs" / "protocol" / "commands.md").is_file():
         return git
     for share in _share_candidates():
-        if (share / "docs" / "protocol" / "verbs.md").is_file():
+        if (share / "docs" / "protocol" / "commands.md").is_file():
             return share
     raise FileNotFoundError("mill docs: git docs/protocol or share/the-mill (prefix or user base)")
 
@@ -216,8 +216,8 @@ def help_unknown(want: str) -> str:
 
 
 def commands_text(command: str = "") -> str:
-    """docs/protocol/verbs.md - mill help / mill briefing commands."""
-    path = mill_markdown("docs", "protocol", "verbs.md")
+    """docs/protocol/commands.md - mill help / mill briefing commands."""
+    path = mill_markdown("docs", "protocol", "commands.md")
     text = path.read_text(encoding="utf-8")
     want = (command or "").strip().lower()
     if not want:
@@ -228,8 +228,7 @@ def commands_text(command: str = "") -> str:
     hit = [ln for ln in lines if ln.startswith("| **`") and f"**`{want}`**" in ln]
     if not hit:
         return text + f"\n\n# unknown command {want!r} - full list above\n"
-    # The docs table header may still read "| verb |" until the docs rename lands.
-    hdr = next((ln for ln in lines if ln.startswith(("| command ", "| verb "))), "| command | intent | CALL |")
+    hdr = next((ln for ln in lines if ln.startswith("| command ")), "| command | intent | CALL |")
     sep = "|---|---|---|"
     return "\n".join(["# mill " + want, "", hdr, sep, *hit, ""]) + "\n"
 
