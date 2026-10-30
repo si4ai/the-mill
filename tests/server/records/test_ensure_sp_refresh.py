@@ -156,7 +156,8 @@ def test_ensure_refreshes_every_sp_name_member_join_procedure(cn) -> None:
             if low.startswith("create procedure"):
                 names.append(stmt.split()[2].split("(")[0].strip("`"))
     assert "mill_join_upsert" in names and "mill_member_put" in names
-    assert "mill_name_reclaim" in names
+    # 0.8.0: sp_name.sql keeps only mill_name_host; retire/rename/reclaim are sp_name_* (sp_beta_name.sql).
+    assert "mill_name_host" in names and "mill_name_reclaim" not in names
     assert "mill_label_delete" in names
     for n in names:
         _exec(cn, f"DROP PROCEDURE IF EXISTS {n}")

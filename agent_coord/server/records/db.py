@@ -342,6 +342,41 @@ def warm_read_paths(projects: list[str] | None = None) -> None:
             pass
 
 
+# 0.8.0: the kind-checked name FKs and seat FKs refuse a wrong id with 1452, a CHECK with
+# 3819. The raw text names the book; the refusal names only what was wrong.
+_FK_NAME = re.compile(r"CONSTRAINT `([A-Za-z0-9_]+)`")
+_CHECK_NAME = re.compile(r"[Cc]heck constraint '([A-Za-z0-9_]+)'")
+_FK_WHAT = (
+    ("_desk", "that desk has no seat in this office"),
+    ("_updated", "that desk has no seat in this office"),
+    ("_creator", "that desk has no seat in this office"),
+    ("_assigned", "that desk has no seat in this office"),
+    ("_roster", "that id is not a roster"),
+    ("_member_name", "that id is not a roster"),
+    ("_label_name", "that id is not a label"),
+    ("_tree_name", "that id is not a plan"),
+    ("_tree_read_tree", "that id is not a plan"),
+    ("_res", "that id is not a resource"),
+)
+
+
+def fk_refusal(exc: BaseException | None) -> str | None:
+    """A plain refusal line for an FK (1452) or CHECK (3819) error, else None."""
+    errno = int(getattr(exc, "errno", 0) or 0)
+    text = str(getattr(exc, "msg", "") or exc or "")
+    if errno == 1452:
+        m = _FK_NAME.search(text)
+        name = m.group(1) if m else ""
+        for tail, what in _FK_WHAT:
+            if name.endswith(tail):
+                return f"refused: {what} ({name}); nothing changed"
+        return f"refused: no such row for {name or 'that reference'}; nothing changed"
+    if errno == 3819:
+        m = _CHECK_NAME.search(text)
+        return f"refused: {m.group(1) if m else 'a check'} does not hold; nothing changed"
+    return None
+
+
 def apply(cn, *, wipe: bool = False) -> dict[str, Any]:
     return apply_records(cn, wipe=wipe)
 

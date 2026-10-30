@@ -28,6 +28,45 @@ def seed_names(cn, *specs: tuple[str, str]) -> list[int]:
     return out
 
 
+def open_book(test_db: str):
+    """Create test_db and apply the pack's SQL to it. Returns the connection.
+
+    Skips only when MySQL does not answer. When it answers and the schema or a
+    routine fails to apply, the suite fails (0.8.0, F168): a skip hid a broken
+    apply behind a green run.
+    """
+    import mysql.connector
+
+    from agent_coord.server import records
+    from agent_coord.server.records.db import conn_kwargs
+
+    try:
+        kw = conn_kwargs()
+        kw.pop("database", None)
+        kw["autocommit"] = True
+        admin = mysql.connector.connect(**kw)
+    except Exception as e:
+        pytest.skip(f"mysql mill records: {e}")
+    cur = admin.cursor()
+    cur.execute(
+        f"CREATE DATABASE IF NOT EXISTS `{test_db}` "
+        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
+    )
+    cur.close()
+    admin.close()
+    c = records.connect(test_db)
+    try:
+        records.apply(c, wipe=True)
+    except Exception as e:
+        pytest.fail(f"mill records: MySQL answered but the SQL did not apply: {e}", pytrace=False)
+    # Cap InnoDB lock waits so a stuck FOR UPDATE fails the test instead of hanging CI (~15 min).
+    cur = c.cursor()
+    cur.execute("SET SESSION innodb_lock_wait_timeout = 30")
+    cur.execute("SET SESSION lock_wait_timeout = 30")
+    cur.close()
+    return c
+
+
 @pytest.fixture(scope="module")
 def cn(request):
     """One wiped book per test module.
@@ -35,10 +74,6 @@ def cn(request):
     Two modules in one process must not share a book. A read cursor left by
     test_room_reply would hide the branch on the next file.
     """
-    import mysql.connector
-
-    from agent_coord.server.records import apply, connect
-    from agent_coord.server.records.db import conn_kwargs
     from tests.sql_isolate import throwaway_db
 
     mod = request.module.__name__.rsplit(".", 1)[-1]
@@ -48,23 +83,11 @@ def cn(request):
     # so the next module's mail ids restart on top of a stale read cursor.
     saved = os.environ.pop("AGENT_COORD_DATABASE", None)
     try:
-        kw = conn_kwargs()
-        kw.pop("database", None)
-        kw["autocommit"] = True
-        admin = mysql.connector.connect(**kw)
-        cur = admin.cursor()
-        cur.execute(
-            f"CREATE DATABASE IF NOT EXISTS `{test_db}` "
-            "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-        )
-        cur.close()
-        admin.close()
-        c = connect(test_db)
-        apply(c, wipe=True)
-    except Exception as e:
+        c = open_book(test_db)
+    except BaseException:
         if saved is not None:
             os.environ["AGENT_COORD_DATABASE"] = saved
-        pytest.skip(f"mysql mill records: {e}")
+        raise
     try:
         yield c
     finally:
@@ -73,3 +96,25 @@ def cn(request):
             os.environ.pop("AGENT_COORD_DATABASE", None)
         else:
             os.environ["AGENT_COORD_DATABASE"] = saved
+
+
+ADMIN_DESK = "test-admin"
+
+
+def admin_desk(cn, name: str = ADMIN_DESK) -> str:
+    """A seated Admin desk to act as (0.8.0: sp_name_* check the acting desk). Idempotent."""
+    from agent_coord.client.tokens import token_hash
+    from agent_coord.server.records import join as rec_join
+    from agent_coord.server.records.db import call
+
+    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
+    return make_admin(cn, name)
+
+
+def make_admin(cn, name: str) -> str:
+    """Put a seated desk on Admin (sp_admin_set as the host). Idempotent."""
+    from agent_coord.server.records.db import call
+
+    call(cn, "sp_admin_set", [None, name, 1])
+    cn.commit()
+    return name

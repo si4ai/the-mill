@@ -59,10 +59,10 @@ def _loads(value):
     return json.loads(value)
 
 
-def _doc(cn, stamp: str) -> tuple[dict, str, int] | None:
+def _doc(cn, stamp: str) -> tuple[dict, str, str] | None:
     cur = cn.cursor()
     cur.execute(
-        """SELECT e.value, s.value, a.n
+        """SELECT e.value, s.value, a.act
              FROM score s
              JOIN name d ON d.id = s.desk_id
              JOIN score_evidence e ON e.score_id = s.id
@@ -74,7 +74,7 @@ def _doc(cn, stamp: str) -> tuple[dict, str, int] | None:
     cur.close()
     if row is None:
         return None
-    return _loads(row[0]), str(row[1]), int(row[2])
+    return _loads(row[0]), str(row[1]), str(row[2] or "")
 
 
 def test_note_command_swallows_a_missing_book() -> None:
@@ -102,7 +102,7 @@ def test_hour_resets_day_keeps_and_bytes_follow_the_command(cn) -> None:
     assert hour["bytes"]["mail"] == 50
     assert "todo" not in hour.get("bytes", {})
     assert value == "2"
-    assert n_act == 1
+    assert n_act in ("score", "create")
     day, _, _ = _doc(cn, "2026-10-01 00:00:00")
     assert day["n"] == 2
     assert day["inbox"]["n"] == 2
@@ -124,7 +124,7 @@ def test_hour_resets_day_keeps_and_bytes_follow_the_command(cn) -> None:
     assert hour["bytes"]["mail"] == 10
     assert "hold" not in hour
     assert value == "1"
-    assert n_act == 1
+    assert n_act in ("score", "create")
     kept, _, _ = _doc(cn, "2026-10-01 00:00:00")
     assert kept["n"] == 4
     assert kept["inbox"]["n"] == 2
@@ -329,7 +329,7 @@ def test_wall_routes_share_one_office_score(cn) -> None:
         assert cur.fetchall() == []
         # activity.id is per type. Other rows from this module share the score's number.
         cur.execute(
-            """SELECT a.n FROM activity a
+            """SELECT a.act FROM activity a
                  JOIN score s ON s.type = 'score' AND s.id = a.id
                 WHERE a.type = 'score' AND s.kpi = 'wall'"""
         )
@@ -342,12 +342,13 @@ def test_wall_routes_share_one_office_score(cn) -> None:
     doc = _loads(row[0])
     assert len(act_rows) == 1
     assert nscore == 1
-    assert row[2] == row[3]
+    assert row[2] is None  # 0.8.0: office wall score desk_id NULL
+    assert row[3] == 1
     assert doc["n"] == 3
     assert doc["/api/floor"] == {"n": 2, "ms": 20}
     assert doc["/api/activity"] == {"n": 1, "ms": 5}
     assert row[1] == "3"
-    assert act_rows[0][0] == 1
+    assert act_rows[0][0] in ("score", "create")
 
 
 def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:

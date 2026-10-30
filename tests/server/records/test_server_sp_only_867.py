@@ -303,16 +303,16 @@ def test_app_user_cannot_run_raw_sql(cn):
     assert not ran, "raw SQL ran as the app user: %s" % ran
 
 
-# 0.7.18: done_when and evidence are additive columns on today's todo table.
+# 0.8.0: done_when stays on todo; evidence is doing.evidence (no todo.evidence shim).
 
 
-def test_ensure_adds_done_when_and_evidence_once(cn):
+def test_ensure_adds_done_when_once(cn):
     from agent_coord.install import migrate
 
     cur = cn.cursor()
     try:
-        cur.execute("ALTER TABLE todo DROP COLUMN evidence, DROP COLUMN done_when")
+        cur.execute("ALTER TABLE todo DROP COLUMN done_when")
     finally:
         cur.close()
-    assert migrate._ensure_todo_done_when(cn) == ["todo.done_when", "todo.evidence"]
+    assert migrate._ensure_todo_done_when(cn) == ["todo.done_when"]
     assert migrate._ensure_todo_done_when(cn) == []

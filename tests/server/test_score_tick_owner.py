@@ -35,31 +35,25 @@ def test_no_upsert_names_admin_as_a_desk():
     assert "desk_id=2" not in src
 
 
-def test_fallback_resolves_rosters_by_name():
+def test_fallback_updates_null_owner_office_rows():
+    """0.8.0: fallback writes roster_id=1, desk_id IS NULL (no Admin desk lookup)."""
     from agent_coord.server import score_tick as st
 
     cur = MagicMock()
-    cur.fetchone.return_value = (11, 22)
     cn = MagicMock()
     cn.cursor.return_value = cur
-    st._publish_sql(cn, {st.KPI_TICKS: 3})
+    st._publish_sql(cn, {st.KPI_TICKS: 3, st.KPI_IDLE: 0, st.KPI_DROP: 0})
     updates = [c for c in cur.execute.call_args_list if "UPDATE score" in c.args[0]]
     assert len(updates) == 3
-    assert all(c.args[1][-2:] == (11, 22) for c in updates)
+    assert all("desk_id IS NULL" in c.args[0] and "roster_id=1" in c.args[0] for c in updates)
+    assert all(c.args[1][0] in ("3", "0") for c in updates)
+    assert cn.commit.called
 
 
-def test_fallback_without_rosters_fails_closed():
-    import pytest
-
-    from agent_coord.server import score_tick as st
-
-    cur = MagicMock()
-    cur.fetchone.return_value = (1, None)
-    cn = MagicMock()
-    cn.cursor.return_value = cur
-    with pytest.raises(RuntimeError, match="roster missing"):
-        st._publish_sql(cn, {})
-    assert not cn.commit.called
+def test_fallback_has_no_admin_desk_lookup():
+    src = (ROOT / "agent_coord" / "server" / "score_tick.py").read_text(encoding="utf-8")
+    assert "Admin roster missing" not in src
+    assert "desk_id=%s" not in src.split("def _publish_sql", 1)[1].split("def tick", 1)[0]
 
 
 def test_regression_row_f19_documented():

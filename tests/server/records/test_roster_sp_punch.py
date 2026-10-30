@@ -116,8 +116,8 @@ def test_mail_list_filters_letter_only(cn) -> None:
     )
     orphan = cur.lastrowid
     cur.execute(
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('mail', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('mail', %s, NOW(6), %s, %s, 'create', 1)",
         (orphan, desk, proj),
     )
     cur.execute(
@@ -184,8 +184,8 @@ def test_floor_fp_mail_letter_only(cn) -> None:
     )
     oid = cur.lastrowid
     cur.execute(
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('mail', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('mail', %s, NOW(6), %s, %s, 'create', 1)",
         (oid, desk, proj),
     )
     cur.execute(
@@ -212,8 +212,8 @@ def test_role_filter_fallback(cn) -> None:
     )
     tid = cur.lastrowid
     cur.execute(
-        "INSERT INTO activity (type, id, updated, desk_id, roster_id, weight, n) "
-        "VALUES ('todo', %s, NOW(6), %s, %s, 1, 1)",
+        "INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes) "
+        "VALUES ('todo', %s, NOW(6), %s, %s, 'create', 1)",
         (tid, desk, role_id),
     )
     cur.execute("SET FOREIGN_KEY_CHECKS=1")

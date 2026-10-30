@@ -76,7 +76,7 @@ def span_rows(cn, kind: str, ident: str, grain: str) -> tuple[str, list[dict]]:
                 "desk_id": r.get("desk_id"),
                 "owner": _nm(r.get("desk") or ""),
                 "roster_id": _nm(r.get("roster") or ""),
-                "n": int(r.get("n") or 0),
+                "items": int(r.get("items") or 0),
             }
             row["id"] = "|".join(
                 str(row.get(k) or "")
@@ -120,7 +120,7 @@ def between_rows(cn, kind: str, ident: str, limit: int = 50) -> list[dict]:
                 "desk_id": r.get("desk_id"),
                 "owner": _nm(r.get("desk") or ""),
                 "roster_id": _nm(r.get("roster") or ""),
-                "n": int(r.get("n") or 0),
+                "items": int(r.get("items") or 0),
                 "other_desk_id": other_id,
                 "other": other or None,
                 "state": r.get("state"),
