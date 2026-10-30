@@ -184,10 +184,16 @@ merge: the consensus letter names the PR, the head sha, the reason, and two
 builder-type desks that are not the author, with all seven CI checks green
 at that sha; the merge desk is not the author and re-checks before
 enqueueing. After a bypass, the validator desk re-measures within one
-session; the auditor desk's weekly pass matches bypasses to letters. The
-ruleset keeps `validator` required (both desks can post it through the same
-app). For 0.8.1 the release-candidate trial adds the full measure and the
-cold test on the release candidate.
+session; the auditor desk's weekly pass matches bypasses to letters. A
+post-hoc fail opens a card for the merge desk and an incident note to the
+auditor desk. The ruleset keeps `validator` required on every PR (both
+desks can post it through the same app).
+
+Pass classes get the full validator check: security, SQL and migrations,
+wire or CLI shape, connect, wake and webhook, CI and dependency gates, and
+version bumps. The partner reviewer names the class in its review; an unsure
+class counts as a pass class. For 0.8.1 the release-candidate trial adds the
+full measure and the cold test on the release-candidate tip.
 
 ## Moving an old branch that carries commits main already has
 
