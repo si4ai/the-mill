@@ -13,7 +13,8 @@ with a login segment, email outside placeholder domains, byte-order mark,
 typographic marks, and (in comments, docstrings, Markdown prose and the
 commit message) the Title-case name-token rule with the desk-word
 allow-list. Staged files are read from the index (git show :path), never
-the working tree. Reports file:line and the kind; never the matched text.
+the working tree. A staged or tip mode-120000 path under a packaged tree
+fails closed (#757). Reports file:line and the kind; never the matched text.
 
 Hooks: git config core.hooksPath .githooks (once per checkout).
 Bypass: git commit --no-verify. CI check_pack still runs every rule.
@@ -151,6 +152,38 @@ def _git(*args: str) -> bytes:
     return subprocess.check_output(["git", *args], cwd=ROOT, stderr=subprocess.DEVNULL)
 
 
+
+def scan_staged_modes() -> list[str]:
+    """Refuse staged mode-120000 entries under packaged paths (#757)."""
+    try:
+        raw = _git("ls-files", "-s", "-z")
+    except subprocess.CalledProcessError:
+        return []
+    fails: list[str] = []
+    for ent in raw.decode("utf-8", "replace").split("\0"):
+        if not ent:
+            continue
+        # <mode> <sha> <stage>\t<path>
+        try:
+            meta, rel = ent.split("\t", 1)
+        except ValueError:
+            continue
+        mode = meta.split(" ", 1)[0]
+        if mode == cp._GIT_SYMLINK_MODE and cp._packaged_path(rel):
+            fails.append(f"{rel}: symlink (mode 120000) under packaged path")
+    return fails
+
+
+def scan_tree_modes() -> list[str]:
+    """Refuse HEAD mode-120000 entries under packaged paths (#757)."""
+    fails: list[str] = []
+    for msg in cp.scan_git_symlinks(cp.git_index_modes(ROOT)):
+        # scan_git_symlinks already names the path; prefix for the hook style.
+        rel = msg.rsplit(": ", 1)[-1]
+        fails.append(f"{rel}: symlink (mode 120000) under packaged path")
+    return fails
+
+
 def scan_staged() -> list[str]:
     raw = _git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
     fails: list[str] = []
@@ -208,11 +241,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         if argv[0] == "staged":
-            fails = scan_staged()
+            fails = scan_staged() + scan_staged_modes()
         elif argv[0] == "msg":
             fails = scan_message(argv[1])
         else:
-            fails = scan_tree()
+            fails = scan_tree() + scan_tree_modes()
     except (OSError, subprocess.CalledProcessError) as exc:
         # A scan that could not run is not a pass (#338).
         what = exc.cmd[:2] if isinstance(exc, subprocess.CalledProcessError) else type(exc).__name__
