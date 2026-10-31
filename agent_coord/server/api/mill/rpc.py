@@ -2587,6 +2587,14 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         raise CoordError(
             f"create todo: {project}/{need} exists (id {tid}, {status}); nothing changed; {forms}"
         )
+    retired = rec_todo.find_retired(c._cn, project, need)
+    if retired:
+        # Card 927: a retired need must not get a second card; reclaim is the path back.
+        tid = int(retired["id"])
+        raise CoordError(
+            f"create todo: {project}/{need} is retired (id {tid}); nothing changed; "
+            f"bring it back with mill reclaim todo {project} {need}"
+        )
     if parent_t and parent_id:
         # New card and its tree place commit together. A 1062 retries inside (#146).
         rows = rec_todo.insert_attached(
