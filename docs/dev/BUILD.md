@@ -10,6 +10,9 @@ Do not pin mill versions in docs.
 
 Assume **regression tests already pass**. Then:
 
+**Changelog rotation** (card 936): `CHANGELOG.md` at the repo root has exactly three sections, newest first: TBD (upcoming), New changes, Last changes. TBD carries the disclaimer that upcoming is the current plan, not a promise. At each release bump: move New into Last (drop the previous Last; git history and GitHub Releases keep it), move landed TBD items into New, and keep TBD for later plans. `check_pack` scans the file like any doc.
+
+
 1. **Local hygiene** - bump version, `python -m build`, `python tools/check_pack.py dist`, `python tools/mill_cli_smoke.py` (install the **tarball** from a non-git cwd). Human pass on tracked `.md` / `.txt`. Do not push a dirty `dist/`.
 2. **Commit** the version bump + hygiene fixes.
 3. **Push** through a pull request on GitHub: `main` is protected by a ruleset, see [CONTRIBUTING-PR.md](CONTRIBUTING-PR.md).
