@@ -13,7 +13,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 0.8.2
 
-- #286 card 649 / F230: empty todo --find/--mine note omits flags already given
+- #649 / F-find-hint-given-flags: empty todo --find/--mine note omits flags already given
 - #279 card 935 / F225: `check_pack --commits` scans every commit a pull request would bring to main
 - #281 card 931 / F226: drop-call holder race refuses; already-free wording; `hold_stale_days` docs
 - #282 card 814 / F227: harden wall session-cookie tests
