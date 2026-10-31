@@ -399,6 +399,17 @@ def _safe_static(name: str) -> Path | None:
     return None
 
 
+# The most body bytes one HTTP request may carry (#747). The largest real
+# request is a todo or a letter: one text field of at most 4096 characters
+# (MAIL_BODY_MAX, todo BODY_MAX) plus short fields. The client sends JSON
+# with ASCII escapes, so a character outside the BMP costs 12 bytes and a
+# 4096-character field at most about 48 KiB. 256 KiB keeps several such fields
+# and a long mark id list under the cap, and stops a client that would stream
+# megabytes into memory before the door or the seat is checked. The stdlib
+# handler and the ASGI wall share it (#783).
+BODY_MAX_BYTES = 256 * 1024
+
+
 def _json(obj: Any) -> bytes:
     """Serialize JSON with top-level mill version stamp."""
     from agent_coord.server.mill_json import dumps_mill_bytes
@@ -1121,6 +1132,22 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
             self.end_headers()
             if body:
                 self.wfile.write(body)
+
+        def _body_len(self) -> int | None:
+            """Declared body length, or None after a 413/400 refusal (#783, as #747).
+
+            Checked before one body byte is read.
+            """
+            declared = str(self.headers.get("Content-Length") or "0").strip()
+            if not declared.isdigit():
+                self._send(400, _json({"error": "bad Content-Length"}), "application/json; charset=utf-8")
+                return None
+            n = int(declared)
+            if n > BODY_MAX_BYTES:
+                too_big = "request body too large: the most is %d bytes (413)" % BODY_MAX_BYTES
+                self._send(413, _json({"error": too_big}), "application/json; charset=utf-8")
+                return None
+            return n
 
         def _send_health(self) -> None:
             """200 when the book answers, 503 when it does not. No door, no secrets (#144)."""
@@ -2245,7 +2272,9 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
             from agent_coord.client.outbound import canonical_command, is_mill_command_path, parse_path
 
             if is_mill_command_path(path):
-                n = int(self.headers.get("Content-Length") or "0")
+                n = self._body_len()
+                if n is None:
+                    return
                 raw = self.rfile.read(n) if n else b"{}"
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
@@ -2353,7 +2382,9 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                 self._send(200, _json(howto()), "application/json; charset=utf-8")
                 return
             if path in ("/api/admin/invites", "/api/invites"):
-                n = int(self.headers.get("Content-Length") or "0")
+                n = self._body_len()
+                if n is None:
+                    return
                 raw = self.rfile.read(n) if n else b"{}"
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
@@ -2374,7 +2405,9 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     self._send(400, _json({"error": err_text(e)}), "application/json; charset=utf-8")
                 return
             if path == "/api/collect":
-                n = int(self.headers.get("Content-Length") or "0")
+                n = self._body_len()
+                if n is None:
+                    return
                 raw = self.rfile.read(n) if n else b"{}"
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
@@ -2393,7 +2426,9 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     self._send(400, _json({"error": str(e)}), "application/json; charset=utf-8")
                 return
             if path == "/api/wall-prefs":
-                n = int(self.headers.get("Content-Length") or "0")
+                n = self._body_len()
+                if n is None:
+                    return
                 raw = self.rfile.read(n) if n else b"{}"
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
@@ -2413,7 +2448,9 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
             if path != "/api/desk":
                 _send_not_found(self, closed=False)
                 return
-            n = int(self.headers.get("Content-Length") or "0")
+            n = self._body_len()
+            if n is None:
+                return
             raw = self.rfile.read(n) if n else b"{}"
             try:
                 data = json.loads(raw.decode("utf-8") or "{}")

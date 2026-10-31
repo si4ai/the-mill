@@ -18,7 +18,7 @@ from typing import Any
 
 from agent_coord.server.redact import err_text
 
-from agent_coord.server.middleware import make_handler
+from agent_coord.server.middleware import BODY_MAX_BYTES, make_handler  # cap shared with the stdlib Handler (#747, #783)
 from agent_coord.lib.observe import parse_roots
 
 _log = logging.getLogger("mill.wall")
@@ -27,15 +27,6 @@ _samples: list[float] = []
 _SAMPLE_CAP = 200
 _n = 0
 _ms_max = 0.0
-
-# The most body bytes one HTTP request may carry (#747). The largest real
-# request is a todo or a letter: one text field of at most 4096 characters
-# (MAIL_BODY_MAX, todo BODY_MAX) plus short fields. The client sends JSON
-# with ASCII escapes, so a character outside the BMP costs 12 bytes and a
-# 4096-character field at most about 48 KiB. 256 KiB keeps several such fields
-# and a long mark id list under the cap, and stops a client that would stream
-# megabytes into memory before the door or the seat is checked.
-BODY_MAX_BYTES = 256 * 1024
 
 
 def hold_envelope_ok(command: str, result: Any) -> bool:
