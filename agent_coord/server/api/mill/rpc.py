@@ -1254,13 +1254,23 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     if str(body.get("name_type") or "").strip().lower() == "todo":
         return _each_need(body.get("need"), lambda n: _todo_retire_one(c, n, project, owner, back=False))
     raw = str(body.get("slug") or owner or "").strip()
+    from agent_coord.server.records import hold as rec_hold
+
     if body.get("yes"):
+        # Admin retire of a desk (or other name): when it is a desk, poke freed holds.
+        slug_guess = _stored(str(body.get("slug") or body.get("name") or raw or ""))
+        freed: list[int] = []
+        if slug_guess:
+            freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_guess, held=True) or []) if r.get("id")]
         rows = admin_cat.retire(c._cn, owner or "", body)
+        _poke_freed_holds(c, freed, owner=owner)
     else:
         slug_s = _stored(raw)
         if _stored(owner or "") != slug_s:
             raise CoordError("mill retire: hash owns this desk only")
+        freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_s, held=True) or []) if r.get("id")]
         rows = rec_name.retire(c._cn, slug_s, "desk", by=slug_s, by_hash=_seat_hash(c, project, owner))
+        _poke_freed_holds(c, freed, owner=owner)
     return rows
 
 
@@ -1330,7 +1340,17 @@ def _todo_retire_one(c: Book, raw_need: str, project: str, owner: str | None, *,
     return rec
 
 
+
+def _poke_freed_holds(c: Book, hold_ids: list, *, owner: str | None) -> None:
+    """Card 881 / H12-H13: when reset or retire frees holds, send the same hold
+    hint a drop sends so a desk waiting on `watch hold NAME` wakes."""
+    for hid in hold_ids:
+        if hid:
+            _poke(c, "hold", hid, "drop", owner=owner)
+
+
 def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    from agent_coord.server.records import hold as rec_hold
     from agent_coord.server.records import join as rec_join
     from agent_coord.server.admin.guard import require_admin
 
@@ -1340,7 +1360,10 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     who = str(body.get("desk") or "")
     if not who:
         raise CoordError("reset: desk required (or --dead to count seats with no token_hash)")
+    # Card 881: capture hold ids before release so watchers get a drop-shaped hint.
+    freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=_stored(who), held=True) or []) if r.get("id")]
     rows = rec_join.reset(c._cn, _stored(project), _stored(who))
+    _poke_freed_holds(c, freed, owner=owner)
     return {"ok": True, "reset": rows}
 
 
@@ -2853,7 +2876,11 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         "id": rec.get("id"),
         "owner": owner_name if not ok else owner,
         "held": ok,
+        # Card 853: callers dedupe wake holds via refreshed; since stays the take time.
+        "refreshed": bool(int(rec.get("refreshed") or 0)) if ok else False,
     }
+    if ok and rec.get("since") is not None:
+        out["since"] = str(rec.get("since"))[:26]
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)
