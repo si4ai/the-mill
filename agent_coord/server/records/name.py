@@ -236,3 +236,143 @@ def ensure_roster(cn, name: str, kind: str = CONST_ROSTER) -> int:
             f"limited-trust: cannot auto-create {k} {bare} - Admin mill roster NAME NAME --yes"
         )
     return get_or_insert(cn, bare, k)
+
+
+def hard_delete(cn, name: str, kind: str, *, by: str) -> dict:
+    """#879: hard-delete an unused roster, label or tree.
+
+    Who may: Admin, or (roster only) the acting desk is the sole member (the
+    cleanup stand-in for creator until name tracks a creator). A referenced
+    name is refused with a pointer to mill retire. Office and Admin
+    rosters never hard-delete. Desks keep soft retire.
+    """
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.admin.guard import is_role_admin
+    from agent_coord.server.records.db import scalar_done
+
+    k = (kind or "").strip().lower()
+    if k not in ("roster", "label", "tree"):
+        raise CoordError("delete: type is roster, label or tree (desks keep mill retire)")
+    bare_name = bare(name, k)
+    if not bare_name:
+        raise CoordError("delete: name is empty")
+    nid = get(cn, bare_name, k)
+    if nid is None:
+        raise CoordError(f"delete: no live {k} {bare_name}")
+    if k == "roster" and int(nid) in (1, 2):
+        raise CoordError("delete: Office and Admin never hard-delete; nothing changed")
+
+    who = (by or "").strip()
+    admin = is_role_admin(cn, who)
+    actor_id = get(cn, who, "desk")
+    if actor_id is None:
+        raise CoordError("delete: acting desk is unknown")
+
+    reasons: list[str] = []
+    if k == "roster":
+        for table, col, label in (
+            ("todo", "roster_id", "cards"),
+            ("mail", "roster_id", "letters"),
+            ("score", "roster_id", "scores"),
+            ("doing", "roster_id", "doing rows"),
+            ("activity", "roster_id", "activity rows"),
+        ):
+            n = scalar_done(cn, f"SELECT COUNT(*) FROM {table} WHERE {col} = %s", (int(nid),))
+            if int(n or 0) > 0:
+                reasons.append(f"{int(n)} {label}")
+        members = scalar_done(
+            cn,
+            "SELECT COUNT(*) FROM member WHERE name_id = %s AND name_kind = 'roster'",
+            (int(nid),),
+        )
+        members = int(members or 0)
+        sole = scalar_done(
+            cn,
+            "SELECT 1 FROM member WHERE name_id = %s AND name_kind = 'roster' AND desk_id = %s LIMIT 1",
+            (int(nid), int(actor_id)),
+        )
+        if members > 1:
+            reasons.append(f"{members} members")
+        elif members == 1 and sole is None:
+            reasons.append("a member that is not you")
+        if reasons:
+            raise CoordError(
+                "delete: roster is referenced ("
+                + ", ".join(reasons)
+                + "); mill retire roster NAME soft-deletes instead"
+            )
+        if not admin:
+            if members == 0:
+                raise CoordError("delete: only Admin can hard-delete a roster with no members")
+            # sole member == acting desk: allowed (creator stand-in)
+        cur = cn.cursor()
+        try:
+            cur.execute("DELETE FROM member WHERE name_id = %s AND name_kind = 'roster'", (int(nid),))
+            cur.execute("DELETE FROM name WHERE id = %s AND type = 'roster' AND deleted IS NULL", (int(nid),))
+            if cur.rowcount != 1:
+                raise CoordError("delete: roster disappeared; nothing changed")
+            cn.commit()
+        except Exception:
+            cn.rollback()
+            raise
+        finally:
+            cur.close()
+        return {"op": "deleted", "type": "roster", "name": bare_name, "id": int(nid)}
+
+    if k == "label":
+        n = scalar_done(
+            cn,
+            "SELECT COUNT(*) FROM label WHERE name_id = %s AND name_kind = 'label'",
+            (int(nid),),
+        )
+        if int(n or 0) > 0:
+            raise CoordError(
+                f"delete: label is on {int(n)} items; mill retire label NAME soft-deletes instead"
+            )
+        if not admin:
+            # An unused label: any seated desk may remove it (no creator column yet).
+            pass
+        cur = cn.cursor()
+        try:
+            cur.execute("DELETE FROM name WHERE id = %s AND type = 'label' AND deleted IS NULL", (int(nid),))
+            if cur.rowcount != 1:
+                raise CoordError("delete: label disappeared; nothing changed")
+            cn.commit()
+        except Exception:
+            cn.rollback()
+            raise
+        finally:
+            cur.close()
+        return {"op": "deleted", "type": "label", "name": bare_name, "id": int(nid)}
+
+    # tree
+    n = scalar_done(
+        cn,
+        "SELECT COUNT(*) FROM tree WHERE name_id = %s AND name_kind = 'tree'",
+        (int(nid),),
+    )
+    if int(n or 0) > 0:
+        raise CoordError(
+            f"delete: tree has {int(n)} nodes; remove them first, or mill retire tree NAME soft-deletes"
+        )
+    # tree_read cursors if any
+    try:
+        n2 = scalar_done(cn, "SELECT COUNT(*) FROM tree_read WHERE tree_id = %s", (int(nid),))
+    except Exception:
+        n2 = 0
+    if int(n2 or 0) > 0:
+        raise CoordError(
+            f"delete: tree has {int(n2)} read cursors; clear them, or mill retire tree NAME soft-deletes"
+        )
+    cur = cn.cursor()
+    try:
+        cur.execute("DELETE FROM name WHERE id = %s AND type = 'tree' AND deleted IS NULL", (int(nid),))
+        if cur.rowcount != 1:
+            raise CoordError("delete: tree disappeared; nothing changed")
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return {"op": "deleted", "type": "tree", "name": bare_name, "id": int(nid)}

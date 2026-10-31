@@ -560,7 +560,8 @@ BEGIN
   END IF;
 END //
 
--- A name row is never hard-deleted. Retire stamps name.deleted (sp_name_retire; main: mill_name_delete).
+-- A desk name row is never hard-deleted. Retire stamps name.deleted (sp_name_retire; main: mill_name_delete).
+-- Card 879: an unreferenced roster, label or tree may be hard-deleted (mill delete); desks keep retire.
 CREATE TRIGGER name_no_delete BEFORE DELETE ON name
 FOR EACH ROW
 BEGIN
