@@ -132,7 +132,7 @@ def test_seat_mint_roster(monkeypatch):
     assert resolve_seat_roster(object(), "d1", "validator") == "validator"
     with pytest.raises(CoordError, match="Office is not a seat roster"):
         resolve_seat_roster(object(), "d1", "Office")
-    with pytest.raises(CoordError, match="no such project ghost"):
+    with pytest.raises(CoordError, match="no such roster ghost"):
         resolve_seat_roster(object(), "d1", "ghost")
     _patch_members(monkeypatch, ["Office"])
     with pytest.raises(CoordError, match="roster required"):
