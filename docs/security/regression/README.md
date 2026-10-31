@@ -1,6 +1,6 @@
 # Regression rows
 
-One markdown file per matrix row (`S-1.md`, `F213.md`, ...). Each file holds
+One markdown file per matrix row (`S-1.md`, `F213.md`, `F-wake-trailing.md`, ...). Each file holds
 a single table row. After add or edit, run:
 
 ```

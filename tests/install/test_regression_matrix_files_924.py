@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROWS = ROOT / "docs" / "security" / "regression"
 MATRIX = ROOT / "docs" / "security" / "REGRESSION-MATRIX.md"
 
-_ID = re.compile(r"^\| ((?:S-\d+|F\d+\w*))\b")
+_ID = re.compile(r"^\| ((?:S-\d+|F\d+\w*|F-[a-z0-9]+(?:-[a-z0-9]+)*))(?= )")
 
 
 def _ids_in_matrix(text: str) -> list[str]:
@@ -44,3 +44,29 @@ def test_generated_index_matches_row_files():
     got = MATRIX.read_text(encoding="utf-8")
     want = render(ROOT)
     assert got == want, "run: python tools/regression_matrix.py write"
+
+
+def test_every_row_file_is_rendered():
+    """A row file (any .md but README.md) is never silently ignored: each renders
+    as exactly one index row with its file name as ID (F-<slug> included)."""
+    sys.path.insert(0, str(ROOT))
+    from tools.regression_matrix import render
+
+    ids = _ids_in_matrix(render(ROOT))
+    stems = sorted(p.stem for p in ROWS.glob("*.md") if p.name != "README.md")
+    assert sorted(ids) == stems, (set(stems) ^ set(ids))
+    assert len(ids) == len(set(ids)), "duplicate row IDs"
+
+
+def test_function_slug_rows_kept():
+    """The F-<slug> rows that 0.8.0 cites by name (commands.md, connect.md,
+    test_wake_trailing_669.py) stay in the generated index."""
+    text = MATRIX.read_text(encoding="utf-8")
+    ids = set(_ids_in_matrix(text))
+    for rid in (
+        "F-claim-takeover", "F-hold-bare-list", "F-hold-peek-unknown-hint",
+        "F-note-detail", "F-replay-quiet", "F-sync-hint-fold",
+        "F-wake-trailing", "F-watch-hold-name",
+    ):
+        assert rid in ids, rid
+        assert (ROWS / f"{rid}.md").is_file(), rid

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROWS_DIR = Path("docs/security/regression")
 MATRIX = Path("docs/security/REGRESSION-MATRIX.md")
 
-_ID = re.compile(r"^\| ((?:S-\d+|F\d+\w*))\b")
+_ID = re.compile(r"^\| ((?:S-\d+|F\d+\w*|F-[a-z0-9]+(?:-[a-z0-9]+)*))(?= )")
 _HEADER = (
     "# Security regression matrix\n"
     "\n"
