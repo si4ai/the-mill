@@ -13,7 +13,8 @@
     "lessons_byte_cap": 12000,
     "lessons_count_cap": 25,
     "handoff_char_cap": 1500,
-    "first_message_template": "desk {desk}\ndo the open work (claimed cards, open letters) first, then start mill connect-wait"
+    "first_message_template": "desk {desk} on office {mill_office}. learn-label {lessons_label}. load only the mill-desk skill (not mill-build-assist). run `mill --office {mill_office} todo --mine` and do open work; do not read the mail backlog or scan the board. then sit: `mill --office {mill_office} connect-wait {desk}` in the FOREGROUND (never background, never &, never a separate mill connect). on a hint: read that letter first; work letter -> do it, reply, sit again; status note -> mark, sit again; stop letter -> stay down; dropped socket -> sit again. never two sits. human chat wins over mail. after crash/resume, read inbox before sitting. near {context_restart_tokens} tokens: write learn-{desk}, open work, and a handoff, then ask for a fresh desk-start (never resume, never compact).",
+    "context_restart_tokens": 190000
   },
   "desks": [
     {
@@ -31,7 +32,8 @@
       "handoff_letter_id": null,
       "handoff_query": "trail --label learn-example-desk",
       "add_dirs": [],
-      "first_message_template": "desk {desk}\nlearn-label {lessons_label}\ndo the open work first, then start mill connect-wait"
+      "first_message_template": "desk {desk} on office {mill_office}. learn-label {lessons_label}. load only the mill-desk skill (not mill-build-assist). run `mill --office {mill_office} todo --mine` and do open work; do not read the mail backlog or scan the board. then sit: `mill --office {mill_office} connect-wait {desk}` in the FOREGROUND (never background, never &, never a separate mill connect). on a hint: read that letter first; work letter -> do it, reply, sit again; status note -> mark, sit again; stop letter -> stay down; dropped socket -> sit again. never two sits. human chat wins over mail. after crash/resume, read inbox before sitting. near {context_restart_tokens} tokens: write learn-{desk}, open work, and a handoff, then ask for a fresh desk-start (never resume, never compact).",
+      "context_restart_tokens": 190000
     }
   ]
 }

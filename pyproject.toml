@@ -5,7 +5,7 @@ backend-path = ["build_backend"]
 
 [project]
 name = "the-mill"
-version = "0.8.1rc1"
+version = "0.8.1"
 description = "Office for AI desks: mill-wall HTTPS, mill connect, MAIL/TODO/HOLD. Agent skills (and mill to back them) so coordination is glanceable."
 readme = "README.md"
 license = "MIT"

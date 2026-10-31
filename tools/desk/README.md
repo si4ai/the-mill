@@ -88,6 +88,10 @@ production.
   `export_before_restart` is true. Old sessions are **kept** (never deleted).
 - Writes `session.json` only under the desk folder (new session id for a later
   resume).
+- Plan prints `context_restart_tokens` (default 190000). Near that count the
+  desk writes learn-<desk>, open work and a handoff, then asks for a fresh
+  desk-start (never resume, never compact). Enforcement is by the desk /
+  operator; desk-start only plumbs and documents the field.
 
 ## Config schema (summary)
 
@@ -96,13 +100,23 @@ production.
 `launch_mode` (`dashboard`|`window`, default `dashboard`), `leader_socket` (optional).
 
 **defaults:** `permission_mode`, `allow_bypass_permissions`, lesson/handoff
-caps, `first_message_template`.
+caps, `context_restart_tokens` (default `190000`; desk asks for a fresh
+desk-start near that count - never resume, never compact; operator/desk
+enforced), `first_message_template` (lean grok-tui sit: foreground
+`connect-wait`, no backlog/board scan, human chat wins; placeholders
+`{desk}`, `{lessons_label}`, `{mill_office}`, `{roster}`,
+`{context_restart_tokens}`).
 
 **desks[]:** `name`, `work_dir`, `export_dir`, `agent_file`, `model`,
 `reasoning_effort`, `permission_mode`, `credential_target`, `lessons_label`,
-`lessons_byte_cap`, `lessons_count_cap`, `handoff_letter_id` or
-`handoff_query`, `add_dirs[]`, `first_message_template` (placeholders
-`{desk}`, `{lessons_label}`, `{mill_office}`, `{roster}`).
+`lessons_byte_cap`, `lessons_count_cap`, `context_restart_tokens`,
+`handoff_letter_id` or `handoff_query`, `add_dirs[]`, `first_message_template`
+(same placeholders as defaults).
+
+`lessons_byte_cap` / `lessons_count_cap` are enforced by
+`desk_start_plan.select_lessons` when the planner assembles lessons. The PS1
+launcher does not assemble lessons (it uses the template or `HANDOFF.md` plus
+`handoff_char_cap` only).
 
 Validation fails closed with a clear error (missing file, unknown desk,
 empty required path, unsafe permission mode without the allow flag).

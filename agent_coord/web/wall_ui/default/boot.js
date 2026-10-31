@@ -209,7 +209,7 @@
         box.hidden = !_wallInviteGateOk;
         /* gate via [hidden] only - do not toggle .on (that means selected strip tab) */
         try { box.classList.remove("on"); } catch (eOn) {}
-        /* live seat_count M/N when gate on (same mint owner/token) */
+        /* live seat_count M/N when gate on (same mint owner) */
         if (_wallInviteGateOk) {
           try { wallRefreshInviteCount(); } catch (eCnt) {}
         }
@@ -223,18 +223,16 @@
       }
     }
 
-    function wallInviteOwnerToken() {
+    function wallInviteOwner() {
       let human = "";
-      let token = "";
       let owner = "";
       try {
         human = localStorage.getItem("factory-human") || "";
-        token = localStorage.getItem("factory-human-token") || "";
         owner = human || localStorage.getItem("factory-desk") || localStorage.getItem("AGENT_COORD_OWNER") || "builder";
       } catch (eLs) {
         owner = "builder";
       }
-      return { owner: owner, token: token };
+      return { owner: owner };
     }
     let _wallInviteCountInflight = null;
     let _wallInviteCountLast = "";
@@ -276,15 +274,15 @@
       countEl.title = title || "";
     }
     async function wallRefreshInviteCount() {
-      /* POST /api/admin/invites {action:"seat_count", owner, token?} -> {ok, invites:N, joined:M}; display M/N. */
+      /* POST /api/admin/invites {action:"seat_count", owner} -> {ok, invites:N, joined:M}; display M/N.
+         The door session cookie rides this same-origin fetch. */
       const countEl = document.getElementById("wall-invite-count");
       if (!countEl) return null;
       if (!_wallInviteGateOk && !wallInviteGateOk()) return null;
       wallInviteCountSetLoading(countEl);
       if (_wallInviteCountInflight) return _wallInviteCountInflight;
-      const ot = wallInviteOwnerToken();
+      const ot = wallInviteOwner();
       const body = { action: "seat_count", owner: ot.owner };
-      if (ot.token) body.token = ot.token;
       _wallInviteCountInflight = (async () => {
         try {
           const r = await fetch("/api/admin/invites", {
@@ -7813,7 +7811,7 @@
     }
     function wallEnsureAdminInvites() {
       if (typeof wallEnsureModule === "function") return wallEnsureModule("adminInvite");
-      if (typeof wallLoadScript === "function") return wallLoadScript("/admin/invite.js?v=wow280");
+      if (typeof wallLoadScript === "function") return wallLoadScript("/admin/invite.js?v=wow281");
       return Promise.resolve();
     }
     function wallLoadAdminInvitesLazy() {

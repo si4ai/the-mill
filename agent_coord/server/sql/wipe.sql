@@ -108,6 +108,7 @@ DROP PROCEDURE IF EXISTS mill_doing_move;
 DROP PROCEDURE IF EXISTS mill_doing_insert;
 DROP PROCEDURE IF EXISTS mill_hold_upsert;
 DROP PROCEDURE IF EXISTS mill_hold_delete;
+DROP PROCEDURE IF EXISTS mill_hold_release_other;
 DROP PROCEDURE IF EXISTS mill_hold_select;
 DROP PROCEDURE IF EXISTS mill_score_upsert;
 DROP PROCEDURE IF EXISTS mill_score_admin_upsert;

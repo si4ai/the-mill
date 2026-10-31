@@ -124,7 +124,8 @@ def test_find_returns_select_rows_and_columns(cn, book):
 
 
 def test_drop_refusals_read_one_resource(cn, book):
-    assert rec_hold.drop(cn, "dl", "dl_b", "dl/one.md")["reason"] == "held by dl_a, not you"
+    refused = rec_hold.drop(cn, "dl", "dl_b", "dl/one.md")
+    assert refused["released"] is False and "held by dl_a" in refused["reason"]
     assert rec_hold.drop(cn, "dl", "dl_b", "dl/free.md")["reason"] == "not held by you"
     assert rec_hold.drop(cn, "dl", "dl_b", "dl/missing.md")["reason"] == "not held by you"
     assert rec_hold.own(cn, "dl_a")  # nothing released

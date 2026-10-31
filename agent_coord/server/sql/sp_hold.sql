@@ -7,6 +7,7 @@ DROP PROCEDURE IF EXISTS mill_hold_upsert;
 DROP PROCEDURE IF EXISTS mill_hold_delete;
 DROP PROCEDURE IF EXISTS mill_hold_select;
 DROP PROCEDURE IF EXISTS mill_hold_release_desk;
+DROP PROCEDURE IF EXISTS mill_hold_release_other;
 
 DELIMITER //
 
@@ -168,6 +169,76 @@ BEGIN
    WHERE h.desk_id = p_desk;
   UPDATE hold SET desk_id = NULL, updated = p_ts WHERE desk_id = p_desk;
   SET p_n = ROW_COUNT();
+END //
+
+
+-- Card 931 / F223: release one hold owned by another desk. Auth (Admin, or high-trust stale)
+-- is checked in Python before this call. The drop move row is by p_by with peer_id = the holder;
+-- the holder's seat token is untouched. p_expect is the holder Python approved against; release
+-- only when the row's desk_id still matches (check-then-act race guard). The age gate runs in
+-- Python (hold_stale_days config).
+CREATE PROCEDURE mill_hold_release_other(
+  IN p_id     BIGINT UNSIGNED,
+  IN p_by     VARCHAR(64),
+  IN p_expect VARCHAR(64)
+)
+BEGIN
+  DECLARE v_ts DATETIME(6);
+  DECLARE v_by BIGINT UNSIGNED;
+  DECLARE v_expect BIGINT UNSIGNED;
+  DECLARE v_holder BIGINT UNSIGNED;
+  DECLARE v_gone INT DEFAULT 0;
+  DECLARE v_move BIGINT UNSIGNED;
+  DECLARE v_roster BIGINT UNSIGNED;
+  DECLARE v_tok CHAR(64);
+  DECLARE v_disc DATETIME(6);
+  DECLARE v_reason VARCHAR(64) DEFAULT 'kept';
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
+  SET v_ts = MILL_NOW();
+  SET v_by = MILL_NAME_GET('desk', p_by);
+  IF v_by IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
+  END IF;
+  SET v_expect = MILL_NAME_GET('desk', p_expect);
+  IF v_expect IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
+  END IF;
+  -- Actor must have a live seat (same gate as mill_hold_delete).
+  SELECT id, token_hash, time_disconnect INTO v_move, v_tok, v_disc FROM seat WHERE desk_id = v_by FOR UPDATE;
+  IF v_tok IS NULL AND v_disc IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold: desk has no live seat';
+  END IF;
+  SET v_holder = NULL;
+  SELECT desk_id INTO v_holder FROM hold WHERE id = p_id FOR UPDATE;
+  IF v_holder IS NULL OR v_holder = v_by THEN
+    SET v_gone = 0;
+    SET v_reason = 'kept';
+  ELSEIF v_holder <> v_expect THEN
+    -- Holder changed since the Python check: refuse (do not drop the new holder).
+    SET v_gone = 0;
+    SET v_reason = 'holder changed';
+  ELSE
+    UPDATE hold
+       SET desk_id = NULL, updated = v_ts
+     WHERE id = p_id AND desk_id = v_expect;
+    SET v_gone = ROW_COUNT();
+    IF v_gone = 1 THEN
+      CALL mill_activity_put('hold', p_id, v_ts, v_by, NULL, 'drop', NULL);
+      SET v_roster = (SELECT roster_id FROM activity WHERE type = 'hold' AND id = p_id);
+      CALL mill_doing_move(v_by, v_roster, 'hold', p_id, 'drop', v_holder, '', v_ts, v_move);
+      SET v_reason = '';
+    ELSE
+      SET v_reason = 'kept';
+    END IF;
+  END IF;
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
+  SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok,
+         v_holder AS was_holder, v_reason AS reason;
 END //
 
 CREATE PROCEDURE mill_hold_select(IN p_project VARCHAR(64))
