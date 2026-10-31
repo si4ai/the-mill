@@ -367,3 +367,22 @@ def test_validator_pass_runs_in_the_queue_outside_ci() -> None:
     assert "python3 tools/check_validator_pass.py" in _job(code, "validator_pass")
     assert "secrets." not in code and "pip" not in code
     assert "validator_pass" not in _code(WF / "ci.yml")
+
+def test_publish_action_image_digest_is_pinned() -> None:
+    """#761: the composite publish action pulls ghcr.io/pypa/gh-action-pypi-publish
+    tagged with the action SHA (a mutable registry tag). publish_pypi must resolve
+    that tag and fail unless its digest equals a pin kept next to the action SHA."""
+    text = (WF / "release.yml").read_text(encoding="utf-8")
+    pypi = _job(text, "publish_pypi")
+    m = re.search(r"uses: pypa/gh-action-pypi-publish@([0-9a-f]{40})", pypi)
+    assert m, pypi
+    sha = m.group(1)
+    assert f'ACTION_SHA: "{sha}"' in pypi, pypi
+    dig = re.search(r'WANT_DIGEST: "(sha256:[0-9a-f]{64})"', pypi)
+    assert dig, pypi
+    # Pin kept next to the action SHA (comment on the uses: line).
+    uses_line = next(ln for ln in text.splitlines() if "gh-action-pypi-publish@" in ln)
+    assert dig.group(1) in uses_line, uses_line
+    assert "ghcr.io/v2/pypa/gh-action-pypi-publish/manifests/" in pypi, pypi
+    assert "docker-content-digest" in pypi, pypi
+    assert 'test "$got" = "$WANT_DIGEST"' in pypi, pypi
