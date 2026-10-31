@@ -31,16 +31,24 @@ def test_canary_shapes_fail() -> None:
     pypi = _j("pypi-AgEIcHlwaS5vcmcB", "B" * 50)
     pem = _j("-----BEGIN ", "OPENSSH PRIVATE KEY-----")
     xox = _j("xoxb-", "1234567890-abcdefghijklmnop")
+    xoxa = _j("xoxa-", "2-2345678901-AbCdEfGhIjKlMnOp")
+    xoxp = _j("xoxp-", "2345678901-2345678901-AbCdEfGhIjKlMnOp")
+    gpat = _j("github_pat_", "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ")
+    asia = _j("ASIA", "IOSFODNN7", "EXAMPLE")
     sk = _j("sk-", "abcdefghijklmnopqrstuvwxyz12")
     assign = _j("const API_", "TOKEN", " = '", "Aa1" * 12, "'")
     for text, kind in (
         (aws_id, "aws-access-key-id"),
+        (asia, "aws-access-key-id"),
         (f"{aws_id} {aws_secret}", "aws-secret-access-key"),
         (f"key={aws_id}", "aws-access-key-id"),
         (ghp, "github-pat"),
+        (gpat, "github-pat"),
         (pypi, "pypi-token"),
         (pem + "\nabc\n-----END OPENSSH PRIVATE KEY-----", "pem-private-key"),
         (xox, "slack-token"),
+        (xoxa, "slack-token"),
+        (xoxp, "slack-token"),
         (sk, "sk-api-key"),
         (assign, "high-entropy-secret-assign"),
     ):
@@ -56,6 +64,10 @@ def test_allowlisted_exact_vector_passes() -> None:
     near = "ghp_" + "B" * 36
     assert near != allowed
     assert "github-pat" in mod.credential_kinds(near)
+    # Sharing the first 8 characters is not enough (exact match only).
+    prefix_near = allowed[:8] + ("D" * (len(allowed) - 8))
+    assert prefix_near != allowed
+    assert "github-pat" in mod.credential_kinds(prefix_near)
 
 
 def test_clean_text_passes() -> None:
@@ -84,6 +96,11 @@ def test_k7_assignment_shapes() -> None:
         ("aws_secret_access_key = " + secret, "high-entropy-secret-assign"),
         ('API_KEY = "' + hex40 + '"', "high-entropy-secret-assign"),
         ('WEBHOOK_SECRET = "' + hex64 + '"', "high-entropy-secret-assign"),
+        # Bare KEY/TOKEN/SECRET names (no prefix before the keyword).
+        ("TOKEN=" + secret, "high-entropy-secret-assign"),
+        ("secret: " + secret, "high-entropy-secret-assign"),
+        ('key = "' + secret + '"', "high-entropy-secret-assign"),
+        ('"token": "' + secret + '"', "high-entropy-secret-assign"),
     )
     for text, kind in cases:
         kinds = mod.credential_kinds(text)
@@ -107,3 +124,124 @@ def test_precommit_msg_rejects_github_pat(tmp_path) -> None:
     )
     assert got.returncode == 1, got.stdout + got.stderr
     assert "credential" in (got.stderr + got.stdout).lower()
+
+
+def _fresh_repo(tmp_path: Path) -> Path:
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", "-q"], cwd=repo)
+    subprocess.check_call(["git", "config", "user.email", "builder@users.noreply.github.com"], cwd=repo)
+    subprocess.check_call(["git", "config", "user.name", "builder"], cwd=repo)
+    (repo / "README.md").write_text("ok\n", encoding="utf-8")
+    subprocess.check_call(["git", "add", "README.md"], cwd=repo)
+    subprocess.check_call(["git", "commit", "-q", "--no-verify", "-m", "seed"], cwd=repo)
+    return repo
+
+
+def test_scan_git_tracked_flags_credential(tmp_path, monkeypatch) -> None:
+    """Tip scan reports credential shapes (kills the no-git-tip-hook mutant)."""
+    import subprocess
+
+    mod = _mod()
+    repo = _fresh_repo(tmp_path)
+    ghp = _j("ghp_", "A" * 36)
+    (repo / "note.txt").write_text(_j("seed ", ghp, "\n"), encoding="utf-8")
+    subprocess.check_call(["git", "add", "note.txt"], cwd=repo)
+    subprocess.check_call(["git", "commit", "-q", "--no-verify", "-m", "add note"], cwd=repo)
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    fails = mod.scan_git_tracked(())
+    assert any("credential shape" in f and "git tip" in f for f in fails), fails
+
+
+def test_scan_artifact_flags_credential(tmp_path) -> None:
+    """Pack member scan reports credential shapes (kills the no-artifact-hook mutant)."""
+    import io
+    import tarfile
+    import zipfile
+
+    mod = _mod()
+    ghp = _j("ghp_", "A" * 36)
+    payload = _j("seed ", ghp, "\n").encode()
+    whl = tmp_path / "the_mill-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(whl, "w") as zf:
+        zf.writestr("agent_coord/zz.py", payload)
+    fails, _notes = mod.scan_artifact(whl, "wheel")
+    assert any("credential shape" in f for f in fails), fails
+    sdist = tmp_path / "the_mill-0.0.0.tar.gz"
+    with tarfile.open(sdist, "w:gz") as tf:
+        info = tarfile.TarInfo(name="the_mill-0.0.0/agent_coord/zz.py")
+        info.size = len(payload)
+        tf.addfile(info, io.BytesIO(payload))
+    fails, _notes = mod.scan_artifact(sdist, "sdist")
+    assert any("credential shape" in f for f in fails), fails
+
+
+def test_scan_git_messages_flags_credential(tmp_path, monkeypatch) -> None:
+    """Commit-message scan reports credential shapes (N5)."""
+    import subprocess
+
+    mod = _mod()
+    repo = _fresh_repo(tmp_path)
+    ghp = _j("ghp_", "A" * 36)
+    subprocess.check_call(
+        ["git", "commit", "-q", "--allow-empty", "--no-verify", "-m", _j("card 760 seed ", ghp)],
+        cwd=repo,
+    )
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    fails = mod.scan_git_messages()
+    assert any("credential shape" in f and "git commit" in f for f in fails), fails
+
+
+def test_scan_head_message_flags_credential(tmp_path, monkeypatch) -> None:
+    """--head-message / scan_head_message reports credential shapes (N6)."""
+    import subprocess
+
+    mod = _mod()
+    repo = _fresh_repo(tmp_path)
+    ghp = _j("ghp_", "A" * 36)
+    subprocess.check_call(
+        ["git", "commit", "-q", "--allow-empty", "--no-verify", "-m", _j("card 760 seed ", ghp)],
+        cwd=repo,
+    )
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    fails = mod.scan_head_message()
+    assert any("credential shape" in f for f in fails), fails
+
+
+def test_precommit_tree_and_staged_flag_credential(tmp_path, monkeypatch) -> None:
+    """precommit_hygiene tree and staged paths report credential shapes (M6/M7)."""
+    import importlib.util
+    import subprocess
+    import sys
+
+    repo = _fresh_repo(tmp_path)
+    ghp = _j("ghp_", "A" * 36)
+    (repo / "tools").mkdir()
+    # Copy hygiene + check_pack into the temp repo so ROOT resolves there.
+    import shutil
+
+    shutil.copy(ROOT / "tools" / "precommit_hygiene.py", repo / "tools" / "precommit_hygiene.py")
+    shutil.copy(ROOT / "tools" / "check_pack.py", repo / "tools" / "check_pack.py")
+    # Minimal hygiene_words so ordinary_words works
+    (repo / "tools" / "hygiene_words.txt").write_text("the\na\n", encoding="utf-8")
+    (repo / "canary.txt").write_text(_j("seed ", ghp, "\n"), encoding="utf-8")
+    subprocess.check_call(["git", "add", "canary.txt", "tools"], cwd=repo)
+    subprocess.check_call(["git", "commit", "-q", "--no-verify", "-m", "canary"], cwd=repo)
+    spec = importlib.util.spec_from_file_location("hyg_760", repo / "tools" / "precommit_hygiene.py")
+    hyg = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    # Ensure import finds check_pack next to it
+    sys.path.insert(0, str(repo / "tools"))
+    try:
+        spec.loader.exec_module(hyg)
+        tree_fails = hyg.scan_tree()
+        assert any("credential shape" in f for f in tree_fails), tree_fails
+        # Staged: modify and stage another canary
+        (repo / "staged.txt").write_text(_j("seed ", ghp, "\n"), encoding="utf-8")
+        subprocess.check_call(["git", "add", "staged.txt"], cwd=repo)
+        staged_fails = hyg.scan_staged()
+        assert any("credential shape" in f for f in staged_fails), staged_fails
+    finally:
+        sys.path.pop(0)

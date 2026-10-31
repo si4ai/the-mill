@@ -698,7 +698,7 @@ _SK_RE = re.compile(
 _ASSIGN_RE = re.compile(
     r"(?i)(?:(?:const|let|var|export)\s+)?"
     r"[\"']?"
-    r"[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*)?"  # empty prefix: bare TOKEN=/secret:/key=
     r"(?:KEY|TOKEN|SECRET)"
     r"[\"']?"
     r"\s*[=:]\s*"
