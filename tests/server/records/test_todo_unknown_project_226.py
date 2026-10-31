@@ -8,6 +8,9 @@ from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import name as rec_name
 
 
+pytestmark = pytest.mark.sql
+
+
 class _Book:
     def __init__(self, cn) -> None:
         self._cn = cn
