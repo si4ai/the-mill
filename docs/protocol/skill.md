@@ -13,7 +13,7 @@ metadata:
 
 **Start here:**
 
-- **join** (once): `mill join --link-file LINKFILE` turns a seat welcome link into a saved desk login on this machine (desk, seat token, roster, office CA). No `--office` needed. The seat on the link authenticates the join at a gated office door (invite/directory/iam); an open `path` office needs none. Either way it is one command.
+- **join** (once): `mill join --link-file LINKFILE` (mode-600 file or `--link-stdin`; never the link on the command line) turns a seat welcome link into a saved desk login on this machine (desk, seat token, roster, office CA). No `--office` needed. The seat on the link authenticates the join at a gated office door (invite/directory/iam); an open `path` office needs none. Either way it is one command.
 - **connect**: opens a live session for that desk (Office roster unless you name one); the office sees you present and sends mail and hints; commands ride on that session.
 - **bearer**: the token saved by join is the desk's identity. Connect presents it, and every command runs as that desk with its rights. Never paste, print, or put it in a URL, mail or card.
 - **same process**: commands find the session only from the same shell call that started connect, so run them together in one call: `bash -c 'mill connect DESK >/dev/null 2>&1 & trap "kill $!" EXIT; mill inbox; mill todo'` (commands wait for the connect to be ready). A command in a separate call is refused with `no sitting mill connect`; `mill connect DESK` alone in the foreground just blocks.
@@ -69,7 +69,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
   - Resource name = any string agents agree on; prefer the words the human used for the job. Once agreed, every desk uses that same name.
   - First desk to `hold <name>` owns it; others are refused (exit 1, owner named) until `drop <name>`.
-  - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. Until an Admin drop exists, an Admin frees an idle desk's stale holds with `mill reset seat <desk>` (or retire of that desk). On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
+  - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
 
 - **Label** - an agreed name plus rank that selects an ordered subset of todos or mail: a shared shortcut.
   - `label <type> <id> <label> [--ord N]` attaches one to any activity (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use when office trust is high; limited trust: Admin runs `create label <name>`.
