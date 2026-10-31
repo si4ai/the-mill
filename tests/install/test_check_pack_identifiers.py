@@ -497,3 +497,139 @@ def test_head_message_cli_exit_codes(tmp_path, monkeypatch, capsys) -> None:
     assert mod.main(["--head-message"]) == 1
     out = capsys.readouterr().out
     assert who not in out
+
+
+# Card 935 (F225): --commits A..B scans every commit a PR would bring to main
+# (message, author/committer identity, added diff lines). Release branches land
+# as merge commits, so each of those commits reaches main as written.
+
+
+def _range_repo(tmp_path: Path, *messages: str, name: str = "builder", email: str | None = None) -> Path:
+    """A two-or-more-commit repo with role noreply identities on every commit."""
+    email = email or _NOREPLY
+    path = tmp_path / "range"
+    path.mkdir(parents=True)
+    _git(path, "init", "-q", "-b", "main")
+    for i, msg in enumerate(messages):
+        (path / "f.txt").write_text(f"line-{i}\n", encoding="ascii")
+        _git(path, "add", "f.txt")
+        _git(
+            path,
+            "-c",
+            f"user.name={name}",
+            "-c",
+            f"user.email={email}",
+            "commit",
+            "-q",
+            "-m",
+            msg,
+        )
+    return path
+
+
+def _commit_on(
+    repo: Path,
+    msg: str,
+    *,
+    name: str = "builder",
+    email: str | None = None,
+    content: str | None = None,
+) -> str:
+    email = email or _NOREPLY
+    body = content if content is not None else msg
+    (repo / "f.txt").write_text(body, encoding="utf-8")
+    _git(repo, "add", "f.txt")
+    _git(
+        repo,
+        "-c",
+        f"user.name={name}",
+        "-c",
+        f"user.email={email}",
+        "commit",
+        "-q",
+        "-m",
+        msg,
+    )
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _range_in(monkeypatch, repo: Path, rev_range: str, names: tuple[str, ...] = ()):
+    mod = _mod()
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    return mod, mod.scan_commit_range(rev_range, mod._home_user_regexes(names))
+
+
+def test_commit_range_clean_passes(tmp_path, monkeypatch) -> None:
+    repo = _range_repo(tmp_path, "base change", "tip change for the pack")
+    base = _git(repo, "rev-list", "--max-count=1", "--reverse", "HEAD")
+    # base is the oldest; range base..HEAD is the tip only when two commits.
+    # Use the parent of HEAD as the left side.
+    parent = _git(repo, "rev-parse", "HEAD~1")
+    _mod_, fails = _range_in(monkeypatch, repo, f"{parent}..HEAD")
+    assert fails == [], fails
+
+
+def test_commit_range_bad_message_fails(tmp_path, monkeypatch) -> None:
+    who = _j("W", "ibble")
+    repo = _range_repo(tmp_path, "base change")
+    parent = _git(repo, "rev-parse", "HEAD")
+    rev = _commit_on(repo, _j("fix for ", who))
+    _mod_, fails = _range_in(monkeypatch, repo, f"{parent}..HEAD")
+    assert f"personal name token in git commit {rev[:12]}" in fails, fails
+
+
+def test_commit_range_bad_author_email_fails(tmp_path, monkeypatch) -> None:
+    repo = _range_repo(tmp_path, "base change")
+    parent = _git(repo, "rev-parse", "HEAD")
+    bad = _j("desk", "@", "mail-host.co")
+    rev = _commit_on(repo, "plain tip", email=bad)
+    _mod_, fails = _range_in(monkeypatch, repo, f"{parent}..HEAD")
+    assert f"author email is not noreply in git commit {rev[:12]}" in fails, fails
+    assert bad not in "\n".join(fails)
+
+
+def test_commit_range_bad_author_name_fails(tmp_path, monkeypatch) -> None:
+    who = _j("W", "ibble")
+    repo = _range_repo(tmp_path, "base change")
+    parent = _git(repo, "rev-parse", "HEAD")
+    rev = _commit_on(repo, "plain tip", name=who)
+    _mod_, fails = _range_in(monkeypatch, repo, f"{parent}..HEAD")
+    assert f"author name is not a role identity in git commit {rev[:12]}" in fails, fails
+    assert who not in "\n".join(fails)
+
+
+def test_commit_range_bad_diff_line_fails(tmp_path, monkeypatch) -> None:
+    repo = _range_repo(tmp_path, "base change")
+    parent = _git(repo, "rev-parse", "HEAD")
+    addr = _j("someone", "@", "corp", ".", "com")
+    rev = _commit_on(repo, "add a contact line", content=_j("contact=", addr, "\n"))
+    _mod_, fails = _range_in(monkeypatch, repo, f"{parent}..HEAD")
+    assert f"email outside placeholder domains in git commit {rev[:12]} diff" in fails, fails
+    assert addr not in "\n".join(fails)
+
+
+def test_commit_range_cli_exit_codes(tmp_path, monkeypatch, capsys) -> None:
+    who = _j("W", "ibble")
+    mod = _mod()
+    clean = _range_repo(tmp_path / "c", "base", "tip clean")
+    parent = _git(clean, "rev-parse", "HEAD~1")
+    monkeypatch.setattr(mod, "mill_root", lambda: clean)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITLAB_CI", raising=False)
+    assert mod.main(["--commits", f"{parent}..HEAD"]) == 0
+    dirty = _range_repo(tmp_path / "d", "base")
+    dparent = _git(dirty, "rev-parse", "HEAD")
+    _commit_on(dirty, _j("fix for ", who))
+    monkeypatch.setattr(mod, "mill_root", lambda: dirty)
+    assert mod.main(["--commits", f"{dparent}..HEAD"]) == 1
+    out = capsys.readouterr().out
+    assert who not in out
+
+
+def test_identity_name_role_and_bot_pass() -> None:
+    mod = _mod()
+    for name in ("builder", "desk", "pyginapithon", "the-mill maintainers", "GitHub", "dependabot[bot]"):
+        assert mod.identity_name_ok(name), name
+    who = _j("W", "ibble")
+    assert not mod.identity_name_ok(who)
+    assert not mod.identity_name_ok("")

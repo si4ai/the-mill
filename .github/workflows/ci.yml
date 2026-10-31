@@ -99,6 +99,16 @@ jobs:
         env:
           MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}
         run: python tools/check_pack.py --head-message
+      # On a pull request every commit that would reach main (A..B) is scanned:
+      # message, author/committer identity, and added diff lines (card 935, F225).
+      # Release branches land as merge commits, so each of those commits is kept.
+      - if: github.event_name == 'pull_request'
+        env:
+          MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}
+          MILL_PRIVATE_NAMES_REQUIRED: ${{ github.event.pull_request.head.repo.fork && '0' || '1' }}
+        run: |
+          git fetch --no-tags origin main
+          python tools/check_pack.py --commits origin/main..HEAD
       # Whole-tree comment and prose hygiene, the same scan as the pre-commit hook.
       - run: python tools/precommit_hygiene.py tree
       # Audit without installing anything: the runtime floors (the oldest a
