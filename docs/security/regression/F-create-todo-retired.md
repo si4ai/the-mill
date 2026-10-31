@@ -1,0 +1,1 @@
+| F-create-todo-retired | `mill create todo ROSTER NEED` on a need whose only card is retired is refused with nothing written, and the refusal names `mill reclaim todo ROSTER NEED`. It no longer inserts a second card on the same need. Card 927. | `rpc._h_open`, `records.todo.find_retired` | `tests/server/records/test_create_todo_retired_927.py` (all cases) |
