@@ -1,0 +1,124 @@
+{
+  "sync_note": "Anchors couple the TLA+ who-may model to the real code. Each row must match at the cited path. Line numbers are hints; the check matches the marker string.",
+  "anchors": [
+    {
+      "id": "T4-claim",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "CREATE PROCEDURE cmd_claim(",
+      "property": "claim under card lock",
+      "lines": "115"
+    },
+    {
+      "id": "T4-claimed-by",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:claimed_by:",
+      "property": "NeverTookWithoutFlag / GuardClaimedBy",
+      "lines": "143-144"
+    },
+    {
+      "id": "T4-deleted",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "MESSAGE_TEXT = 'card:deleted'",
+      "property": "NoOrdinaryMoveWhileRetired / GuardDeleted",
+      "lines": "137-138"
+    },
+    {
+      "id": "T6-stale-prior",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:stale_prior",
+      "property": "take-over prior check",
+      "lines": "146-147"
+    },
+    {
+      "id": "T7-unclaim",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "CREATE PROCEDURE cmd_unclaim(",
+      "property": "OnlyVolunteerUnclaims",
+      "lines": "157"
+    },
+    {
+      "id": "T7-who-may",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:who_may_unclaim",
+      "property": "OnlyVolunteerUnclaims / GuardWhoMayUnclaim",
+      "lines": "174-176"
+    },
+    {
+      "id": "T8-ship",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:who_may_ship",
+      "property": "OnlyVolunteerShips / GuardWhoMayShip",
+      "lines": "220-221"
+    },
+    {
+      "id": "T9-done",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:who_may_done:",
+      "property": "OnlyAskerOrAdminDones / GuardWhoMayDone",
+      "lines": "225-229"
+    },
+    {
+      "id": "T10-back",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "card:who_may_back:",
+      "property": "OnlyAskerOrVolBacks / GuardWhoMayBack",
+      "lines": "233-235"
+    },
+    {
+      "id": "moves-status",
+      "path": "agent_coord/server/sql/sp_cmd.sql",
+      "marker": "CREATE FUNCTION MILL_CARD_MOVES(",
+      "property": "GuardMovesStatus",
+      "lines": "58-70"
+    },
+    {
+      "id": "T3-unpark",
+      "path": "agent_coord/server/sql/sp_todo.sql",
+      "marker": "card:unpark_status",
+      "property": "UnparkFromParked / GuardUnparkStatus",
+      "lines": "197-199"
+    },
+    {
+      "id": "T5-assign-guard",
+      "path": "agent_coord/server/sql/sp_todo.sql",
+      "marker": "card:assign_guard",
+      "property": "AssignOnlyWhenEmpty / GuardAssignEmpty",
+      "lines": "202-206"
+    },
+    {
+      "id": "T5-assign-rpc",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "assign: assignee must relinquish first",
+      "property": "AssignOnlyWhenEmpty",
+      "lines": "2235-2236"
+    },
+    {
+      "id": "T12-retire-who",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "who-may: {word} todo is the asker",
+      "property": "OnlyAskerOrAdminRetires / GuardWhoMayRetire",
+      "lines": "1304-1309"
+    },
+    {
+      "id": "T12-retire-sp",
+      "path": "agent_coord/server/sql/sp_todo.sql",
+      "marker": "CREATE PROCEDURE mill_todo_retire(",
+      "property": "T12 retire",
+      "lines": "350"
+    },
+    {
+      "id": "T13-reclaim-sp",
+      "path": "agent_coord/server/sql/sp_todo.sql",
+      "marker": "CREATE PROCEDURE mill_todo_reclaim(",
+      "property": "T13 reclaim",
+      "lines": "385"
+    },
+    {
+      "id": "write-deleted",
+      "path": "agent_coord/server/sql/sp_todo.sql",
+      "marker": "MESSAGE_TEXT = 'card:deleted'",
+      "property": "NoOrdinaryMoveWhileRetired",
+      "lines": "192-193"
+    }
+  ]
+}
