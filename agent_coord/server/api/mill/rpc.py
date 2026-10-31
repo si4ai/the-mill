@@ -2853,7 +2853,11 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         "id": rec.get("id"),
         "owner": owner_name if not ok else owner,
         "held": ok,
+        # Card 853: callers dedupe wake holds via refreshed; since stays the take time.
+        "refreshed": bool(int(rec.get("refreshed") or 0)) if ok else False,
     }
+    if ok and rec.get("since") is not None:
+        out["since"] = str(rec.get("since"))[:26]
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)

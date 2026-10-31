@@ -26,6 +26,8 @@ BEGIN
   DECLARE v_move BIGINT UNSIGNED;
   DECLARE v_tok CHAR(64);
   DECLARE v_disc DATETIME(6);
+  DECLARE v_refreshed TINYINT DEFAULT 0;
+  DECLARE v_since DATETIME(6);
   DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN SET v_id = NULL; SET v_held = NULL; END;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -63,6 +65,8 @@ BEGIN
     CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
     CALL mill_watcher_put('hold', v_id, v_desk);
     SET v_ok = 1;
+    SET v_since = v_ts;
+    SET v_refreshed = 0;
   ELSEIF v_held IS NULL THEN
     UPDATE hold
        SET desk_id = v_desk, updated = v_ts
@@ -74,20 +78,30 @@ BEGIN
       CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
       CALL mill_watcher_put('hold', v_id, v_desk);
       SET v_ok = 1;
+      SET v_since = v_ts;
+      SET v_refreshed = 0;
     ELSE
       SET v_ok = 0;
       SELECT desk_id INTO v_held FROM hold WHERE id = v_id;
     END IF;
   ELSEIF v_held = v_desk THEN
     -- Same holder again refreshes the row (#194). It does not stack a second lock and writes no move row.
+    -- Card 853: bump updated for #194, but report since as the take time (activity.updated),
+    -- so a second hold keeps since and sets refreshed true.
+    SELECT a.updated INTO v_since FROM activity a WHERE a.type = 'hold' AND a.id = v_id;
+    IF v_since IS NULL THEN
+      SELECT updated INTO v_since FROM hold WHERE id = v_id;
+    END IF;
     UPDATE hold SET updated = v_ts WHERE id = v_id;
     SET v_ok = 1;
+    SET v_refreshed = 1;
   ELSE
     SET v_ok = 0;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_id AS id, v_ts AS updated, v_res AS resource_id,
-         IF(v_ok = 1, v_desk, v_held) AS desk_id, v_ok AS ok;
+         IF(v_ok = 1, v_desk, v_held) AS desk_id, v_ok AS ok,
+         v_refreshed AS refreshed, v_since AS since;
 END //
 
 CREATE PROCEDURE mill_hold_delete(
