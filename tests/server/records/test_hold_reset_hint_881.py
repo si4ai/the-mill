@@ -11,7 +11,6 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
-from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import admin_desk, seed_names
 
 pytestmark = pytest.mark.sql
@@ -19,16 +18,11 @@ pytestmark = pytest.mark.sql
 R = "r881"
 GONE = "d881-gone"
 DEAD = "d881-dead"
-ADMIN = "d881-admin"
 
 
 @pytest.fixture()
 def book(cn):
-    seed_names(cn, (R, "roster"), (GONE, "desk"), (DEAD, "desk"), (ADMIN, "desk"))
-    # Admin seat for reset
-    from agent_coord.server.records.db import rows_done
-
-    # Ensure ADMIN is Admin for require_admin - use admin_desk fixture desk
+    seed_names(cn, (R, "roster"), (GONE, "desk"), (DEAD, "desk"))
     adm = admin_desk(cn)
     for d in (GONE, DEAD):
         rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
@@ -68,19 +62,13 @@ def test_retire_pokes_drop_hint_for_freed_hold(book, monkeypatch):
 
     monkeypatch.setattr(rpc, "_poke", capture)
     hid = int(rec_hold.find(cn, desk=DEAD, held=True)[0]["id"])
-    # Self-retire needs matching owner + seat hash; use admin retire --yes path
-    # via rec_name.retire through the non-yes branch requires hash. Prefer admin path.
-    # Direct: call retire with yes after setting body the admin catalog expects -
-    # simpler path: non-yes self-retire after seating DEAD with a known hash.
-    from agent_coord.server.records.db import scalar
-
-    # Seat DEAD already has token; compute hash for _seat_hash path by using
-    # rec_name.retire from records (no poke) then... we need RPC. Use admin.
-    # admin_cat.retire needs body shape - fall back to calling the non-yes
-    # path with by_hash: monkeypatch _seat_hash to accept.
-    monkeypatch.setattr(rpc, "_seat_hash", lambda *a, **k: "x")
-    # Self-retire requires owner == slug
-    rows = rpc._h_retire(_B(cn), {"slug": DEAD}, R, DEAD)
+    # Admin retire --yes (same shape as test_retire_desk_seat_sql_608).
+    rows = rpc._h_retire(
+        _B(cn),
+        {"slug": DEAD, "confirm": DEAD, "yes": True, "name_type": "desk"},
+        R,
+        adm,
+    )
     assert rows is not None
     got = {(t, i, c) for t, i, c in poked}
     assert ("hold", hid, "drop") in got, (got, hid)
