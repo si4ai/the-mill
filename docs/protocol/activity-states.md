@@ -275,3 +275,12 @@ Gaps:
 | score | retire undone by the next point | `sp_score.sql:263` |
 | score | one point reads `new`, never `met` | `score_series.py:67` |
 | score | no delete command; the SP keeps the score row, points and labels | `sp_score.sql:126` |
+
+## Live session after reset or retire (card 882)
+
+When Admin resets a desk (or the desk retires) while a client session is still
+running, the seat token is cleared and that desk's holds are freed in the same
+call. The old session's next hold take, refresh, or drop is refused with
+`hold: desk has no live seat`. Mutual exclusion for other desks is restored by
+the free; the reset desk must join again before it can hold.
+
