@@ -148,6 +148,8 @@ def cards_day_evidence(cn, project: str, when=None) -> dict | None:
 
     from agent_coord.server.records.name import bare
 
+    if cn is None:
+        return None
     roster = bare(project, CONST_ROSTER)
     day = (when or datetime.now()).strftime("%Y-%m-%d 00:00:00")
     cur = cn.cursor(dictionary=True)
@@ -180,6 +182,8 @@ def system_commands_today(cn, desk: str, when=None) -> int | None:
 
     from agent_coord.server.records.name import bare
 
+    if cn is None:
+        return None
     d = bare(desk, CONST_DESK) if desk else ""
     if not d:
         return None

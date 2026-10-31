@@ -143,7 +143,9 @@ BEGIN
     DECLARE v_pact VARCHAR(16) DEFAULT NULL;
     DECLARE v_prid BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_mins INT DEFAULT NULL;
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    SET @mill_req_tx = 1;
     SELECT g.id, g.on_type, g.on_id, g.created, g.text, g.act
       INTO v_prev, v_pon, v_pid, v_pct, v_ptxt, v_pact
       FROM seat s JOIN doing g ON g.id = s.doing_id
@@ -157,6 +159,7 @@ BEGIN
         CALL mill_card_score_event(v_prid, 'doing', NULL, NULL, NULL, v_mins, v_ts);
       END IF;
     END IF;
+    SET @mill_req_tx = v_saved;
   END;
   CALL mill_doing_insert(v_desk, v_roster, p_text, v_ts, v_id);
   -- The row was inserted by this call; nothing older is touched.

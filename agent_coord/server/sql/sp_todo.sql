@@ -271,13 +271,16 @@ BEGIN
   END IF;
   -- Card 955: first --started on the card body fills the cards score.
   BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    SET @mill_req_tx = 1;
     IF p_body IS NOT NULL
        AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
        AND (v_old_body IS NULL OR v_old_body = ''
             OR JSON_EXTRACT(CAST(IFNULL(NULLIF(v_old_body, ''), '{}') AS JSON), '$.started_at') IS NULL) THEN
       CALL mill_card_score_event(v_proj, 'started', NULL, NULL, NULL, NULL, v_ts);
     END IF;
+    SET @mill_req_tx = v_saved;
   END;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;

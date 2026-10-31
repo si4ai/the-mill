@@ -151,11 +151,19 @@ BEGIN
   END IF;
   CALL mill_card_write(p_card, p_desk, 'claimed', '=', p_body, NULL);
   -- Card 955: roster cards score (guarded; score failure never refuses claim).
+  -- Keep @mill_req_tx set so mill_card_score_event does not COMMIT and drop the
+  -- caller's row lock (F183 / test_claim_lock_867).
   BEGIN
     DECLARE v_rid BIGINT UNSIGNED DEFAULT NULL;
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+    BEGIN
+      SET @mill_req_tx = v_saved;
+    END;
+    SET @mill_req_tx = 1;
     SELECT roster_id INTO v_rid FROM todo WHERE id = p_card;
     CALL mill_card_score_event(v_rid, 'claimed', NULL, NULL, NULL, NULL, NULL);
+    SET @mill_req_tx = v_saved;
   END;
   SELECT p_card AS card, 'claimed' AS status, NULLIF(v_held, '') AS prior_volunteer;
 END //
@@ -302,7 +310,16 @@ BEGIN
   CALL mill_card_write(p_card, p_desk, v_next, '', NULL, IF(p_step = 'back', NULL, v_ev));
   -- Card 955: score after the write; guarded so a score failure never refuses pass.
   BEGIN
-    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+    BEGIN
+      SET @mill_req_tx = v_saved;
+      SET @mill_card_score_rid = NULL, @mill_card_score_kind = NULL,
+          @mill_card_score_lead = NULL, @mill_card_score_eta = NULL,
+          @mill_card_score_actual = NULL, @mill_card_score_doing = NULL,
+          @mill_card_score_now = NULL;
+    END;
+    SET @mill_req_tx = 1;
     IF @mill_card_score_kind IS NOT NULL THEN
       CALL mill_card_score_event(
         @mill_card_score_rid, @mill_card_score_kind,
@@ -311,6 +328,7 @@ BEGIN
         @mill_card_score_now
       );
     END IF;
+    SET @mill_req_tx = v_saved;
     SET @mill_card_score_rid = NULL, @mill_card_score_kind = NULL,
         @mill_card_score_lead = NULL, @mill_card_score_eta = NULL,
         @mill_card_score_actual = NULL, @mill_card_score_doing = NULL,

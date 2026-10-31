@@ -3001,7 +3001,10 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
     from agent_coord.server.records import score as rec_score
 
     out = dict(shaped)
-    doc = rec_score.cards_day_evidence(c._cn, project) or {}
+    try:
+        doc = rec_score.cards_day_evidence(c._cn, project) or {}
+    except Exception:
+        doc = {}
     shipped = int(doc.get("shipped") or 0)
     out["cards_per_day"] = shipped
     lead_n = int(doc.get("lead_n") or 0)
@@ -3026,7 +3029,10 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
             "avg_eta_min": (eta_sum // eta_n) if eta_n else None,
         },
     }
-    cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    try:
+        cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    except Exception:
+        cmds = None
     if cmds is not None:
         out["commands_used"] = cmds
     if not out.get("unit"):
@@ -3135,7 +3141,10 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         return one
     shaped = ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)
     out = {"roster": project, "scores": shaped}
-    cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    try:
+        cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    except Exception:
+        cmds = None
     if cmds is not None:
         out["commands_used"] = cmds
     return out
