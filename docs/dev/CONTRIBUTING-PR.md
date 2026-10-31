@@ -90,8 +90,10 @@ person or host leaks:
    runs CI only after a maintainer approves the run.
 
 5. Tell Builder the PR number in the card's thread. Builder reviews and
-   merges with squash or rebase (merge commits are off, so history stays
-   linear). The head branch is deleted on merge. Do not merge your own PR.
+   merges. Normal PRs squash (or rebase); a `release/*` branch lands with a
+   **merge commit** so its commits keep their shas and next-release work can
+   stack on the frozen release head without a rebase (card 935, F225). The
+   head branch is deleted on merge. Do not merge your own PR.
    Automatic Copilot code review is off (the `copilot-review` ruleset is
    disabled to save AI credits). Builder may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
@@ -113,17 +115,21 @@ person or host leaks:
    email"). `check_pack` fails on main if a personal address lands anyway;
    fixing that is a history rewrite the human office owner approves.
 
-   Scan the squash message before the merge. The squash title and body are
-   written at merge time, after the PR's CI ran, so they reach `main`
-   unchecked, and a hit there turns `main` red for every PR. Before a merge,
-   the merger writes the exact title, a blank line and the body to a file
-   and runs the commit-message check `main` runs:
+   Scan the merge message before the merge. For a squash, the title and body
+   are written at merge time, after the PR's CI ran, so they reach `main`
+   unchecked, and a hit there turns `main` red for every PR. For a
+   `release/*` merge commit, every commit on the branch already passed
+   `check_pack --commits origin/main..HEAD` on the PR (F225); the merge
+   commit's own message still needs a clean subject and body. Before a
+   merge, the merger writes the exact title, a blank line and the body to a
+   file and runs the commit-message check `main` runs:
 
        python tools/precommit_hygiene.py msg squash-msg.txt
 
    Exit 0 means the message is clean; anything else means reword, never
-   merge. Merge with that same title and body (`gh pr merge N --squash
-   --subject "..." --body-file body.txt --match-head-commit SHA`), never
+   merge. Merge a normal PR with that same title and body (`gh pr merge N
+   --squash --subject "..." --body-file body.txt --match-head-commit SHA`).
+   Merge a `release/*` PR with `--merge` and the same subject/body, never
    with the text GitHub composes and never with `--auto`. Builder's box runs
    this as one step: its `gh` wrapper refuses a `pr merge` without its own
    subject and body, runs the check_pack name-token rule on the whole

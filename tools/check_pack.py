@@ -3,6 +3,8 @@
 Usage:
   python tools/check_pack.py dist
   python tools/check_pack.py path/to.whl path/to.tar.gz
+  python tools/check_pack.py --head-message
+  python tools/check_pack.py --commits A..B
 
 Exits 0 when both artifacts are clean; exits 1 on any fail-closed hit.
 Does not print matched home-path, email, local home-user, or address substrings.
@@ -1056,6 +1058,200 @@ def identity_email_ok(addr: str) -> bool:
     return domain.casefold() == "users.noreply.github.com" or addr.casefold() == GITHUB_WEB_FLOW
 
 
+
+# Author and committer display names that may land on main. Role desks, the
+# project account, the maintainers line, GitHub's web-flow name, and any
+# exact GitHub bot name ending in [bot]. Personal Title-case names fail.
+ROLE_IDENTITY_NAMES = frozenset(
+    {
+        "auditor",
+        "bot",
+        "builder",
+        "desk",
+        "eggbot",
+        "gardener",
+        "github",
+        "github-pilot",
+        "grok-bot",
+        "grok-tui",
+        "pyginapithon",
+        "the-mill maintainers",
+        "validator",
+        "wall-ui",
+    }
+)
+
+
+def identity_name_ok(name: str) -> bool:
+    """Author and committer names: a role desk, the project account, or a GitHub bot."""
+    name = name.strip()
+    if not name:
+        return False
+    folded = name.casefold()
+    if folded in ROLE_IDENTITY_NAMES:
+        return True
+    if folded.endswith("[bot]"):
+        return True
+    return False
+
+
+def _message_fails(
+    rev: str,
+    author: str,
+    body: str,
+    pats: tuple[re.Pattern[str], ...],
+    vocab: set[str],
+    *,
+    where: str,
+) -> list[str]:
+    """Message rules shared by --head-message and --commits (hash only, never the text)."""
+    bot = is_dependabot_commit(author, body)
+    body = strip_bot_trailers(body)
+    fails: list[str] = []
+    if _has_local_home_user(body, pats):
+        fails.append(f"local home-user name in {where}")
+    if text_has_forbidden_address(body):
+        fails.append(f"non-documentation address in {where}")
+    if text_has_personal_home_path(body):
+        fails.append(f"home path with a login name in {where}")
+    if text_has_personal_email(body):
+        fails.append(f"email outside placeholder domains in {where}")
+    for cred_kind in credential_kinds(body):
+        fails.append(f"credential shape ({cred_kind}) in {where}")
+    if not bot and text_has_personal_name_token(name_scan_text(author, body), vocab):
+        fails.append(f"personal name token in {where}")
+    return fails
+
+
+def _diff_added_text(root: Path, rev: str) -> str:
+    """Concatenated added lines from a commit. Empty on error."""
+    try:
+        raw = subprocess.check_output(
+            ["git", "show", "--format=", "--unified=0", "--no-renames", rev],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    lines: list[str] = []
+    for ln in raw.decode("utf-8", "replace").splitlines():
+        if ln.startswith("+") and not ln.startswith("+++"):
+            lines.append(ln[1:])
+    return "\n".join(lines)
+
+
+def _diff_fails(rev: str, text: str, pats: tuple[re.Pattern[str], ...]) -> list[str]:
+    """Added-diff rules: same scrub and secret shapes as pack / tip files."""
+    if not text:
+        return []
+    where = f"git commit {rev[:12]} diff"
+    fails: list[str] = []
+    if _has_local_home_user(text, pats):
+        fails.append(f"local home-user name in {where}")
+    if text_has_forbidden_address(text):
+        fails.append(f"non-documentation address in {where}")
+    if text_has_personal_home_path(text):
+        fails.append(f"home path with a login name in {where}")
+    if text_has_personal_email(text):
+        fails.append(f"email outside placeholder domains in {where}")
+    for cred_kind in credential_kinds(text):
+        fails.append(f"credential shape ({cred_kind}) in {where}")
+    mark = text_mark(text)
+    if mark is not None:
+        fails.append(f"windows text mark U+{mark:04X} in {where}")
+    return fails
+
+
+def _identity_fails(
+    rev: str,
+    author_name: str,
+    author_email: str,
+    committer_name: str,
+    committer_email: str,
+    private: tuple[str, ...] = (),
+) -> list[str]:
+    """Author and committer name + email for one commit (hash and role only)."""
+    fails: list[str] = []
+    for role, name, email in (
+        ("author", author_name, author_email),
+        ("committer", committer_name, committer_email),
+    ):
+        if not identity_email_ok(email):
+            fails.append(f"{role} email is not noreply in git commit {rev[:12]}")
+        if not identity_name_ok(name):
+            fails.append(f"{role} name is not a role identity in git commit {rev[:12]}")
+        elif private and _has_local_home_user(name, _home_user_regexes(private)):
+            fails.append(f"{role} name matches a private name in git commit {rev[:12]}")
+    return fails
+
+
+def scan_commit_range(
+    rev_range: str,
+    pats: tuple[re.Pattern[str], ...] = (),
+    private: tuple[str, ...] = (),
+) -> list[str]:
+    """Every commit in A..B: message, author/committer identity, added diff lines.
+
+    Used on pull_request so a merge commit of a release branch cannot land a
+    commit that the squash-only --head-message path would never see. The report
+    is the hash and the kind, never the matched text.
+    """
+    root = mill_root()
+    try:
+        revs = subprocess.check_output(
+            ["git", "rev-list", "--reverse", rev_range],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return [f"cannot read commit range {rev_range} (failing closed)"]
+    rev_list = [ln.strip() for ln in revs.decode().splitlines() if ln.strip()]
+    if not rev_list:
+        return []
+    vocab = ordinary_words(root)
+    fails: list[str] = []
+    for rev in rev_list:
+        try:
+            raw = subprocess.check_output(
+                ["git", "log", "-1", "--format=%an%x1f%ae%x1f%cn%x1f%ce%x1e%B", rev],
+                cwd=root,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            fails.append(f"cannot read git commit {rev[:12]} (failing closed)")
+            continue
+        head, _, body = raw.decode("utf-8", "replace").partition("\x1e")
+        parts = head.strip().split("\x1f")
+        if len(parts) != 4:
+            fails.append(f"cannot parse identity for git commit {rev[:12]} (failing closed)")
+            continue
+        an, ae, cn, ce = parts
+        where = f"git commit {rev[:12]}"
+        fails.extend(_message_fails(rev, ae, body, pats, vocab, where=where))
+        fails.extend(_identity_fails(rev, an, ae, cn, ce, private=private))
+        fails.extend(_diff_fails(rev, _diff_added_text(root, rev), pats))
+    return fails
+
+
+def commits_main(rev_range: str) -> int:
+    """check_pack.py --commits A..B: every commit a PR would bring to main."""
+    names = private_names()
+    if not names and private_names_required():
+        print(f"FAIL: CI needs the {PRIVATE_NAMES_ENV} secret for the commit-range scan (fail-closed)")
+        return 1
+    home = tuple(sorted(set(local_home_user_names()) | set(names), key=str.casefold))
+    pats = _home_user_regexes(home)
+    fails = scan_commit_range(rev_range, pats, private=names)
+    if fails:
+        print(f"FAIL: {len(fails)} issue(s) in commit range {rev_range}")
+        for f in fails:
+            print(f"  - {f}")
+        print("Fix the commit message, identity, or added lines; do not rewrite published history.")
+        return 1
+    print(f"OK: commit range {rev_range} passed the per-commit rules.")
+    return 0
+
+
 def scan_git_identities() -> list[str]:
     """Every commit's author and committer email is noreply (S-10).
 
@@ -1381,10 +1577,14 @@ def main(argv: list[str] | None = None) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         print()
-        print("usage: python tools/check_pack.py dist | <wheel> <sdist> | --head-message")
+        print("usage: python tools/check_pack.py dist | <wheel> <sdist> | --head-message | --commits A..B")
         return 0 if argv and argv[0] in ("-h", "--help") else 2
     if argv == ["--head-message"]:
         return head_message_main()
+    if len(argv) == 2 and argv[0] == "--commits":
+        return commits_main(argv[1])
+    if argv and argv[0] == "--commits":
+        raise SystemExit("usage: python tools/check_pack.py --commits A..B")
 
     whl, sdist = resolve_artifacts(argv)
     all_fails: list[str] = []
