@@ -779,7 +779,7 @@ def scan_pack_provenance(
         mode = modes.get(rel)
         if mode is None:
             # Sdist setup.cfg: allow only the exact generated [egg_info] stanza.
-            # Keying on "file not on disk" let a sneaked setup.cfg pass after
+            # An on-disk presence check let a sneaked setup.cfg pass after
             # the builder deleted it and re-ran check_pack on the same dist (#757).
             if rel == "setup.cfg" and kind == "sdist" and data == _GENERATED_SETUP_CFG:
                 continue
