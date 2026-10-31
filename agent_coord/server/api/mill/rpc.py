@@ -3658,6 +3658,17 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
     return {"ok": True, "desk": owner, "wake": got}
 
 
+
+def _h_delete(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 879: mill delete roster|label|tree NAME when unreferenced."""
+    from agent_coord.server.records import name as rec_name
+
+    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    raw = str(body.get("slug") or body.get("name") or "").strip()
+    if not kind or not raw:
+        raise CoordError("delete: mill delete roster|label|tree NAME")
+    return rec_name.hard_delete(c._cn, raw, kind, by=owner or "")
+
 HANDLERS = {
     "wake-done": _h_wake_done,
     "inbox": _h_inbox,
@@ -3673,6 +3684,7 @@ HANDLERS = {
     "member-remove": _h_member,
     "rename": _h_rename,
     "retire": _h_retire,
+    "delete": _h_delete,
     "roster": _h_roster,
     "reclaim": _h_reclaim,
     "reset": _h_reset,
