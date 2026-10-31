@@ -635,11 +635,16 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
 
 
 def _connected_limit(body: dict[str, Any]) -> int | None:
-    """Positive --limit, or None when the flag was not sent. Below 1 is a refusal."""
-    if "limit" not in body or body.get("limit") in (None, ""):
+    """Positive connected_limit, or None when that key was not sent.
+
+    Released clients send limit=10 on every connected call, including history.
+    That key is ignored here so a plain connected list stays whole. Below 1
+    on the new key is a refusal.
+    """
+    if "connected_limit" not in body or body.get("connected_limit") in (None, ""):
         return None
     try:
-        n = int(body.get("limit"))
+        n = int(body.get("connected_limit"))
     except (TypeError, ValueError):
         raise CoordError("connected: --limit must be at least 1")
     if n < 1:
@@ -647,14 +652,12 @@ def _connected_limit(body: dict[str, Any]) -> int | None:
     return n
 
 
-def _heartbeat_rank(view: dict[str, Any]) -> tuple:
-    """Newest heartbeat first. A desk with no heartbeat sorts last."""
+def _heartbeat_rank(view: dict[str, Any]) -> tuple[int, float]:
+    """Newest heartbeat first. One key type, so mixed rows still sort."""
     hb = view.get("heartbeat")
     if isinstance(hb, datetime):
         return (0, -hb.timestamp())
-    if hb in (None, ""):
-        return (1, 0)
-    return (0, str(hb))
+    return (1, 0.0)
 
 
 def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -663,8 +666,9 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
 
     ROSTER is optional (none = desks active in the last day; --all every desk;
     --desk X one desk). --history lists past doing entries instead, a page at a time.
-    --limit N (card 647) keeps at most N live desks, newest heartbeat first.
-    With no --limit the live list and its order stay as they were.
+    --limit N (card 647) is the wire key connected_limit: at most N live desks,
+    newest heartbeat first. A body that only carries limit (a released client)
+    is not capped and is not refused on --history.
     """
     from agent_coord.server.records import doing as rec_doing
 
