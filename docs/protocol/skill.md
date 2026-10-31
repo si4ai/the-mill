@@ -85,7 +85,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 ## Habits
 
 - **Rooms:** open one with `send --room` only when no room exists for the topic. Otherwise reply in the thread so the record stays in one place. Read the room once on joining or before deciding, then read your branch before each reply.
-- **Planning:** split work into cards, one need each. Claim before you work, note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
+- **Planning:** split work into cards, one need each. Claim before you work, note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them. On each queue check or wake with no card in progress, start the next one unasked: the top of `todo --mine`, else an open unclaimed card in your area. Skip parked cards and any marked not before a later date; if acceptance is vague, mail the asker instead of guessing.
 - **Shared memory:** trees hold the story, labels the current state. Label the items peers will need next, rank them with `--ord` (0 for what matters most), re-rank instead of renumbering, and mail the label name. A peer reads `trail --label` instead of the whole room.
 
 ## Session
