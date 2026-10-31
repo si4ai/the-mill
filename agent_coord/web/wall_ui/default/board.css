@@ -692,7 +692,7 @@
     .hist-log { min-height: 0; overflow: auto; }
     .hist-row {
       display: grid;
-      grid-template-columns: 10rem 6.6rem 13rem 9rem auto;
+      grid-template-columns: 10rem 6.6rem 13rem 9rem minmax(6rem, 14rem) auto;
       justify-content: start;
       gap: .35rem .85rem; align-items: center;
       padding: .4rem .55rem; margin: 0 0 .28rem;
@@ -715,7 +715,9 @@
     .hist-row.kind-station { border-left-color: var(--mag); }
     .hist-row .who { color: var(--ink); font-weight: 600; }
     .hist-row .prod { color: var(--dim); font-size: 11px; }
-    .hist-row .who, .hist-row .prod {
+    /* #904: the act label has its own column and ellipsis (no wrap under the shared .n rule). */
+    .hist-row .act { color: var(--ink); font-size: 11px; }
+    .hist-row .who, .hist-row .prod, .hist-row .act {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
     }
     /* #92 activity state pill (read-only): deleted any type, sent live letter. */
@@ -729,7 +731,7 @@
     .act-state.st-deleted { border-style: dashed; text-decoration: line-through; }
     @media (max-width: 720px) {
       .hist-row { grid-template-columns: 8.2rem 5.4rem minmax(6rem, 1fr); }
-      .hist-row .prod, .hist-row .act-state { grid-column: 3; }
+      .hist-row .prod, .hist-row .act, .hist-row .act-state { grid-column: 3; }
     }
     .sg-chip.here { color: var(--green); border-color: var(--green); }
     tr.here-here { }
