@@ -278,9 +278,11 @@ Gaps:
 
 ## Live session after reset or retire (card 882)
 
-When Admin resets a desk (or the desk retires) while a client session is still
-running, the seat token is cleared and that desk's holds are freed in the same
-call. The old session's next hold take, refresh, or drop is refused with
-`hold: desk has no live seat`. Mutual exclusion for other desks is restored by
-the free; the reset desk must join again before it can hold.
+When Admin resets a desk while a client session is still running, the seat
+token is cleared and that desk's holds are freed in the same call. The old
+session's next hold take, refresh, or drop is refused with
+`hold: desk has no live seat` until the desk joins again. When the desk
+retires instead, holds are freed and the next hold is refused because the
+name is retired (`name retired: mill reclaim...`). Mutual exclusion for other
+desks is restored by the free either way.
 

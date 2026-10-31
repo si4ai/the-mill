@@ -1,9 +1,10 @@
 """Card 882 / F216: after reset, a still-running session cannot refresh or take holds.
 
 SPIN gap: reset frees the desk's holds while the session may still believe it
-holds them. Stated behaviour: the seat token is cleared, so the next hold
+holds them. Stated behaviour: after reset the seat token is cleared, so the next hold
 take/refresh/drop is refused with `hold: desk has no live seat` until the desk
-joins again. Retire of the desk has the same seat effect.
+joins again. After retire the desk name is gone, so the next hold is refused
+(`name retired`); either way a live session cannot keep writing the resource.
 """
 from __future__ import annotations
 
@@ -61,4 +62,7 @@ def test_after_retire_hold_is_refused(cn) -> None:
         rec_hold.upsert(cn, R, desk, "h882/ret")
         cn.commit()
     cn.rollback()
-    assert "no live seat" in str(ei.value).lower()
+    # Retire deletes the desk name; the next hold is refused (name retired),
+    # which still stops a live session that thought it held the resource.
+    msg = str(ei.value).lower()
+    assert "no live seat" in msg or "name retired" in msg, msg
