@@ -241,3 +241,49 @@ def test_release_other_refuses_when_holder_changed(book, monkeypatch) -> None:
     assert _holder(cn, res) == OTHER
     assert _token(cn, OTHER) == tok_before
     assert rec_hold.drop(cn, R, OTHER, res).get("released") is True
+
+
+def test_drop_refuses_when_holder_changes_mid_drop(book, monkeypatch) -> None:
+    """Drop-call race (Validator probe p2): holder changes between read and release."""
+    cn = book
+    monkeypatch.setenv("AGENT_COORD_TRUST", "high")
+    res = "h931/race-drop"
+    hid = _take(cn, HOLDER, res)
+    real = rec_hold.delete_other
+
+    def raced(cn_, hold_id, actor, *, expect):
+        # Mid-drop: original holder frees, OTHER takes the same row.
+        assert rec_hold.drop(cn_, R, HOLDER, res).get("released") is True
+        assert _take(cn_, OTHER, res) == hold_id
+        assert _holder(cn_, res) == OTHER
+        return real(cn_, hold_id, actor, expect=expect)
+
+    monkeypatch.setattr(rec_hold, "delete_other", raced)
+    out = rec_hold.drop(cn, R, ADMIN, res)
+    assert out.get("released") is False, out
+    reason = str(out.get("reason") or "").lower()
+    assert "holder changed" in reason, out
+    assert _holder(cn, res) == OTHER
+    assert rec_hold.drop(cn, R, OTHER, res).get("released") is True
+
+
+def test_drop_says_already_free_when_hold_gone_mid_drop(book, monkeypatch) -> None:
+    """When the hold is freed mid-drop, reply must not say kept."""
+    cn = book
+    monkeypatch.setenv("AGENT_COORD_TRUST", "high")
+    res = "h931/race-free"
+    hid = _take(cn, HOLDER, res)
+    real = rec_hold.delete_other
+
+    def raced(cn_, hold_id, actor, *, expect):
+        assert rec_hold.drop(cn_, R, HOLDER, res).get("released") is True
+        assert _holder(cn_, res) is None
+        return real(cn_, hold_id, actor, expect=expect)
+
+    monkeypatch.setattr(rec_hold, "delete_other", raced)
+    out = rec_hold.drop(cn, R, ADMIN, res)
+    assert out.get("released") is False, out
+    reason = str(out.get("reason") or "").lower()
+    assert "kept" not in reason, out
+    assert "already free" in reason or "gone" in reason, out
+    assert out.get("owner") is None, out

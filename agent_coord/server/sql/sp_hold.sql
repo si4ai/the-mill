@@ -215,7 +215,11 @@ BEGIN
   END IF;
   SET v_holder = NULL;
   SELECT desk_id INTO v_holder FROM hold WHERE id = p_id FOR UPDATE;
-  IF v_holder IS NULL OR v_holder = v_by THEN
+  IF v_holder IS NULL THEN
+    -- Freed between the Python read and this call: not held, so not 'kept'.
+    SET v_gone = 0;
+    SET v_reason = 'already free';
+  ELSEIF v_holder = v_by THEN
     SET v_gone = 0;
     SET v_reason = 'kept';
   ELSEIF v_holder <> v_expect THEN
@@ -237,7 +241,9 @@ BEGIN
     END IF;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok,
+  SELECT p_id AS id,
+         IF(v_gone = 1, 'released', IF(v_reason = '' OR v_reason = 'kept', 'kept', v_reason)) AS op,
+         IF(v_gone = 1, 1, 0) AS ok,
          v_holder AS was_holder, v_reason AS reason;
 END //
 
