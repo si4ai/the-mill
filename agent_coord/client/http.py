@@ -742,7 +742,11 @@ def mill_http_from_args(args: Any) -> int:
     inbox_short = mail_rows.inbox_applies(args)
     room_short = mail_rows.room_applies(args)
     note_short = mail_rows.note_applies(args)
+    from agent_coord.client import rooms_rows
+
+    rooms_short = rooms_rows.applies(args)
     mail_block: dict | None = None
+    rooms_block: dict | None = None
     # Lock: never let argv --owner rewrite session active / Bearer.
     body = body_from_args(args)
     mine = todo_rows.mine_applies(args)
@@ -799,6 +803,19 @@ def mill_http_from_args(args: Any) -> int:
     if note_short and isinstance(row, dict) and row.get("ok") is True:
         row = dict(row, result=mail_rows.short_note(row.get("result")))
     if (
+        rooms_short
+        and isinstance(row, dict)
+        and row.get("ok") is True
+        and isinstance(row.get("result"), dict)
+        and isinstance(row["result"].get("rooms"), list)
+    ):
+        part, rooms_block = rooms_rows.cut(
+            row["result"]["rooms"], int(getattr(args, "page", 0) or 0)
+        )
+        shaped = dict(row["result"], rooms=rooms_rows.short(part))
+        row = dict(row, result=shaped, page=rooms_block)
+        rooms_block = None
+    if (
         str(getattr(args, "cmd", "") or "") == "trail"
         and not bool(getattr(args, "as_json", False))
         and not bool(getattr(args, "raw", False))
@@ -812,7 +829,7 @@ def mill_http_from_args(args: Any) -> int:
         return 0
     cmd_now = str(getattr(args, "cmd", "") or "")
     if (
-        cmd_now in ("todo", "inbox", "hold")
+        cmd_now in ("todo", "inbox", "hold", "rooms")
         and not bool(getattr(args, "raw", False))
         and isinstance(row, dict)
         and row.get("ok") is True

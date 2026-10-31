@@ -1906,13 +1906,17 @@ def build_rooms(
         except (TypeError, ValueError):
             aff_id = 0
         aff_s = _nm(str(names.get(aff_id) or ""))
+        lft = int(raw.get("lft") or 0)
+        rgt = int(raw.get("rgt") or 0)
         enriched.append(
             {
                 "tree": str(raw.get("tree") or ""),
                 "type": "mail",
                 "id": rid,
-                "lft": int(raw.get("lft") or 0),
-                "rgt": int(raw.get("rgt") or 0),
+                "lft": lft,
+                "rgt": rgt,
+                # card 958: size = letter count on a mail-only tree
+                "size": ((rgt - lft + 1) // 2) if rgt >= lft else 0,
                 "roster_id": aff_s,
                 "title": "",
                 "status": "mail",
