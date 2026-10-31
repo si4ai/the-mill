@@ -83,7 +83,7 @@
       margin: 0 0 .45rem; padding: .35rem .45rem;
       border-left: 3px solid var(--cyan);
       background: var(--shop);
-      margin-left: calc(attr(data-depth type(<number>), 0) * 0.9rem);
+      margin-left: calc(var(--d, 0) * 0.9rem);
     }
     .mail-rooms-nest .mail-room-msg.is-unread { border-left-color: var(--amber); }
     .mail-rooms-nest .mail-room-msg.is-hit { outline: 1px solid var(--cyan); }

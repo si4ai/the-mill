@@ -71,14 +71,9 @@
     try { setTimeout(dump, ms || 0); } catch (e) {}
   }
 
-  function ensureStyle() {
-    /* Rules live in welcome.css so a strict style-src can load this strip (card 815). */
-  }
-
   function ensureStrip() {
     if (stripEl && stripEl.isConnected) return stripEl;
     if (typeof document === "undefined") return null;
-    ensureStyle();
     var existing = document.getElementById("wall-perf-strip");
     if (existing) { stripEl = existing; return stripEl; }
     var stack = document.querySelector(".strip-stack");

@@ -44,13 +44,13 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow325",
-    "board.css": "wow324",
-    "lazy.js": "wow323",
+    "boot.js": "wow326",
+    "board.css": "wow325",
+    "lazy.js": "wow324",
     "shell.css": "wow270",
-    "shell-early.js": "wow282",
+    "shell-early.js": "wow283",
     "theme.css": "wow165",
-    "welcome.css": "wow281",
+    "welcome.css": "wow282",
     "board-css.js": "wow281",
 }
 LAZY_PINS = (
@@ -70,11 +70,11 @@ LAZY_PINS = (
     "/mail/mail.js?v=wow285",
     "/score/score.js?v=wow322",
     "/todo/todo.js?v=wow320",
-    "/mail/mail.css?v=wow317",
-    "/score/score.css?v=wow320",
-    "/todo/todo.css?v=wow320",
+    "/mail/mail.css?v=wow318",
+    "/score/score.css?v=wow321",
+    "/todo/todo.css?v=wow321",
 )
-PERF_PIN = "/lib/perf.js?v=wow163"
+PERF_PIN = "/lib/perf.js?v=wow164"
 
 VOID = {
     "area", "base", "br", "col", "embed", "hr", "img", "input",

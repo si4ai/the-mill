@@ -1,4 +1,4 @@
-/* WALL_UI_WELCOME_CSS critical overlay, sync. Card 815. */
+/* WALL_UI_WELCOME_CSS. Welcome overlay, plus filter, swatch, and perf-strip rules. Card 815. */
 #wall-welcome:not([hidden]) {
   position: fixed; inset: 0; z-index: 90; display: flex;
   align-items: center; justify-content: center; padding: .75rem;
@@ -40,6 +40,7 @@
 .hot-label { margin: 0 0 .35rem; }
 .recovery-label { color: var(--ink); }
 .recovery-cmd { color: var(--cyan); }
+/* .swatch-0 through .swatch-7 match DESK_PALETTE in boot.js. Mail, todo, and hold use 1, 2, and 3. */
 .swatch-0 { background: #6fbf73; }
 .swatch-1 { background: #e6b84c; }
 .swatch-2 { background: #5ec8d8; }

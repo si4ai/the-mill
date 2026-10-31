@@ -106,7 +106,7 @@
       }
       if (!on) return;
       var s = document.createElement("script");
-      s.src = "/lib/perf.js?v=wow163";
+      s.src = "/lib/perf.js?v=wow164";
       document.write(s.outerHTML);
     } catch (e) {}
   }

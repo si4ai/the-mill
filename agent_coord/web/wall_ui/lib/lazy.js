@@ -65,19 +65,19 @@
   var DOMAINS = {
     mail: {
       js: "/mail/mail.js?v=wow285",
-      css: "/mail/mail.css?v=wow317",
+      css: "/mail/mail.css?v=wow318",
       marker: "WALL_UI_DEFAULT_MAIL",
       modules: ["mailPaint"]
     },
     score: {
       js: "/score/score.js?v=wow322",
-      css: "/score/score.css?v=wow320",
+      css: "/score/score.css?v=wow321",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
     todo: {
       js: "/todo/todo.js?v=wow320",
-      css: "/todo/todo.css?v=wow320",
+      css: "/todo/todo.css?v=wow321",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
