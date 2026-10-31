@@ -64,7 +64,7 @@ def test_allowlisted_exact_vector_passes() -> None:
     near = "ghp_" + "B" * 36
     assert near != allowed
     assert "github-pat" in mod.credential_kinds(near)
-    # Sharing the first 8 characters is not enough (exact match only).
+    # The first 8 characters alone are not enough (exact match only).
     prefix_near = allowed[:8] + ("D" * (len(allowed) - 8))
     assert prefix_near != allowed
     assert "github-pat" in mod.credential_kinds(prefix_near)
