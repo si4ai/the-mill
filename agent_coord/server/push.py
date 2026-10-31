@@ -290,11 +290,19 @@ def ring_waiting(cn, desk: str, why: str) -> str:
         return "sitting"
     row = rec_push.waiting(cn, desk)
     if not row:
-        return "none"
-    kind = str(row.get("kind") or "hint")
-    frame = dict(row.get("payload") or {})
-    frame.setdefault("kind", kind)
-    reason = ROOM if frame.pop(rec_push.WAKE_REASON, None) == "room" else ADDRESSED
+        # #949 / #826: push may be empty after a short connect marked rows sent, while
+        # the mailbox letter is still unread. Ring on that unread so the desk wakes.
+        unread = unread_mail_frames(cn, desk, limit=1)
+        if not unread:
+            return "none"
+        frame = dict(unread[0])
+        kind = "mail"
+        reason = ADDRESSED
+    else:
+        kind = str(row.get("kind") or "hint")
+        frame = dict(row.get("payload") or {})
+        frame.setdefault("kind", kind)
+        reason = ROOM if frame.pop(rec_push.WAKE_REASON, None) == "room" else ADDRESSED
     num = int(frame.get("id") or 0)
     if kind == "mail":
         frame[FIELD] = letter_key(num, desk)
@@ -764,13 +772,88 @@ def ack_sync(cn, desk: str, ids) -> int:
         return 0
 
 
+
+def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:
+    """#949: newest unread mailbox letters as sync/wake frames (opened IS NULL).
+
+    Soft-fails to [] so connect and wake keep working if the inbox read fails.
+    A short connect that drained the push queue without opening the letter still
+    sees these on the next connect-wait, and wake-done / leave can ring again.
+    """
+    try:
+        from agent_coord.server.records import mail as rec_mail
+
+        rows = rec_mail.inbox(cn, desk, all_mail=False, limit=max(1, int(limit or 20)))
+    except Exception as e:
+        _bc_log(f"unread mail err desk={desk} err={type(e).__name__}")
+        return []
+    if not isinstance(rows, list):
+        return []
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            mid = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if mid <= 0:
+            continue
+        out.append(
+            {
+                "kind": "mail",
+                "id": mid,
+                "outcome": "missed",
+                "body": row.get("body"),
+                "sender": row.get("desk") or row.get("sender"),
+            }
+        )
+    return out
+
+
+def _merge_unread_into_sync(cn, desk: str, sync):
+    """#949: after take/peek, append unread mailbox mail not already in the sync.
+
+    Frames with no push_queue id stay for the next sit until the desk opens the
+    letter (hold/ack does not drop them). Mutates the sync list in place so a
+    held peek keeps its row ids.
+    """
+    try:
+        unread = unread_mail_frames(cn, desk)
+    except Exception:
+        return sync if sync is not None else []
+    if not unread:
+        return sync if sync is not None else []
+    base = sync if isinstance(sync, list) else list(sync or [])
+    seen: set[int] = set()
+    for item in base:
+        if not isinstance(item, dict) or str(item.get("kind") or "") != "mail":
+            continue
+        try:
+            seen.add(int(item.get("id") or 0))
+        except (TypeError, ValueError):
+            pass
+    for frame in unread:
+        try:
+            mid = int(frame.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if mid and mid not in seen:
+            base.append(frame)
+            seen.add(mid)
+    return base
+
+
 def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     """Connect sync plus this desk's holds. Holds are not queue items.
 
     An empty push queue stays an empty list. If the hold read fails, holds is [].
     hold=True (#831): the queue rows stay until ack_sync after the frame is sent.
+    #949: unread mailbox mail (opened IS NULL) not already in the queue is merged
+    into sync so the next connect-wait exits at once after a short connect drained
+    the push rows without opening the letter.
     """
-    sync = take_sync(cn, desk, hold=hold)
+    sync = _merge_unread_into_sync(cn, desk, take_sync(cn, desk, hold=hold))
     holds: list = []
     try:
         from agent_coord.server.records import hold as rec_hold
