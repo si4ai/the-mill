@@ -367,3 +367,46 @@ def test_validator_pass_runs_in_the_queue_outside_ci() -> None:
     assert "python3 tools/check_validator_pass.py" in _job(code, "validator_pass")
     assert "secrets." not in code and "pip" not in code
     assert "validator_pass" not in _code(WF / "ci.yml")
+
+
+def test_ci_service_images_are_digest_pinned() -> None:
+    """#763: every `services:` image in a workflow carries @sha256:<64 hex>."""
+    pin = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+    bad: list[str] = []
+    for path in _workflows():
+        lines = _code(path).splitlines()
+        in_services = False
+        services_indent = 0
+        for i, ln in enumerate(lines, 1):
+            stripped = ln.lstrip(" ")
+            indent = len(ln) - len(stripped)
+            if re.match(r"services:\s*$", stripped):
+                in_services = True
+                services_indent = indent
+                continue
+            if in_services and stripped and indent <= services_indent and not stripped.startswith("#"):
+                in_services = False
+            if not in_services:
+                continue
+            m = re.match(r"image:\s*(\S+)\s*$", stripped)
+            if not m:
+                continue
+            image = m.group(1).strip("\"'")
+            if not pin.match(image):
+                bad.append("%s:%d %s" % (path.name, i, image))
+    assert bad == [], "service image missing digest pin: %s" % bad
+
+
+def test_ci_mysql_service_matches_dependabot_docker_pin() -> None:
+    """#763: the Dockerfile Dependabot watches names the same mysql pin as ci.yml."""
+    ci = (WF / "ci.yml").read_text(encoding="utf-8")
+    m = re.search(r"^\s+image:\s*(mysql:\S+)\s*$", ci, re.M)
+    assert m, "ci.yml pytest_sql mysql image missing"
+    image = m.group(1)
+    assert "@sha256:" in image, image
+    df = ROOT / ".github" / "docker" / "mysql" / "Dockerfile"
+    assert df.is_file(), "missing Dependabot docker pin Dockerfile"
+    assert ("FROM " + image) in df.read_text(encoding="utf-8"), (image, df.read_text(encoding="utf-8"))
+    dep = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    assert "package-ecosystem: docker" in dep
+    assert "directory: /.github/docker/mysql" in dep
