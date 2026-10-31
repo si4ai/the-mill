@@ -103,7 +103,7 @@ async function loadAdminInvites() {
     const body = Object.assign({ owner: human || desk }, payload);
     const r = await fetch("/api/admin/invites", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
       body: JSON.stringify(body),
     });
     const data = await r.json();

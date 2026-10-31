@@ -287,7 +287,7 @@
         try {
           const r = await fetch("/api/admin/invites", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
             body: JSON.stringify(body),
           });
           /* Hub recycle if 404 - surface TBD; Host recycles mill-wall. */
@@ -3348,7 +3348,7 @@
           const r = await fetch("/api/v1/glance/tap", {
             method: "POST",
             credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
             body: JSON.stringify({ taps: taps, passphrase: passphrase })
           });
           let data = null;
