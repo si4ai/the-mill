@@ -46,13 +46,14 @@ def test_after_reset_hold_refresh_and_take_are_refused(book) -> None:
     assert "no live seat" in str(ei.value).lower()
     # Another live desk can take the freed resource.
     assert int(rec_hold.upsert(cn, R, OTHER, "h882/lock")[0]["ok"]) == 1
+    # Free it so a later test's fixture can seat LIVE again on a clean book.
+    assert int(rec_hold.delete(cn, int(rec_hold.find(cn, resource="h882/lock")[0]["id"]), OTHER)[0]["ok"]) == 1
 
 
-def test_after_retire_hold_is_refused(book) -> None:
-    cn = book
-    # Fresh hold on a desk we will retire
+def test_after_retire_hold_is_refused(cn) -> None:
+    # Own setup: do not reuse the reset desk from the other test (token cleared).
+    seed_names(cn, (R, "roster"), ("d882-ret", "desk"))
     desk = "d882-ret"
-    seed_names(cn, (desk, "desk"))
     rec_join.upsert(cn, R, desk, "builder", token_hash=token_hash("tok-ret"), doing="present")
     assert int(rec_hold.upsert(cn, R, desk, "h882/ret")[0]["ok"]) == 1
     rec_name.retire(cn, desk, "desk", by=admin_desk(cn))
