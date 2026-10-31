@@ -199,21 +199,19 @@ def slowest_command_text(text: str, since: datetime) -> dict[str, Any] | None:
 
 
 def slowest_command(now: datetime | None = None) -> dict[str, Any] | None:
-    """Last hour of mill-perf.log, last 16MB only. Not a score row."""
+    """Last hour of mill-perf.log (live plus dated copies), last 16MB only. Not a score row."""
     from agent_coord.config import mill_home
+    from agent_coord.server.log_rotate import read_log_text
 
-    path = mill_home() / "mill-perf.log"
     try:
-        if not path.is_file():
-            return None
-        size = path.stat().st_size
-        with path.open("rb") as fh:
-            fh.seek(max(0, size - _PERF_TAIL))
-            raw = fh.read().decode("utf-8", "replace")
+        raw = read_log_text(mill_home(), "mill-perf.log")
     except OSError:
         return None
-    if size > _PERF_TAIL:
-        raw = raw.split("\n", 1)[-1]
+    if not raw:
+        return None
+    raw_b = raw.encode("utf-8", "replace")
+    if len(raw_b) > _PERF_TAIL:
+        raw = raw_b[-_PERF_TAIL:].decode("utf-8", "replace").split("\n", 1)[-1]
     now = now or datetime.now(timezone.utc)
     return slowest_command_text(raw, now - timedelta(hours=1))
 
