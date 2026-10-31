@@ -8,6 +8,8 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 
 Header note (card 906 / F195): the tables.sql and beta_ddl.sql headers no longer claim a read-committed isolation level. Join reads `name.deleted` under `FOR UPDATE` (see schema-design.md section 10); nothing sets a session level.
 
+Header note (card 879 / F210): beta_ddl.sql comment on `name_no_delete` clarifies that desk names keep soft retire; an unreferenced roster, label or tree may be hard-deleted by `mill delete` (app path). The trigger body is unchanged in this batch; a trigger relaxation would need its own row.
+
 Rows 1-46 (rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn; rows 29, 31-34 removed by the owner on 2026-10-26; row 40
 is lane A's). `beta_ddl.sql` keeps main's table order, except that seat, the desk kind table, comes right after name
 (row 37). There are no new tables: the book has main's 22.

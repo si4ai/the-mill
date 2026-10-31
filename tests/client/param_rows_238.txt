@@ -225,6 +225,11 @@ rename old
 rename new
 rename yes
 rename office
+delete (command)
+delete kind
+delete slug
+delete yes
+delete office
 retire (command)
 retire kind
 retire slug
