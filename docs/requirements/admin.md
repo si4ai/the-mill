@@ -13,6 +13,7 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | rename, retire, reclaim, reset | **Admin** (desk self-rename where hash matches still applies) |
 | `Admin` grant/revoke | **host loopback only**. `mill add roster Admin OTHER`. `mill join --Admin` does **not** grant. connect-on-host does **not** grant. |
 | set trust (`mill trust high` / `mill trust limited`) | **Admin** |
+| drop another desk's live hold (`mill drop NAME`) | **Admin**, either trust. The drop row names the actor and the holder, and the holder's seat is untouched. |
 
 ## 2. Trust-gated
 
@@ -23,6 +24,7 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | member-add/remove **other** (ordinary project or role) | any desk | **Admin** only |
 | member-add/remove **self** (ordinary project or role) | any desk | any desk |
 | **assign** (staff a desk onto a todo; not claim/hold) | any desk, only if card has **no** assignee | **Admin** only, still only if unassigned |
+| drop another desk's stale hold (holder not connected and held 7+ days) | any seated desk | **Admin** only |
 
 Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / relinquish first.
 
@@ -66,7 +68,7 @@ stateDiagram-v2
 |---|---|
 | add/remove **self** on an ordinary project or role | any desk (either trust) |
 | add/remove **other** desk on an ordinary project or role | trust-gated (sec 2) |
-| add/remove on `Admin` | host loopback grant path / Admin (sec 1) |
+| add/remove on `Admin` | host loopback only for a grant; a revoke also needs the acting desk to be Admin (sec 1) |
 
 ```mermaid
 flowchart LR

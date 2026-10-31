@@ -18,7 +18,7 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **doing** (`--doing` on a command) | yes | Own doing rows only. |
 | **watcher** / hint | yes | Own subscription only. |
 | **hold** | yes | Take as self. |
-| **drop** (hold) | holder | Only the hold owner releases. Not unclaim. |
+| **drop** (hold) | holder, or Admin / high-trust stale | Own hold always. Live other: Admin. Stale other (disconnected + held 7+ days): any desk at high trust; Admin at limited. Not unclaim. |
 | **create todo** | yes | Creator = Bearer. (Wall internal: create path may be named `open`.) |
 | **claim** | yes | Volunteer = Bearer. |
 | **note** / **pass** / **unclaim** | assignee rules | Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |

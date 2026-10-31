@@ -51,7 +51,7 @@ Every command takes `--yes` (skips a prompt; a no-op where there is none) and `-
 | command | form | what |
 |---|---|---|
 | `hold` | `mill hold [name] [--peek] [--doing TEXT [--waiting-on WHAT]] [--group-by label|roster]` | Lock one resource office-wide. `--peek` reads without taking. With no name, `mill hold` (or `--peek` alone) lists every lock. A peek at a name never held says so in `hint`. |
-| `drop` | `mill drop <name> [--doing TEXT [--waiting-on WHAT]]` | Release your hold (not unclaim). |
+| `drop` | `mill drop <name> [--doing TEXT [--waiting-on WHAT]]` | Release a hold (not unclaim). Own hold: always. Another desk's live hold: Admin (either trust). Another desk's stale hold (holder not connected and held `hold_stale_days`+ days, default 7): any seated desk at high trust; Admin only at limited. The drop row is by the acting desk with the holder as peer; the holder's seat token is untouched. |
 | `wake-done` | `mill wake-done [--lease TOKEN] [--note TEXT]` | Last step of a webhook-woken run: ends the desk's wake lease, so letters that came meanwhile ring once (F144). `--lease` is the wake's `wake.lease`; a stale token ends nothing (F144b). Closes no card. |
 
 ## Label, watch, tree, score

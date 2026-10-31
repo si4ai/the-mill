@@ -444,7 +444,7 @@ def _ensure_activity_soft_delete(cn) -> list[str]:
                 "mill_score_evidence_purge",
             )),  # F2 revive in upsert; #204 purge is not part of the write
             ("sp_join.sql", ("mill_join_reset",)),
-            ("sp_hold.sql", ("mill_hold_delete",)),
+            ("sp_hold.sql", ("mill_hold_delete", "mill_hold_release_other")),
             ("sp_name.sql", ("mill_name_reclaim",)),
             ("sp_floor_scope.sql", ("mill_floor_part",)),  # perf: JOIN mill_floor_desk, mail dests
             # state any type (#91); mill_span reads Office by id 1 (#722).

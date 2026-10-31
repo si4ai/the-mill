@@ -214,3 +214,38 @@ def test_delete_restore_purge_write_timeline_acts(cn) -> None:
     assert acts.count("delete") >= 2
     assert "restore" in acts
     assert "purge" in acts
+
+
+def test_purge_label_refuses_non_admin(cn) -> None:
+    """Card 931 follow-up: purge of label/tree is Admin only (cli-desk.md)."""
+    d = _seat(cn, "d879-noadmin")
+    lid = rec_name.get_or_insert(cn, "l879-noadmin", "label")
+    rec_name.trash(cn, "l879-noadmin", "label", by=d)
+    with pytest.raises(CoordError, match="Admin"):
+        rec_name.purge_trashed(cn, "l879-noadmin", "label", by=d)
+    assert scalar_done(cn, "SELECT id FROM name WHERE type='label' AND name='l879-noadmin'") == lid
+
+
+def test_purge_tree_refuses_non_admin(cn) -> None:
+    d = _seat(cn, "d879-tree-na")
+    tid = rec_name.get_or_insert(cn, "t879-noadmin", "tree")
+    rec_name.trash(cn, "t879-noadmin", "tree", by=d)
+    with pytest.raises(CoordError, match="Admin"):
+        rec_name.purge_trashed(cn, "t879-noadmin", "tree", by=d)
+    assert scalar_done(cn, "SELECT id FROM name WHERE type='tree' AND name='t879-noadmin'") == tid
+
+
+def test_restore_roster_refuses_non_sole_non_admin(cn) -> None:
+    """Restore of a roster matches delete: sole remaining member or Admin."""
+    admin = admin_desk(cn)
+    _seat(cn, "d879-r1")
+    _seat(cn, "d879-r2")
+    _seat(cn, "d879-outsider")
+    rid = rec_name.get_or_insert(cn, "r879-rest-gate", "roster")
+    rec_member.put(cn, "r879-rest-gate", "d879-r1")
+    rec_member.put(cn, "r879-rest-gate", "d879-r2")
+    rec_name.trash(cn, "r879-rest-gate", "roster", by=admin)
+    with pytest.raises(CoordError, match="Admin|sole"):
+        rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by="d879-outsider")
+    out = rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by=admin)
+    assert out["op"] == "restored" and out["id"] == rid
