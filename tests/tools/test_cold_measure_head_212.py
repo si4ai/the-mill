@@ -222,7 +222,7 @@ def test_build_and_install_pip_target_env_and_kit_survive(tmp_path: Path, monkey
     force = [s for s in seen if "--force-reinstall" in s[0]]
     assert force, seen
     cmd, env, cwd = force[-1]
-    assert "venv" in cmd[0].replace("\\", "/") and cmd[0].endswith("python")
+    assert cmd[0] == str(out / "venv" / "bin" / "python"), cmd[0]
     assert env is not None and "PYTHONPATH" not in env
     assert cwd == str(out)
 
@@ -246,3 +246,89 @@ def test_refuse_recreate_when_venv_symlink_to_live(tmp_path: Path, monkeypatch) 
     assert (out / "venv").is_symlink()
     assert live.is_dir() and mill.is_file()
     assert (out / "JOIN.md").read_text(encoding="utf-8") == "kit\n"
+
+
+def test_recreate_unlinks_nonlive_venv_symlink_and_uses_out_python(tmp_path: Path, monkeypatch) -> None:
+    """--recreate on a non-live <out>/venv symlink unlinks only the link; pip uses out/venv/bin/python."""
+    mod = _mod()
+    head = _fake_head(tmp_path)
+    out = tmp_path / "kit"
+    out.mkdir()
+    (out / "JOIN.md").write_text("keep-me\n", encoding="utf-8")
+    target = tmp_path / "other-venv"
+    (target / "bin").mkdir(parents=True)
+    (target / "bin" / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (out / "venv").symlink_to(target)
+    dist = head / "dist"
+    dist.mkdir()
+    whl = dist / "the_mill-0.0.0-py3-none-any.whl"
+    whl.write_bytes(b"wheel")
+
+    def fake_create(self, path):  # noqa: ANN001
+        b = Path(path) / "bin"
+        b.mkdir(parents=True)
+        py = b / "python"
+        py.write_text("#!/bin/sh\n", encoding="utf-8")
+        py.chmod(0o755)
+
+    seen: list[tuple] = []
+
+    def fake_run(cmd, **kw):  # noqa: ANN001
+        seen.append((list(cmd), kw.get("env"), kw.get("cwd")))
+        return None
+
+    monkeypatch.setattr(mod.venv.EnvBuilder, "create", fake_create)
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setenv("PYTHONPATH", "/should/not/leak")
+    got = mod.build_and_install(head, out, recreate=True)
+    assert got == whl
+    assert (out / "JOIN.md").read_text(encoding="utf-8") == "keep-me\n"
+    assert not (out / "venv").is_symlink()
+    assert (out / "venv").is_dir()
+    assert target.is_dir()  # unlink dropped the link only
+    force = [s for s in seen if "--force-reinstall" in s[0]]
+    assert force, seen
+    cmd, env, cwd = force[-1]
+    assert cmd[0] == str(out / "venv" / "bin" / "python"), cmd[0]
+    assert env is not None and "PYTHONPATH" not in env
+    assert cwd == str(out)
+
+
+def test_recreate_rmtree_existing_venv_kit_survives(tmp_path: Path, monkeypatch) -> None:
+    """--recreate on a real (non-live) <out>/venv removes it; kit outside venv survives; pip uses out python."""
+    mod = _mod()
+    head = _fake_head(tmp_path)
+    out = tmp_path / "kit"
+    out.mkdir()
+    (out / "JOIN.md").write_text("keep-me\n", encoding="utf-8")
+    old = out / "venv"
+    (old / "bin").mkdir(parents=True)
+    (old / "bin" / "python").write_text("#!/bin/sh\nold\n", encoding="utf-8")
+    dist = head / "dist"
+    dist.mkdir()
+    whl = dist / "the_mill-0.0.0-py3-none-any.whl"
+    whl.write_bytes(b"wheel")
+
+    def fake_create(self, path):  # noqa: ANN001
+        b = Path(path) / "bin"
+        b.mkdir(parents=True)
+        py = b / "python"
+        py.write_text("#!/bin/sh\n", encoding="utf-8")
+        py.chmod(0o755)
+
+    seen: list[tuple] = []
+
+    def fake_run(cmd, **kw):  # noqa: ANN001
+        seen.append((list(cmd), kw.get("env"), kw.get("cwd")))
+        return None
+
+    monkeypatch.setattr(mod.venv.EnvBuilder, "create", fake_create)
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    got = mod.build_and_install(head, out, recreate=True)
+    assert got == whl
+    assert (out / "JOIN.md").read_text(encoding="utf-8") == "keep-me\n"
+    assert (out / "venv" / "bin" / "python").is_file()
+    force = [s for s in seen if "--force-reinstall" in s[0]]
+    assert force, seen
+    cmd = force[-1][0]
+    assert cmd[0] == str(out / "venv" / "bin" / "python"), cmd[0]
