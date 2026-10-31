@@ -97,6 +97,14 @@ inbox full
 inbox page
 inbox office
 inbox yes
+rooms (command)
+rooms all
+rooms sort
+rooms asc
+rooms full
+rooms page
+rooms office
+rooms yes
 score (command)
 score project
 score name
@@ -488,6 +496,6 @@ trust level
 trust office
 trust yes
 (mill) office
-connect hint
-floor alive
 session heartbeat
+floor alive
+connect hint
