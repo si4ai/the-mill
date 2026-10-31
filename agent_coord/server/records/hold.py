@@ -223,11 +223,19 @@ def may_drop_other(cn, actor: str, holder: str, *, hold_id: int = 0, since=None)
     return True, ""
 
 
-def delete_other(cn, hold_id: int, actor: str) -> list[dict]:
-    """Release another desk's hold as actor (card 931). Auth checked by caller."""
+def delete_other(cn, hold_id: int, actor: str, *, expect: str) -> list[dict]:
+    """Release another desk's hold as actor (card 931). Auth checked by caller.
+
+    expect is the holder the caller approved against; the SP refuses when the
+    row's holder no longer matches (check-then-act race guard).
+    """
     from agent_coord.server.records.name import bare
 
-    return call(cn, "mill_hold_release_other", [int(hold_id), bare(actor, CONST_DESK)])
+    return call(
+        cn,
+        "mill_hold_release_other",
+        [int(hold_id), bare(actor, CONST_DESK), bare(expect, CONST_DESK)],
+    )
 
 
 def drop(cn, project: str, desk: str, resource: str) -> dict:
@@ -285,7 +293,7 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
                 "owner": holder or None,
                 "reason": reason,
             }
-        released = delete_other(cn, nid, desk)
+        released = delete_other(cn, nid, desk, expect=holder)
         ok = bool(released) and int((released[0] or {}).get("ok") or 0) == 1
         if ok:
             return {
@@ -296,13 +304,21 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
                 "owner": None,
                 "was_owner": holder,
             }
+        sp_reason = str((released[0] or {}).get("reason") or "").strip() if released else ""
+        now_owner = holder
+        for again in find(cn, resource=want) if want else []:
+            got2 = bare(str(again.get("resource") or ""), CONST_RES)
+            if got2 != want:
+                continue
+            now_owner = bare(str(again.get("desk") or ""), CONST_DESK) or holder
+            break
         return {
             "ok": False,
             "released": False,
             "resource": got or resource,
             "id": nid,
-            "owner": holder or None,
-            "reason": "release refused",
+            "owner": now_owner or None,
+            "reason": sp_reason or "release refused",
         }
     return {
         "ok": False,

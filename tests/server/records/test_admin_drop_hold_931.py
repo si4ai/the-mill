@@ -219,3 +219,25 @@ def test_non_admin_eight_day_disconnected_refused_at_limited(book, monkeypatch) 
     assert _holder(cn, res) == HOLDER
     # Admin still can
     assert rec_hold.drop(cn, R, ADMIN, res).get("released") is True
+
+
+def test_release_other_refuses_when_holder_changed(book, monkeypatch) -> None:
+    """Check-then-act: SP must refuse when the holder changed since the Python check."""
+    cn = book
+    monkeypatch.setenv("AGENT_COORD_TRUST", "high")
+    res = "h931/race-holder"
+    hid = _take(cn, HOLDER, res)
+    # Free, then OTHER takes the same row (holder changed hands).
+    assert rec_hold.drop(cn, R, HOLDER, res).get("released") is True
+    hid2 = _take(cn, OTHER, res)
+    assert hid2 == hid
+    assert _holder(cn, res) == OTHER
+    tok_before = _token(cn, OTHER)
+    # Python approved against HOLDER; SP must not drop OTHER.
+    rows = rec_hold.delete_other(cn, hid, ADMIN, expect=HOLDER)
+    assert rows and int(rows[0].get("ok") or 0) == 0, rows
+    reason = str((rows[0] or {}).get("reason") or "").lower()
+    assert "holder changed" in reason, rows[0]
+    assert _holder(cn, res) == OTHER
+    assert _token(cn, OTHER) == tok_before
+    assert rec_hold.drop(cn, R, OTHER, res).get("released") is True
