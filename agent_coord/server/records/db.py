@@ -222,10 +222,15 @@ def retryable_db(exc: BaseException) -> bool:
 def connect(database: str | None = None):
     """Checkout a pooled connection (close() returns it). Override DB -> direct.
 
-    A full pool waits about 2s. A down book fails at once (#144).
+    An explicit ``database=`` always opens a direct connection. The process pool
+    stays on the schema it was first built for; when tests set
+    ``AGENT_COORD_DATABASE`` to that same name and then call ``connect(name)``,
+    a name-equal check would hand back the stale pool and ``apply`` / invite SPs
+    would land on the wrong book (release/0.8.3 pytest_sql under xdist). A full
+    pool waits about 2s. A down book fails at once (#144).
     """
     kw = conn_kwargs()
-    if database and database != kw.get("database"):
+    if database is not None:
         import mysql.connector
 
         kw = dict(kw)
