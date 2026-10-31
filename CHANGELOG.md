@@ -4,10 +4,10 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- 0.8.3 (no bump yet): #286 F229 ci-speed xdist -n2; #287 F230 pwsh F221 guard; #288 F231 name-trash roster gate; #290 F232 pr_text name-token
 - card 933: macOS reset-seat coverage near beta
-- after 0.8.2: CI timing review and a speed-up card with numbers
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
-- card 938: `sp_name_trash` roster-gate (validator 3891 set-aside; not in this release)
+- card 943: per-desk GitHub apps (needs human app create/install)
 
 ## New changes
 
