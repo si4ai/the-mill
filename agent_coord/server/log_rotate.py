@@ -85,11 +85,16 @@ def sweep_retention(home: Path, filename: str) -> None:
 
 def append_line(path: Path, text: str) -> None:
     """Rotate if needed, then append one line. Thread-safe per process."""
+    from agent_coord.server.redact import redact_secrets
+
+    # Redact at the sink so log files never hold clear secrets (CodeQL py/clear-text-storage).
+    line = redact_secrets(text)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
         rotate_if_needed(path)
         with path.open("a", encoding="utf-8") as f:
-            f.write(text)
+            # Owner-only mill-home log; line already passed redact_secrets (dest_log + above).
+            f.write(line)  # codeql[py/clear-text-storage-sensitive-data]
 
 
 def read_log_text(home: Path, filename: str) -> str:

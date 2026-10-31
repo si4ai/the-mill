@@ -3,6 +3,12 @@
 How finished card PRs reach `main`. Pair with the mill-desk Habits line in
 `docs/protocol/skill.md`.
 
+**Default is the release train:** card PRs fold onto the `release/*` branch, the
+Validator gives one Pass for that release, and the release lands on `main` as a
+merge commit. A **per-PR squash merge** is the exception: only with a stated
+reason (for example an urgent fix that cannot wait for the release), and that
+reason goes in the PR description.
+
 ## One Validator Pass per release
 
 The Validator passes the **release branch** once. Card PRs do not each ask

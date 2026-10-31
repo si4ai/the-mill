@@ -5,15 +5,19 @@ from agent_coord.server import push
 from agent_coord.server.records import db
 
 
-def test_mill_perf_keeps_five_files_and_other_logs_do_not(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(push, "_PERF_MAX_BYTES", 64)
+def test_mill_perf_rotates_by_size_with_dated_copy(tmp_path, monkeypatch) -> None:
+    """#797: dest_log rotates through log_rotate (dated copy + size cap), not push._PERF_MAX_BYTES."""
     monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
-    for i in range(12):
+    monkeypatch.setattr(
+        "agent_coord.config.settings",
+        lambda path=None: {"log_max_bytes": 200, "log_retain_days": 30},
+    )
+    for i in range(6):
         push.dest_log("mill-perf.log", ("x" * 40) + f" {i}")
     assert (tmp_path / "mill-perf.log").is_file()
-    for n in range(1, 5):
-        assert (tmp_path / f"mill-perf.log.{n}").is_file()
-    assert not (tmp_path / "mill-perf.log.5").exists()
+    copies = list(tmp_path.glob("mill-perf.log.*"))
+    assert copies, "expected a dated rotated copy once the size cap is crossed"
+    # api log under the cap stays a single live file (no numbered .1 leftovers)
     push.dest_log("mill-api.log", "y" * 80)
     assert (tmp_path / "mill-api.log").is_file()
     assert not (tmp_path / "mill-api.log.1").exists()
