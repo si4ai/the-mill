@@ -8,6 +8,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - after 0.8.2: CI timing review and a speed-up card with numbers
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 938: `sp_name_trash` roster-gate (validator 3891 set-aside; not in this release)
+- card 962: post-ship check that the tag, the pack bytes, and each office health version agree
 
 ## New changes
 
