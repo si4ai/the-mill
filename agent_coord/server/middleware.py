@@ -1136,10 +1136,18 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
         def _body_len(self) -> int | None:
             """Declared body length, or None after a 413/400 refusal (#783, as #747).
 
-            Checked before one body byte is read.
+            Checked before one body byte is read. Only ASCII digits are
+            accepted (Unicode digits like U+00B2 fail closed as 400). The
+            digit string is capped so int() cannot raise on a huge length.
             """
             declared = str(self.headers.get("Content-Length") or "0").strip()
-            if not declared.isdigit():
+            # Cap before int(): Python refuses int() of >4300-digit strings.
+            if (
+                not declared
+                or len(declared) > 10
+                or not declared.isascii()
+                or not declared.isdigit()
+            ):
                 self._send(400, _json({"error": "bad Content-Length"}), "application/json; charset=utf-8")
                 return None
             n = int(declared)

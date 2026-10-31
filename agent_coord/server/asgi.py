@@ -415,7 +415,8 @@ def make_asgi_app(
         declared = request.headers.get("content-length")
         if declared is not None:
             d = declared.strip()
-            if not d.isdigit():
+            # ASCII digits only; cap length so int() cannot raise (#783).
+            if not d or len(d) > 10 or not d.isascii() or not d.isdigit():
                 return _body_refusal(400, "bad Content-Length")
             if int(d) > cap:
                 return _body_refusal(413, too_big)
