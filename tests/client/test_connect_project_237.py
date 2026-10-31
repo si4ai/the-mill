@@ -13,12 +13,12 @@ def test_refusal_sentence_edges() -> None:
     names = ["Office", "c237"]
     assert project_refusal("connect", "c237", names) is None
     unknown = project_refusal("connect", "c237-missing", names)
-    assert unknown == "connect: no such project c237-missing; projects: Office, c237"
+    assert unknown == "connect: no such roster c237-missing; rosters: Office, c237. list them: mill member"
     empty = project_refusal("connect", "  ", names)
-    assert empty == "connect: no such project; projects: Office, c237"
+    assert empty == "connect: no such roster; rosters: Office, c237. list them: mill member"
     retired = project_refusal("connect", "c237-gone", names)
     assert retired is not None
-    listed = retired.split("projects: ", 1)[1]
+    listed = retired.split("rosters: ", 1)[1].split(". list them:", 1)[0]
     assert "c237-gone" not in [p.strip() for p in listed.split(",")]
 
 
