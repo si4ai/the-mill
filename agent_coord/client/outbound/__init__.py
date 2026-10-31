@@ -63,6 +63,9 @@ WALL = COMMANDS | SIT | PROBE | frozenset(
         "member",
         "roster",
         "reclaim",
+        "delete",
+        "restore",
+        "purge",
         "reset",
         "invite",
         "invite-seat",
@@ -464,7 +467,7 @@ def body_from_args(args: Any) -> dict[str, Any]:
                 ]
             else:
                 body["mail_tos"] = to_desk
-    if cmd in ("retire", "rename", "reclaim") and str(getattr(args, "kind", "") or "") in ("roster", "label", "desk"):
+    if cmd in ("retire", "rename", "reclaim", "delete", "restore", "purge") and str(getattr(args, "kind", "") or "") in ("roster", "label", "desk", "tree"):
         # #537: the wall acts on the type named; a label may share its desk's name.
         body["name_type"] = str(args.kind)
     if cmd in ("retire", "rename") and str(getattr(args, "kind", "") or "") == "desk" and getattr(args, "desk_admin", False):

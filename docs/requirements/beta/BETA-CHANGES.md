@@ -60,6 +60,7 @@ is lane A's). `beta_ddl.sql` keeps main's table order, except that seat, the des
 | 44 | `activity` keys | adds `idx_updated` (updated) | the owner (2026-10-26): the Wall's newest list is a reverse index read, not a sort of the whole table (lab: over 100x faster; schema-lab act-vs-join.md) | approved by the owner (2026-10-26) |
 | 45 | `activity.weight` INT, `activity.n` SMALLINT | dropped (and `MILL_WEIGHT`, once no caller is left) | the owner (2026-10-26): both approximated token use; per-command reply bytes measure it, and `activity.bytes` stays as an item's read cost. Timeline buckets count items touched | approved by the owner (2026-10-26) |
 | 46 | `todo.evidence` VARCHAR(2000) | dropped; a card's evidence is `doing.evidence` on its ship or done move row (byte-equal on migrate; EVIDENCE_MAX 2000) | the owner (2026-10-26): doing is the card's history (row 42) | approved by the owner (2026-10-26) |
+| 47 | trigger `name_no_delete` always refuses DELETE; no `name.trashed` | `name.trashed` DATETIME(6) NULL; trigger allows DELETE only when `@mill_allow_name_hard_delete=1` and type in (roster,label,tree); `sp_name_trash` / `_restore` / `_purge`; acts delete/restore/purge on doing+activity | card 879 (Allen 2026-10-30): Jira-style trash + purge; retire stays archive | proposed, needs the owner |
 
 ## Names (the owner decision 2026-10-24)
 
@@ -189,6 +190,9 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `retire` | the item was retired (`mill retire`) | activity.deleted set |
 | `reclaim` | the item came back (`mill reclaim`) | activity.deleted cleared |
 | `remove` | the item was removed (`mill remove`) | activity.deleted set |
+| `delete` | a roster/label/tree was trashed (`mill delete`; card 879) | name.trashed set |
+| `restore` | a trashed name came back (`mill restore`; card 879) | name.trashed cleared |
+| `purge` | a trashed unreferenced name was hard-deleted (`mill purge`; card 879) | name row removed |
 
 Not in the list: `open` and `mark` (opening a letter writes no move: `mail_to.opened` keeps the first open and
 activity is not bumped), `status` and `pass` (a pass is ship, done or back), `cast` and `close` (no votes).
