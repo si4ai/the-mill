@@ -4,7 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
-- 0.8.3 (no bump yet): #286 F229 ci-speed xdist -n2; #287 F230 pwsh F221 guard; #288 F231 name-trash roster gate; #290 F232 pr_text name-token; #297 card 949 / F-replay-unread; #298 card 952 skill/cli-desk flag coverage; F233 connect(database=) bypasses stale pool; F234 perf lock_ms structural waits
+- 0.8.3 (no bump yet): #286 F229 ci-speed xdist -n2; #287 F230 pwsh F221 guard; #288 F231 name-trash roster gate; #290 F232 pr_text name-token; #297 card 949 / F-replay-unread; #298 card 952 skill/cli-desk flag coverage; F233 connect(database=) bypasses stale pool; F234 perf lock_ms structural waits; #292 card 923 / F235 client-older warn; #293 card 815 / F236 strict wall CSP; #262 desk.txt the-mill 0.7.19
 - card 933: macOS reset-seat coverage near beta
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 943: per-desk GitHub apps (needs human app create/install)
