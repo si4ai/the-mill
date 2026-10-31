@@ -84,15 +84,6 @@ def test_rename_retire_retype(body):
     assert body("retire roster a --yes")["confirm"] == "a"
 
 
-def test_delete_retype(body):
-    """Card 879: mill delete roster|label|tree retypes NAME like retire."""
-    with pytest.raises(CoordError, match="did not match"):
-        body("delete roster a", ask=lambda q: "x")
-    assert body("delete roster a --yes")["confirm"] == "a"
-    assert body("delete label lab --yes")["confirm"] == "lab"
-    assert body("delete tree plan --yes")["confirm"] == "plan"
-
-
 def test_reset_seat(body):
     assert body("reset seat d1 --yes")["desk"] == "d1"
     with pytest.raises(CoordError):

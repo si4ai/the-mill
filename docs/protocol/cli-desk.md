@@ -42,7 +42,6 @@ Every command takes `--yes` (skips a prompt; a no-op where there is none) and `-
 | | `mill pass <roster> <need> --done` | Close a shipped card: the asker, or Admin when the asker is gone or idle; any other desk is refused and the error names the asker. NEED may be a comma list (`a,b,c`): one result row per card, and a bad card does not stop the rest (F103). |
 | | `mill retire todo <roster> <need> [--yes]` | Take a stale card off every `mill todo` list, `--done` included. The asker or Admin; asks y/N. NEED may be a comma list. The card, its trail and its history are kept (F103). |
 | | `mill reclaim todo <roster> <need> [--yes]` | Undo `retire todo`: the card comes back with the status it had. The asker or Admin; NEED may be a comma list (F103). |
-| | `mill delete <roster|label|tree> <name> [--yes]` | Hard-delete an unreferenced roster, label or tree (card 879). Admin, or the sole remaining roster member. Referenced names stay on `mill retire`. Office and Admin never. Retype NAME, or `--yes`. |
 
 ## Hold
 

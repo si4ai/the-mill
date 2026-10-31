@@ -245,19 +245,6 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
         args.yes = True
         return args
 
-
-    if cmd == "delete":
-        # Card 879: mill delete roster|label|tree NAME (hard delete when unreferenced).
-        kind = str(getattr(args, "kind", "") or "").strip().lower()
-        if kind not in ("roster", "label", "tree"):
-            raise CoordError("delete: mill delete roster|label|tree NAME")
-        if str(getattr(args, "score_name", "") or getattr(args, "need", "") or ""):
-            raise CoordError(f"delete: {kind} takes one NAME")
-        retype(args.slug, f"delete {kind} {args.slug}", yes=yes, ask=ask)
-        args.confirm = args.slug
-        args.yes = True
-        return args
-
     if cmd == "reclaim":
         if args.kind == "todo":
             need = str(getattr(args, "need", "") or "").strip()

@@ -1034,16 +1034,6 @@ def _build_parser() -> MillArgumentParser:
     rnm.add_argument("new")
     rnm.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
-
-    dele = sub.add_parser(
-        "delete",
-        help="hard delete: mill delete roster|label|tree NAME when unreferenced; "
-        "creator stand-in (sole roster member) or Admin; referenced names keep mill retire",
-    )
-    dele.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
-    dele.add_argument("slug", metavar="NAME")
-    dele.add_argument("--yes", action="store_true", help="skip the retype prompt")
-
     rtr = sub.add_parser(
         "retire",
         help="soft delete: mill retire TYPE NAME; you retype NAME. Office never. "
