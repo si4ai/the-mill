@@ -212,7 +212,9 @@ Starter (desk-run; not a required GitHub check - CI cannot seat a tester):
     python tools/cold_measure_head.py --out ~/cold-kit --install
 
 `--install` builds the head wheel into `<out>/venv` only. It refuses an
-`--out` that is the live mill on PATH (or a tree marked `.live-mill-marker`).
+`--out` that is the live mill on PATH, a tree that already holds that mill,
+or a `.live-mill-marker` tree, and will not replace an existing `<out>/venv`
+without `--recreate`. A dirty checkout is refused unless `--allow-dirty`.
 The tester reads JOIN/skill from the kit and mill from that venv.
 
 Verdict sink: reply on the PR's mill thread to the opener, the merge partner

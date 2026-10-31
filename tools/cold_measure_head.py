@@ -10,8 +10,10 @@ mill.
       --join-sha J --skill-sha S --task ROW --join-row ROW --leave-row ROW
 
 `--install` builds the wheel from the head and pip-installs it into
-`<out>/venv` only. It never targets the live mill on PATH. The tester is an
-agent desk; CI cannot seat it, so this is not a required GitHub check.
+`<out>/venv` only. It never targets the live mill on PATH, and it refuses
+when that mill already lives under `<out>` (so it cannot rmtree a live
+venv). The tester is an agent desk; CI cannot seat it, so this is not a
+required GitHub check.
 
 Verdict sink: the tester replies on the PR's mill thread to the opener, the
 merge partner and validator, then leaves a one-line PR comment naming that
@@ -41,15 +43,14 @@ Same recipe as the post-ship cold measure (letters 3390 on 3385, 3198 on 3194).
 Not the ct1022 battery. Not a REMEASURE TOY pass.
 
 ## Kit
-This directory holds `JOIN.md`, `mill-desk/SKILL.md` and `grok-bot/SKILL.md`
-from the PR head, plus `manifest.json` (content shas). With `--install`,
-`<out>/venv` has the head wheel; put that venv's `bin` first on PATH for the
-tester. Do not install over the live office mill.
+This directory holds `JOIN.md` and `mill-desk/SKILL.md` from the PR head,
+plus `manifest.json` (content shas). With `--install`, `<out>/venv` has the
+head wheel; put that venv's `bin` first on PATH for the tester. Do not
+install over the live office mill.
 
 ## Desk
 One fresh `cold-*` desk woken through room barker (`--wake-on addressed`).
-Give the tester only this kit's JOIN.md + mill-desk SKILL (and the grok-bot
-guide when the head ships one). No other skills.
+Give the tester only this kit's JOIN.md + mill-desk SKILL. No other skills.
 
 ## Task (letter 2531, unchanged)
 {task}
@@ -92,35 +93,60 @@ def git_sha(root: Path) -> str:
         return "unknown"
 
 
+def git_dirty(root: Path) -> bool:
+    try:
+        out = subprocess.run(
+            ["git", "-c", f"safe.directory={root}", "-C", str(root), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return bool((out.stdout or "").strip())
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def mill_on_path() -> Path | None:
+    mill = shutil.which("mill")
+    return Path(mill).resolve() if mill else None
+
+
 def is_live_mill(path: Path) -> bool:
-    """True when out would clobber a marked live mill install tree."""
+    """True when out would clobber a live mill install tree."""
     p = path.resolve()
     if (p / LIVE_MARKER).is_file():
         return True
-    # Refuse installing into the directory that holds the mill on PATH.
-    mill = shutil.which("mill")
-    if mill:
-        mill_bin = Path(mill).resolve().parent
-        try:
-            p.relative_to(mill_bin)
-            return True
-        except ValueError:
-            pass
-        # Also refuse the parent of a user local bin that holds mill
-        # when out is exactly that bin's parent (e.g. ~/.local).
-        if p == mill_bin.parent:
-            return True
+    mill = mill_on_path()
+    if mill is None:
+        return False
+    mill_bin = mill.parent
+    # Refuse out inside the mill bin dir, or equal to its parent (~/.local).
+    try:
+        p.relative_to(mill_bin)
+        return True
+    except ValueError:
+        pass
+    if p == mill_bin.parent:
+        return True
+    # Refuse when the live mill binary already lives under out
+    # (e.g. out/venv/bin/mill and --out out -> would rmtree the live venv).
+    try:
+        mill.relative_to(p)
+        return True
+    except ValueError:
+        pass
     return False
 
 
-def stage_kit(root: Path, out: Path, *, refuse_live: bool = True) -> dict:
+def stage_kit(root: Path, out: Path, *, refuse_live: bool = True, allow_dirty: bool = False) -> dict:
     root = root.resolve()
     out = out.resolve()
     if refuse_live and is_live_mill(out):
         raise SystemExit(2)
+    if git_dirty(root) and not allow_dirty:
+        raise SystemExit("cold_measure_head: refuse dirty checkout (pass --allow-dirty to override)")
     join = root / "docs" / "JOIN.md"
     skill = root / "docs" / "protocol" / "skill.md"
-    guide = root / "docs" / "protocol" / "models" / "grok-bot" / "SKILL.md"
     for p in (join, skill):
         if not p.is_file():
             raise SystemExit(f"cold_measure_head: missing {p}")
@@ -131,16 +157,12 @@ def stage_kit(root: Path, out: Path, *, refuse_live: bool = True) -> dict:
     desk = out / "mill-desk"
     desk.mkdir(exist_ok=True)
     shutil.copy2(skill, desk / "SKILL.md")
-    if guide.is_file():
-        gdir = out / "grok-bot"
-        gdir.mkdir(exist_ok=True)
-        shutil.copy2(guide, gdir / "SKILL.md")
+    # Lock 3623: JOIN.md + mill-desk SKILL only (no other skills in the kit).
     manifest = {
         "head_sha": git_sha(root),
         "join_sha": content_sha(join),
         "skill_sha": content_sha(skill),
-        "guide_sha": content_sha(guide) if guide.is_file() else "",
-        "root": str(root),
+        "dirty": False,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (out / "recipe.md").write_text(RECIPE, encoding="utf-8")
@@ -154,18 +176,26 @@ def newest(dist: Path, pattern: str) -> Path:
     return hits[-1]
 
 
-def build_and_install(root: Path, out: Path) -> Path:
+def build_and_install(root: Path, out: Path, *, recreate: bool = False) -> Path:
     """Build the head wheel and pip-install into out/venv. Never the live mill."""
     if is_live_mill(out):
         raise SystemExit(2)
     out.mkdir(parents=True, exist_ok=True)
     venv_dir = out / "venv"
     if venv_dir.exists():
+        # Never delete an existing venv unless explicitly asked: a live mill
+        # may already sit here even when PATH has not been pointed at it yet.
+        if not recreate:
+            raise SystemExit(
+                "cold_measure_head: refuse to replace existing <out>/venv "
+                "(pass --recreate to rebuild it)"
+            )
+        if is_live_mill(out):
+            raise SystemExit(2)
         shutil.rmtree(venv_dir)
     venv.EnvBuilder(with_pip=True).create(str(venv_dir))
     py = venv_dir / ("Scripts" if os.name == "nt" else "bin") / "python"
     env = os.environ.copy()
-    # Drop a checkout PYTHONPATH so the venv mill is what the tester gets.
     env.pop("PYTHONPATH", None)
     subprocess.run([str(py), "-m", "pip", "install", "-q", "build"], check=True, cwd=str(root), env=env)
     subprocess.run([str(py), "-m", "build"], check=True, cwd=str(root), env=env)
@@ -192,6 +222,8 @@ def verdict_body(
     opener: str,
     partner: str,
 ) -> str:
+    if verd not in ("GREEN", "RED"):
+        raise SystemExit("cold_measure_head: --verd must be GREEN or RED")
     body = (
         f"PR-head cold measure on PR #{pr} ({head_sha}): {verd}.\n"
         f"JOIN.md sha {join_sha}; mill-desk SKILL sha {skill_sha}.\n"
@@ -212,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, default=None, help="kit directory (JOIN + skill + recipe)")
     p.add_argument("--stage-only", action="store_true", help="copy JOIN/skill/recipe; do not build or pip install")
     p.add_argument("--install", action="store_true", help="build head wheel into <out>/venv (never live mill)")
+    p.add_argument("--recreate", action="store_true", help="with --install, replace an existing <out>/venv")
+    p.add_argument("--allow-dirty", action="store_true", help="allow staging from a dirty checkout")
     p.add_argument("--verdict-file", type=Path, default=None, help="write a mill letter body for the verdict sink")
     p.add_argument("--pr", type=int, default=0)
     p.add_argument("--head", default="")
@@ -220,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--task", default="", help="task score row commands/wrong/retries/seconds/bytes")
     p.add_argument("--join-row", default="")
     p.add_argument("--leave-row", default="")
-    p.add_argument("--verd", default="GREEN", help="GREEN or RED")
+    p.add_argument("--verd", default="GREEN", choices=("GREEN", "RED"), help="GREEN or RED")
     p.add_argument("--opener", default="builder")
     p.add_argument("--partner", default="grok-tui")
     args = p.parse_args(argv)
@@ -254,15 +288,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     root = repo_root(args.root)
     if is_live_mill(args.out.resolve()):
-        print("cold_measure_head: refuse --out that is the live mill (marker or mill on PATH)", file=sys.stderr)
+        print("cold_measure_head: refuse --out that is the live mill (marker, PATH mill under out, or mill parent)", file=sys.stderr)
         return 2
-    manifest = stage_kit(root, args.out, refuse_live=True)
+    manifest = stage_kit(root, args.out, refuse_live=True, allow_dirty=args.allow_dirty)
     print(json.dumps(manifest, indent=2))
     if args.install:
         if args.stage_only:
             print("cold_measure_head: --install ignored with --stage-only", file=sys.stderr)
         else:
-            whl = build_and_install(root, args.out)
+            whl = build_and_install(root, args.out, recreate=args.recreate)
             print(f"installed {whl.name} into {args.out / 'venv'} (not live mill)")
     elif not args.stage_only:
         print("staged kit only; pass --install to build the head into <out>/venv")
