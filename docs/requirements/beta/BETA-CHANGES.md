@@ -189,6 +189,7 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `retire` | the item was retired (`mill retire`) | activity.deleted set |
 | `reclaim` | the item came back (`mill reclaim`) | activity.deleted cleared |
 | `remove` | the item was removed (`mill remove`) | activity.deleted set |
+| `rename` | a card's need was renamed (`mill rename todo`); evidence holds old, new, why | activity only; card id and status unchanged |
 
 Not in the list: `open` and `mark` (opening a letter writes no move: `mail_to.opened` keeps the first open and
 activity is not bumped), `status` and `pass` (a pass is ship, done or back), `cast` and `close` (no votes).

@@ -1553,6 +1553,36 @@ def install_sql(cn, *, apply: bool) -> dict[str, Any]:
     return {**after, "applied": True, "was": before["book"], "steps": len(res.get("applied") or [])}
 
 
+def _ensure_act_rename(cn) -> list[str]:
+    """#926: activity.act and doing.act gain `rename` (card need rename timeline)."""
+    applied: list[str] = []
+    want = (
+        "ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark',"
+        "'ship','done','back','hold','drop','focus','clear','finish','score','retire',"
+        "'reclaim','remove','rename')"
+    )
+    cur = cn.cursor()
+    try:
+        for table, default in (("activity", "create"), ("doing", "focus")):
+            cur.execute(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME=%s AND COLUMN_NAME='act'",
+                (table,),
+            )
+            row = cur.fetchone()
+            ctype = (row[0] if row else "") or ""
+            if "rename" in ctype.lower():
+                continue
+            _apply_stmt(
+                cur,
+                f"ALTER TABLE `{table}` MODIFY COLUMN act {want} NOT NULL DEFAULT '{default}'",
+            )
+            applied.append(f"{table}.act+rename")
+    finally:
+        cur.close()
+    return applied
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -1604,6 +1634,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_mail_sp(cn))
             applied.extend(_ensure_push_expired(cn))
             applied.extend(_ensure_activity_soft_delete(cn))
+            applied.extend(_ensure_act_rename(cn))
             applied.extend(_ensure_fk_rules(cn))
             applied.extend(_ensure_join_token_hash(cn))
             applied.extend(_ensure_tree_read(cn))

@@ -1028,10 +1028,26 @@ def _build_parser() -> MillArgumentParser:
     recm.add_argument("need", metavar="NEED", nargs="?", default="", help="todo form only: NEED or a comma list")
     recm.add_argument("--yes", action="store_true", help="skip the prompt")
 
-    rnm = sub.add_parser("rename", help="mill rename TYPE OLD NEW; you retype NEW at the prompt")
-    rnm.add_argument("kind", metavar="TYPE", choices=_NAME_TYPES)
-    rnm.add_argument("old")
-    rnm.add_argument("new")
+    rnm = sub.add_parser(
+        "rename",
+        help="mill rename TYPE OLD NEW; you retype NEW. "
+        "mill rename todo ROSTER OLD NEW changes a card's need (asker or Admin; id stays)",
+    )
+    rnm.add_argument("kind", metavar="TYPE", choices=_NAME_TYPES + ("todo",))
+    rnm.add_argument("old", help="old name; for todo, the ROSTER")
+    rnm.add_argument("new", help="new name; for todo, the OLD need")
+    rnm.add_argument(
+        "to",
+        nargs="?",
+        default="",
+        metavar="NEW_NEED",
+        help="todo form only: the NEW need",
+    )
+    rnm.add_argument(
+        "--why",
+        default="",
+        help="todo rename: why (stored on the activity timeline)",
+    )
     rnm.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     rtr = sub.add_parser(
