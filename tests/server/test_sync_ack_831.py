@@ -4,6 +4,8 @@
 ws_endpoint passes an acks list to _ws_handle_client_text. The reply's sync is read
 with hold=True (rows stay queued) and its row ids land in acks. ws_endpoint deletes
 them after send_text returns. Without acks (older callers) the read still deletes.
+
+SPIN W23: sync take then send; rows survive a failed send (card 831).
 """
 from __future__ import annotations
 
