@@ -1339,7 +1339,7 @@ def _build_parser() -> MillArgumentParser:
 
     se = sub.add_parser(
         "connected",
-        help="mill connected [ROSTER] [--desk X]: what each desk is doing, on which letter or card, "
+        help="mill connected [ROSTER] [--desk X] [--limit N]: what each desk is doing, on which letter or card, "
         "what it waits on and who is blocked on it; --history lists past entries",
     )
     se.add_argument(
@@ -1351,7 +1351,12 @@ def _build_parser() -> MillArgumentParser:
     se.add_argument("--history", action="store_true", help="past doing entries, newest first, 50 a page")
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
     se.add_argument("--page", type=int, default=0, help="with --history: page N")
-    se.add_argument("--limit", type=int, default=10)
+    se.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="at most N desks on the live list, newest heartbeat first",
+    )
 
     att = sub.add_parser(
         "attach",
