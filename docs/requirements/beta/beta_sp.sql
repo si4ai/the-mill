@@ -254,4 +254,159 @@ BEGIN
   SELECT p_desk AS desk, b_is_admin(v) AS admin;
 END //
 
+
+-- ---------- hard purge of a trashed roster|label|tree (card 879 / F218) ----------
+-- mill delete stamps name.trashed (Python/sp_name_trash). mill restore clears it.
+-- mill purge calls sp_name_purge: only trashed + unreferenced; sets @mill_allow_name_hard_delete
+-- so name_no_delete allows the DELETE for roster|label|tree. Desks stay refused by the trigger.
+-- Timeline: one doing+activity row with act delete|restore|purge (shared activity timeline).
+
+DROP PROCEDURE IF EXISTS sp_name_trash //
+CREATE PROCEDURE sp_name_trash(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
+BEGIN
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
+  DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
+  DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
+  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
+  SET v_type = LOWER(TRIM(p_type));
+  IF v_type NOT IN ('roster','label','tree') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: type is roster, label or tree (desks keep mill retire)';
+  END IF;
+  SELECT id, deleted, trashed, name INTO v_id, v_del, v_tr, v_nm
+    FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
+  IF v_id IS NULL OR v_del IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: no live name (mill reclaim if retired)';
+  END IF;
+  IF v_id IN (1, 2) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: Office and Admin never hard-delete; nothing changed';
+  END IF;
+  IF v_tr IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: already trashed; mill restore or mill purge';
+  END IF;
+  IF v_type = 'roster' THEN
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
+      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    IF NOT b_is_admin(v_by) THEN
+      IF v_members = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: only Admin can trash a roster with no members';
+      END IF;
+      IF v_members <> 1 OR v_sole = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: sole remaining member or Admin; nothing changed';
+      END IF;
+    END IF;
+  END IF;
+  UPDATE name SET trashed = v_now WHERE id = v_id;
+  INSERT INTO doing (created, desk_id, roster_id, text, act)
+    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'delete');
+  SET v_doing = LAST_INSERT_ID();
+  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'delete', NULL);
+  SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op;
+END //
+
+DROP PROCEDURE IF EXISTS sp_name_restore //
+CREATE PROCEDURE sp_name_restore(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
+BEGIN
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
+  DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
+  DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
+  DECLARE v_doing BIGINT UNSIGNED;
+  SET v_type = LOWER(TRIM(p_type));
+  IF v_type NOT IN ('roster','label','tree') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: type is roster, label or tree (desks keep mill retire)';
+  END IF;
+  SELECT id, deleted, trashed, name INTO v_id, v_del, v_tr, v_nm
+    FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
+  IF v_id IS NULL OR v_del IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: no name (mill delete first to trash)';
+  END IF;
+  IF v_tr IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: not trashed; mill delete first';
+  END IF;
+  UPDATE name SET trashed = NULL WHERE id = v_id;
+  INSERT INTO doing (created, desk_id, roster_id, text, act)
+    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'restore');
+  SET v_doing = LAST_INSERT_ID();
+  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'restore', NULL);
+  SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'restored' AS op;
+END //
+
+DROP PROCEDURE IF EXISTS sp_name_purge //
+CREATE PROCEDURE sp_name_purge(IN p_by VARCHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
+BEGIN
+  DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
+  DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
+  DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
+  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_n INT DEFAULT 0;
+  DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    SET @mill_allow_name_hard_delete = NULL;
+    RESIGNAL;
+  END;
+  SET v_type = LOWER(TRIM(p_type));
+  IF v_type NOT IN ('roster','label','tree') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: type is roster, label or tree (desks keep mill retire)';
+  END IF;
+  SELECT id, deleted, trashed, name INTO v_id, v_del, v_tr, v_nm
+    FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
+  IF v_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: no name (mill delete then purge)';
+  END IF;
+  IF v_id IN (1, 2) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: Office and Admin never hard-delete; nothing changed';
+  END IF;
+  IF v_tr IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: trash with mill delete first';
+  END IF;
+  IF v_type = 'roster' THEN
+    SELECT COUNT(*) INTO v_n FROM todo WHERE roster_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (cards); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_n FROM mail WHERE roster_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (letters); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_n FROM score WHERE roster_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (scores); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_n FROM doing WHERE roster_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (doing rows); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_n FROM activity WHERE roster_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (activity rows); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_n FROM human_member WHERE name_id = v_id AND name_kind = 'roster';
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (human roles); mill retire soft-deletes instead'; END IF;
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
+      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    IF v_members > 1 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (members); mill retire soft-deletes instead';
+    END IF;
+    IF v_members = 1 AND v_sole = 0 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (a member that is not you); mill retire soft-deletes instead';
+    END IF;
+    IF NOT b_is_admin(v_by) THEN
+      IF v_members = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: only Admin can purge a roster with no members';
+      END IF;
+    END IF;
+  ELSEIF v_type = 'label' THEN
+    SELECT COUNT(*) INTO v_n FROM label WHERE name_id = v_id AND name_kind = 'label';
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: label is on items; mill retire soft-deletes instead'; END IF;
+  ELSE
+    SELECT COUNT(*) INTO v_n FROM tree WHERE name_id = v_id AND name_kind = 'tree';
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has nodes; remove them first, or mill retire soft-deletes'; END IF;
+    SELECT COUNT(*) INTO v_n FROM tree_read WHERE tree_id = v_id;
+    IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has read cursors; clear them, or mill retire soft-deletes'; END IF;
+  END IF;
+  INSERT INTO doing (created, desk_id, roster_id, text, act)
+    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'purge');
+  SET v_doing = LAST_INSERT_ID();
+  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'purge', NULL);
+  SET @mill_allow_name_hard_delete = 1;
+  IF v_type = 'roster' THEN
+    DELETE FROM member WHERE name_id = v_id AND name_kind = 'roster';
+  END IF;
+  DELETE FROM name WHERE id = v_id AND type = v_type AND trashed IS NOT NULL;
+  SET @mill_allow_name_hard_delete = NULL;
+  SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'purged' AS op;
+END //
+
+
 DELIMITER ;

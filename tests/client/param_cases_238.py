@@ -46,6 +46,9 @@ BOOK = {
     "add": ["todo:{TID}"],
     "remove": ["todo:{TID}"],
     "score": ["{P}", "c238-kpi", "5"],
+    "delete": ["roster", "{P}-del"],
+    "restore": ["roster", "{P}-del"],
+    "purge": ["roster", "{P}-del"],
 }
 
 KIND = {
@@ -100,6 +103,9 @@ KIND = {
         "send", "reply", "mark", "create todo", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold",
         "drop", "score")},
     ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
+    ("delete", "kind"): "enum", ("delete", "slug"): "name",
+    ("restore", "kind"): "enum", ("restore", "slug"): "name",
+    ("purge", "kind"): "enum", ("purge", "slug"): "name",
 }
 
 CASES = {
