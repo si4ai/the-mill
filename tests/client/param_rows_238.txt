@@ -223,6 +223,8 @@ rename (command)
 rename kind
 rename old
 rename new
+rename to
+rename why
 rename yes
 rename office
 retire (command)

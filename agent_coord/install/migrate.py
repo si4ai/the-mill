@@ -1571,7 +1571,8 @@ def _ensure_act_rename(cn) -> list[str]:
             )
             row = cur.fetchone()
             ctype = (row[0] if row else "") or ""
-            if "rename" in ctype.lower():
+            # pre-0.8.0 books have no act yet; migrate_080 adds it with rename already in the ENUM
+            if not ctype or "rename" in ctype.lower():
                 continue
             _apply_stmt(
                 cur,
