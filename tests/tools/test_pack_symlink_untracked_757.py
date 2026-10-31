@@ -248,3 +248,46 @@ def test_real_build_symlink_and_untracked_fail_check_pack(tmp_path):
     check = run(unt, [sys.executable, "tools/check_pack.py", "dist"])
     assert check.returncode == 1, check.stdout + check.stderr
     assert "untracked" in check.stdout, check.stdout
+
+
+def test_untracked_root_setup_cfg_fails_check_pack(tmp_path):
+    """An untracked repo-root setup.cfg that ships in the sdist must fail (#757).
+
+    Build-generated setup.cfg (no on-disk file) stays allowed; a sneaked
+    root setup.cfg with content must not return check_pack rc 0.
+    """
+    import os
+    import shutil
+    import sys
+
+    if shutil.which("git") is None:
+        pytest.skip("git not on PATH")
+
+    def run(cwd: Path, args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        base = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        if env:
+            base.update(env)
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=base, check=False)
+
+    dest = tmp_path / "rootcfg"
+    subprocess.check_call(["git", "clone", "-q", "--local", str(ROOT), str(dest)])
+    _git(dest, "config", "user.email", "builder@users.noreply.github.com")
+    _git(dest, "config", "user.name", "builder")
+    _git(dest, "config", "core.hooksPath", "/dev/null")
+    sneak = dest / "setup.cfg"
+    sneak.write_text("[metadata]\nnote = sneak-root-cfg-757\n", encoding="utf-8")
+    epoch = _git(dest, "log", "-1", "--format=%ct").strip()
+    code = (
+        "import os, sys; "
+        "sys.path.insert(0, os.path.join(os.getcwd(), 'build_backend')); "
+        "import mill_build; "
+        "os.makedirs('dist', exist_ok=True); "
+        "print(mill_build.build_wheel('dist')); "
+        "print(mill_build.build_sdist('dist'))"
+    )
+    py = _python_with_setuptools()
+    got = run(dest, [py, "-c", code], env={"SOURCE_DATE_EPOCH": epoch})
+    assert got.returncode == 0, got.stdout + got.stderr
+    check = run(dest, [sys.executable, "tools/check_pack.py", "dist"])
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert "untracked" in check.stdout and "setup.cfg" in check.stdout, check.stdout
