@@ -275,3 +275,18 @@ Gaps:
 | score | retire undone by the next point | `sp_score.sql:263` |
 | score | one point reads `new`, never `met` | `score_series.py:67` |
 | score | no delete command; the SP keeps the score row, points and labels | `sp_score.sql:126` |
+
+## Live session after reset or retire (card 882)
+
+When Admin resets a desk while a client session is still running, the seat
+token is cleared and that desk's holds are freed in the same call. The old
+session's next command is refused at the door with
+`invalid or expired Bearer; mill connect DESK to rejoin` (resolve_bearer of
+the cleared token). The SQL message `hold: desk has no live seat` is only the
+F186 backstop for a request that already passed auth. A `mill drop` of the
+freed hold is not refused with that message: it answers `released: false`
+(`not held by you`, or `held by OTHER, not you` if another desk took it).
+When the desk retires instead, holds are freed and a later hold is refused
+because the name is retired (`name retired: mill reclaim...`). Mutual
+exclusion for other desks is restored by the free either way.
+

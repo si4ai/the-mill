@@ -24,3 +24,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  # Service images used in workflows. Dependabot does not yet rewrite
+  # services/container lines in Actions YAML (dependabot-core/5819),
+  # so this Dockerfile carries the same pin as ci.yml pytest_sql (#763).
+  - package-ecosystem: docker
+    directory: /.github/docker/mysql
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

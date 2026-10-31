@@ -1,6 +1,8 @@
 """N1-N4 names: create / rename / retire / reclaim. Throwaway mill_records_test.
 
 Use cases: docs/protocol/usecases.md Names chart.
+
+SPIN N1 SPIN N2 SPIN N4 SPIN JOIN_RETIRED: retire, reclaim, join-after-retire refuse.
 """
 from __future__ import annotations
 

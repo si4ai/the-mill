@@ -13,7 +13,9 @@ with a login segment, email outside placeholder domains, byte-order mark,
 typographic marks, and (in comments, docstrings, Markdown prose and the
 commit message) the Title-case name-token rule with the desk-word
 allow-list. Staged files are read from the index (git show :path), never
-the working tree. Reports file:line and the kind; never the matched text.
+the working tree. A staged or tip mode-120000 path under a packaged tree
+fails closed (#757). Credential shapes use the same check_pack rule (#760).
+Reports file:line and the kind; never the matched text.
 
 Hooks: git config core.hooksPath .githooks (once per checkout).
 Bypass: git commit --no-verify. CI check_pack still runs every rule.
@@ -128,6 +130,8 @@ def scan_text(rel: str, blob: bytes) -> list[str]:
             fails.append(f"{rel}:{i}: home path with a login name")
         if cp.text_has_personal_email(ln):
             fails.append(f"{rel}:{i}: email outside placeholder domains")
+        for kind in cp.credential_kinds(ln):
+            fails.append(f"{rel}:{i}: credential shape ({kind})")
         if cp._is_text_file(rel):
             mark = cp.text_mark(ln)
             if mark is not None:
@@ -149,6 +153,38 @@ def _has_head() -> bool:
 
 def _git(*args: str) -> bytes:
     return subprocess.check_output(["git", *args], cwd=ROOT, stderr=subprocess.DEVNULL)
+
+
+
+def scan_staged_modes() -> list[str]:
+    """Refuse staged mode-120000 entries under packaged paths (#757)."""
+    try:
+        raw = _git("ls-files", "-s", "-z")
+    except subprocess.CalledProcessError:
+        return []
+    fails: list[str] = []
+    for ent in raw.decode("utf-8", "replace").split("\0"):
+        if not ent:
+            continue
+        # <mode> <sha> <stage>\t<path>
+        try:
+            meta, rel = ent.split("\t", 1)
+        except ValueError:
+            continue
+        mode = meta.split(" ", 1)[0]
+        if mode == cp._GIT_SYMLINK_MODE and cp._packaged_path(rel):
+            fails.append(f"{rel}: symlink (mode 120000) under packaged path")
+    return fails
+
+
+def scan_tree_modes() -> list[str]:
+    """Refuse HEAD mode-120000 entries under packaged paths (#757)."""
+    fails: list[str] = []
+    for msg in cp.scan_git_symlinks(cp.git_index_modes(ROOT)):
+        # scan_git_symlinks already names the path; prefix for the hook style.
+        rel = msg.rsplit(": ", 1)[-1]
+        fails.append(f"{rel}: symlink (mode 120000) under packaged path")
+    return fails
 
 
 def scan_staged() -> list[str]:
@@ -176,6 +212,9 @@ def scan_tree() -> list[str]:
         for i, prose in comment_lines(rel, text):
             if name_hit(prose):
                 fails.append(f"{rel}:{i}: personal name token in a comment")
+        for i, ln in enumerate(text.splitlines(), 1):
+            for kind in cp.credential_kinds(ln):
+                fails.append(f"{rel}:{i}: credential shape ({kind})")
     return fails
 
 
@@ -198,6 +237,8 @@ def scan_message(path: str) -> list[str]:
             fails.append(f"commit message:{i}: email outside placeholder domains")
         if cp.text_has_personal_name_token(ln, tree_vocab()):
             fails.append(f"commit message:{i}: personal name token (#229 rule)")
+        for kind in cp.credential_kinds(ln):
+            fails.append(f"commit message:{i}: credential shape ({kind})")
     return fails
 
 
@@ -208,11 +249,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         if argv[0] == "staged":
-            fails = scan_staged()
+            fails = scan_staged() + scan_staged_modes()
         elif argv[0] == "msg":
             fails = scan_message(argv[1])
         else:
-            fails = scan_tree()
+            fails = scan_tree() + scan_tree_modes()
     except (OSError, subprocess.CalledProcessError) as exc:
         # A scan that could not run is not a pass (#338).
         what = exc.cmd[:2] if isinstance(exc, subprocess.CalledProcessError) else type(exc).__name__

@@ -673,10 +673,12 @@ def _arm(row: str, home: Path, desk: str, obs: dict[str, Any]) -> None:
         rpc.HANDLERS["send"] = slow_send
         orig_emit = push_mod.emit
 
-        def count_emit(cn, who, kind, payload):
+        def count_emit(*args, **kwargs):
+            # push_mail passes reason= and room= by keyword (#795).
+            kind = args[2] if len(args) > 2 else kwargs.get("kind")
             if kind == "mail":
                 obs["fanout"] = int(obs.get("fanout") or 0) + 1
-            return orig_emit(cn, who, kind, payload)
+            return orig_emit(*args, **kwargs)
 
         push_mod.emit = count_emit
         obs["_f3"] = state

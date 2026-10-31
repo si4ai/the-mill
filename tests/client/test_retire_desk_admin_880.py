@@ -2,6 +2,8 @@
 
 The client body goes straight into the wall handler, so each case checks what
 the desk types against what the wall does with it.
+
+SPIN N2: desk self-retire with its own seat token (card 880).
 """
 from __future__ import annotations
 

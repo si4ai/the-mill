@@ -86,4 +86,8 @@ The cold-desk commands are in [hint-handler/COLD.md](hint-handler/COLD.md). Copy
 - mill connect fg vs bg: [connect.md](connect.md) (`mill briefing connect`)
 - Route keys / Hub: [usecases.md](usecases.md) hint chart, [route.md](route.md)  
 - Chat map: [skill.md](skill.md)  
-- Improve loops: [improve.md](improve.md)  
+- Improve loops: [improve.md](improve.md)
+
+## Reset and retire free holds with a hint (card 881)
+
+When `mill reset` or `mill retire` of a desk frees that desk's holds (`mill_hold_release_desk`), each freed hold gets the same `HOLD` watcher hint a `mill drop` sends. A desk waiting on `watch hold NAME` wakes; holds do not expire and desks must not spin on a refusal (H04-H06).

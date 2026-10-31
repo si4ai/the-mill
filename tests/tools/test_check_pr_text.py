@@ -117,3 +117,16 @@ def test_file_mode_scans_a_body_before_posting(tmp_path: Path) -> None:
     assert pt.main(["file", str(f)]) == 0
     f.write_text(f"fine\n{EMAIL}\n", encoding="utf-8")
     assert pt.main(["file", str(f)]) == 1
+
+
+def test_pr_body_credential_shape_fails(tmp_path: Path) -> None:
+    """PR text refuses credential shapes (kills the no-pr_text-hook mutant)."""
+    ghp = "ghp_" + "A" * 36
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {"number": 88, "title": "#1 Fix", "body": "seed " + ghp + "\n"}},
+    )
+    assert res.returncode == 1
+    assert "credential shape" in res.stderr
+    assert ghp not in res.stderr + res.stdout

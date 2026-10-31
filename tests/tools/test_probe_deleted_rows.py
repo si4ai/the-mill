@@ -113,7 +113,7 @@ def test_default_run_makes_its_roster_and_retires_it(capsys) -> None:
     made, gone = fake.sent[0], fake.sent[-1]
     assert made == {"verb": "roster", "slug": proj, "confirm": proj, "yes": True}
     assert gone == {"verb": "retire", "slug": proj, "confirm": proj, "yes": True, "name_type": "roster"}
-    assert out["roster"] == {"made": True, "retired": True}
+    assert out["roster"] == {"made": True, "retired": True, "slug": proj}
 
 
 def test_default_run_retires_its_roster_after_a_refusal(capsys) -> None:
@@ -129,6 +129,8 @@ def test_default_run_retires_its_roster_after_a_refusal(capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False and "refused" in out["error"]
     assert [b["verb"] for b in fake.sent] == ["roster", "retire"]
+    assert out["roster"]["made"] is True and out["roster"]["retired"] is True
+    assert out["roster"]["slug"] == out["project"]
 
 
 def test_named_project_is_the_callers_roster(capsys) -> None:
@@ -144,3 +146,42 @@ def test_doc_names_no_anonymous_events_read() -> None:
     assert "/api/v1/events?project=" not in doc
     src = (ROOT / "tools" / "probe_deleted_rows.py").read_text(encoding="utf-8")
     assert "/api/v1/events:" not in src
+
+
+def test_default_run_keeps_probe_when_retire_needs_admin(capsys) -> None:
+    """#721: a non-Admin retire refusal must not drop the probe result."""
+    mod = _tool()
+    fake = _Fake()
+
+    def admin_only_retire(body):
+        if body["verb"] == "retire":
+            raise RuntimeError("mill Admin required")
+        return fake(body)
+
+    assert mod.main(["run"], call=admin_only_retire) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True
+    assert out["trail_state"] == "deleted"
+    assert out["roster"]["made"] is True and out["roster"]["retired"] is False
+    assert out["roster"]["slug"] == out["project"]
+    assert "Admin" in out["roster"]["reason"]
+
+
+def test_run_and_retire_refused_keeps_roster_slug_and_reason(capsys) -> None:
+    """#721 O4: both refusals must still print roster.slug and roster.reason."""
+    mod = _tool()
+    fake = _Fake()
+
+    def call(body):
+        if body["verb"] == "open":
+            raise RuntimeError("todo: refused")
+        if body["verb"] == "retire":
+            raise RuntimeError("mill Admin required")
+        return fake(body)
+
+    assert mod.main(["run"], call=call) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False and out["error"] == "todo: refused"
+    assert out["roster"]["made"] is True and out["roster"]["retired"] is False
+    assert out["roster"]["slug"] == out["project"]
+    assert "Admin" in out["roster"]["reason"]

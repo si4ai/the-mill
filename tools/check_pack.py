@@ -33,6 +33,10 @@ git-tracked files and git commit messages. Placeholder segments such as
 example.org, example.net, *.example, *.test, *.invalid, *.localhost, and
 GitLab and GitHub noreply domains.
 
+Credential shapes (PEM private-key headers, AKIA/ASIA ids, GitHub ghp_/gho_/ghs_/github_pat_, pypi-AgE, Slack xox[abp]-, sk- API keys, and long values assigned to names ending KEY/TOKEN/SECRET) fail in the wheel, sdist and git tip; exact strings in CREDENTIAL_ALLOWLIST may stay (#760).
+
+A tracked symlink (git mode 120000) under a packaged path fails the tip scan, and every wheel or sdist file member must map to a tracked regular file at HEAD (generated dist-info / egg-info / PKG-INFO / sdist setup.cfg that is exactly the generated [egg_info] stanza may stay) (#757).
+
 A literal byte-order mark or typographic punctuation (Windows editors and
 pasted dashes, arrows, quotes) fails in the same file scan. The ASCII escape
 for U+FEFF may stay; that is how mill send strips a PowerShell BOM.
@@ -666,6 +670,239 @@ def mill_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+
+
+# Card 760 / F206: credential shapes. Report kind only; never the match.
+# Allow-list is exact full strings (documented test vectors), nothing else.
+CREDENTIAL_ALLOWLIST = frozenset(
+    {
+        # One documented vector for the regression allow-list case (not a real secret).
+        "ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",  # documented vector; exact allow only
+    }
+)
+_PEM_BEGIN_RE = re.compile(r"-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----")
+_AWS_ID_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9_-])")
+_AWS_SECRET_RE = re.compile(
+    r"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"
+)
+_GITHUB_PAT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})(?![A-Za-z0-9_-])"
+)
+_PYPI_RE = re.compile(r"(?<![A-Za-z0-9_-])pypi-AgE[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])")
+_SLACK_RE = re.compile(r"(?<![A-Za-z0-9_-])xox[abprs]-[A-Za-z0-9-]{10,}(?![A-Za-z0-9_-])")
+_SK_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])sk-(?:proj-|ant-[a-z0-9]{2,8}-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"
+)
+# Assignment forms: JS/Python quoted, JSON keys, unquoted YAML/.env/export/INI.
+# Optional quotes around the name (JSON) and the value (unquoted shell/YAML/INI).
+_ASSIGN_RE = re.compile(
+    r"(?i)(?:(?:const|let|var|export)\s+)?"
+    r"[\"']?"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*)?"  # empty prefix: bare TOKEN=/secret:/key=
+    r"(?:KEY|TOKEN|SECRET)"
+    r"[\"']?"
+    r"\s*[=:]\s*"
+    r"[\"']?"
+    r"([A-Za-z0-9/_+=\-]{20,})"
+    r"[\"']?"
+)
+_KEBAB_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
+
+
+def _high_entropy(val: str) -> bool:
+    """True for a long random-looking secret, not a kebab localStorage key.
+
+    Hex-only 40- and 64-char values are secret-shaped even with only two
+    character classes (K7 hex40/hex64).
+    """
+    if len(val) < 20:
+        return False
+    if _KEBAB_RE.fullmatch(val):
+        return False
+    if len(val) in (40, 64) and _HEX_RE.fullmatch(val):
+        return True
+    classes = sum(
+        (
+            any(c.islower() for c in val),
+            any(c.isupper() for c in val),
+            any(c.isdigit() for c in val),
+            any(c in "/+_=" for c in val),
+        )
+    )
+    return classes >= 3
+
+
+
+
+def _credential_hits(text: str) -> list[tuple[str, str]]:
+    """(kind, matched_text) for each hit. Caller must not print matched_text."""
+    if not text:
+        return []
+    hits: list[tuple[str, str]] = []
+    for m in _PEM_BEGIN_RE.finditer(text):
+        hits.append(("pem-private-key", m.group(0)))
+    for m in _AWS_ID_RE.finditer(text):
+        hits.append(("aws-access-key-id", m.group(0)))
+    for m in _GITHUB_PAT_RE.finditer(text):
+        hits.append(("github-pat", m.group(0)))
+    for m in _PYPI_RE.finditer(text):
+        hits.append(("pypi-token", m.group(0)))
+    for m in _SLACK_RE.finditer(text):
+        hits.append(("slack-token", m.group(0)))
+    for m in _SK_RE.finditer(text):
+        hits.append(("sk-api-key", m.group(0)))
+    for m in _ASSIGN_RE.finditer(text):
+        if _high_entropy(m.group(1)):
+            hits.append(("high-entropy-secret-assign", m.group(1)))
+    # AWS secret access key: 40-char run that sits on the same line as an AKIA/ASIA
+    # id, or the well-known docs example suffix, so a lone git sha does not trip it.
+    for line in text.splitlines():
+        if _AWS_ID_RE.search(line) or line.rstrip().endswith("EXAMPLEKEY"):
+            for m in _AWS_SECRET_RE.finditer(line):
+                if _AWS_ID_RE.fullmatch(m.group(0)):
+                    continue
+                hits.append(("aws-secret-access-key", m.group(0)))
+    return hits
+
+
+def credential_kinds(text: str) -> list[str]:
+    """Kinds of credential shapes in text, after exact allow-list removal."""
+    kinds: list[str] = []
+    for kind, matched in _credential_hits(text):
+        if matched in CREDENTIAL_ALLOWLIST:
+            continue
+        if kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
+def text_has_credential_shape(text: str) -> bool:
+    return bool(credential_kinds(text))
+
+
+# Modes git uses for tracked blobs. 120000 = symlink (card 757).
+_GIT_SYMLINK_MODE = "120000"
+_GIT_REGULAR_MODES = frozenset({"100644", "100755"})
+# Exact bytes setuptools writes into the sdist root setup.cfg for a
+# pyproject-only build. Anything else at that path is an untracked sneak (#757).
+_GENERATED_SETUP_CFG = b"[egg_info]\ntag_build = \ntag_date = 0\n\n"
+# Wheel data-files land under the_mill-*.data/data/share/the-mill/<repo path>.
+_WHEEL_DATA_RE = re.compile(r"^the_mill-[^/]+\.data/data/share/the-mill/(.*)$")
+_WHEEL_DISTINFO_RE = re.compile(r"^the_mill-[^/]+\.dist-info(/|$)")
+_SDIST_EGGINFO_RE = re.compile(r"^the_mill\.egg-info(/|$)")
+
+
+def git_index_modes(root: Path | None = None) -> dict[str, str]:
+    """path -> git mode string at HEAD (ls-tree). Empty dict when git is unavailable."""
+    root = mill_root() if root is None else root
+    try:
+        raw = subprocess.check_output(
+            ["git", "ls-tree", "-r", "HEAD"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+    modes: dict[str, str] = {}
+    for line in raw.decode("utf-8", "replace").splitlines():
+        # <mode> <type> <sha>\t<path>
+        try:
+            meta, rel = line.split("\t", 1)
+        except ValueError:
+            continue
+        mode = meta.split(" ", 1)[0]
+        if rel:
+            modes[rel.replace("\\", "/")] = mode
+    return modes
+
+
+def _packaged_path(rel: str) -> bool:
+    """Paths that can ship in the wheel or sdist."""
+    n = rel.replace("\\", "/")
+    if n.startswith("agent_coord/") or n == "agent_coord":
+        return True
+    if n.startswith("docs/") or n == "docs":
+        return True
+    if n.startswith("tests/") or n == "tests":
+        return True
+    if n.startswith("build_backend/") or n == "build_backend":
+        return True
+    if n in SDIST_ROOT_FILES or n == "README.md" or n == "LICENSE":
+        return True
+    return False
+
+
+def scan_git_symlinks(modes: dict[str, str] | None = None) -> list[str]:
+    """Refuse mode-120000 entries under packaged paths (card 757 / F205)."""
+    if modes is None:
+        modes = git_index_modes()
+    fails: list[str] = []
+    for rel, mode in sorted(modes.items()):
+        if mode == _GIT_SYMLINK_MODE and _packaged_path(rel):
+            fails.append(f"symlink (mode 120000) under packaged path: {rel}")
+    return fails
+
+
+def pack_member_repo_path(member: str, kind: str) -> str | None:
+    """Repo-relative path for a pack file member, or None when it is generated metadata."""
+    n = member.replace("\\", "/").rstrip("/")
+    if kind == "wheel":
+        if _WHEEL_DISTINFO_RE.match(n):
+            return None
+        if n.startswith("agent_coord/") or n == "agent_coord":
+            return n
+        m = _WHEEL_DATA_RE.match(n)
+        if m:
+            return m.group(1) or None
+        return None  # unknown wheel layout: allowlist scan already fails it
+    m = SDIST_ROOT_RE.match(n)
+    if not m:
+        return None
+    rest = m.group(1)
+    if rest is None or rest == "":
+        return None  # the top-level the_mill-VER/ directory entry
+    if _SDIST_EGGINFO_RE.match(rest) or rest == "the_mill.egg-info":
+        return None
+    if rest == "PKG-INFO":
+        return None  # generated at the sdist root by setuptools
+    if rest == "setup.cfg":
+        # Provenance decides: exact generated [egg_info] stanza vs anything else.
+        return "setup.cfg"
+    return rest
+
+
+def scan_pack_provenance(
+    path: Path,
+    kind: str,
+    modes: dict[str, str] | None = None,
+) -> list[str]:
+    """Every file member must map to a tracked regular file at HEAD (card 757)."""
+    if modes is None:
+        modes = git_index_modes()
+    fails: list[str] = []
+    iterator = _iter_wheel if kind == "wheel" else _iter_sdist
+    for name, data, is_dir in iterator(path):
+        if is_dir:
+            continue
+        rel = pack_member_repo_path(name, kind)
+        if rel is None:
+            continue
+        mode = modes.get(rel)
+        if mode is None:
+            # Sdist setup.cfg: allow only the exact generated [egg_info] stanza.
+            # An on-disk presence check let a sneaked setup.cfg pass after
+            # the builder deleted it and re-ran check_pack on the same dist (#757).
+            if rel == "setup.cfg" and kind == "sdist" and data == _GENERATED_SETUP_CFG:
+                continue
+            fails.append(f"untracked pack member: {rel}")
+        elif mode == _GIT_SYMLINK_MODE:
+            fails.append(f"pack member is a git symlink: {rel}")
+        elif mode not in _GIT_REGULAR_MODES:
+            fails.append(f"pack member is not a tracked regular file (mode {mode}): {rel}")
+    return fails
+
+
 def scan_git_tracked(pats: tuple[re.Pattern[str], ...]) -> list[str]:
     """Git tip: login names when pats is set, and non-documentation addresses always."""
     root = mill_root()
@@ -702,6 +939,8 @@ def scan_git_tracked(pats: tuple[re.Pattern[str], ...]) -> list[str]:
             fails.append(f"home path with a login name in git tip: {rel}")
         if text_has_personal_email(text):
             fails.append(f"email outside placeholder domains in git tip: {rel}")
+        for kind in credential_kinds(text):
+            fails.append(f"credential shape ({kind}) in git tip: {rel}")
         if _is_text_file(rel):
             if blob.startswith(_BOM_PREFIXES):
                 fails.append(f"byte-order mark in git tip: {rel}")
@@ -896,6 +1135,8 @@ def scan_git_messages(pats: tuple[re.Pattern[str], ...] = ()) -> list[str]:
             fails.append(f"home path with a login name in git commit {rev[:12]}")
         if text_has_personal_email(body):
             fails.append(f"email outside placeholder domains in git commit {rev[:12]}")
+        for cred_kind in credential_kinds(body):
+            fails.append(f"credential shape ({cred_kind}) in git commit {rev[:12]}")
         if (
             rev in name_revs
             and rev not in NAME_TOKEN_REVIEWED
@@ -938,6 +1179,8 @@ def scan_head_message(pats: tuple[re.Pattern[str], ...] = ()) -> list[str]:
         fails.append(f"home path with a login name in {where}")
     if text_has_personal_email(body):
         fails.append(f"email outside placeholder domains in {where}")
+    for cred_kind in credential_kinds(body):
+        fails.append(f"credential shape ({cred_kind}) in {where}")
     if not bot and text_has_personal_name_token(name_scan_text(author, body), ordinary_words(root)):
         fails.append(f"personal name token in {where}")
     return fails
@@ -1108,6 +1351,9 @@ def scan_artifact(
         elif text_has_forbidden_address(text):
             fails.append(f"non-documentation address in: {display}")
 
+        for cred_kind in credential_kinds(text):
+            fails.append(f"credential shape ({cred_kind}) in: {display}")
+
     return fails, notes
 
 
@@ -1167,9 +1413,15 @@ def main(argv: list[str] | None = None) -> int:
         all_notes.extend(f"[{label}] {n}" for n in notes)
 
     print("Scanning git tip (tracked files and commit messages)")
+    tip_modes = git_index_modes()
     all_fails.extend(f"[git] {f}" for f in scan_git_tracked(home_pats))
+    all_fails.extend(f"[git] {f}" for f in scan_git_symlinks(tip_modes))
     all_fails.extend(f"[git] {f}" for f in scan_git_messages(home_pats))
     all_fails.extend(f"[git] {f}" for f in scan_git_identities())
+
+    print("Scanning pack provenance (members must be tracked regular files)")
+    for label, path, kind in (("wheel", whl, "wheel"), ("sdist", sdist, "sdist")):
+        all_fails.extend(f"[{label}] {f}" for f in scan_pack_provenance(path, kind, tip_modes))
 
     for n in all_notes:
         print(n)

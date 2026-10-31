@@ -110,24 +110,46 @@ def test_history_by_desk_has_ended_by(w, wall):
 
 
 def test_history_on_one_card_without_a_desk(w, wall):
-    """A card trail: every desk's doing rows on that card, newest first, nobody else's."""
+    """A card trail: every desk's doing rows on that card, newest first, nobody else's.
+
+    Card 901 / F213: at least one move row is present (act not focus/clear/finish;
+    evidence when ship/done), not only that focus rows survive.
+    """
     need, tid = w.card()
     w.ok(["claim", R, need, "--doing", "mine on the card"])
     w.ok(["note", R, need, "--note", "peer looks", "--doing", "peer on the card"], desk=PEER)
     mid = w.letter()
     w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "not the card"])
+    w.ok(["pass", R, need, "--evidence", "shipped for 901", "--doing", "closing"])
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}")
     assert code == 200, got
     rows = got["history"]
-    # 0.8.0 F188: on=ITEM also returns move rows (empty doing); focus entries stay.
-    focus = [(e["desk"], e["doing"]) for e in rows if e.get("act") == "focus" or e.get("doing")]
-    assert focus == [(PEER, "peer on the card"), (ME, "mine on the card")]
+    # Focus entries that name the two desks' --doing text (F188 keeps them).
+    named = {(e["desk"], e["doing"]) for e in rows if e.get("doing") in ("peer on the card", "mine on the card")}
+    assert named == {(PEER, "peer on the card"), (ME, "mine on the card")}
     assert {e["on"] for e in rows} == {f"todo-{tid}"}
+    moves = [e for e in rows if e.get("act") not in (None, "focus", "clear", "finish")]
+    assert moves, rows
+    ship = [e for e in moves if e.get("act") == "ship"]
+    assert ship and ship[0].get("evidence") == "shipped for 901", ship
     mine = [e for e in rows if e["desk"] == ME and e.get("doing") == "mine on the card"][0]
     assert mine["ended_by"] in ("newer", "finished")
     assert got["page"]["entries"] >= 2
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}&desk={PEER}")
     assert code == 200 and got["history"] and {e["desk"] for e in got["history"]} == {PEER}
+
+
+def test_history_on_hold_includes_move_rows(w, wall):
+    """Card 901 / F213: GET /api/v1/doing/history?on=hold-N returns take/drop moves with act."""
+    res = w.ok(["hold", "h901/lock"])
+    hid = int(res["id"])
+    w.ok(["drop", "h901/lock"])
+    code, got = _get(wall, f"/api/v1/doing/history?on=hold-{hid}")
+    assert code == 200, got
+    rows = got["history"]
+    assert {e["on"] for e in rows} == {f"hold-{hid}"}
+    acts = [e.get("act") for e in rows]
+    assert "hold" in acts and "drop" in acts, acts
 
 
 def test_history_needs_a_desk_or_an_item(wall):

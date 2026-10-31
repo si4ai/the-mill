@@ -122,3 +122,26 @@ python tools/probe_deleted_rows.py delete --type todo --id N
 ```
 
 See [docs/dev/PROBE-DELETED-ROWS.md](../docs/dev/PROBE-DELETED-ROWS.md).
+
+## desk/
+
+Config-driven workstation launcher for fresh Grok Build sessions. See `tools/desk/README.md`.
+
+| Path | What |
+| --- | --- |
+| `desk/desk-start.ps1` | Windows launcher (`-Config`, `-Desk`, `-DryRun`). No hard-coded desks. |
+| `desk/desk_start_plan.py` | Pure plan logic + dry-run JSON (CI-tested). |
+| `desk/desks.example.json` | Documented example; copy outside the repo and edit. |
+
+## cold_measure_head.py
+
+Stage a PR-head cold measure kit (card 813 / F212). Copies JOIN.md and the
+mill-desk skill from the head, writes recipe.md and content shas, and can
+build the head into `<out>/venv` without touching the live mill. Desk-run;
+not a required CI check.
+
+```bash
+python tools/cold_measure_head.py --out ~/cold-kit --stage-only
+python tools/cold_measure_head.py --out ~/cold-kit --install
+```
+
