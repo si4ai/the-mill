@@ -42,11 +42,9 @@ def dest_log(filename: str, msg: str) -> None:
         now = datetime.now(timezone.utc)
         if filename == _PERF_LOG:
             # Milliseconds, so the lines of one command sort and join (F171).
-            text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "
-"
+            text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "\n"
         else:
-            text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "
-"
+            text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
         with lr._lock:
             lr.rotate_if_needed(path)
             with path.open("a", encoding="utf-8") as f:
