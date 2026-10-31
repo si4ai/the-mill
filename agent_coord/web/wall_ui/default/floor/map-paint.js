@@ -39,7 +39,7 @@
     var desksIn = (gUse && gUse.desks) || [];
     var edges = (gUse && gUse.edges) || [];
     if (!desksIn.length) {
-      mapEl.innerHTML = '<div class="idle" style="padding:1rem">Nothing between desks yet. A desk shows up when a letter, a card, or a promise joins it to another desk.</div>';
+      mapEl.innerHTML = '<div class="idle map-empty">Nothing between desks yet. A desk shows up when a letter, a card, or a promise joins it to another desk.</div>';
       return;
     }
     var nodes = floorLayout(desksIn);
@@ -73,7 +73,7 @@
       var doing = now.length > 22 ? now.slice(0, 21) + "..." : now;
       var tip = [label, st, now].concat(unread ? [unread + " unread"] : []).filter(Boolean).join(" | ");
       var badge = unread > 0
-        ? '<circle cx="' + (n.x + 18).toFixed(1) + '" cy="' + (n.y - 18).toFixed(1) + '" r="9" fill="var(--amber)" /><text text-anchor="middle" x="' + (n.x + 18).toFixed(1) + '" y="' + (n.y - 14).toFixed(1) + '" style="fill:#111;font-size:9px;font-weight:800">' + (unread > 99 ? "99+" : unread) + "</text>"
+        ? '<circle cx="' + (n.x + 18).toFixed(1) + '" cy="' + (n.y - 18).toFixed(1) + '" r="9" fill="var(--amber)" /><text text-anchor="middle" x="' + (n.x + 18).toFixed(1) + '" y="' + (n.y - 14).toFixed(1) + '" fill="#111" font-size="9" font-weight="800">' + (unread > 99 ? "99+" : unread) + "</text>"
         : "";
       var doingTxt = doing
         ? '<text class="floor-doing" text-anchor="middle" x="' + n.x.toFixed(1) + '" y="' + (n.y + 36).toFixed(1) + '">' + esc(doing) + "</text>"

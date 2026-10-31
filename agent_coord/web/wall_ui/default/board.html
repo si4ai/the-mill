@@ -9,25 +9,14 @@
   <title>The Mill</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <!-- WALL_UI_LIB_THEME: default CSS vars (fonts/sizes/headings); Cut6 DB css_vars HOLD -->
-  <script src="/shell-early.js?v=wow281" data-wall-early="all"></script>
+  <script src="/shell-early.js?v=wow283" data-wall-early="all"></script>
   <link rel="stylesheet" href="/lib/theme.css?v=wow165">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
-  <link rel="stylesheet" href="/shell.css?v=wow269">
-  <!-- critical welcome Nest overlay (sync); board.css loads async -->
-  <style id="wall-welcome-critical">
-  #wall-welcome:not([hidden]){position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:.75rem}
-  #wall-welcome[hidden]{display:none!important}
-  #wall-welcome .ww-backdrop{position:absolute;inset:0;background:rgba(8,10,13,.45);cursor:pointer}
-  #wall-welcome .ww-card{position:relative;z-index:1;max-width:32rem;width:100%;max-height:calc(100vh - 1.5rem);overflow-x:hidden;overflow-y:auto;background:var(--panel,#12171e);border:1px solid var(--edge,#2c3644);border-radius:var(--radius,10px);box-shadow:var(--shadow,0 12px 36px rgba(0,0,0,.4));padding:.7rem .85rem .75rem;color:var(--dim,#8d99a8);font-size:13px;line-height:1.45}
-  #wall-welcome .ww-card header{display:flex;align-items:center;gap:.4rem;padding:0 0 .2rem}
-  #wall-welcome .dismiss{margin-left:auto;background:transparent;border:0;color:var(--dim,#8d99a8);font:inherit;cursor:pointer;padding:.1rem .25rem;touch-action:auto}
-  #wall-welcome .dismiss:hover{color:var(--ink,#e8eef5)}
-  </style>
-
-  <link rel="stylesheet" href="/board.css?v=wow323" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="/board.css?v=wow323"></noscript>
-  
-  <style>.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}</style>
+  <link rel="stylesheet" href="/shell.css?v=wow270">
+  <link rel="stylesheet" href="/welcome.css?v=wow282">
+  <link id="board-css" rel="stylesheet" href="/board.css?v=wow325" media="print">
+  <script src="/lib/board-css.js?v=wow281"></script>
+  <noscript><link rel="stylesheet" href="/board.css?v=wow325"></noscript>
 </head>
 <body>
   <div id="wall-refresh-banner" role="status" aria-live="polite">
@@ -68,7 +57,7 @@
       <button type="button" class="dismiss" id="filter-cancel">close</button>
     </header>
     <p class="note">Apply writes the URL (anyone with the door can open that link). Save chip is this browser only - the mill has no human login. Copy on a chip shares the URL.</p>
-    <form id="filter-form" class="desk-form" style="flex-direction:column;align-items:stretch;gap:.45rem">
+    <form id="filter-form" class="desk-form">
       <label>Name <input id="flt-name" maxlength="64" placeholder="e.g. mill bugs this week"></label>
       <label>Products <input id="flt-projects" maxlength="200" placeholder="comma list, empty = all"></label>
       <label>Owner <input id="flt-owner" maxlength="64" placeholder="a desk, or empty for all"></label>
@@ -90,7 +79,7 @@
       </label>
       <label>From <input id="flt-from" type="date"></label>
       <label>To <input id="flt-to" type="date"></label>
-      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <div class="filter-actions">
         <button type="submit">apply</button>
         <button type="button" id="filter-save">save chip</button>
         <button type="button" id="filter-clear">clear</button>
@@ -325,7 +314,7 @@
         </div>
       </aside>
       <div class="pane-body">
-      <div id="jobs-kanban" class="jobs-kanban jobs-needs-only" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-flow:column;width:100%;min-height:14rem">
+      <div id="jobs-kanban" class="jobs-kanban jobs-needs-only">
       <section id="sec-parked" class="jobs-kanban-col" data-col="parked">
         <h2><button type="button" class="col-collapse" title="Collapse column" aria-label="Collapse PARKED">"</button> PARKED <span class="jobs-sub">GO later</span></h2>
         <div class="body" id="parked"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div>
@@ -457,7 +446,7 @@
           <button type="button" data-ladder="office" title="Office: full key board">Office</button>
           <button type="button" data-ladder="company" title="Company: OIDC stub (no live IdP)">Company</button>
         </span>
-        <span class="note" id="admin-door-mode" style="color:var(--dim);font-size:11px">door: ...</span>
+        <span class="note" id="admin-door-mode">door: ...</span>
       </div>
       <p class="note">Humans use this tab. Agents: mill CLI <code>invite --mint / --list / --revoke / --ttl / --lan-only</code>. HTTPS only. No live OIDC this ship. Collab try-it stays on COLLAB.</p>
       <div class="admin-split" id="admin-split">
@@ -634,7 +623,7 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow322"></script>
+  <script defer src="/lib/lazy.js?v=wow324"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
@@ -718,6 +707,6 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow324"></script>
+<script defer src="/boot.js?v=wow326"></script>
 </body>
 </html>

@@ -301,11 +301,11 @@ STATIC_CACHE_SHORT = "public, max-age=60"
 # The board page sits behind the door: browser cache only, keyed on the session cookie.
 BOARD_CACHE = "private, max-age=60"
 
-# Sent on every response. The Wall has one inline onload handler and inline
-# style attributes, so script-src and style-src keep 'unsafe-inline' until
-# those move into files; everything else is same-origin only.
+# Sent on every response. script-src and style-src are 'self' only: the board
+# onload lives in a file, and paint styles live in classes (card 815).
+# Everything else is same-origin only.
 WALL_CSP = (
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "default-src 'self'; script-src 'self'; style-src 'self'; "
     "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
     "form-action 'self'; frame-ancestors 'none'"
 )

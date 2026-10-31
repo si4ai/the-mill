@@ -125,7 +125,7 @@
       const twist = canCollapse
         ? `<button type="button" class="trees-twist" data-trees-twist="1" data-trees-needs-expand="${needsExpand ? "1" : "0"}" aria-expanded="${twistCollapsed ? "false" : "true"}" title="${needsExpand ? "Load children" : (twistCollapsed ? "Expand branch" : "Collapse branch")}">${twistCollapsed ? "+" : "-"}</button>`
         : `<span class="trees-twist-gap"></span>`;
-      return `<div class="${cls.join(" ")}" style="--d:${depth}" data-depth="${depth}" data-type="${esc(kind)}" data-id="${esc(String(node && node.id || ""))}" data-plan="${esc(String(opts.planId || ""))}" data-has-children="${hasKidsHint ? "1" : "0"}">` +
+      return `<div class="${cls.join(" ")}" data-depth="${depth}" data-type="${esc(kind)}" data-id="${esc(String(node && node.id || ""))}" data-plan="${esc(String(opts.planId || ""))}" data-has-children="${hasKidsHint ? "1" : "0"}">` +
         twist +
         `<span class="st">${esc(cue)}</span>` +
         `<div class="ttl"><b>${esc(p.title)}</b>${millWatchBadge(kind, node && node.id)}${unread}${who}</div>` +
