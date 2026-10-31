@@ -65,5 +65,5 @@ Fixture rows are hidden from `mill todo` unless you pass `--fixtures`.
 
 | Row | Do | Pass when |
 | --- | --- | --- |
-| deleted-rows-live | On a 0.6.30+ office, `probe_deleted_rows.py run` from a connected desk | exit 0; `trail_state` deleted, the roster retired, and the signed-in Wall Wire pill shows both rows deleted |
+| deleted-rows-live | On a 0.6.30+ office, `probe_deleted_rows.py run` from an Admin desk | exit 0; `trail_state` deleted, the roster retired, and the signed-in Wall Wire pill shows both rows deleted. A non-Admin desk still gets exit 0 when the probe rows are deleted, with `roster.retired` false and `roster.reason` set (card 721). |
 | probe-refuses-real | `probe_deleted_rows.py delete --type todo --id <a real card id>` | exit 1, `not in a fixture project`; the card is unchanged |

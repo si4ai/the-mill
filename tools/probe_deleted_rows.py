@@ -23,8 +23,10 @@ that has the mill pack installed:
            python tools/probe_deleted_rows.py run; kill $CP'
 
 Needs an office at 0.6.30 or later (older offices answer unknown mill verb).
-Making and retiring the roster needs an Admin desk on a limited-trust office.
-Prints one JSON object. Exit 0 ok, 1 refused or a check failed, 2 usage.
+Making the roster and retiring it need an Admin desk on a limited-trust office.
+A non-Admin run still prints the probe result; roster.retired is false and
+roster.reason names the refuse (card 721). Exit 0 when the probe rows are
+deleted even if retire was refused; exit 1 when the probe itself failed; 2 usage.
 """
 from __future__ import annotations
 
@@ -74,13 +76,32 @@ def retire_roster(call: Callable[[dict], Any], project: str) -> None:
 
 
 def run_own_roster(call: Callable[[dict], Any], project: str) -> dict[str, Any]:
-    """#644: make the fixture roster, run, then retire it even after a refusal."""
+    """#644 / #721: make the fixture roster, run, then retire it even after a refusal.
+
+    Retiring the roster needs Admin on a limited-trust office. When retire is
+    refused, still return the probe result and set roster.retired false with
+    the refusal reason (card 721); do not drop trail_state behind a bare error.
+    """
     make_roster(call, project)
+    run_err: BaseException | None = None
+    out: dict[str, Any] | None = None
     try:
         out = run(call, project)
-    finally:
+    except BaseException as e:
+        run_err = e
+    retired = False
+    reason = ""
+    try:
         retire_roster(call, project)
-    out["roster"] = {"made": True, "retired": True}
+        retired = True
+    except BaseException as e:
+        reason = str(e)
+    if out is None:
+        assert run_err is not None
+        raise run_err
+    out["roster"] = {"made": True, "retired": retired, "slug": project}
+    if not retired:
+        out["roster"]["reason"] = reason
     return out
 
 
