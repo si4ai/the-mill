@@ -683,11 +683,12 @@ def _find_card(r: dict, needle: str, match: str) -> dict:
     return out
 
 
-def _todo_find(row: Any, text: str) -> Any:
+def _todo_find(row: Any, text: str, *, have_done: bool = False, have_all: bool = False) -> Any:
     """Keep the cards whose need, roster or detail holds text (any case).
 
     Need-name hits list first, then roster, then body-only hits; each
     card carries a short snippet instead of its whole body (ux12).
+    An empty match names only widen flags not already on the command (#649).
     """
     if not text or not isinstance(row, dict) or not isinstance(row.get("result"), list):
         return row
@@ -704,9 +705,16 @@ def _todo_find(row: Any, text: str) -> Any:
     keep = [c for _, _, c in ranked]
     out = dict(row)
     out["result"] = keep
-    out["note"] = f"{len(keep)} card(s) match {text!r}" + (
-        "" if keep else "; add --all for every roster, --done for finished cards"
-    )
+    note = f"{len(keep)} card(s) match {text!r}"
+    if not keep:
+        tips = []
+        if not have_all:
+            tips.append("--all for every roster")
+        if not have_done:
+            tips.append("--done for finished cards")
+        if tips:
+            note += "; add " + ", ".join(tips)
+    out["note"] = note
     return out
 
 
@@ -756,9 +764,21 @@ def mill_http_from_args(args: Any) -> int:
         if _focus.wears(row.get("result") or [], desk):
             # #374: one label read for the rank, only when a listed card wears the desk's label.
             rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk)), desk)
-        row = todo_rows.keep_mine(row, desk, rank, str(getattr(args, "status", "") or "").strip())
+        row = todo_rows.keep_mine(
+            row,
+            desk,
+            rank,
+            str(getattr(args, "status", "") or "").strip(),
+            have_done=bool(getattr(args, "done", False)),
+            have_all=bool(getattr(args, "all", False)),
+        )
     if find:
-        row = _todo_find(row, find)
+        row = _todo_find(
+            row,
+            find,
+            have_done=bool(getattr(args, "done", False)),
+            have_all=bool(getattr(args, "all", False)),
+        )
     if short_rows and isinstance(row, dict) and row.get("ok") is True and isinstance(row.get("result"), list):
         part, page_block = todo_rows.cut(row["result"], int(getattr(args, "page", 0) or 0))
         row = dict(row, result=part)
