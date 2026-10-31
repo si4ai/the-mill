@@ -1355,7 +1355,7 @@ def run_ws_loop(
         import websockets
     except ImportError:
         print(
-            "mill here: websockets not installed; backchannel off (mill wake catch-up still works)",
+            "connect: websockets not installed; backchannel off (wake catch-up still works)",
             flush=True,
         )
         return

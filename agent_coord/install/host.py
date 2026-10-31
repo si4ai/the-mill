@@ -2231,7 +2231,7 @@ def mill_join(
                 "mill_url": mill_url,
                 "ca": "",
                 "trust": ["mill CA PEM from the mint was not a certificate"],
-                "note": "mill join failed: --ca is not a CA PEM.",
+                "note": "join failed: the --ca file is not a CA PEM. Next: mill join --link-file PATH",
             }
         if expect_fp:
             from agent_coord.client.http import ca_fingerprint, parse_mill_ca_pem
@@ -2247,7 +2247,7 @@ def mill_join(
                     "mill_url": mill_url,
                     "ca": "",
                     "trust": ["CA fingerprint mismatch"],
-                    "note": "mill join failed: --ca fingerprint does not match ca= pin on the URL.",
+                    "note": "join failed: the --ca fingerprint does not match the ca= pin on the URL. Next: mill join --link-file PATH",
                 }
     else:
         from agent_coord.client.http import fetch_mill_ca
@@ -2260,9 +2260,9 @@ def mill_join(
         )
     if ca is None:
         note = (
-            "mill join failed: Wall did not serve a valid CA PEM at /api/ca.crt or /ca.crt"
+            "join failed: the wall did not serve a valid CA PEM at /api/ca.crt or /ca.crt"
             " (or ca= fingerprint mismatched). Nothing written. Fix URL/network/TLS/pin, then retry."
-            " Pass --ca with the CA PEM, or the base64 of that PEM."
+            " Pass a CA PEM to the join helper, or the base64 of that PEM. Next: mill join --link-file PATH"
         )
         return {
             "ok": False,
@@ -2302,7 +2302,7 @@ def mill_join(
                 "error": "seat token was not stored",
                 "note": str(exc),
             }
-        # Seat-form join (--url --desk --seat --ca) often has no project= on the
+        # Seat-form join (url, desk, seat, ca) often has no project= on the
         # URL. Ask the Wall: join with Office placeholder returns the seat project (#252).
         if not seat_project:
             try:
@@ -2328,16 +2328,16 @@ def mill_join(
     elif invite_tok:
         # Invite join: mint a session token against the *remote* Wall (closes #510).
         if not who:
-            next_cmd = f"mill join --url {mill_url}/?invite={invite_tok} --desk <desk>"
+            next_cmd = "mill join --link-file PATH"
             return {
                 "ok": False,
                 "mill_url": mill_url,
                 "ca": str(ca),
                 "trust": trust,
                 "invite": True,
-                "error": "invite join needs --desk to mint a session token",
+                "error": "invite join needs a desk name to mint a session token",
                 "next": [next_cmd],
-                "note": f"CA trusted. Re-run with --desk so connect works: {next_cmd}",
+                "note": f"CA trusted. Re-run with a seat welcome link so connect works: {next_cmd}",
             }
         try:
             from agent_coord.client.http import mill_http_call
@@ -2351,7 +2351,7 @@ def mill_join(
                 }
             )
         except Exception as exc:
-            next_cmd = f"mill join --url {mill_url}/?invite={invite_tok} --desk {who}"
+            next_cmd = "mill join --link-file PATH"
             return {
                 "ok": False,
                 "mill_url": mill_url,
@@ -2374,7 +2374,7 @@ def mill_join(
             if gid:
                 seat_project = gid
         if not tok:
-            next_cmd = f"mill join --url {mill_url}/?invite={invite_tok} --desk {who}"
+            next_cmd = "mill join --link-file PATH"
             return {
                 "ok": False,
                 "mill_url": mill_url,
@@ -2817,7 +2817,7 @@ def write_role(
                         "mutated": False,
                         "error": f"--public requires door=invite; set_door failed: {exc}",
                         "door": current_door,
-                        "next": ["mill invite --door invite, then re-run mill install server --apply --public"],
+                        "next": ["mill invite --door invite", "mill install server --apply --public"],
                     }
                 if str(door_mode() or "") != "invite":
                     return {
@@ -2827,7 +2827,7 @@ def write_role(
                         "error": "--public requires door=invite; door is still not invite after set_door",
                         "door": door_mode(),
                         "door_plan": door_plan,
-                        "next": ["mill invite --door invite, then re-run mill install server --apply --public"],
+                        "next": ["mill invite --door invite", "mill install server --apply --public"],
                     }
             else:
                 # Neither dry-run nor apply: still report the requirement.

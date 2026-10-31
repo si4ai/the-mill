@@ -260,7 +260,7 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
     project_raw = str(body.get("project") or "").strip()
     owner_raw = str(body.get("owner") or "").strip()
     if not project_raw or not owner_raw:
-        raise CoordError("mill here: project and owner required")
+        raise CoordError("join: project and owner required")
     project = _project_alias(getattr(c, "_cn", None), _stored(project_raw))
     owner = _stored(owner_raw)
     role_raw = str(body.get("role") or "").strip()

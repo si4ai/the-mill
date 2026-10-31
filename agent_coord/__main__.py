@@ -1780,7 +1780,7 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
             if subc == "add":
                 key = str(args.key or "").strip()
                 if not key:
-                    print("mill route add: key required", file=sys.stderr, flush=True)
+                    print("route add: key required", file=sys.stderr, flush=True)
                     return 1
                 argv = list(getattr(args, "argv", None) or [])
                 if argv and argv[0] == "--":

@@ -1,9 +1,9 @@
 """mill join delivery options (#618): websocket, or a webhook the wall POSTs to.
 
-`mill join LINK --webhook-url URL --webhook-key-file PATH` joins and arms the
-webhook in one command; `mill join DESK --webhook-...` changes a seated
-desk's delivery with no new link, authenticated by that desk's own seat token
-(the same credential connect presents); `mill join --desk DESK --websocket`
+`mill join --link-file PATH --webhook-url URL --webhook-key-file PATH` joins and
+arms the webhook in one command; `mill join DESK --webhook-url URL --webhook-key-file PATH`
+changes a seated desk's delivery with no new link, authenticated by that desk's
+own seat token (the same credential connect presents); `mill join DESK --websocket`
 switches back. The key never comes from argv (a file, an env var name, or
 stdin), is sent once to the wall, and is never printed. The wall row is the one
 place the URL and key live; nothing is kept on this machine. One line prints:

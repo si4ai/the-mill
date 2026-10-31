@@ -345,4 +345,5 @@ def test_e16_invite_join_without_desk_gives_next_cmd(tmp_path: Path, monkeypatch
     row = hostmod.mill_join("https://wall.example/?invite=invitetok", dest=cfg)
     assert row.get("ok") is False
     assert row.get("next")
-    assert "--desk" in row["next"][0]
+    assert "--link-file" in row["next"][0]
+    assert "mill join" in row["next"][0]
