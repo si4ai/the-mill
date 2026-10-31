@@ -694,16 +694,33 @@ def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: st
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
     """The one trailing POST for a lease's held-back items (F144). none when the
-    run's own connect syncs already took every waiting row (nothing to wake for)."""
+    run's own connect syncs already took every waiting row and no unread mail
+    remains (#949). A short connect that drained the push queue without opening
+    the letter still gets one trailing wake for the unread mailbox."""
+    from agent_coord.server.poke_key import FIELD, letter_key
     from agent_coord.server.records import push as rec_push
 
     waiting = rec_push.pending(cn, desk)
-    if waiting <= 0:  # the run's own syncs took every row
+    if waiting > 0:
+        return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
+                         reason=t.get("reason") or ADDRESSED, room=t.get("room"),
+                         trailing=why, pending_count=len(t.get("keys") or ()) or waiting)
+    # Push drained: still wake when mailbox letters stay unopened (#949).
+    try:
+        from agent_coord.server.push import unread_mail_frames
+
+        unread = unread_mail_frames(cn, desk)
+    except Exception:
+        unread = []
+    if not unread:
         _bc_log_safe(f"webhook desk={desk} wake=none reason=drained held={len(t.get('keys') or ())}")
         return "none"
-    return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
-                     reason=t.get("reason") or ADDRESSED, room=t.get("room"),
-                     trailing=why, pending_count=len(t.get("keys") or ()) or waiting)
+    frame = dict(unread[0])
+    mid = int(frame.get("id") or 0)
+    frame[FIELD] = letter_key(mid, desk)
+    return post_desk(cn, desk, frame, hint_id=mid,
+                     reason=ADDRESSED, room=None,
+                     trailing=why, pending_count=len(unread))
 
 
 def trail(desk: str, at: float) -> str:

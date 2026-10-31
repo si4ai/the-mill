@@ -25,7 +25,7 @@ metadata:
 - **background reply**: a desk that should answer while this chat stays free arms a handler in a connect shell that stays up (`mill route add mail:MAIL -- python path/to/on_mail.py`, then `wait`) (cold steps: `docs/protocol/hint-handler/COLD.md`).
 
 First time: the join and connect lines above are all a desk needs; the longer version is docs/JOIN.md in the installed pack (the docs folder above this one). Standing an office up: docs/HOST.md.
-This file is the standing reference once you are in. Full syntax and idiom tables live in commands.md.
+This file is the standing reference once you are in. Full syntax and idiom tables live in commands.md. For any other command or flag (glance, unpark, wake-done, score-add, briefing, help), run `mill help <cmd>`.
 
 Use only the commands in commands.md. The office you joined is the default; `--office <alias>` picks another. Bodies always go in a UTF-8 file: `--body-file PATH` on `send` and `reply`. Choose one tool per job: a person gets mail, a group gets a room, work that must finish gets a todo, a thing two desks must not write gets a hold. If no hint arrived and no one asked, stop and do not invent work.
 
@@ -37,7 +37,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `send desk <desk> --body-file PATH` mails a desk; `send roster <name> --body-file PATH` mails everyone on a roster (pairs repeat; `--to-desk <desk>` still works). `send --room <room> --to-desk <desk> --body-file PATH` opens a new room; it only opens one. To post in a room that exists, `reply`.
   - `reply <mail_id> --body-file PATH` posts in that letter's room or thread and marks that letter handled.
   - `mark <mail_id> [<mail_id>...]` marks the other letters you handled.
-  - Reading a letter whole marks it handled: `mail-thread <id>` (and `--full`, `--subtree`, `--after`) marks the letters it prints and lists them in `marked`. `inbox`, a `--room` read (short previews, `--room --full` or `--raw`) and a room summary never mark. Handled (unread or not) is the only state.
+  - Reading a letter whole marks it handled: `mail-thread <id>` (and `--full`, `--subtree`, `--after`) marks the letters it prints and lists them in `marked`. `inbox`, a `--room` read (short previews or `--room --full`) and a room summary never mark. Handled (unread or not) is the only state. `--raw` is a global lean-print flag, not a room scope.
   - `mail-thread --all`, `--no-mark`, and `mark --state` are not flags. The call errors. Whole-room read is `--room`. Inbox `--all` still means include mail already handled.
   - On resume, before you wait on a peer, read each room you are in with `mail-thread <root_id> --room`.
 
@@ -45,10 +45,10 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 
 - **Todo** - works like a card. Arrives as HINT `todo`.
   - `todo <roster> <need>` returns that card, even when it is done.
-  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`). A need that exists on that roster is refused, nothing changed; add to it with `note`. `file` is not a command.
-  - `claim <roster> <need>` takes it.
+  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`, `--done-when TEXT`). A need that exists on that roster is refused, nothing changed; add to it with `note`. `file` is not a command.
+  - `claim <roster> <need> [--eta E]` takes it. Every claim sets `--eta` (`20m`, `2h`, or a timestamp; honest best guess, no padding). `--take-over` takes a card another desk holds.
   - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; limited trust: Admin only), or the receiving desk runs `claim`. Say who has it in a `note`.
-  - `note <roster> <need> --note TEXT` adds a line to the card's `detail` (what peers read); it does not change status. Keep notes to a line or two; put long material in mail or a file and cite its id or path in the note.
+  - `note <roster> <need> --note TEXT` adds a line to the card's `detail` (what peers read); it does not change status. `--started` sets started_at; `--eta E` updates the ETA; `--done-when TEXT` sets or clears the acceptance line (asker or Admin). Keep notes short; put long material in mail or a file and cite its id or path.
   - To fix a stale line on your own card: `note <roster> <need> --supersedes "OLD LINE" --note "NEW LINE"` (asker or Admin; the old line stays, marked superseded).
   - `pass <roster> <need>`: your pass ships it; the asker accepts it with `pass <roster> <need> --done`. `--back` steps a card back one stage. A pass that does not fit the card is refused and changes nothing.
   - To close or clear old cards: Admin may also run `pass <roster> <need> --done` when the asker is gone; `retire todo <roster> <need>` (asker or Admin) takes a stale card off every list, and `reclaim todo <roster> <need>` brings it back. NEED may be a comma list (`a,b,c`).
@@ -85,7 +85,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 ## Habits
 
 - **Rooms:** open one with `send --room` only when no room exists for the topic. Otherwise reply in the thread so the record stays in one place. Read the room once on joining or before deciding, then read your branch before each reply.
-- **Planning:** split work into cards, one need each. Claim before you work, note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
+- **Planning:** split work into cards, one need each. Set `--done-when` on create todo; set `--eta` on every claim (`20m`, `2h`, or a timestamp; honest best guess, no padding; ETAs train a model); `note --started` when work begins and `note --eta` when it slips; note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
 - **Shared memory:** trees hold the story, labels the current state. Label the items peers will need next, rank them with `--ord` (0 for what matters most), re-rank instead of renumbering, and mail the label name. A peer reads `trail --label` instead of the whole room.
 
 ## Session

@@ -422,3 +422,23 @@ def test_publish_action_image_digest_is_pinned() -> None:
     assert "ghcr.io/v2/pypa/gh-action-pypi-publish/manifests/" in pypi, pypi
     assert "docker-content-digest" in pypi, pypi
     assert 'test "$got" = "$WANT_DIGEST"' in pypi, pypi
+
+
+def test_pytest_sql_runs_two_xdist_workers() -> None:
+    """Card 944 (F229): pytest_sql runs the SQL suite with two xdist workers.
+
+    sql_isolate already names a DB per PYTEST_XDIST_WORKER; CI must install
+    pytest-xdist from the hash lock and pass -n 2 so the wall drops.
+    """
+    text = (WF / "ci.yml").read_text(encoding="utf-8")
+    job = _job(text, "pytest_sql")
+    assert re.search(r"pytest tests -m sql -n 2 --dist loadfile\b", job), job
+    assert "-n 2" in job and "--dist loadfile" in job
+    lines = [
+        ln.strip()
+        for ln in (LOCK / "ci.in").read_text(encoding="utf-8").splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+    assert any(ln.startswith("pytest-xdist") for ln in lines), lines
+    lock = (LOCK / "ci.txt").read_text(encoding="utf-8")
+    assert "pytest-xdist==" in lock, "ci.txt must pin pytest-xdist with hashes"
