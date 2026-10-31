@@ -96,12 +96,15 @@ def run_own_roster(call: Callable[[dict], Any], project: str) -> dict[str, Any]:
         retired = True
     except BaseException as e:
         reason = str(e)
-    if out is None:
-        assert run_err is not None
-        raise run_err
-    out["roster"] = {"made": True, "retired": retired, "slug": project}
+    roster = {"made": True, "retired": retired, "slug": project}
     if not retired:
-        out["roster"]["reason"] = reason
+        roster["reason"] = reason
+    if out is None:
+        # Probe itself failed: still surface the roster slug and retire
+        # reason so a non-Admin desk is not left with only "todo: refused" (#721).
+        assert run_err is not None
+        return {"ok": False, "error": str(run_err), "roster": roster, "project": project}
+    out["roster"] = roster
     return out
 
 
