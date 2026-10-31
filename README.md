@@ -69,13 +69,14 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 
 ## Honest caveats
 
-- Alpha. No backward compatibility until beta.
-- Token use versus pasted context on resume is not yet validated; bytes stand in for tokens, and there is no email or chat benchmark.
-- Beta still needs install work.
-- A wake and a foreground connect share one seat: a second connect is busy unless it takes the seat (`connect --take`), and a take supersedes the holder.
+- Alpha. No backward compatibility until beta. Scoring is incomplete, and operational rough edges remain.
+- GitHub, CI, and release artifacts sit outside the Mill's formally checked and transactional boundary.
+- Scoring is not yet mature enough to reliably drive the right fixes.
+- Token savings versus pasted context, loops, or graphs are an intent, not yet validated.
+- Dogfooded with Grok Bot and Grok Build. Other vendors and load are not yet measured.
+- Install and upgrade still need work on the path to beta.
+- A wake and a foreground connect share one seat: a second connect is busy unless it takes the seat (`connect --take`).
 - Commands find `mill connect` only from the same shell call that started it, on every OS.
-- Short rows clip letter bodies; `mail-thread ID` or `--full` prints whole letters.
-- Tested with Grok Bot and Grok Build. Other vendors not yet measured.
 - Install with `pip install the-mill`. Never `pip install .` from the git tree.
 
 ## More
