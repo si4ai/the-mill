@@ -11,6 +11,7 @@ import re
 import secrets
 import threading
 from collections import OrderedDict
+from datetime import datetime
 from typing import Any
 
 from agent_coord.const import (
@@ -633,12 +634,37 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     return out
 
 
+def _connected_limit(body: dict[str, Any]) -> int | None:
+    """Positive --limit, or None when the flag was not sent. Below 1 is a refusal."""
+    if "limit" not in body or body.get("limit") in (None, ""):
+        return None
+    try:
+        n = int(body.get("limit"))
+    except (TypeError, ValueError):
+        raise CoordError("connected: --limit must be at least 1")
+    if n < 1:
+        raise CoordError("connected: --limit must be at least 1")
+    return n
+
+
+def _heartbeat_rank(view: dict[str, Any]) -> tuple:
+    """Newest heartbeat first. A desk with no heartbeat sorts last."""
+    hb = view.get("heartbeat")
+    if isinstance(hb, datetime):
+        return (0, -hb.timestamp())
+    if hb in (None, ""):
+        return (1, 0)
+    return (0, str(hb))
+
+
 def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """`mill connected` (#274 word; RPC session). #818 PR B: what each desk is
     doing, on which item, since when, and who is waiting on it.
 
     ROSTER is optional (none = desks active in the last day; --all every desk;
     --desk X one desk). --history lists past doing entries instead, a page at a time.
+    --limit N (card 647) keeps at most N live desks, newest heartbeat first.
+    With no --limit the live list and its order stay as they were.
     """
     from agent_coord.server.records import doing as rec_doing
 
@@ -651,14 +677,21 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
             raise CoordError(f"connected: no desk {desk[:64]}")
     elif roster:
         _require_live_project(c._cn, roster, "connected")
+    limit = _connected_limit(body)
     page = _doing_page(body.get("page"))
     if body.get("history"):
+        if limit is not None:
+            raise CoordError("connected: --limit is for the live list, not --history")
         return _doing_history(c, body, desk)
     if body.get("since") or page:
         raise CoordError("connected: --since and --page go with --history")
-    return [_desk_view(r, roster, by) for r, by in _doing_rows(
+    views = [_desk_view(r, roster, by) for r, by in _doing_rows(
         rec_doing.now(c._cn, desk, roster, bool(body.get("all")))
     )]
+    if limit is None:
+        return views
+    views.sort(key=_heartbeat_rank)
+    return views[:limit]
 
 
 def _doing_rows(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, list]]]:

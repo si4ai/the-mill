@@ -386,6 +386,12 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body["history"] = True
         if int(getattr(args, "page", 0) or 0):
             body["page"] = int(args.page)
+        # Card 647: a missing --limit must not cap the list. Below 1 is a refusal.
+        if "limit" in body:
+            if int(body["limit"]) < 1:
+                raise CoordError("connected: --limit must be at least 1")
+            if body.get("history"):
+                raise CoordError("connected: --limit is for the live list, not --history")
     if command in ("hold", "drop"):
         from agent_coord.helpers.bounds import resource_name
 
