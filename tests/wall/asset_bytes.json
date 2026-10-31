@@ -1,6 +1,6 @@
 {
   "note": "Wall asset bytes (LF). Card 871; wall-contract rule-asset-bytes (874). Raise a line only with a reason in the PR text.",
-  "total": 983349,
+  "total": 983418,
   "bytes": {
     "components/gutter.css": 773,
     "components/gutter.js": 4582,
@@ -32,7 +32,7 @@
     "default/todo/todo-paint.js": 39988,
     "default/todo/todo.css": 35443,
     "default/todo/todo.js": 2472,
-    "lib/data.js": 10539,
+    "lib/data.js": 10608,
     "lib/graph.js": 1769,
     "lib/keys.js": 24904,
     "lib/lazy.js": 6891,

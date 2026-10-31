@@ -46,9 +46,9 @@ BOOK = {
     "add": ["todo:{TID}"],
     "remove": ["todo:{TID}"],
     "score": ["{P}", "c238-kpi", "5"],
-    "delete": ["roster", "{P}-del"],
-    "restore": ["roster", "{P}-del"],
-    "purge": ["roster", "{P}-del"],
+    "delete": ["roster", "{P}-del", "--yes"],
+    "restore": ["roster", "{P}-del", "--yes"],
+    "purge": ["roster", "{P}-del", "--yes"],
 }
 
 KIND = {

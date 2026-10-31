@@ -1553,6 +1553,29 @@ def install_sql(cn, *, apply: bool) -> dict[str, Any]:
     return {**after, "applied": True, "was": before["book"], "steps": len(res.get("applied") or [])}
 
 
+
+def _ensure_name_trashed(cn) -> list[str]:
+    """#879: name.trashed for mill delete soft-trash (restorable; purge hard-deletes)."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "name"):
+            return applied
+        if not _column_exists(cur, "name", "trashed"):
+            cur.execute(
+                "ALTER TABLE name ADD COLUMN trashed "
+                "DATETIME(6) NULL AFTER deleted"
+            )
+            applied.append("name.trashed")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def _ensure_act_rename(cn) -> list[str]:
     """#926/#879: activity.act and doing.act gain delete/restore/purge/rename."""
     applied: list[str] = []
@@ -1636,6 +1659,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_mail_sp(cn))
             applied.extend(_ensure_push_expired(cn))
             applied.extend(_ensure_activity_soft_delete(cn))
+            applied.extend(_ensure_name_trashed(cn))
             applied.extend(_ensure_act_rename(cn))
             applied.extend(_ensure_fk_rules(cn))
             applied.extend(_ensure_join_token_hash(cn))
