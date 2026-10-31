@@ -133,6 +133,34 @@ BEGIN
   IF ROW_COUNT() = 0 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';
   END IF;
+  -- Card 955: closing a prior focus on a card adds its minutes to the cards score.
+  BEGIN
+    DECLARE v_prev BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_pon VARCHAR(8) DEFAULT NULL;
+    DECLARE v_pid BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_pct DATETIME(6) DEFAULT NULL;
+    DECLARE v_ptxt VARCHAR(512) DEFAULT NULL;
+    DECLARE v_pact VARCHAR(16) DEFAULT NULL;
+    DECLARE v_prid BIGINT UNSIGNED DEFAULT NULL;
+    DECLARE v_mins INT DEFAULT NULL;
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    SET @mill_req_tx = 1;
+    SELECT g.id, g.on_type, g.on_id, g.created, g.text, g.act
+      INTO v_prev, v_pon, v_pid, v_pct, v_ptxt, v_pact
+      FROM seat s JOIN doing g ON g.id = s.doing_id
+     WHERE s.desk_id = v_desk;
+    IF v_prev IS NOT NULL AND v_pon = 'todo' AND v_pact = 'focus' AND IFNULL(v_ptxt, '') <> ''
+       AND mill_doing_end(v_desk, v_prev, v_pon, v_pid, v_pct) IS NULL
+       AND mill_doing_cleared(v_desk, v_prev, v_pct) IS NULL THEN
+      SELECT roster_id INTO v_prid FROM todo WHERE id = v_pid;
+      SET v_mins = TIMESTAMPDIFF(MINUTE, v_pct, v_ts);
+      IF v_mins > 0 AND v_prid IS NOT NULL THEN
+        CALL mill_card_score_event(v_prid, 'doing', NULL, NULL, NULL, v_mins, v_ts);
+      END IF;
+    END IF;
+    SET @mill_req_tx = v_saved;
+  END;
   CALL mill_doing_insert(v_desk, v_roster, p_text, v_ts, v_id);
   -- The row was inserted by this call; nothing older is touched.
   UPDATE doing SET on_type = p_on_type, on_id = p_on_id,
