@@ -685,7 +685,7 @@
         const hrBit = hr ? ` <span class="mail-chip needs-human mail-hr-chip" title="Needs human (receipt)">Needs human</span>` : "";
         const body = String((m && (m.body || m.subject)) || (p && p.title) || "").trim();
         const bodyTrunc = (m && m.body_trunc === true) ? "1" : "0";
-        return `<div class="${cls.join(" ")}" style="--d:${depth}" data-depth="${depth}" data-mail-id="${esc(String(n.id || ""))}" data-body-trunc="${bodyTrunc}">` +
+        return `<div class="${cls.join(" ")}" data-depth="${depth}" data-mail-id="${esc(String(n.id || ""))}" data-body-trunc="${bodyTrunc}">` +
           `<span class="st">mail</span>` +
           `<div class="ttl"><b>${esc(body)}</b>${unreadBit}${hrBit}${who}${dst}</div>` +
           `</div>`;

@@ -376,6 +376,7 @@ main {
 .mail-msg-col { flex: 1 1 auto; border-right: 0; }
 .jobs-kanban {
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-flow: column;
   gap: 0; flex: 1 1 auto; min-height: 14rem; width: 100%;
 }
 .jobs-kanban-col {

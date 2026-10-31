@@ -27,7 +27,7 @@
       const p = known ? Math.max(0, Math.min(100, Number(pct) || 0)) : 0;
       const cls = known ? "" : " unknown";
       const empty = (!known || p <= 0) ? " empty" : "";
-      return `<div class="score-bar${cls}${empty}" title="${known ? (Math.round(p) + "%") : "unknown"}"><i style="width:${p}%"></i></div>`;
+      return `<div class="score-bar${cls}${empty}" title="${known ? (Math.round(p) + "%") : "unknown"}"><i data-pct="${p}"></i></div>`;
     }
     function scoreSpendPulse(d, span) {
       /* SCORECARDS_TOKEN_DETAIL / TOKENS_EST / WALL_HONEST_EMPTY_VS_DOWN: exact LLM vs est vs mill bytes; never fake LLM 0 */
@@ -307,13 +307,12 @@
         const estOnly = (!exact) && r.tokens_est != null;
         const tok = exact ? r.tokens : (estOnly ? r.tokens_est : "-");
         const llmLab = exact ? "LLM" : (estOnly ? "LLM est" : "LLM");
-        const llmDim = estOnly ? "opacity:.72" : "";
         const prog = r.progress || { pct: 0, known: false, label: "-" };
         return `<div class="score-desk-row">` +
           `<div class="who">${esc(r.desk)}</div>` +
           scoreBarHtml(prog.pct, prog.known) +
           `<div class="meta">${esc(prog.label || "-")}</div>` +
-          `<div class="meta" style="${llmDim}" title="${exact ? "Exact spend --tokens" : (estOnly ? "tokens_est chars//4" : "LLM tokens")}">${esc(llmLab)} ${esc(tok)}</div>` +
+          `<div class="meta${estOnly ? " is-est" : ""}" title="${exact ? "Exact spend --tokens" : (estOnly ? "tokens_est chars//4" : "LLM tokens")}">${esc(llmLab)} ${esc(tok)}</div>` +
           `</div>`;
       }).join("");
     }
@@ -327,7 +326,7 @@
           : `<div class="idle">no agent_kpi in the records</div>`;
         return;
       }
-      el.innerHTML = `<div class="note" style="margin:0 0 .35rem">Hot / Needs attention</div>` + list.map(r => {
+      el.innerHTML = `<div class="note hot-label">Hot / Needs attention</div>` + list.map(r => {
         const sel = r.desk === scoreSelectedDesk ? " sel" : "";
         const miss = r.miss ? " miss" : "";
         return `<div class="hot-card${miss}${sel}" data-score-desk="${esc(r.desk)}">` +
@@ -638,7 +637,7 @@
       }
       if (!evReady) {
         const msg = (scoreOn || _scoreEvBusy) ? "Loading rollups..." : "Rollups load on this tab.";
-        commandsEl.innerHTML = `<div class="score-office-h">Commands</div><div class="idle" style="padding:.45rem">${esc(msg)}</div>`;
+        commandsEl.innerHTML = `<div class="score-office-h">Commands</div><div class="idle pad-tight">${esc(msg)}</div>`;
         graphsEl.innerHTML = `<div class="idle">${esc(msg)}</div>`;
         return;
       }
@@ -658,7 +657,7 @@
         const label = id === "all" ? "all commands" : id;
         const pct = Math.max(0, Math.min(100, Math.round(((Number(stats.n) || 0) / maxN) * 100)));
         return `<tr class="${sel}" data-score-verb="${esc(id)}">` +
-          `<td><span class="score-verb-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>${esc(label)}</td>` +
+          `<td><span class="score-verb-bar" aria-hidden="true"><i data-pct="${pct}"></i></span>${esc(label)}</td>` +
           `<td>${esc(scoreCountText(stats.n))}</td><td>${esc(scoreCountText(stats.ms))}</td></tr>`;
       }).join("");
       commandsEl.innerHTML = `<div class="score-office-h">Commands</div>` +
@@ -941,7 +940,7 @@
       if (!showPlatform && !showFiled) {
         if (humanEl) {
           humanEl.hidden = false;
-          humanEl.innerHTML = `<div class="idle" style="padding:.45rem">No scores selected.</div>`;
+          humanEl.innerHTML = `<div class="idle pad-tight">No scores selected.</div>`;
         }
         return;
       }
@@ -974,7 +973,7 @@
           try { localStorage.setItem("factory-score-desk", scoreSelectedDesk); } catch (eDesk) {}
         }
         if (!desks.length) {
-          el.innerHTML = `<div class="score-office-h">Desks</div><div class="idle" style="padding:.45rem">No desk command scores yet.</div>`;
+          el.innerHTML = `<div class="score-office-h">Desks</div><div class="idle pad-tight">No desk command scores yet.</div>`;
           if (commandsEl) commandsEl.innerHTML = `<div class="idle">Pick a desk.</div>`;
           if (graphsEl) graphsEl.innerHTML = `<div class="idle">Pick a command.</div>`;
         } else {
@@ -1003,7 +1002,7 @@
       humanEl.hidden = false;
       const officeRows = scoreFiledList(d);
       if (!officeRows.length) {
-        humanEl.innerHTML = `<div class="score-office-h">Filed</div><div class="idle" style="padding:.45rem">No filed scores yet. Ask your agent to file one.</div>`;
+        humanEl.innerHTML = `<div class="score-office-h">Filed</div><div class="idle pad-tight">No filed scores yet. Ask your agent to file one.</div>`;
         return;
       }
       const buckets = {};

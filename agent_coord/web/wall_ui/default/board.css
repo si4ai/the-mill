@@ -421,7 +421,9 @@
     .ticker-sliver .hero-ticker-track {
       display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
       gap: .35rem; height: 2.15rem; width: max-content; flex-shrink: 0;
-      animation: mill-ticker 28s linear infinite;
+      animation-name: mill-ticker; animation-timing-function: linear;
+      animation-iteration-count: infinite;
+      animation-duration: calc(attr(data-dur type(<number>), 28) * 1s);
     }
     .ticker-sliver:hover .hero-ticker-track { animation-play-state: paused; }
     .ticker-sliver .row {
@@ -446,7 +448,9 @@
     #hero .hero-ticker-track {
       display: flex; flex-direction: row; flex-wrap: nowrap; gap: .35rem;
       width: max-content; flex-shrink: 0;
-      animation: mill-ticker 28s linear infinite;
+      animation-name: mill-ticker; animation-timing-function: linear;
+      animation-iteration-count: infinite;
+      animation-duration: calc(attr(data-dur type(<number>), 28) * 1s);
     }
     #hero .hero-ticker:hover .hero-ticker-track,
     #hero .hero-ticker:focus-within .hero-ticker-track { animation-play-state: paused; }
@@ -617,7 +621,7 @@
       display: inline-block; width: 2.4rem; height: .4rem; margin-right: .35rem;
       background: var(--bar-track, var(--shop-2)); border-radius: 99px; vertical-align: middle; overflow: hidden;
     }
-    #pane-score .score-verb-bar > i { display: block; height: 100%; background: var(--bar-col, var(--cyan)); }
+    #pane-score .score-verb-bar > i { display: block; height: 100%; background: var(--bar-col, var(--cyan)); width: calc(attr(data-pct type(<number>), 0) * 1%); }
     #pane-score .score-product > #score-graphs { flex: 1 1 100%; min-width: 0; }
     #pane-score .score-product > #score-desk-table { flex: 1 1 12rem; max-height: 7.5rem; }
     #pane-score .score-product > #score-verbs { flex: 1 1 12rem; max-height: 7.5rem; }

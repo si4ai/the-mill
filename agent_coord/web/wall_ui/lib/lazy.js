@@ -65,19 +65,19 @@
   var DOMAINS = {
     mail: {
       js: "/mail/mail.js?v=wow285",
-      css: "/mail/mail.css?v=wow316",
+      css: "/mail/mail.css?v=wow317",
       marker: "WALL_UI_DEFAULT_MAIL",
       modules: ["mailPaint"]
     },
     score: {
       js: "/score/score.js?v=wow322",
-      css: "/score/score.css?v=wow319",
+      css: "/score/score.css?v=wow320",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
     todo: {
       js: "/todo/todo.js?v=wow320",
-      css: "/todo/todo.css?v=wow319",
+      css: "/todo/todo.css?v=wow320",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -103,7 +103,7 @@
       marker: "WALL_UI_DEFAULT_GLOSSARY"
     },
     floorMap: {
-      js: "/floor/map-paint.js?v=wow319",
+      js: "/floor/map-paint.js?v=wow320",
       marker: "WALL_UI_DEFAULT_FLOOR_MAP"
     },
     adminInvite: {
@@ -111,22 +111,22 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow321",
+      js: "/mail/mail-paint.js?v=wow322",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
     scorePaint: {
-      js: "/score/score-paint.js?v=wow322",
+      js: "/score/score-paint.js?v=wow323",
       marker: "WALL_UI_DEFAULT_SCORE_PAINT",
       domain: "score"
     },
     floorPaint: {
-      js: "/floor/floor-paint.js?v=wow322",
+      js: "/floor/floor-paint.js?v=wow323",
       marker: "WALL_UI_DEFAULT_FLOOR_PAINT",
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow321",
+      js: "/todo/todo-paint.js?v=wow322",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
     },

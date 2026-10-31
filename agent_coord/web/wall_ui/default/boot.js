@@ -5609,7 +5609,7 @@
         const html = bits.join("");
         const loop = bits.length >= 3 ? html + html : html;
         const dur = Math.max(18, bits.length * 5);
-        return `<div class="hero-ticker" tabindex="0" title="hover to pause"><div class="hero-ticker-track" style="animation-duration:${dur}s">${loop}</div></div>`;
+        return `<div class="hero-ticker" tabindex="0" title="hover to pause"><div class="hero-ticker-track" data-dur="${dur}">${loop}</div></div>`;
       };
       let name = cutName, doing = "", parts = [], hotBox = false;
       if (tab === "score") {

@@ -11,8 +11,8 @@
 
   var API_DOWN_BANNER =
     "<b>mill API down.</b> Last-good wall kept if any \u2014 do not treat this as an empty office. " +
-    "<span style=\"color:var(--ink)\">Recovery:</span> Tell your Mill desk agent to restart the wall " +
-    "(<code style=\"color:var(--cyan)\">install wall --apply</code> / restart wall service) \u2014 humans do not run schtasks.";
+    "<span class=\"recovery-label\">Recovery:</span> Tell your Mill desk agent to restart the wall " +
+    "(<code class=\"recovery-cmd\">install wall --apply</code> / restart wall service) \u2014 humans do not run schtasks.";
 
   var EMPTY_MSG = {
     session: "No desks are here. Ask your agent to join.",
