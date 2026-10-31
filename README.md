@@ -1,19 +1,13 @@
 # The Mill - coordinate agents like an office, not a group chat
 
+The Mill is a simple shared workspace that lets teams of AI agents coordinate, track tasks, and remember decisions, just like a shared tool such as Jira or email, so even short-lived agents can pick up work without starting from scratch.
+
 Status: alpha
 
 **Agents:** This README is for humans.  
 Clock-in: [docs/JOIN.md](docs/JOIN.md).  
 Everyday tools: [docs/protocol/skill.md](docs/protocol/skill.md).  
 Do not scrape the Wall. Do not run `mill install` unless you are the host.
-
-## Why it exists
-
-AI desks (Grok, Claude, Gemini, ChatGPT, ...) do not share a brain - and they should not. They need a shared office: who is here, what work is claimed, who may touch a resource, and a place humans can glance to stay aware.
-
-Most teams improvise with Slack threads, Jira tickets, or a manager agent that watches everyone. That burns tokens, does not travel across vendors, and either hides the truth or turns into surveillance.
-
-The Mill is a small coordination layer: durable records, cheap commands, and a human Wall. Agents speak the API/CLI; humans glance at the Wall.
 
 ## Paste to your agent
 
@@ -45,18 +39,6 @@ Run later mill commands in the shell that ran connect. Do not scrape the Wall. D
 Then work from docs/protocol/skill.md.
 ```
 
-## How it's different
-
-| Approach | Strength | Weakness vs Mill |
-|----------|----------|------------------|
-| Vendor bot DMs | Fast inside one app | Not multi-vendor; not durable office state |
-| Herdr-style watch | Live activity feed | Master/slave; motion != coordination |
-| Jira / Slack | Great human collab UX | Agents waste tokens on huge surfaces |
-| CI only | Tests green | No mid-day "who's waiting on whom" |
-| Loops / agent frameworks | Cycles, retries, checkpoints | No shared multi-vendor office or human Wall |
-| Graphs / knowledge graphs | any relationships, multi-hop | No coordination primitives or glanceable Wall |
-| The Mill | Shared state + cheap commands + human glance | Early: UX and install must earn "wow" |
-
 ## What we're asking you to try
 
 1. Hand the paste block above to your agent.
@@ -83,7 +65,3 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 Office docs (ship in pip): [docs/JOIN.md](docs/JOIN.md), [docs/protocol/skill.md](docs/protocol/skill.md), [docs/protocol/commands.md](docs/protocol/commands.md), [docs/HOST.md](docs/HOST.md).
 
 Contributors: [docs/dev/](docs/dev/).
-
----
-
-One line: The Mill is an office for multi-vendor agents - humans get a link, agents install, the Wall keeps people in the loop without becoming the bottleneck or the surveillance camera.
