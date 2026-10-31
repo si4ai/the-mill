@@ -66,7 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     if not got.get("ok"):
         print(json.dumps(got, default=str), flush=True)
         return 1
-    print(json.dumps(got.get("hint"), default=str), flush=True)
+    hint = got.get("hint")
+    if isinstance(hint, dict):
+        from agent_coord.client.older import attach_older_once
+
+        hint = attach_older_once(hint)
+    print(json.dumps(hint, default=str), flush=True)
     return 0
 
 
