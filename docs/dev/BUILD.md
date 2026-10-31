@@ -10,6 +10,9 @@ Do not pin mill versions in docs.
 
 Assume **regression tests already pass**. Then:
 
+**Changelog rotation** (card 936): `CHANGELOG.md` at the repo root has exactly three sections, newest first: TBD (upcoming), New changes, Last changes. TBD carries the disclaimer that upcoming is the current plan, not a promise. At each release bump: move New into Last (drop the previous Last; git history and GitHub Releases keep it), move landed TBD items into New, and keep TBD for later plans. `check_pack` scans the file like any doc.
+
+
 1. **Local hygiene** - bump version, `python -m build`, `python tools/check_pack.py dist`, `python tools/mill_cli_smoke.py` (install the **tarball** from a non-git cwd). Human pass on tracked `.md` / `.txt`. Do not push a dirty `dist/`.
 2. **Commit** the version bump + hygiene fixes.
 3. **Push** through a pull request on GitHub: `main` is protected by a ruleset, see [CONTRIBUTING-PR.md](CONTRIBUTING-PR.md).
@@ -113,7 +116,7 @@ full commit sha (the repo also requires sha pinning), no workflow uses
 - `ci.yml` runs on every pull request, every push to `main`, and when
   `release.yml` calls it. It never publishes. Jobs:
   1. `build_pack` - `python -m build --no-isolation` from the hash-locked `tools/ci-lock/build.txt`, dated by the commit (`SOURCE_DATE_EPOCH`) -> `dist/`, then `python tools/check_repro.py dist` (two more builds must match byte for byte, see [Reproducible pack](#reproducible-pack)) -> uploaded as the `dist` artifact
-  2. `check_pack` - `python tools/check_pack.py dist` (with the `MILL_PRIVATE_NAMES` secret, see What must not be in either artifact), then `pip-audit` (no installs) on the runtime floors (`pack-floors.txt`) and on `tools/ci-lock/ci.txt`
+  2. `check_pack` - `python tools/check_pack.py dist` (with the `MILL_PRIVATE_NAMES` secret, see What must not be in either artifact), then on `pull_request` `python tools/check_pack.py --commits origin/main..HEAD` (every commit's message, author/committer identity, and added diff lines; F225), then on `merge_group` `--head-message`, then `pip-audit` (no installs) on the runtime floors (`pack-floors.txt`) and on `tools/ci-lock/ci.txt`
   3. `mill_cli_smoke` - install the sdist, run `python tools/mill_cli_smoke.py` (`mill -V`, `mill connect --help`, no retired commands on `--help`, and the real-path rows in `RUN_ROWS`: `mill connect` runs its whole body against a closed local port and must reach the socket loop with no traceback), then `tools/check_skill_copy.py --installed`, then `tools/check_doc_commands.py` (every `mill` command, flag and positional the docs teach matches the parser, F90)
   4. `pytest_no_sql` and `pytest_sql` - the test suites (see step 4 of Release order)
 
@@ -125,7 +128,7 @@ full commit sha (the repo also requires sha pinning), no workflow uses
   `check_pack`, `pytest_no_sql` and `pytest_sql` check out full history
   (`fetch-depth: 0`): they scan commit messages, and a shallow clone fails
   closed (regression row S-8).
-  `check_pack` also fails when any commit's author or committer email is not a GitHub noreply address (`<id>+<login>@users.noreply.github.com`) or GitHub's own web-flow committer; the report names the commit, never the address (regression row S-10).
+  `check_pack` also fails when any commit's author or committer email is not a GitHub noreply address (`<id>+<login>@users.noreply.github.com`) or GitHub's own web-flow committer; the report names the commit, never the address (regression row S-10). On a pull request the `--commits` scan also requires author and committer **names** to be a role identity (desk role, project account, `the-mill maintainers`, `GitHub`, or a `[bot]` name) and scans each commit's added lines with the same scrub and secret rules as the tip (F225). Release branches land on main with a merge commit after that check; normal PRs stay squash.
 - `codeql.yml` runs CodeQL (`analyze (python)`, `analyze (actions)`) on pull
   requests, pushes to `main` and weekly.
 - `release.yml` runs only on a pushed `v*` tag (PyPI) or a manual

@@ -24,7 +24,7 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | member-add/remove **other** (ordinary project or role) | any desk | **Admin** only |
 | member-add/remove **self** (ordinary project or role) | any desk | any desk |
 | **assign** (staff a desk onto a todo; not claim/hold) | any desk, only if card has **no** assignee | **Admin** only, still only if unassigned |
-| drop another desk's stale hold (holder not connected and held 7+ days) | any seated desk | **Admin** only |
+| drop another desk's stale hold (holder not connected and held hold_stale_days+ days, default 7) | any seated desk | **Admin** only |
 
 Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / relinquish first.
 

@@ -310,8 +310,13 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
             got2 = bare(str(again.get("resource") or ""), CONST_RES)
             if got2 != want:
                 continue
-            now_owner = bare(str(again.get("desk") or ""), CONST_DESK) or holder
+            now_owner = bare(str(again.get("desk") or ""), CONST_DESK) or ""
             break
+        else:
+            # Row gone or no longer held: do not report the stale expect holder.
+            now_owner = ""
+        if sp_reason.lower() in ("already free", "gone"):
+            now_owner = ""
         return {
             "ok": False,
             "released": False,
