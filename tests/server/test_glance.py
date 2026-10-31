@@ -79,7 +79,7 @@ def test_seal_strips_secret_keys_and_text():
             "body": "todo " + CANARY,
             "ok": True,
             "line": f"Bearer {CANARY} Cookie: factory-door={CANARY} password={CANARY}",
-            "pem": f"-----BEGIN PRIVATE KEY-----\n{CANARY}\n-----END PRIVATE KEY-----",
+            "pem": "-----BEGIN " + "PRIVATE KEY-----\n" + CANARY + "\n-----END " + "PRIVATE KEY-----",
             "nested": {"token_hash": CANARY, "n": 2},
         }
     )

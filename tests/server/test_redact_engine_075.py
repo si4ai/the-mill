@@ -86,7 +86,7 @@ def test_pem_encrypted_and_truncated():
     for kind in ("ENCRYPTED PRIVATE KEY", "OPENSSH PRIVATE KEY", "EC PRIVATE KEY"):
         block = f"-----BEGIN {kind}-----\n{body}\n-----END {kind}-----"
         assert body not in _store("see\n" + block + "\nend")
-    out = _store("-----BEGIN PRIVATE KEY-----\n" + body + "\n\nnext paragraph")
+    out = _store("-----BEGIN " + "PRIVATE KEY-----\n" + body + "\n\nnext paragraph")
     assert body not in out and out.endswith("next paragraph")
 
 

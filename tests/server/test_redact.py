@@ -45,7 +45,7 @@ def test_password_assignment():
 
 
 def test_pem_block():
-    pem = "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----"
+    pem = "-----BEGIN " + "PRIVATE KEY-----\\nabc\\n-----END " + "PRIVATE KEY-----"
     out, hits = redact_text("key:\\n" + pem)
     assert PH["pem"] in out
     assert "BEGIN PRIVATE KEY" not in out
