@@ -43,6 +43,27 @@ def test_drift_fails(text, kind):
 
 
 @pytest.mark.parametrize(
+    "text, kind",
+    [
+        # Unknown command at the start of a line (not only known/gone names).
+        ("mill roster NAME NAME --yes", "unknown-command"),
+        ("mill spend --source grok --tokens N", "unknown-command"),
+        # Mid-string hints after Next: / run: must be extracted and checked.
+        (
+            "join failed: bad CA. Next: mill roster NAME NAME --yes",
+            "unknown-command",
+        ),
+        (
+            "book SQL is not this pack's; run: mill leftover",
+            "retired-word",
+        ),
+    ],
+)
+def test_start_line_unknown_and_next_run_hints(text, kind):
+    assert kind in kinds_from_text(text)
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "`mill join --link-file PATH --webhook-url URL --webhook-key-file PATH`",

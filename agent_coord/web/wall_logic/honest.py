@@ -24,7 +24,7 @@ EMPTY_MESSAGES = {
     "score_bottlenecks": "None - no waiting_on / stalled JOBs.",
     "mail": "no mail for this filter (floor-only or empty)",
     "floor": "Honest empty - no floor glance yet.",
-    "spend": "no spend yet. After a model turn: mill spend --source grok --tokens N",
+    "spend": "no spend yet",
 }
 
 

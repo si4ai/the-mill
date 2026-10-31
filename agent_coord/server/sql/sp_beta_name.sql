@@ -81,7 +81,7 @@ BEGIN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: Office names roster id 1';
     END IF;
     IF p_type IN ('roster','label') AND b_trust() = 'limited' AND NOT b_is_admin(p_by) THEN
-      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill create roster NAME --yes)';
     END IF;
     INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name)); SET o_id = LAST_INSERT_ID(); SET o_op = 'created';
   END IF;

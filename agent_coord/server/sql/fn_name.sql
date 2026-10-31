@@ -89,7 +89,7 @@ BEGIN
   END IF;
   IF p_type IN ('roster', 'label') AND b_trust() = 'limited' THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
+      SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill create roster NAME --yes)';
   END IF;
   INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name));
   IF v_dup = 1 THEN

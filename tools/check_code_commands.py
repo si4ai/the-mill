@@ -4,8 +4,9 @@ Complements F90 (docs). Walks agent_coord/**/*.py and extracts:
 
   - every backticked `mill ...` in a string or docstring
   - every string (or line of a multi-line string) that starts with `mill` and
-    names a real or retired command with at least one `--flag` (a taught argv),
-    or the short `mill <cmd>:` stderr shape agents copy
+    names a command (real, retired, or unknown) with at least one `--flag`
+    (a taught argv), or the short `mill <cmd>:` stderr shape agents copy
+  - mid-string hints after `Next:` or `run:` that name a `mill ...` form
 
 Each form is checked with the same parser rules as tools/check_doc_commands.py.
 A line can opt out with the marker `code-commands: skip` on that line or the
@@ -35,6 +36,7 @@ BACKTICK = re.compile(r"`([^`]+)`")
 # Line starts with mill <cmd>; we keep it when it teaches argv (a --flag) or
 # the `mill <cmd>:` stderr shape.
 LINE_MILL = re.compile(r"(?m)^(mill [a-z][a-z0-9-]*\b.*)$")
+MID_MILL = re.compile(r"(?i)(?:Next|run):\s*(mill [a-z][a-z0-9-]*\b.*)$")
 HAS_FLAG = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*\b")
 STDERR_SHAPE = re.compile(r"^mill [a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*:")
 
@@ -67,9 +69,7 @@ def _is_taught_line(form: str, commands: dict) -> bool:
     cmd = _command_name(form)
     if cmd is None:
         return False
-    known = cmd in commands or cmd in cdc.GONE_COMMANDS
-    if not known:
-        return False
+    # Flags / stderr shape: known, retired, or unknown (so a bad hint is caught).
     if HAS_FLAG.search(form) or STDERR_SHAPE.match(form):
         return True
     # Bare `mill leftover` / short retired title still teach a gone name.
@@ -117,6 +117,9 @@ def taught_forms(text: str, commands: dict) -> list[tuple[int, str]]:
             if re.search(r"(?<![\w./-])mill ", span):
                 out.append((i + 1, _trim_form(span)))
         m = LINE_MILL.match(line.strip())
+        if m and _is_taught_line(m.group(1).strip(), commands):
+            out.append((i + 1, _trim_form(m.group(1).strip())))
+        m = MID_MILL.search(line.strip())
         if m and _is_taught_line(m.group(1).strip(), commands):
             out.append((i + 1, _trim_form(m.group(1).strip())))
     return out

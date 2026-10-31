@@ -233,7 +233,7 @@ def ensure_roster(cn, name: str, kind: str = CONST_ROSTER) -> int:
         return existing
     if not mill_catalog_open(k):
         raise CoordError(
-            f"limited-trust: cannot auto-create {k} {bare} - Admin mill roster NAME NAME --yes"
+            f"limited-trust: cannot auto-create {k} {bare} - Admin mill create roster NAME --yes"
         )
     return get_or_insert(cn, bare, k)
 

@@ -278,7 +278,7 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
 
         rs = _stored(role_s)
         if rec_name.get(c._cn, rs, CONST_ROSTER) is None and not mill_catalog_open(CONST_ROSTER):
-            raise CoordError("limited-trust: mill Admin mill roster NAME NAME --yes")
+            raise CoordError("limited-trust: Admin mill create roster NAME --yes")
     doing = str(body.get("doing") or "present")[:64]
     # Join posts Office as a placeholder; the seat's one roster replaces it.
     # mill connect with no roster sends Office on purpose and keeps it.
