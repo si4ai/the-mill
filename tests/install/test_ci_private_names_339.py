@@ -44,12 +44,16 @@ def repo(tmp_path: Path) -> Path:
     _git(r, "config", "user.email", "desk@users.noreply.github.com")
     _git(r, "config", "user.name", "desk")
     (r / "base.md").write_text("plain words about the mill\n", encoding="utf-8")
+    (r / "agent_coord").mkdir()
+    (r / "agent_coord" / "__init__.py").write_text("", encoding="utf-8")
+    (r / "README.md").write_text("plain\n", encoding="utf-8")
     _git(r, "add", "-A")
     _git(r, "commit", "-q", "--no-verify", "-m", "#339 seed")
     dist = r / "dist"
     dist.mkdir()
     with zipfile.ZipFile(dist / "the_mill-0.0.0-py3-none-any.whl", "w") as zf:
         zf.writestr("agent_coord/__init__.py", "")
+        zf.writestr("the_mill-0.0.0.dist-info/METADATA", "Name: the-mill\n")
     with tarfile.open(dist / "the_mill-0.0.0.tar.gz", "w:gz") as tf:
         data = b"plain\n"
         info = tarfile.TarInfo("the_mill-0.0.0/README.md")

@@ -33,7 +33,7 @@ git-tracked files and git commit messages. Placeholder segments such as
 example.org, example.net, *.example, *.test, *.invalid, *.localhost, and
 GitLab and GitHub noreply domains.
 
-A tracked symlink (git mode 120000) under a packaged path fails the tip scan, and every wheel or sdist file member must map to a tracked regular file at HEAD (generated dist-info / egg-info / PKG-INFO may stay) (#757).
+A tracked symlink (git mode 120000) under a packaged path fails the tip scan, and every wheel or sdist file member must map to a tracked regular file at HEAD (generated dist-info / egg-info / PKG-INFO / setup.cfg may stay) (#757).
 
 A literal byte-order mark or typographic punctuation (Windows editors and
 pasted dashes, arrows, quotes) fails in the same file scan. The ASCII escape
@@ -749,8 +749,8 @@ def pack_member_repo_path(member: str, kind: str) -> str | None:
         return None  # the top-level the_mill-VER/ directory entry
     if _SDIST_EGGINFO_RE.match(rest) or rest == "the_mill.egg-info":
         return None
-    if rest == "PKG-INFO":
-        return None  # generated at the sdist root
+    if rest in ("PKG-INFO", "setup.cfg"):
+        return None  # generated at the sdist root by setuptools
     return rest
 
 

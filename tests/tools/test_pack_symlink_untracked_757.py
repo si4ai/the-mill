@@ -19,6 +19,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _python_with_setuptools() -> str:
+    """CI's pytest env has setuptools (ci.txt); local may need another interpreter."""
+    import shutil
+    import sys
+    candidates = [sys.executable]
+    for extra in ("/tmp/venv-757-build/bin/python", shutil.which("python3")):
+        if extra and extra not in candidates:
+            candidates.append(extra)
+    for py in candidates:
+        got = subprocess.run(
+            [py, "-c", "import setuptools"], capture_output=True, check=False
+        )
+        if got.returncode == 0:
+            return py
+    pytest.skip("setuptools not installed (needed for the in-tree mill_build backend)")
+
+
 def _load(name: str, rel: str):
     spec = importlib.util.spec_from_file_location(name, ROOT / rel)
     mod = importlib.util.module_from_spec(spec)
@@ -143,3 +160,91 @@ def test_tracked_regular_member_and_dist_info_pass(tmp_path, cp):
         zf.writestr("the_mill-0.0.0.dist-info/METADATA", b"Name: the-mill\n")
         zf.writestr("the_mill-0.0.0.data/data/share/the-mill/README.md", b"# mill\n")
     assert cp.scan_pack_provenance(whl, "wheel", modes) == []
+
+
+
+def test_main_wires_symlink_and_provenance(cp):
+    """Mutants: dropping either call from main() must fail this source check."""
+    src = (ROOT / "tools" / "check_pack.py").read_text(encoding="utf-8")
+    # Narrow to main() body.
+    start = src.index("def main(")
+    end = src.index("\nif __name__", start)
+    body = src[start:end]
+    assert "scan_git_symlinks(tip_modes)" in body
+    assert "scan_pack_provenance(path, kind, tip_modes)" in body
+
+
+def test_hygiene_main_wires_staged_modes(hy):
+    """Mutant: dropping scan_staged_modes from the staged path must fail."""
+    src = (ROOT / "tools" / "precommit_hygiene.py").read_text(encoding="utf-8")
+    start = src.index("def main(")
+    body = src[start:]
+    assert "scan_staged() + scan_staged_modes()" in body
+
+
+def test_real_build_symlink_and_untracked_fail_check_pack(tmp_path):
+    """One real backend build + check_pack dist for both card cases.
+
+    Uses the in-tree mill_build backend (same as CI `--no-isolation`), so the
+    test does not need the PyPI `build` package. Covers the setuptools
+    dereference path the unit fakes only approximate.
+    """
+    import os
+    import shutil
+    import sys
+
+    if shutil.which("git") is None:
+        pytest.skip("git not on PATH")
+
+    def run(cwd: Path, args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        base = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        if env:
+            base.update(env)
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=base, check=False)
+
+    def seed_clone(dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.check_call(
+            ["git", "clone", "-q", "--local", str(ROOT), str(dest)],
+        )
+        _git(dest, "config", "user.email", "builder@users.noreply.github.com")
+        _git(dest, "config", "user.name", "builder")
+        # Local hooksPath may point at a missing tree after clone; disable.
+        _git(dest, "config", "core.hooksPath", "/dev/null")
+        return dest
+
+    def build_dist(repo: Path) -> None:
+        epoch = _git(repo, "log", "-1", "--format=%ct").strip()
+        code = (
+            "import os, sys; "
+            "sys.path.insert(0, os.path.join(os.getcwd(), 'build_backend')); "
+            "import mill_build; "
+            "os.makedirs('dist', exist_ok=True); "
+            "print(mill_build.build_wheel('dist')); "
+            "print(mill_build.build_sdist('dist'))"
+        )
+        py = _python_with_setuptools()
+        got = run(repo, [py, "-c", code], env={"SOURCE_DATE_EPOCH": epoch})
+        assert got.returncode == 0, got.stdout + got.stderr
+
+    # --- symlink case ---
+    sym = seed_clone(tmp_path / "sym")
+    canary = tmp_path / "outside-canary.txt"
+    canary.write_text("CANARY-BYTES-SYMLINK\n", encoding="utf-8")
+    link = sym / "agent_coord" / "web" / "static" / "zz-canary-757.css"
+    link.symlink_to(canary)
+    _git(sym, "add", "agent_coord/web/static/zz-canary-757.css")
+    _git(sym, "commit", "-q", "--no-verify", "-m", "#757 symlink canary")
+    build_dist(sym)
+    check = run(sym, [sys.executable, "tools/check_pack.py", "dist"])
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert ("symlink" in check.stdout) or ("120000" in check.stdout), check.stdout
+
+    # --- untracked case ---
+    unt = seed_clone(tmp_path / "unt")
+    sneak = unt / "agent_coord" / "web" / "static" / "zz-untracked-757.md"
+    sneak.write_text("sneak-untracked\n", encoding="utf-8")
+    build_dist(unt)
+    check = run(unt, [sys.executable, "tools/check_pack.py", "dist"])
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert "untracked" in check.stdout, check.stdout
