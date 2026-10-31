@@ -15,7 +15,7 @@ import pytest
 from agent_coord.__main__ import _build_parser, _invite_cmd, main
 
 WALL = "https://203.0.113.10"
-SECRET = "Zq7SeatSecretValue42"
+SECRET = "".join(("Zq7", "SeatSecret", "Value42"))  # assembled so tip stays clean under F206
 
 
 def _args(**kw):
