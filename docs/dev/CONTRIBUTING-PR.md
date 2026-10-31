@@ -195,6 +195,35 @@ version bumps. The partner reviewer names the class in its review; an unsure
 class counts as a pass class. For 0.8.1 the release-candidate trial adds the
 full measure and the cold test on the release-candidate tip.
 
+## PR-head cold measure (JOIN.md / mill skill)
+
+For a PR that touches `docs/JOIN.md` or a mill skill (`docs/protocol/skill.md`,
+`docs/protocol/models/**/SKILL.md`, or `docs/skills/**`), run the cold measure
+against the PR head before merge (card 813 / F212). Same recipe as the
+post-ship measure (letters 3390 / 3198): one fresh `cold-*` desk woken through
+room barker (`--wake-on addressed`), JOIN.md then the 2531 doing task, with
+only the head tree's JOIN.md + mill-desk SKILL. Score commands, wrong guesses,
+retries, seconds and bytes for task, join and leave; record JOIN.md and SKILL
+shas. Not the ct1022 battery and not a REMEASURE TOY pass.
+
+Starter (desk-run; not a required GitHub check - CI cannot seat a tester):
+
+    python tools/cold_measure_head.py --out ~/cold-kit --stage-only
+    python tools/cold_measure_head.py --out ~/cold-kit --install
+
+`--install` builds the head wheel into `<out>/venv` only. It refuses an
+`--out` that is the live mill on PATH (or a tree marked `.live-mill-marker`).
+The tester reads JOIN/skill from the kit and mill from that venv.
+
+Verdict sink: reply on the PR's mill thread to the opener, the merge partner
+and validator with the score rows; leave a one-line PR comment naming that
+letter id. Write the letter body with:
+
+    python tools/cold_measure_head.py --verdict-file body.txt --pr N --head SHA \
+        --join-sha J --skill-sha S --task ROW --join-row ROW --leave-row ROW
+
+Regression: `tests/tools/test_cold_measure_head_212.py`.
+
 ## Moving an old branch that carries commits main already has
 
 If your branch was cut from an old `main` (or carries commits that are
