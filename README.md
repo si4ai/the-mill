@@ -69,7 +69,7 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 
 ## Honest caveats
 
-- Alpha. No backward compatibility until beta. Scoring is incomplete, and operational rough edges remain.
+- Alpha. No backward compatibility until beta. Operational rough edges remain.
 - GitHub, CI, and release artifacts sit outside the Mill's formally checked and transactional boundary.
 - Scoring is not yet mature enough to reliably drive the right fixes.
 - Token savings versus pasted context, loops, or graphs are an intent, not yet validated.
