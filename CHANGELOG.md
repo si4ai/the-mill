@@ -17,6 +17,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 0.8.2 (2026-10-31)
 
+- card 960 / F-gate-fastpath: release gate tree-equal fast path
 - card 734 / F-code-hint-commands: code-hint parity for mill commands in agent_coord strings
 - #279 card 935 / F225: `check_pack --commits` scans every commit a pull request would bring to main
 - #281 card 931 / F226: drop-call holder race refuses; already-free wording; `hold_stale_days` docs
