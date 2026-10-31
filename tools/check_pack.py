@@ -693,19 +693,35 @@ _SLACK_RE = re.compile(r"(?<![A-Za-z0-9_-])xox[abprs]-[A-Za-z0-9-]{10,}(?![A-Za-
 _SK_RE = re.compile(
     r"(?<![A-Za-z0-9_-])sk-(?:proj-|ant-[a-z0-9]{2,8}-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"
 )
+# Assignment forms: JS/Python quoted, JSON keys, unquoted YAML/.env/export/INI.
+# Optional quotes around the name (JSON) and the value (unquoted shell/YAML/INI).
 _ASSIGN_RE = re.compile(
-    r"(?i)(?:const|let|var|export)?\s*[A-Za-z_][A-Za-z0-9_]*"
-    r"(?:KEY|TOKEN|SECRET)\s*[=:]\s*[\"']([A-Za-z0-9/_+=\-]{20,})[\"']"
+    r"(?i)(?:(?:const|let|var|export)\s+)?"
+    r"[\"']?"
+    r"[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:KEY|TOKEN|SECRET)"
+    r"[\"']?"
+    r"\s*[=:]\s*"
+    r"[\"']?"
+    r"([A-Za-z0-9/_+=\-]{20,})"
+    r"[\"']?"
 )
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 
 def _high_entropy(val: str) -> bool:
-    """True for a long random-looking secret, not a kebab localStorage key."""
+    """True for a long random-looking secret, not a kebab localStorage key.
+
+    Hex-only 40- and 64-char values are secret-shaped even with only two
+    character classes (K7 hex40/hex64).
+    """
     if len(val) < 20:
         return False
     if _KEBAB_RE.fullmatch(val):
         return False
+    if len(val) in (40, 64) and _HEX_RE.fullmatch(val):
+        return True
     classes = sum(
         (
             any(c.islower() for c in val),
@@ -1119,6 +1135,8 @@ def scan_git_messages(pats: tuple[re.Pattern[str], ...] = ()) -> list[str]:
             fails.append(f"home path with a login name in git commit {rev[:12]}")
         if text_has_personal_email(body):
             fails.append(f"email outside placeholder domains in git commit {rev[:12]}")
+        for cred_kind in credential_kinds(body):
+            fails.append(f"credential shape ({cred_kind}) in git commit {rev[:12]}")
         if (
             rev in name_revs
             and rev not in NAME_TOKEN_REVIEWED
@@ -1161,6 +1179,8 @@ def scan_head_message(pats: tuple[re.Pattern[str], ...] = ()) -> list[str]:
         fails.append(f"home path with a login name in {where}")
     if text_has_personal_email(body):
         fails.append(f"email outside placeholder domains in {where}")
+    for cred_kind in credential_kinds(body):
+        fails.append(f"credential shape ({cred_kind}) in {where}")
     if not bot and text_has_personal_name_token(name_scan_text(author, body), ordinary_words(root)):
         fails.append(f"personal name token in {where}")
     return fails

@@ -237,6 +237,8 @@ def scan_message(path: str) -> list[str]:
             fails.append(f"commit message:{i}: email outside placeholder domains")
         if cp.text_has_personal_name_token(ln, tree_vocab()):
             fails.append(f"commit message:{i}: personal name token (#229 rule)")
+        for kind in cp.credential_kinds(ln):
+            fails.append(f"commit message:{i}: credential shape ({kind})")
     return fails
 
 
