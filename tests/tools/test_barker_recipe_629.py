@@ -1,16 +1,17 @@
-"""#629 the Grok Bot guide carries the room barker recipe with the facts a cold
-reader needs: the two barker files, one routine per desk (never both), the map
-written by the spawner, the log path, the fixed wake message, and that a
-desk that must see room copies arms --wake-on all, with no scheduled check beside the webhook. Plain ASCII, no real URL or key."""
+"""#629 the cold-tester barker kit carries the room barker recipe with the facts
+a cold reader needs: the two barker files, one routine per desk (never both),
+the map written by the spawner, the log path, the fixed wake message, and that
+a desk that must see room copies arms --wake-on all, with no scheduled check
+beside the webhook. Plain ASCII, no real URL or key."""
 from __future__ import annotations
 
 from pathlib import Path
 
-GUIDE = Path(__file__).resolve().parents[2] / "docs/protocol/models/grok-bot/SKILL.md"
+KIT = Path(__file__).resolve().parents[2] / "docs/dev/barker-kit.md"
 
 
 def _text() -> str:
-    return GUIDE.read_text(encoding="utf-8")
+    return KIT.read_text(encoding="utf-8")
 
 
 def test_the_recipe_names_every_fact():
