@@ -15,6 +15,8 @@ row write until that connect has its sync, so the order is forced, not timed.
 
 Fixed: the row is put first, as missed, and a live send that reaches a socket marks
 it sent; the last socket leaving with rows still missed rings the desk again.
+
+SPIN W07: last socket leaves before the row or broadcast; item must not strand.
 """
 from __future__ import annotations
 

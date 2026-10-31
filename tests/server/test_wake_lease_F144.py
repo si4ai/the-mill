@@ -13,6 +13,8 @@ that never says done (a crash, or a client older than the verb) loses the lease
 after wake_lease_s (default 900 s): the window-end timer sends the one trailing
 wake, and the next item after that time POSTs again. Design credit: the
 grokbot-wake-relay repo (queue until done, lease timeout, one batched wake).
+
+SPIN L02: a connect sync does not clear the wake lease mid-run (pre-886 storm shape).
 """
 from __future__ import annotations
 
