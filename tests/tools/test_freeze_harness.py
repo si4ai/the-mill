@@ -88,3 +88,26 @@ def test_tool_stays_out_of_the_wheel() -> None:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'include = ["agent_coord*"]' in text
     assert "tools/freeze_harness.py" not in text
+
+
+def test_f3_arm_counts_a_mail_push_sent_with_keyword_args(tmp_path, monkeypatch) -> None:
+    """#795: push_mail calls emit(..., reason=, room=); the F3 counter must take them."""
+    from agent_coord.server import push as push_mod
+    from agent_coord.server.api.mill import rpc
+
+    seen: list[tuple] = []
+
+    def fake_emit(cn, who, kind, payload, *, reason="addressed", room=None):
+        seen.append((who, kind, reason, room))
+        return "sent"
+
+    monkeypatch.setattr(push_mod, "emit", fake_emit)
+    monkeypatch.setitem(rpc.HANDLERS, "send", rpc.HANDLERS["send"])
+    obs: dict = {}
+    harness._arm("F3", tmp_path, "freeze-desk", obs)
+    out = push_mod.emit(None, "freeze-peer", "mail", {"id": 1}, reason="addressed", room="r1")
+    assert out == "sent"
+    assert seen == [("freeze-peer", "mail", "addressed", "r1")]
+    assert obs["fanout"] == 1
+    push_mod.emit(None, "freeze-peer", "todo", {"id": 2})
+    assert obs["fanout"] == 1
