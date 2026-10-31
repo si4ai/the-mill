@@ -107,7 +107,7 @@
       marker: "WALL_UI_DEFAULT_FLOOR_MAP"
     },
     adminInvite: {
-      js: "/admin/invite.js?v=wow280",
+      js: "/admin/invite.js?v=wow281",
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
@@ -144,7 +144,7 @@
       marker: "WALL_UI_DEFAULT_LISTS_PAINT"
     },
     adminMint: {
-      js: "/admin/mint-paint.js?v=wow321",
+      js: "/admin/mint-paint.js?v=wow322",
       marker: "WALL_UI_DEFAULT_ADMIN_MINT"
     },
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */

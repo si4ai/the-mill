@@ -99,9 +99,8 @@ async function loadAdminInvites() {
   async function adminPost(payload) {
     if (wallHumanReadonly()) throw new Error("Wall is human-readonly"); /* WALL_HUMAN_READONLY */
     const human = localStorage.getItem("factory-human") || "";
-    const token = localStorage.getItem("factory-human-token") || "";
     const desk = localStorage.getItem("factory-desk") || localStorage.getItem("AGENT_COORD_OWNER") || "builder";
-    const body = Object.assign({ owner: human || desk, token }, payload);
+    const body = Object.assign({ owner: human || desk }, payload);
     const r = await fetch("/api/admin/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
