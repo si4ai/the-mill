@@ -253,3 +253,31 @@ jobs:
                   time.sleep(2)
           sys.exit("mysql not ready: %s" % last)
       - run: python -m pytest tests -m sql -n 2 --dist loadfile
+
+  precheck:
+    needs: build_pack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') && 'pip' || '' }}
+          cache-dependency-path: tools/ci-lock/*.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - run: |
+          python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python -m pip install --require-hashes -r tools/ci-lock/ci.txt
+      - run: python -m pip install --no-deps --no-build-isolation dist/the_mill-*.tar.gz
+      - name: Fetch main for diff base
+        run: git fetch --no-tags origin main
+      # Card 959 / F-precheck: cheap checks before a Pass ask. Pack scan is
+      # already the check_pack job; skip the nested rebuild here.
+      - run: ./tools/precheck.sh HEAD --skip-pack
