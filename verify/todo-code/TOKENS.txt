@@ -1,0 +1,12 @@
+Card 925 build tokens (Builder, this PR only; runs are token-free)
+
+Approximate: 110000 tokens (band 90000-130000).
+Exact provider count was not available to the Builder turn; this is a
+conservative estimate from the work done in one Builder session:
+  - load create-formal-verification-skill, mill-desk, statechart
+  - read card 925, activity-states T1-T14, sp_cmd/sp_todo/rpc who-may
+  - write Todo.tla + anchors + mutants + SKILL + run.sh
+  - prove mutants and a scratch code break
+  - file finding card 927
+
+Update this file when the model or anchors are revised (maintenance tokens).
