@@ -3829,9 +3829,40 @@ def _h_purge(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
 
 
+
+def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill rooms: every mail TREE this desk can see (card 958).
+
+    Default: named rooms only (hex-minted plans hidden). --all: Admin only,
+    includes hex plans. --sort recency|size|depth|breadth|created|starter
+    (default recency); --asc flips the order. Sort is SQL ORDER BY.
+    breadth = distinct member desks (senders U recipients).
+    """
+    from agent_coord.server.admin.guard import require_admin
+    from agent_coord.server.records import tree as rec_tree
+
+    _require_live_ws(owner)
+    include_hidden = bool(body.get("all"))
+    if include_hidden:
+        require_admin(c._cn, owner or "")
+    sort = str(body.get("sort") or "recency").strip() or "recency"
+    asc = bool(body.get("asc"))
+    rows = rec_tree.list_mail_rooms(
+        c._cn, sort=sort, asc=asc, include_hidden=include_hidden
+    )
+    return {
+        "rooms": rows,
+        "sort": sort,
+        "asc": asc,
+        "all": include_hidden,
+        "count": len(rows),
+    }
+
+
 HANDLERS = {
     "wake-done": _h_wake_done,
     "inbox": _h_inbox,
+    "rooms": _h_rooms,
     "todo": _h_todo,
     "session": _h_session,
     "project": _h_project,

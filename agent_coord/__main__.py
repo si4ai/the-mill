@@ -769,6 +769,47 @@ def _build_parser() -> MillArgumentParser:
         help="short rows, page N (1 = first); the reply's page block names the next",
     )
 
+    rms = sub.add_parser(
+        "rooms",
+        help="list mail rooms (TREEs) this desk can see",
+        description=(
+            "Every named mail room: tree, members, size (letter count), depth "
+            "(deepest reply chain), last activity, starter, and the root letter's "
+            "first line. Default sort is recency (last activity, newest first). "
+            "breadth = distinct member desks (senders U recipients). "
+            "Sort runs in SQL. --all (Admin) includes hex-minted plan names."
+        ),
+    )
+    rms.add_argument(
+        "--all",
+        action="store_true",
+        help="Admin: include hex-minted (hidden) plan rooms too",
+    )
+    rms.add_argument(
+        "--sort",
+        default="recency",
+        choices=("recency", "size", "depth", "breadth", "created", "starter"),
+        help="recency (default) | size | depth | breadth | created | starter",
+    )
+    rms.add_argument(
+        "--asc",
+        action="store_true",
+        help="ascending sort (default is descending)",
+    )
+    rview = rms.add_mutually_exclusive_group()
+    rview.add_argument(
+        "--full",
+        action="store_true",
+        help="every field of every room, no paging (default: short rows, 50 a page)",
+    )
+    rview.add_argument(
+        "--page",
+        type=_page_number,
+        default=0,
+        metavar="N",
+        help="short rows, page N (1 = first); the reply's page block names the next",
+    )
+
     kp = sub.add_parser(
         "score",
         help="a number series: score ROSTER NAME VALUE records a point; score ROSTER NAME reads latest, gap, trend; "

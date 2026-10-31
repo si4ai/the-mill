@@ -29,6 +29,7 @@ COMMANDS = frozenset(
         "mail-thread",
         "mark",
         "inbox",
+        "rooms",
         "hold",
         "drop",
         "attach",
@@ -120,8 +121,9 @@ _STR = (
     "at",
     "since",
     "lease",
+    "sort",
 )
-_INT = ("id", "id_a", "id_b", "rm_id", "after", "limit", "parent_id")
+_INT = ("id", "id_a", "id_b", "rm_id", "after", "limit", "parent_id", "page")
 
 
 def canonical_command(raw: str) -> str:
@@ -333,6 +335,8 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body["ids"] = [part for part in str(raw_ids).replace(",", " ").split() if part]
     if hasattr(args, "all"):
         body["all"] = bool(args.all)
+    if hasattr(args, "asc"):
+        body["asc"] = bool(args.asc)
     if hasattr(args, "star"):
         body["star"] = bool(args.star)
     if command == "pass":

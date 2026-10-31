@@ -1,6 +1,6 @@
 """Shared mill home log rotation (#797).
 
-Every dest_log write goes through here. When the live file is at or over
+dest_log calls rotate_if_needed here before it appends. When the live file is at or over
 MAX_BYTES, copytruncate into a date-suffixed copy and truncate the live
 file in place so Windows handles that still hold it keep writing. Copies
 older than RETAIN_DAYS are deleted on each rotate and on sweep_retention.
@@ -81,20 +81,6 @@ def sweep_retention(home: Path, filename: str) -> None:
     except OSError:
         return
 
-
-
-def append_line(path: Path, text: str) -> None:
-    """Rotate if needed, then append one line. Thread-safe per process."""
-    from agent_coord.server.redact import redact_secrets
-
-    # Redact at the sink so log files never hold clear secrets (CodeQL py/clear-text-storage).
-    line = redact_secrets(text)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with _lock:
-        rotate_if_needed(path)
-        with path.open("a", encoding="utf-8") as f:
-            # Owner-only mill-home log; line already passed redact_secrets (dest_log + above).
-            f.write(line)  # codeql[py/clear-text-storage-sensitive-data]
 
 
 def read_log_text(home: Path, filename: str) -> str:

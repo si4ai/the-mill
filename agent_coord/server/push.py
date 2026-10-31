@@ -37,17 +37,22 @@ def dest_log(filename: str, msg: str) -> None:
             max_bytes=int(s.get("log_max_bytes") or lr.MAX_BYTES),
             retain_days=int(s.get("log_retain_days") or lr.RETAIN_DAYS),
         )
-        p = mill_home() / filename
+        path = mill_home() / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         if filename == _PERF_LOG:
             # Milliseconds, so the lines of one command sort and join (F171).
-            text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "\n"
+            text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "
+"
         else:
-            text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
-        lr.append_line(p, text)
+            text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "
+"
+        with lr._lock:
+            lr.rotate_if_needed(path)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(text)
     except Exception:
         pass
-
 
 def _bc_log(msg: str) -> None:
     dest_log("mill-backchannel.log", msg)
