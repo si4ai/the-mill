@@ -3887,7 +3887,26 @@ def _refuse_join_type(command: str, body: dict[str, Any]) -> None:
             raise CoordError(JOIN_TYPE_GONE.format(command=command or "mill"))
 
 
-def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
+def unknown_command_message(command: str, client: str = "") -> str:
+    """card 736: an unknown command names mill help.
+
+    When the caller names a client version and it differs from this wall, say so.
+    A matching version, or no client version, stays on the one help line.
+    """
+    name = " ".join(str(command or "").split()) or "(none)"
+    text = f"unknown command {name}; mill help lists every command"
+    client = " ".join(str(client or "").split())[:64]
+    if not client:
+        return text
+    from agent_coord.install.packver import package_version
+
+    wall = " ".join(str(package_version() or "").split())
+    if wall and client != wall:
+        text += f"; client {client} != wall {wall}"
+    return text
+
+
+def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str = "") -> Any:
     from agent_coord.client.outbound import WALL, canonical_command
 
     command = canonical_command(str(body.get("verb") or body.get("cmd") or ""))
@@ -3905,7 +3924,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
     owner_raw = str(body.get("owner") or "").strip()
     owner = _stored(owner_raw) if owner_raw else None
     if command not in WALL:
-        raise CoordError(f"unknown mill command {command}")
+        raise CoordError(unknown_command_message(command, client_mill))
     _refuse_join_type(command, body)
     if command not in OPEN_COMMANDS:
         from agent_coord.client.session_errors import (
@@ -3933,7 +3952,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
         _require_join_authorized(c, body, token)
     fn = HANDLERS.get(command)
     if fn is None:
-        raise CoordError(f"unknown mill command {command}")
+        raise CoordError(unknown_command_message(command, client_mill))
     # #504: redact secrets at mill-wall choke point (CLI cannot bypass)
     from agent_coord.server.redact import WRITE_COMMANDS, scrub_request_body
 
@@ -4050,6 +4069,7 @@ def dispatch_ws(
     *,
     peer: str = "",
     forwarded: bool = False,
+    client_mill: str = "",
 ) -> Any:
     """Run a desk-acting command for the sitting /ws desk. Identity is desk, not body owner.
 
@@ -4063,7 +4083,7 @@ def dispatch_ws(
     if v in OPEN_COMMANDS or v == "join":
         raise CoordError("join stays HTTP only; not a /ws RPC command")
     if v not in WALL:
-        raise CoordError(f"unknown mill command {v}")
+        raise CoordError(unknown_command_message(v, client_mill))
     owner = desk_name(desk)
     if not owner:
         raise CoordError("ws rpc: desk required")
@@ -4086,7 +4106,7 @@ def dispatch_ws(
         body["project"] = project  # handlers that read the body see id 1's name too
     fn = HANDLERS.get(v)
     if fn is None:
-        raise CoordError(f"unknown mill command {v}")
+        raise CoordError(unknown_command_message(v, client_mill))
     from agent_coord.server.redact import WRITE_COMMANDS, scrub_request_body
 
     if v in WRITE_COMMANDS or canonical_command(v) in WRITE_COMMANDS:

@@ -32,6 +32,7 @@ def test_reply_extra_positional_names_the_fix(tmp_path, capsys) -> None:
     body.write_text("hi", encoding="utf-8")
     with pytest.raises(SystemExit):
         _build_parser().parse_args(["reply", "1", "x", "--body-file", str(body)])
-    last = capsys.readouterr().err.strip().splitlines()[-1]
-    assert "unrecognized arguments: x" in last
-    assert FIX in last
+    err = capsys.readouterr().err
+    assert "unrecognized arguments: x" in err
+    assert FIX in err
+    assert "see: mill help reply" in err

@@ -774,7 +774,7 @@ def _run_agent(cmd: str, home: Path, obs: dict[str, Any], timeout: float) -> Non
         cwd=str(home),
     )
     err = proc.stderr or ""
-    if proc.returncode and "invalid choice" in err:
+    if proc.returncode and ("invalid choice" in err or "unknown command" in err):
         note_client_exit(home, int(proc.returncode), "A2")
         obs["client_exit"] = int(proc.returncode)
 
