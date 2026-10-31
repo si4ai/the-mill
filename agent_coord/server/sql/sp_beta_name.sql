@@ -288,6 +288,7 @@ BEGIN
   IF v_tr IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: already trashed; mill restore or mill purge';
   END IF;
+  -- Card 938: roster trash gated the same way as restore/purge (sole member or Admin).
   IF v_type = 'roster' THEN
     SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
     SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
