@@ -14,7 +14,8 @@ typographic marks, and (in comments, docstrings, Markdown prose and the
 commit message) the Title-case name-token rule with the desk-word
 allow-list. Staged files are read from the index (git show :path), never
 the working tree. A staged or tip mode-120000 path under a packaged tree
-fails closed (#757). Reports file:line and the kind; never the matched text.
+fails closed (#757). Credential shapes use the same check_pack rule (#760).
+Reports file:line and the kind; never the matched text.
 
 Hooks: git config core.hooksPath .githooks (once per checkout).
 Bypass: git commit --no-verify. CI check_pack still runs every rule.
@@ -129,6 +130,8 @@ def scan_text(rel: str, blob: bytes) -> list[str]:
             fails.append(f"{rel}:{i}: home path with a login name")
         if cp.text_has_personal_email(ln):
             fails.append(f"{rel}:{i}: email outside placeholder domains")
+        for kind in cp.credential_kinds(ln):
+            fails.append(f"{rel}:{i}: credential shape ({kind})")
         if cp._is_text_file(rel):
             mark = cp.text_mark(ln)
             if mark is not None:
@@ -209,6 +212,9 @@ def scan_tree() -> list[str]:
         for i, prose in comment_lines(rel, text):
             if name_hit(prose):
                 fails.append(f"{rel}:{i}: personal name token in a comment")
+        for i, ln in enumerate(text.splitlines(), 1):
+            for kind in cp.credential_kinds(ln):
+                fails.append(f"{rel}:{i}: credential shape ({kind})")
     return fails
 
 

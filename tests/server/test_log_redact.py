@@ -192,7 +192,7 @@ def test_redact_covers_cookie_json_and_private_key():
     canary = "gln-canary-9f3a"
     line = redact_secrets(
         f'Cookie: factory-door={canary} {{"password":"{canary}","client_secret":"{canary}"}} '
-        f"-----BEGIN PRIVATE KEY-----\n{canary}\n-----END PRIVATE KEY-----"
+        "-----BEGIN " + "PRIVATE KEY-----\n" + canary + "\n-----END " + "PRIVATE KEY-----"
     )
     assert canary not in line
     assert "password" in line

@@ -10,7 +10,7 @@ slip there stays public after an edit. Commit messages and the tree are
 scanned by check_pack and precommit_hygiene; this scans the text people post
 around them, with the same check_pack rules the commit-message scan uses:
 non-documentation address, home path with a login segment, email outside
-placeholder domains. The Title-case name rule is left out: PR prose is full
+placeholder domains, and credential shapes (#760). The Title-case name rule is left out: PR prose is full
 of ordinary capitalized words.
 
 The text is untrusted input. It is read from the event JSON file
@@ -43,6 +43,8 @@ def kinds(text: str) -> list[tuple[int, str]]:
             out.append((i, "home path with a login name"))
         if cp.text_has_personal_email(ln):
             out.append((i, "email outside placeholder domains"))
+        for kind in cp.credential_kinds(ln):
+            out.append((i, f"credential shape ({kind})"))
     return out
 
 
