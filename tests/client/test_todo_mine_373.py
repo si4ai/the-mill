@@ -74,6 +74,15 @@ def test_no_claimed_cards_is_an_empty_page_with_a_hint(monkeypatch, capsys):
     assert "--done" in row["note"] and "desk-a" in row["note"]
 
 
+def test_mine_empty_omits_done_when_already_passed(monkeypatch, capsys):
+    """#649: --mine with --done already set does not say add --done."""
+    _wall(monkeypatch, [_card(1, ""), _card(2, "desk-b", "claimed")])
+    rc, row = _run(capsys, done=True)
+    assert rc == 0 and _items(row["result"]) == []
+    assert "--done" not in row["note"]
+    assert "asker-only" in row["note"]
+
+
 def test_without_mine_the_board_is_unchanged(monkeypatch, capsys):
     _wall(monkeypatch, mixed())
     _, row = _run(capsys, mine=False)

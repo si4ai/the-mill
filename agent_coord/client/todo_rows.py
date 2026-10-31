@@ -94,12 +94,21 @@ def sitting_desk(body: dict) -> str:
     return desk
 
 
-def keep_mine(row: Any, desk: str, rank: list | None = None, status_asked: str = "") -> Any:
+def keep_mine(
+    row: Any,
+    desk: str,
+    rank: list | None = None,
+    status_asked: str = "",
+    *,
+    have_done: bool = False,
+    have_all: bool = False,
+) -> Any:
     """The desk's cards: focus cards (label named desk) in rank order, then the
     cards whose volunteer is desk (exact name), each once (#373, #374).
 
     Runs before --find and paging, so page counts are this set. The wall still
     applies --status and --done; done cards stay hidden unless --done.
+    An empty set names only widen flags not already on the command (#649).
     """
     if not isinstance(row, dict) or not isinstance(row.get("result"), list):
         return row
@@ -110,7 +119,14 @@ def keep_mine(row: Any, desk: str, rank: list | None = None, status_asked: str =
     out["result"] = keep
     said = f"--mine: {n_focus} focus (label {desk}, rank order), then {n_claimed} claimed by {desk}"
     if not keep:
-        said += "; add --done for finished cards, --all for every roster; " + set_focus_hint(desk)
+        tips = []
+        if not have_done:
+            tips.append("--done for finished cards")
+        if not have_all:
+            tips.append("--all for every roster")
+        if tips:
+            said += "; add " + ", ".join(tips)
+        said += "; asker-only cards are not listed; " + set_focus_hint(desk)
     prior = str(row.get("note") or "")
     out["note"] = f"{prior}; {said}" if prior else said
     return out

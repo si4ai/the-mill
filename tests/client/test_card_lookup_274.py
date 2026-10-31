@@ -142,6 +142,17 @@ def test_find_none_says_how_to_widen():
     assert out["result"] == [] and "--all" in out["note"]
 
 
+def test_find_none_omits_flags_already_given():
+    """#649: empty --find note names only flags not already on the command."""
+    out = _todo_find({"ok": True, "result": ROWS}, "nothing-here", have_done=True, have_all=True)
+    assert out["result"] == []
+    assert "--done" not in out["note"] and "--all" not in out["note"]
+    out = _todo_find({"ok": True, "result": ROWS}, "nothing-here", have_done=True)
+    assert "--done" not in out["note"] and "--all" in out["note"]
+    out = _todo_find({"ok": True, "result": ROWS}, "nothing-here", have_all=True)
+    assert "--all" not in out["note"] and "--done" in out["note"]
+
+
 def test_find_leaves_refusals_alone():
     row = {"ok": False, "error": "x"}
     assert _todo_find(row, "a") is row
