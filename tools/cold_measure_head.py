@@ -111,6 +111,23 @@ def mill_on_path() -> Path | None:
     return Path(mill).resolve() if mill else None
 
 
+
+def mill_under(path: Path) -> bool:
+    """True when the PATH mill binary lives under path (symlinks resolved)."""
+    mill = mill_on_path()
+    if mill is None:
+        return False
+    try:
+        target = path.resolve()
+    except OSError:
+        return False
+    try:
+        mill.relative_to(target)
+        return True
+    except ValueError:
+        return False
+
+
 def is_live_mill(path: Path) -> bool:
     """True when out would clobber a live mill install tree."""
     p = path.resolve()
@@ -143,7 +160,8 @@ def stage_kit(root: Path, out: Path, *, refuse_live: bool = True, allow_dirty: b
     out = out.resolve()
     if refuse_live and is_live_mill(out):
         raise SystemExit(2)
-    if git_dirty(root) and not allow_dirty:
+    dirty = git_dirty(root)
+    if dirty and not allow_dirty:
         raise SystemExit("cold_measure_head: refuse dirty checkout (pass --allow-dirty to override)")
     join = root / "docs" / "JOIN.md"
     skill = root / "docs" / "protocol" / "skill.md"
@@ -162,7 +180,7 @@ def stage_kit(root: Path, out: Path, *, refuse_live: bool = True, allow_dirty: b
         "head_sha": git_sha(root),
         "join_sha": content_sha(join),
         "skill_sha": content_sha(skill),
-        "dirty": False,
+        "dirty": dirty,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (out / "recipe.md").write_text(RECIPE, encoding="utf-8")
@@ -182,17 +200,19 @@ def build_and_install(root: Path, out: Path, *, recreate: bool = False) -> Path:
         raise SystemExit(2)
     out.mkdir(parents=True, exist_ok=True)
     venv_dir = out / "venv"
-    if venv_dir.exists():
-        # Never delete an existing venv unless explicitly asked: a live mill
-        # may already sit here even when PATH has not been pointed at it yet.
+    # is_symlink first: a link to a live tree must refuse with rc 2, not OSError.
+    if venv_dir.is_symlink() or venv_dir.exists():
+        if mill_under(venv_dir) or is_live_mill(out):
+            raise SystemExit(2)
         if not recreate:
             raise SystemExit(
                 "cold_measure_head: refuse to replace existing <out>/venv "
                 "(pass --recreate to rebuild it)"
             )
-        if is_live_mill(out):
-            raise SystemExit(2)
-        shutil.rmtree(venv_dir)
+        if venv_dir.is_symlink():
+            venv_dir.unlink()
+        else:
+            shutil.rmtree(venv_dir)
     venv.EnvBuilder(with_pip=True).create(str(venv_dir))
     py = venv_dir / ("Scripts" if os.name == "nt" else "bin") / "python"
     env = os.environ.copy()
