@@ -16,37 +16,8 @@ from agent_coord.server.redact import redact_format, redact_secrets
 _log = logging.getLogger("mill.push")
 
 
-# mill-perf.log plus .1 through .4. Other logs stay append-only (#220).
+# All mill-home logs rotate through log_rotate (#797). Perf lines keep ms stamps (F171).
 _PERF_LOG = "mill-perf.log"
-_PERF_MAX_BYTES = 10 * 1024 * 1024
-_PERF_KEEP = 4
-_perf_lock = threading.Lock()
-
-
-def _rotate_perf(path) -> None:
-    """Shift mill-perf.log when it reaches the cap. The live file stays the tail."""
-    try:
-        if path.stat().st_size < _PERF_MAX_BYTES:
-            return
-    except OSError:
-        return
-    oldest = path.with_name(path.name + f".{_PERF_KEEP}")
-    try:
-        oldest.unlink(missing_ok=True)
-    except OSError:
-        pass
-    for i in range(_PERF_KEEP - 1, 0, -1):
-        src = path.with_name(path.name + f".{i}")
-        dst = path.with_name(path.name + f".{i + 1}")
-        try:
-            if src.is_file():
-                src.replace(dst)
-        except OSError:
-            pass
-    try:
-        path.replace(path.with_name(path.name + ".1"))
-    except OSError:
-        pass
 
 
 def dest_log(filename: str, msg: str) -> None:
@@ -58,22 +29,22 @@ def dest_log(filename: str, msg: str) -> None:
     try:
         from datetime import datetime, timezone
 
-        from agent_coord.config import mill_home
+        from agent_coord.config import mill_home, settings
+        from agent_coord.server import log_rotate as lr
 
+        s = settings()
+        lr.set_limits(
+            max_bytes=int(s.get("log_max_bytes") or lr.MAX_BYTES),
+            retain_days=int(s.get("log_retain_days") or lr.RETAIN_DAYS),
+        )
         p = mill_home() / filename
-        p.parent.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         if filename == _PERF_LOG:
             # Milliseconds, so the lines of one command sort and join (F171).
             text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "\n"
-            with _perf_lock:
-                _rotate_perf(p)
-                with p.open("a", encoding="utf-8") as f:
-                    f.write(text)
         else:
             text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
-            with p.open("a", encoding="utf-8") as f:
-                f.write(text)
+        lr.append_line(p, text)
     except Exception:
         pass
 

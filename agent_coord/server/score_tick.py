@@ -404,10 +404,11 @@ def count_api(text: str, since: datetime) -> tuple[int, int]:
 def _measure_desks(dest: Path, since: datetime) -> dict[str, dict[str, int]]:
     """Per-desk mill-host X from mill-perf (desk=)."""
     out: dict[str, dict[str, int]] = {}
-    perf = dest / "mill-perf.log"
-    if not perf.is_file():
+    from agent_coord.server.log_rotate import read_log_text
+
+    text = read_log_text(dest, "mill-perf.log")
+    if not text:
         return out
-    text = perf.read_text(encoding="utf-8", errors="replace")
     for line in text.splitlines():
         ts = _parse_ts(line)
         if not _in_window(ts, since):
@@ -431,14 +432,12 @@ def _measure_desks(dest: Path, since: datetime) -> dict[str, dict[str, int]]:
 def _measure_host(dest: Path, since: datetime) -> dict[str, int]:
     """Office mill-host X from dest logs. Wall SCORE Last."""
     out = {k: 0 for k in HOST_KPIS}
-    api = dest / "mill-api.log"
-    perf = dest / "mill-perf.log"
-    bc = dest / "mill-backchannel.log"
-    svc = dest / "mill-wall-svc.log"
-    api_text = api.read_text(encoding="utf-8", errors="replace") if api.is_file() else ""
-    perf_text = perf.read_text(encoding="utf-8", errors="replace") if perf.is_file() else ""
-    bc_text = bc.read_text(encoding="utf-8", errors="replace") if bc.is_file() else ""
-    svc_text = svc.read_text(encoding="utf-8", errors="replace") if svc.is_file() else ""
+    from agent_coord.server.log_rotate import read_log_text
+
+    api_text = read_log_text(dest, "mill-api.log")
+    perf_text = read_log_text(dest, "mill-perf.log")
+    bc_text = read_log_text(dest, "mill-backchannel.log")
+    svc_text = read_log_text(dest, "mill-wall-svc.log")
     for line in api_text.splitlines():
         ts = _parse_ts(line)
         if not _in_window(ts, since):
