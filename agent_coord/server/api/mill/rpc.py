@@ -2995,6 +2995,45 @@ def _hold_list(c: Book, project: str) -> Any:
     return {"ok": True, "project": who, "holds": holds}
 
 
+
+def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) -> dict:
+    """Card 955: attach cards/day and guards from today's evidence; surface commands-used."""
+    from agent_coord.server.records import score as rec_score
+
+    out = dict(shaped)
+    doc = rec_score.cards_day_evidence(c._cn, project) or {}
+    shipped = int(doc.get("shipped") or 0)
+    out["cards_per_day"] = shipped
+    lead_n = int(doc.get("lead_n") or 0)
+    lead_sum = int(doc.get("lead_sum") or 0)
+    eta_n = int(doc.get("eta_n") or 0)
+    eta_sum = int(doc.get("eta_sum") or 0)
+    actual_sum = int(doc.get("actual_sum") or 0)
+    out["guards"] = {
+        "median_lead_min": (lead_sum // lead_n) if lead_n else None,
+        "eta_vs_actual": {
+            "eta_avg_min": (eta_sum // eta_n) if eta_n else None,
+            "actual_avg_min": (actual_sum // eta_n) if eta_n else None,
+            "n": eta_n,
+        },
+        "doing_min": int(doc.get("doing_sum") or 0),
+        "escapes": None,
+        "size_mix": {
+            "claimed": int(doc.get("claimed") or 0),
+            "started": int(doc.get("started") or 0),
+            "passed": int(doc.get("passed") or 0),
+            "shipped": shipped,
+            "avg_eta_min": (eta_sum // eta_n) if eta_n else None,
+        },
+    }
+    cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    if cmds is not None:
+        out["commands_used"] = cmds
+    if not out.get("unit"):
+        out["unit"] = "cards/day"
+    return out
+
+
 def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """#288: NAME VALUE records a point; NAME --target/--better/--unit sets them (#306);
     retire removes the score (#302); NAME reads the series; neither lists the roster."""
@@ -3090,8 +3129,16 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         got = ss.shape(rec_score.points(c._cn, roster, name, max(limit, ss.TREND_POINTS)), limit)
         if not got:
             raise CoordError(f"score: no score {name} on {project}; record one with mill score {project} {name} VALUE")
-        return got[0]
-    return {"roster": project, "scores": ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)}
+        one = got[0]
+        if name == "cards":
+            one = _cards_score_view(c, one, project, owner)
+        return one
+    shaped = ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)
+    out = {"roster": project, "scores": shaped}
+    cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    if cmds is not None:
+        out["commands_used"] = cmds
+    return out
 
 
 def _poke_tree(c: Book, typ: str, nid: int, *, owner: str | None = None) -> None:

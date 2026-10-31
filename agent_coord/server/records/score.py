@@ -140,3 +140,74 @@ def points(cn, project: str, kpi: str = "", limit: int = 10) -> list[dict]:
     from agent_coord.server.records.name import bare
 
     return call(cn, "mill_score_points", [bare(project, CONST_ROSTER), kpi, int(limit)])
+
+
+def cards_day_evidence(cn, project: str, when=None) -> dict | None:
+    """Today's day rollup for the roster's cards score (card 955), or None."""
+    from datetime import datetime
+
+    from agent_coord.server.records.name import bare
+
+    roster = bare(project, CONST_ROSTER)
+    day = (when or datetime.now()).strftime("%Y-%m-%d 00:00:00")
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT e.value FROM score s"
+            " JOIN name r ON r.id = s.roster_id AND r.name = %s"
+            " JOIN score_evidence e ON e.score_id = s.id AND e.`timestamp` = %s"
+            " WHERE s.kpi = 'cards' AND s.desk_id IS NULL LIMIT 1",
+            (roster, day),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+    if not row:
+        return None
+    import json
+
+    value = row.get("value")
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode()
+    if isinstance(value, str):
+        return json.loads(value)
+    return value if isinstance(value, dict) else None
+
+
+def system_commands_today(cn, desk: str, when=None) -> int | None:
+    """Commands-used today for a desk from the system score evidence (card 955)."""
+    from datetime import datetime
+
+    from agent_coord.server.records.name import bare
+
+    d = bare(desk, CONST_DESK) if desk else ""
+    if not d:
+        return None
+    day = (when or datetime.now()).strftime("%Y-%m-%d 00:00:00")
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT e.value FROM score s"
+            " JOIN name n ON n.id = s.desk_id AND n.name = %s"
+            " JOIN score_evidence e ON e.score_id = s.id AND e.`timestamp` = %s"
+            " WHERE s.kpi = 'system' LIMIT 1",
+            (d, day),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+    if not row:
+        return None
+    import json
+
+    value = row.get("value")
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode()
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, dict):
+        return None
+    try:
+        return int(value.get("n") or 0)
+    except (TypeError, ValueError):
+        return None

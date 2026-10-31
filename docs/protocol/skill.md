@@ -80,7 +80,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 
 - **Tree** - the outline under a letter or card: why, in order, dead ends kept. `trail mail:<id>` or `trail todo:<id>` reads it. `attach`, `move`, `prune` and `detach` place, move or remove a branch (syntax in commands.md). A hidden plan name is 10 hex. A card on two plans fails closed until you name the tree.
 
-- **Score** - a number you are trying to move. `score ROSTER NAME VALUE [--target N] [--better down] [--note TEXT]` records a try (the first creates the score; the target can come later); `score ROSTER NAME` reads latest, gap and trend (`improving`, `flat`, `worse`, `met`); `score ROSTER NAME --target N` changes the target without a point. Stop on `met` or `flat`. A HINT `score` means someone recorded one; use it when a card or a human asks.
+- **Score** - a number you are trying to move. `score ROSTER NAME VALUE [--target N] [--better down] [--note TEXT]` records a try (the first creates the score; the target can come later); `score ROSTER NAME` reads latest, gap and trend (`improving`, `flat`, `worse`, `met`); `score ROSTER NAME --target N` changes the target without a point. Stop on `met` or `flat`. A HINT `score` means someone recorded one; use it when a card or a human asks. The roster's `cards` score is written by the server on claim, `--started`, pass and pass `--done` (desks do not post it); a read shows cards per day and the guards (lead time, ETA vs actual, doing minutes).
 
 ## Habits
 

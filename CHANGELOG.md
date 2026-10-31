@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 955 / F-delivery-kpi-score: per-roster cards score filled on claim/started/pass/done; mill score shows cards/day and guards
 - card 933: macOS reset-seat coverage near beta
 - after 0.8.2: CI timing review and a speed-up card with numbers
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
