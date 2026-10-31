@@ -33,7 +33,7 @@ git-tracked files and git commit messages. Placeholder segments such as
 example.org, example.net, *.example, *.test, *.invalid, *.localhost, and
 GitLab and GitHub noreply domains.
 
-A tracked symlink (git mode 120000) under a packaged path fails the tip scan, and every wheel or sdist file member must map to a tracked regular file at HEAD (generated dist-info / egg-info / PKG-INFO / build-generated setup.cfg (no on-disk setup.cfg) may stay) (#757).
+A tracked symlink (git mode 120000) under a packaged path fails the tip scan, and every wheel or sdist file member must map to a tracked regular file at HEAD (generated dist-info / egg-info / PKG-INFO / sdist setup.cfg that is exactly the generated [egg_info] stanza may stay) (#757).
 
 A literal byte-order mark or typographic punctuation (Windows editors and
 pasted dashes, arrows, quotes) fails in the same file scan. The ASCII escape
@@ -672,6 +672,9 @@ def mill_root() -> Path:
 # Modes git uses for tracked blobs. 120000 = symlink (card 757).
 _GIT_SYMLINK_MODE = "120000"
 _GIT_REGULAR_MODES = frozenset({"100644", "100755"})
+# Exact bytes setuptools writes into the sdist root setup.cfg for a
+# pyproject-only build. Anything else at that path is an untracked sneak (#757).
+_GENERATED_SETUP_CFG = b"[egg_info]\ntag_build = \ntag_date = 0\n\n"
 # Wheel data-files land under the_mill-*.data/data/share/the-mill/<repo path>.
 _WHEEL_DATA_RE = re.compile(r"^the_mill-[^/]+\.data/data/share/the-mill/(.*)$")
 _WHEEL_DISTINFO_RE = re.compile(r"^the_mill-[^/]+\.dist-info(/|$)")
@@ -752,7 +755,7 @@ def pack_member_repo_path(member: str, kind: str) -> str | None:
     if rest == "PKG-INFO":
         return None  # generated at the sdist root by setuptools
     if rest == "setup.cfg":
-        # Provenance decides: build-generated (no on-disk file) vs untracked root.
+        # Provenance decides: exact generated [egg_info] stanza vs anything else.
         return "setup.cfg"
     return rest
 
@@ -767,7 +770,7 @@ def scan_pack_provenance(
         modes = git_index_modes()
     fails: list[str] = []
     iterator = _iter_wheel if kind == "wheel" else _iter_sdist
-    for name, _data, is_dir in iterator(path):
+    for name, data, is_dir in iterator(path):
         if is_dir:
             continue
         rel = pack_member_repo_path(name, kind)
@@ -775,10 +778,10 @@ def scan_pack_provenance(
             continue
         mode = modes.get(rel)
         if mode is None:
-            # Sdist setup.cfg: allow only the one the build generates. An
-            # untracked repo-root setup.cfg that setuptools copied in fails
-            # as an untracked pack member (#757 / F205).
-            if rel == "setup.cfg" and kind == "sdist" and not (mill_root() / "setup.cfg").is_file():
+            # Sdist setup.cfg: allow only the exact generated [egg_info] stanza.
+            # Keying on "file not on disk" let a sneaked setup.cfg pass after
+            # the builder deleted it and re-ran check_pack on the same dist (#757).
+            if rel == "setup.cfg" and kind == "sdist" and data == _GENERATED_SETUP_CFG:
                 continue
             fails.append(f"untracked pack member: {rel}")
         elif mode == _GIT_SYMLINK_MODE:

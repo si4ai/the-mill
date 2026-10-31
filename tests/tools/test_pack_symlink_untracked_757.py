@@ -249,16 +249,17 @@ def test_real_build_symlink_and_untracked_fail_check_pack(tmp_path):
     assert check.returncode == 1, check.stdout + check.stderr
     assert "untracked" in check.stdout, check.stdout
 
-
 def test_untracked_root_setup_cfg_fails_check_pack(tmp_path):
     """An untracked repo-root setup.cfg that ships in the sdist must fail (#757).
 
-    Build-generated setup.cfg (no on-disk file) stays allowed; a sneaked
-    root setup.cfg with content must not return check_pack rc 0.
+    Exemption keys on the sdist member bytes matching the generated
+    [egg_info] stanza, not on whether setup.cfg is still on disk. Build with
+    a sneaked root setup.cfg, delete it, and re-check the same dist: still fail.
     """
     import os
     import shutil
     import sys
+    import tarfile
 
     if shutil.which("git") is None:
         pytest.skip("git not on PATH")
@@ -288,6 +289,48 @@ def test_untracked_root_setup_cfg_fails_check_pack(tmp_path):
     py = _python_with_setuptools()
     got = run(dest, [py, "-c", code], env={"SOURCE_DATE_EPOCH": epoch})
     assert got.returncode == 0, got.stdout + got.stderr
+    # Confirm the sneaked content actually shipped.
+    sdists = list((dest / "dist").glob("*.tar.gz"))
+    assert sdists
+    with tarfile.open(sdists[0], "r:gz") as tf:
+        members = [m for m in tf.getmembers() if m.name.endswith("/setup.cfg") and m.name.count("/") == 1]
+        assert members
+        shipped = tf.extractfile(members[0]).read()
+    assert b"sneak-root-cfg-757" in shipped
+    # Delete on-disk setup.cfg: exemption must still fail (content, not presence).
+    sneak.unlink()
+    assert not sneak.exists()
+    # Assert via this PR's check_pack (clone tip may lag uncommitted edits).
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_pack_757", ROOT / "tools" / "check_pack.py")
+    cp = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(cp)
+    fails = cp.scan_pack_provenance(sdists[0], "sdist", {})
+    assert any("untracked" in f and "setup.cfg" in f for f in fails), fails
+    # Full check_pack on the clone also fails closed (other tip rules may fire too).
     check = run(dest, [sys.executable, "tools/check_pack.py", "dist"])
     assert check.returncode == 1, check.stdout + check.stderr
-    assert "untracked" in check.stdout and "setup.cfg" in check.stdout, check.stdout
+
+
+def test_generated_setup_cfg_bytes_are_exempt(tmp_path, cp):
+    """Exact generated [egg_info] stanza in the sdist is not an untracked member."""
+    sdist = tmp_path / "the_mill-0.0.0.tar.gz"
+    import tarfile
+    import io
+    gen = cp._GENERATED_SETUP_CFG
+    assert gen == b"[egg_info]\ntag_build = \ntag_date = 0\n\n"
+    with tarfile.open(sdist, "w:gz") as tf:
+        info = tarfile.TarInfo(name="the_mill-0.0.0/setup.cfg")
+        info.size = len(gen)
+        tf.addfile(info, io.BytesIO(gen))
+        # A tracked-looking path so provenance has something else to skip/fail cleanly.
+        other = b"ok\n"
+        info2 = tarfile.TarInfo(name="the_mill-0.0.0/README.md")
+        info2.size = len(other)
+        tf.addfile(info2, io.BytesIO(other))
+    modes = {"README.md": "100644"}  # setup.cfg absent -> would fail unless exempt
+    fails = cp.scan_pack_provenance(sdist, "sdist", modes)
+    assert not any("setup.cfg" in f for f in fails), fails
+
