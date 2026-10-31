@@ -1,4 +1,4 @@
-"""Card 938 / F231: sp_name_trash keeps the sole-member-or-Admin roster gate.
+"""Card 938 / F-name-trash-roster-gate: sp_name_trash keeps the sole-member-or-Admin roster gate.
 
 The 879 suite stayed green when that gate was dropped from the procedure.
 These checks lock the SQL text so a mutant that removes the gate fails
@@ -44,7 +44,7 @@ def test_sp_name_trash_has_roster_sole_or_admin_gate() -> None:
 
 def test_f231_row_and_879_behavioral_test_exist() -> None:
     matrix = MATRIX.read_text(encoding="utf-8")
-    assert "| F231 (" in matrix
+    assert "| F-name-trash-roster-gate |" in matrix
     assert "name-trash-roster-gate" in matrix or "sp_name_trash" in matrix
     suite = (
         ROOT / "tests" / "server" / "records" / "test_delete_unreferenced_879.py"

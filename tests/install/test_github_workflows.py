@@ -425,7 +425,7 @@ def test_publish_action_image_digest_is_pinned() -> None:
 
 
 def test_pytest_sql_runs_two_xdist_workers() -> None:
-    """Card 944 (F229): pytest_sql runs the SQL suite with two xdist workers.
+    """Card 944 (F-pytest-sql-xdist-2): pytest_sql runs the SQL suite with two xdist workers.
 
     sql_isolate already names a DB per PYTEST_XDIST_WORKER; CI must install
     pytest-xdist from the hash lock and pass -n 2 so the wall drops.

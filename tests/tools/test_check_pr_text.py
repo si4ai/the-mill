@@ -138,7 +138,7 @@ def _who() -> str:
 
 
 def test_pr_body_name_token_fails(tmp_path: Path) -> None:
-    """Card 937 / F232: PR title and body use the commit-msg name-token rule."""
+    """Card 937 / F-pr-title-body-name-token: PR title and body use the commit-msg name-token rule."""
     who = _who()
     body = f"ok\n{who} chose the paragraph over table rows\n"
     res = _run(

@@ -5,7 +5,7 @@ Under pytest-xdist a worker often opens the pool on the default book, then a
 suite sets AGENT_COORD_DATABASE to its throwaway name and calls connect(name).
 When name matched the env, the old connect() returned the stale pool; apply and
 invite SPs ran on the wrong schema so cmd_invite_create was missing on the
-throwaway DB (release/0.8.3 pytest_sql). Row F233.
+throwaway DB (release/0.8.3 pytest_sql). Row F-connect-explicit-db.
 """
 from __future__ import annotations
 

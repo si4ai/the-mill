@@ -1,4 +1,4 @@
-"""Optional pwsh dry-run for F221. Not cited in the matrix (card 940 / F230).
+"""Optional pwsh dry-run for F221. Not cited in the matrix (card 940 / F-pwsh-f221-guard).
 
 Lives outside the matrix-cited ps51 module so a missing pwsh skips this
 file's case at collection without tripping the card-663 guard.

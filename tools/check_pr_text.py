@@ -11,7 +11,7 @@ scanned by check_pack and precommit_hygiene; this scans the text people post
 around them, with the same check_pack rules the commit-message scan uses:
 non-documentation address, home path with a login segment, email outside
 placeholder domains, and credential shapes (#760). PR and issue titles and
-bodies also get the Title-case name-token rule (card 937 / F232); comments
+bodies also get the Title-case name-token rule (card 937 / F-pr-title-body-name-token); comments
 and reviews stay on the generic rules only (too noisy for name-token).
 
 The text is untrusted input. It is read from the event JSON file

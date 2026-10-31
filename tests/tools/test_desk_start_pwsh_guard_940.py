@@ -43,5 +43,5 @@ def test_f221_row_still_cites_static_ps51_cases() -> None:
     assert "test_desk_start_ps51_221" in cell
     assert "all cases" in cell or "test_desk_start_ps51_221.py" in cell
     text = MATRIX.read_text(encoding="utf-8")
-    assert "| F230 (" in text
+    assert "| F-pwsh-f221-guard |" in text
     assert "pwsh-f221-guard" in text or "desk-start-pwsh-guard" in text
