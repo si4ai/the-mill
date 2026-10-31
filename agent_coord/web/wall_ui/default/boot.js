@@ -5345,7 +5345,7 @@
           `<span class="k">${esc(kind)}</span>` +
           `<span class="who">${esc(millName("desk", p.owner || ""))}</span>` +
           `<span class="prod">${esc(millName("proj", millGid(p) || ""))}</span>` +
-          `<span class="n">${esc(act || "")}</span>` +
+          `<span class="act" title="${esc(act || "")}">${esc(act || "")}</span>` +
           activityStatePill(p) +
           `</div>`;
       }).join("");
