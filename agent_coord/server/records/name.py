@@ -67,7 +67,7 @@ def roster_ids(cn, names: list[str]) -> list[tuple[str, int]]:
     try:
         cur.execute(
             "SELECT id, type, name FROM name"
-            " WHERE type = 'roster' AND deleted IS NULL"
+            " WHERE type = 'roster' AND deleted IS NULL AND trashed IS NULL"
             " AND name IN (" + marks + ")",
             tuple(wanted),
         )
@@ -124,13 +124,13 @@ def get(cn, name: str, kind: str = "") -> int | None:
     if k:
         rec = scalar(
             cn,
-            "SELECT id FROM name WHERE type=%s AND name=%s AND deleted IS NULL",
+            "SELECT id FROM name WHERE type=%s AND name=%s AND deleted IS NULL AND trashed IS NULL",
             (k, bare),
         )
     else:
         rec = scalar(
             cn,
-            "SELECT id FROM name WHERE name=%s AND deleted IS NULL",
+            "SELECT id FROM name WHERE name=%s AND deleted IS NULL AND trashed IS NULL",
             (bare,),
         )
     return int(rec) if rec is not None else None
@@ -151,7 +151,7 @@ def live_roster(cn, name: str) -> str | None:
         return None
     rec = scalar_done(
         cn,
-        "SELECT name FROM name WHERE type=%s AND name=%s AND deleted IS NULL",
+        "SELECT name FROM name WHERE type=%s AND name=%s AND deleted IS NULL AND trashed IS NULL",
         (CONST_ROSTER, who),
     )
     return None if rec is None else _text(rec)
@@ -161,7 +161,7 @@ def live_roster_names(cn) -> list[str]:
     """Live roster names in id order, without the rest of the catalog (F23)."""
     rows = rows_done(
         cn,
-        "SELECT name FROM name WHERE type=%s AND deleted IS NULL ORDER BY id",
+        "SELECT name FROM name WHERE type=%s AND deleted IS NULL AND trashed IS NULL ORDER BY id",
         (CONST_ROSTER,),
     )
     return [_text(r.get("name") or "") for r in rows]
@@ -170,7 +170,7 @@ def live_roster_names(cn) -> list[str]:
 def select(cn, *, include_deleted: bool = False) -> list[dict]:
     cur = cn.cursor()
     try:
-        where = "" if include_deleted else " WHERE deleted IS NULL"
+        where = "" if include_deleted else " WHERE deleted IS NULL AND trashed IS NULL"
         cur.execute(
             "SELECT id, type, updated, name, type AS name_type, deleted FROM name"
             + where
@@ -236,3 +236,104 @@ def ensure_roster(cn, name: str, kind: str = CONST_ROSTER) -> int:
             f"limited-trust: cannot auto-create {k} {bare} - Admin mill roster NAME NAME --yes"
         )
     return get_or_insert(cn, bare, k)
+
+
+def _sql_refusal(exc: BaseException) -> str:
+    """Surface a SIGNAL 45000 message as CoordError text."""
+    msg = str(exc)
+    for marker in (
+        "delete:",
+        "restore:",
+        "purge:",
+        "name:",
+        "Admin only",
+    ):
+        if marker in msg:
+            # mysql often wraps as (...): message
+            i = msg.find(marker)
+            return msg[i:].split("\n")[0].strip().rstrip('"').rstrip("'")
+    return msg
+
+
+def trash(cn, name: str, kind: str, *, by: str) -> dict:
+    """#879: mill delete - stamp name.trashed (hidden, restorable). Desks keep retire."""
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.records.db import call
+
+    k = (kind or "").strip().lower()
+    if k not in ("roster", "label", "tree"):
+        raise CoordError("delete: type is roster, label or tree (desks keep mill retire)")
+    bare_name = bare(name, k)
+    if not bare_name:
+        raise CoordError("delete: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("delete: name is 1 to 64 characters")
+    try:
+        rows = call(cn, "sp_name_trash", [_by(by), k, bare_name])
+    except Exception as e:
+        raise CoordError(_sql_refusal(e)) from e
+    row = rows[0] if rows else {}
+    return {
+        "op": "deleted",
+        "type": str(row.get("name_type") or k),
+        "name": str(row.get("name") or bare_name),
+        "id": int(row["id"]),
+    }
+
+
+def restore_trashed(cn, name: str, kind: str, *, by: str) -> dict:
+    """#879: mill restore - clear name.trashed."""
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.records.db import call
+
+    k = (kind or "").strip().lower()
+    if k not in ("roster", "label", "tree"):
+        raise CoordError("restore: type is roster, label or tree (desks keep mill retire)")
+    bare_name = bare(name, k)
+    if not bare_name:
+        raise CoordError("restore: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("restore: name is 1 to 64 characters")
+    try:
+        rows = call(cn, "sp_name_restore", [_by(by), k, bare_name])
+    except Exception as e:
+        raise CoordError(_sql_refusal(e)) from e
+    row = rows[0] if rows else {}
+    return {
+        "op": "restored",
+        "type": str(row.get("name_type") or k),
+        "name": str(row.get("name") or bare_name),
+        "id": int(row["id"]),
+    }
+
+
+def purge_trashed(cn, name: str, kind: str, *, by: str) -> dict:
+    """#879: mill purge - hard-delete a trashed unreferenced roster|label|tree via sp_name_purge."""
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.records.db import call
+
+    k = (kind or "").strip().lower()
+    if k not in ("roster", "label", "tree"):
+        raise CoordError("purge: type is roster, label or tree (desks keep mill retire)")
+    bare_name = bare(name, k)
+    if not bare_name:
+        raise CoordError("purge: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("purge: name is 1 to 64 characters")
+    try:
+        rows = call(cn, "sp_name_purge", [_by(by), k, bare_name])
+    except Exception as e:
+        raise CoordError(_sql_refusal(e)) from e
+    row = rows[0] if rows else {}
+    return {
+        "op": "purged",
+        "type": str(row.get("name_type") or k),
+        "name": str(row.get("name") or bare_name),
+        "id": int(row["id"]),
+    }
+
+
+# Back-compat alias used by older call sites / docs while #256 lands.
+def hard_delete(cn, name: str, kind: str, *, by: str) -> dict:
+    """Deprecated alias: trash then purge is the Jira path; prefer trash/purge_trashed."""
+    return trash(cn, name, kind, by=by)

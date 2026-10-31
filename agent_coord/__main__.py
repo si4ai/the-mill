@@ -1028,11 +1028,54 @@ def _build_parser() -> MillArgumentParser:
     recm.add_argument("need", metavar="NEED", nargs="?", default="", help="todo form only: NEED or a comma list")
     recm.add_argument("--yes", action="store_true", help="skip the prompt")
 
-    rnm = sub.add_parser("rename", help="mill rename TYPE OLD NEW; you retype NEW at the prompt")
-    rnm.add_argument("kind", metavar="TYPE", choices=_NAME_TYPES)
-    rnm.add_argument("old")
-    rnm.add_argument("new")
+    rnm = sub.add_parser(
+        "rename",
+        help="mill rename TYPE OLD NEW; you retype NEW. "
+        "mill rename todo ROSTER OLD NEW changes a card's need (asker or Admin; id stays)",
+    )
+    rnm.add_argument("kind", metavar="TYPE", choices=_NAME_TYPES + ("todo",))
+    rnm.add_argument("old", help="old name; for todo, the ROSTER")
+    rnm.add_argument("new", help="new name; for todo, the OLD need")
+    rnm.add_argument(
+        "to",
+        nargs="?",
+        default="",
+        metavar="NEW_NEED",
+        help="todo form only: the NEW need",
+    )
+    rnm.add_argument(
+        "--why",
+        default="",
+        help="todo rename: why (stored on the activity timeline)",
+    )
     rnm.add_argument("--yes", action="store_true", help="skip the retype prompt")
+
+
+    dele = sub.add_parser(
+        "delete",
+        help="trash: mill delete roster|label|tree NAME stamps trashed (hidden, restorable); "
+        "desks keep mill retire; mill purge hard-deletes a trashed unreferenced name",
+    )
+    dele.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
+    dele.add_argument("slug", metavar="NAME")
+    dele.add_argument("--yes", action="store_true", help="skip the retype prompt")
+
+    restor = sub.add_parser(
+        "restore",
+        help="undo trash: mill restore roster|label|tree NAME clears name.trashed",
+    )
+    restor.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
+    restor.add_argument("slug", metavar="NAME")
+    restor.add_argument("--yes", action="store_true", help="skip the retype prompt")
+
+    purg = sub.add_parser(
+        "purge",
+        help="hard delete: mill purge roster|label|tree NAME removes a trashed unreferenced name; "
+        "creator stand-in (sole roster member) or Admin",
+    )
+    purg.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
+    purg.add_argument("slug", metavar="NAME")
+    purg.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     rtr = sub.add_parser(
         "retire",

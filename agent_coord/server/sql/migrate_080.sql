@@ -244,9 +244,9 @@ BEGIN
        AND (TABLE_NAME, COLUMN_NAME) IN (('member', 'name_kind'), ('activity', 'roster_kind'), ('label', 'name_kind'),
             ('tree', 'name_kind'), ('mail', 'roster_kind'), ('tree_read', 'tree_kind'), ('todo', 'roster_kind'),
             ('doing', 'roster_kind'), ('hold', 'resource_kind'), ('score', 'roster_kind'), ('human_member', 'name_kind')))),
-    ('schema_columns', 'schema', 5 - mill_migrate_080_col('activity', 'act') - mill_migrate_080_col('doing', 'act')
+    ('schema_columns', 'schema', 6 - mill_migrate_080_col('activity', 'act') - mill_migrate_080_col('doing', 'act')
        - mill_migrate_080_col('doing', 'peer_id') - mill_migrate_080_col('doing', 'evidence')
-       - mill_migrate_080_col('seat', 'doing_id')
+       - mill_migrate_080_col('seat', 'doing_id') - mill_migrate_080_col('name', 'trashed')
        + mill_migrate_080_col('activity', 'weight') + mill_migrate_080_col('activity', 'n')),
     ('schema_todo_evidence', 'schema', mill_migrate_080_col('todo', 'evidence')),
     ('schema_triggers', 'schema', 1 - (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
@@ -509,11 +509,11 @@ BEGIN
   ELSEIF p_step = 'columns' THEN
     -- Same shape as tables.sql (test_migrate_080_book compares the two through information_schema).
     IF NOT mill_migrate_080_col('activity', 'act') THEN
-      ALTER TABLE activity ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'create' AFTER roster_kind;
+      ALTER TABLE activity ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'create' AFTER roster_kind;
       SET @m080_rows = @m080_rows + 1;
     END IF;
     IF NOT mill_migrate_080_col('doing', 'act') THEN
-      ALTER TABLE doing ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'focus' AFTER waiting_why;
+      ALTER TABLE doing ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'focus' AFTER waiting_why;
       SET @m080_rows = @m080_rows + 1;
     END IF;
     IF NOT mill_migrate_080_col('doing', 'peer_id') THEN
@@ -535,6 +535,10 @@ BEGIN
     END IF;
     IF NOT mill_migrate_080_col('seat', 'doing_id') THEN
       ALTER TABLE seat ADD COLUMN doing_id BIGINT UNSIGNED NULL AFTER time_disconnect;
+      SET @m080_rows = @m080_rows + 1;
+    END IF;
+    IF NOT mill_migrate_080_col('name', 'trashed') THEN
+      ALTER TABLE name ADD COLUMN trashed DATETIME(6) NULL AFTER deleted;
       SET @m080_rows = @m080_rows + 1;
     END IF;
     CALL mill_migrate_080_keys();

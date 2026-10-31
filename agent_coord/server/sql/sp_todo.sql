@@ -8,6 +8,7 @@ DROP PROCEDURE IF EXISTS mill_todo_page;
 DROP PROCEDURE IF EXISTS mill_todo_get;
 DROP PROCEDURE IF EXISTS mill_todo_retire;
 DROP PROCEDURE IF EXISTS mill_todo_reclaim;
+DROP PROCEDURE IF EXISTS mill_todo_rename;
 
 DELIMITER //
 
@@ -526,5 +527,52 @@ BEGIN
     AND (IFNULL(p_id, 0) = 0 OR t.id = p_id)
   ORDER BY tr.tree_id IS NULL, tr.tree_id, t.id;
 END //
+
+-- #926: guarded rename of a card's need slug. Id stays; old slug reserved in body.aliases.
+-- One doing move + activity.act=rename (evidence JSON: old, new, why). Auth is in Python.
+CREATE PROCEDURE mill_todo_rename(
+  IN p_id      BIGINT UNSIGNED,
+  IN p_desk    VARCHAR(64),
+  IN p_old     VARCHAR(64),
+  IN p_new     VARCHAR(64),
+  IN p_body    VARCHAR(4096),
+  IN p_why     VARCHAR(1000)
+)
+BEGIN
+  DECLARE v_ts DATETIME(6);
+  DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_proj BIGINT UNSIGNED;
+  DECLARE v_move BIGINT UNSIGNED;
+  DECLARE v_ev VARCHAR(2000);
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
+  SET v_ts = MILL_NOW();
+  SET v_desk = MILL_NAME_GET('desk', p_desk);
+  IF v_desk IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such desk';
+  END IF;
+  SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
+  IF v_proj IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such card';
+  END IF;
+  IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: card is retired';
+  END IF;
+  UPDATE todo SET body = p_body, updated = v_ts, updated_id = v_desk WHERE id = p_id;
+  SET v_ev = JSON_OBJECT('old', TRIM(p_old), 'new', TRIM(p_new), 'why', IFNULL(TRIM(p_why), ''));
+  IF CHAR_LENGTH(v_ev) > 2000 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: why too long; nothing changed';
+  END IF;
+  CALL mill_doing_move(v_desk, v_proj, 'todo', p_id, 'rename', NULL, v_ev, v_ts, v_move);
+  CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, 'rename', LENGTH(p_body));
+  CALL mill_watcher_roster('todo', p_id, v_proj, v_desk);
+  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
+  SELECT p_id AS id, TRIM(p_new) AS need_id, TRIM(p_old) AS was, 'renamed' AS op, v_ts AS updated;
+END //
+
 
 DELIMITER ;

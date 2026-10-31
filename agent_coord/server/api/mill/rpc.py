@@ -494,6 +494,10 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
         card["done_when"] = str(r["done_when"])
     if r.get("evidence"):
         card["evidence"] = str(r["evidence"])
+    # #926: former need from the rename timeline / aliases.
+    was = str(fields.get("was") or "").strip()
+    if was:
+        card["was"] = was
     # #330: notes land in detail. A progress token that was never set is left
     # out, so no field in the reply is always empty. #818: cards have no title.
     if not card["progress"]:
@@ -605,8 +609,11 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         if st == "done" and not with_done and not want and not id_hit:
             continue
         fields = rec_todo.unpack(r.get("body") or "", r.get("id"))
-        if want and not id_hit and slug(str(fields.get("need_id") or "")) != want:
-            continue
+        if want and not id_hit:
+            cur_need = slug(str(fields.get("need_id") or ""))
+            aliases = [slug(str(a)) for a in (fields.get("aliases") or [])]
+            if cur_need != want and want not in aliases:
+                continue
         out.append(_todo_card(r, project, st, fields))
     # A3 Nest SoR: single-need peek marks nest=1 when card is on a TREE.
     if want and len(out) == 1:
@@ -1235,6 +1242,8 @@ def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     from agent_coord.server.records import name as rec_name
     from agent_coord.server.admin import catalog as admin_cat
 
+    if str(body.get("name_type") or "").strip().lower() == "todo":
+        return _todo_rename_one(c, body, project, owner)
     old = str(body.get("old") or "").strip()
     new = str(body.get("new") or "").strip()
     if body.get("yes"):
@@ -1245,6 +1254,61 @@ def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
             raise CoordError("mill rename: hash owns this desk only")
         rows = rec_name.rename(c._cn, old_d, new_d, "desk", by=old_d, by_hash=_seat_hash(c, project, owner))
     return rows
+
+
+def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | None) -> dict[str, Any]:
+    """#926: mill rename todo ROSTER OLD NEW - asker or Admin; id key; old need reserved."""
+    from agent_coord.server.admin.guard import is_role_admin
+    from agent_coord.server.records import todo as rec_todo
+
+    need = slug(str(body.get("need") or body.get("old") or ""))
+    new_need = slug(str(body.get("new") or body.get("to") or ""))
+    why = str(body.get("why") or "").strip()
+    if not need or not new_need:
+        raise CoordError("rename: mill rename todo ROSTER OLD NEW [--why TEXT]")
+    hit = rec_todo.find(c._cn, project, need)
+    if hit is None:
+        raise CoordError(f"no such need: {project}/{need}")
+    who = _stored(owner or "")
+    ask = _desk_slug(c._cn, hit, "asker", "creator")
+    if not who or (who != ask and not is_role_admin(c._cn, who)):
+        hint = (
+            f"who-may: rename todo is the asker ({ask}) or Admin; "
+            f"ask them, or mill note {project} {need} --note TEXT"
+            if ask
+            else (
+                "who-may: rename todo is the asker or Admin; the card's asker does not resolve, "
+                f"so only Admin may; mill note {project} {need} --note TEXT"
+            )
+        )
+        raise CoordError(hint)
+    fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
+    old_slug = str(fields["need_id"])
+    # Prefer the current slug as "old" when the caller used a former alias.
+    if need != old_slug and need in (fields.get("aliases") or []):
+        # still rename from current slug to new; old timeline names the alias they typed
+        pass
+    try:
+        out = rec_todo.rename(
+            c._cn,
+            int(hit["id"]),
+            who,
+            old_slug,
+            new_need,
+            why=why,
+        )
+    except CoordError:
+        raise
+    except Exception as e:
+        msg = _sql_refusal(e)
+        if msg:
+            raise CoordError(msg) from e
+        raise
+    # Timeline "was" prefers the need the caller typed when it was an alias.
+    if need != old_slug:
+        out["was"] = need
+    _poke(c, "todo", int(out["id"]), "rename", owner=owner)
+    return out
 
 
 def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -3722,6 +3786,41 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
     return {"ok": True, "desk": owner, "wake": got}
 
 
+
+def _h_delete(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 879: mill delete roster|label|tree NAME stamps name.trashed (restorable)."""
+    from agent_coord.server.records import name as rec_name
+
+    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    raw = str(body.get("slug") or body.get("name") or "").strip()
+    if kind not in ("roster", "label", "tree") or not raw:
+        raise CoordError("delete: mill delete roster|label|tree NAME")
+    return rec_name.trash(c._cn, raw, kind, by=owner or "")
+
+
+def _h_restore(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 879: mill restore roster|label|tree NAME clears name.trashed."""
+    from agent_coord.server.records import name as rec_name
+
+    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    raw = str(body.get("slug") or body.get("name") or "").strip()
+    if kind not in ("roster", "label", "tree") or not raw:
+        raise CoordError("restore: mill restore roster|label|tree NAME")
+    return rec_name.restore_trashed(c._cn, raw, kind, by=owner or "")
+
+
+def _h_purge(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 879: mill purge roster|label|tree NAME hard-deletes a trashed unreferenced name."""
+    from agent_coord.server.records import name as rec_name
+
+    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    raw = str(body.get("slug") or body.get("name") or "").strip()
+    if kind not in ("roster", "label", "tree") or not raw:
+        raise CoordError("purge: mill purge roster|label|tree NAME")
+    return rec_name.purge_trashed(c._cn, raw, kind, by=owner or "")
+
+
+
 HANDLERS = {
     "wake-done": _h_wake_done,
     "inbox": _h_inbox,
@@ -3737,6 +3836,9 @@ HANDLERS = {
     "member-remove": _h_member,
     "rename": _h_rename,
     "retire": _h_retire,
+    "delete": _h_delete,
+    "restore": _h_restore,
+    "purge": _h_purge,
     "roster": _h_roster,
     "reclaim": _h_reclaim,
     "reset": _h_reset,

@@ -84,6 +84,15 @@ def test_rename_retire_retype(body):
     assert body("retire roster a --yes")["confirm"] == "a"
 
 
+def test_delete_retype(body):
+    """Card 879: mill delete roster|label|tree retypes NAME like retire."""
+    with pytest.raises(CoordError, match="did not match"):
+        body("delete roster a", ask=lambda q: "x")
+    assert body("delete roster a --yes")["confirm"] == "a"
+    assert body("delete label lab --yes")["confirm"] == "lab"
+    assert body("delete tree plan --yes")["confirm"] == "plan"
+
+
 def test_reset_seat(body):
     assert body("reset seat d1 --yes")["desk"] == "d1"
     with pytest.raises(CoordError):
@@ -237,3 +246,11 @@ def test_watch_help_names_id_only():
     for command in ("watch", "unwatch"):
         usage = p._subparsers._group_actions[0].choices[command].format_usage()
         assert "ID|NAME" not in usage and " ID" in usage
+
+
+def test_restore_and_purge_retype(body):
+    """Card 879: mill restore / mill purge retype NAME like delete."""
+    with pytest.raises(CoordError):
+        body("restore label a", ask=lambda q: "x")
+    assert body("restore label a --yes")["confirm"] == "a"
+    assert body("purge tree plan --yes")["confirm"] == "plan"

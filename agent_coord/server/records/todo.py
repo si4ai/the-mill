@@ -22,6 +22,7 @@ def unpack(body: str, fallback_id: Any) -> dict[str, Any]:
     detail = body or ""
     progress = ""
     payload = None
+    aliases: list[str] = []
     raw = (body or "").strip()
     if raw.startswith("{"):
         try:
@@ -38,11 +39,17 @@ def unpack(body: str, fallback_id: Any) -> dict[str, Any]:
             if legacy and not detail.startswith(legacy):
                 detail = legacy + ("\n" + detail if detail else "")
             progress = str(got.get("progress") or "")
+            # #926: former need slugs reserved on this card (resolve + create refuse).
+            raw_aliases = got.get("aliases") or []
+            if isinstance(raw_aliases, list):
+                aliases = [str(a).strip() for a in raw_aliases if str(a).strip()]
     return {
         "need_id": slug_s,
         "detail": detail,
         "progress": progress,
         "payload": payload,
+        "aliases": aliases,
+        "was": aliases[0] if aliases else "",
     }
 
 
@@ -270,7 +277,7 @@ def select_rosters(cn, names: list[str], status: str = "") -> list[tuple[str, di
 
 
 def find(cn, project: str, need: str) -> dict | None:
-    """Match mill-wall need slug or numeric id."""
+    """Match mill-wall need slug, a former slug (#926), or numeric id."""
     rows = select(cn, project, "")
     raw = str(need or "")
     if raw.isdigit():
@@ -279,7 +286,7 @@ def find(cn, project: str, need: str) -> dict | None:
                 return r
     for r in rows:
         fields = unpack(r.get("body") or "", r.get("id"))
-        if str(fields["need_id"]) == raw:
+        if str(fields["need_id"]) == raw or raw in (fields.get("aliases") or []):
             return r
     return None
 
@@ -298,6 +305,86 @@ def reclaim(cn, todo_id: int, desk: str) -> list[dict]:
     return call(cn, "mill_todo_reclaim", [int(todo_id), bare(desk, CONST_DESK)])
 
 
+def rename(
+    cn,
+    todo_id: int,
+    desk: str,
+    old_need: str,
+    new_need: str,
+    *,
+    why: str = "",
+) -> dict:
+    """#926: change the card's need slug; keep id; reserve old slug in aliases.
+
+    Auth (asker or Admin) is the caller's job. Writes one timeline row (act rename).
+    """
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.helpers.ident import slug
+    from agent_coord.server.records.name import bare
+
+    old_s = slug(str(old_need or ""))
+    new_s = slug(str(new_need or ""))
+    if not old_s or not new_s:
+        raise CoordError("rename todo: old and new need required")
+    if old_s == new_s:
+        raise CoordError("rename todo: old and new are the same; nothing changed")
+    rows = get(cn, int(todo_id))
+    if not rows:
+        raise CoordError("rename todo: no such card")
+    hit = rows[0]
+    fields = unpack(hit.get("body") or "", hit.get("id"))
+    if fields["need_id"] != old_s and old_s not in (fields.get("aliases") or []):
+        raise CoordError(f"rename todo: card need is {fields['need_id']!r}, not {old_s!r}")
+    # Roster of this card: refuse if new (or its aliases) already names another live card.
+    roster = str(hit.get("roster") or "")
+    if not roster:
+        # get() may not join roster name; fall back via select by id through page
+        from agent_coord.server.records.db import scalar_done
+
+        roster = str(
+            scalar_done(
+                cn,
+                "SELECT n.name FROM todo t JOIN name n ON n.id = t.roster_id WHERE t.id=%s",
+                (int(todo_id),),
+            )
+            or ""
+        )
+    clash = find(cn, roster, new_s) if roster else None
+    if clash is not None and int(clash.get("id") or 0) != int(todo_id):
+        raise CoordError(
+            f"rename todo: {roster}/{new_s} exists (id {int(clash['id'])}); nothing changed"
+        )
+    payload = dict(fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]})
+    aliases = [str(a) for a in (payload.get("aliases") or []) if str(a).strip()]
+    # put the current slug first as the newest was; keep prior aliases; drop the new name if present.
+    cur = str(payload.get("slug") or fields["need_id"])
+    aliases = [a for a in aliases if a not in (cur, new_s, old_s)]
+    if cur and cur != new_s:
+        aliases = [cur] + aliases
+    if old_s != cur and old_s != new_s and old_s not in aliases:
+        aliases = [old_s] + aliases
+    payload["slug"] = new_s
+    payload["aliases"] = aliases
+    body_s = stored_body(payload)
+    why_s = str(why or "").strip()
+    if len(why_s) > 1000:
+        raise CoordError("rename todo: why must be 0..1000 characters; nothing changed")
+    out = call(
+        cn,
+        "mill_todo_rename",
+        [int(todo_id), bare(desk, CONST_DESK), old_s, new_s, body_s, why_s],
+    )
+    row = out[0] if out else {}
+    return {
+        "ok": True,
+        "id": int(row.get("id") or todo_id),
+        "need_id": str(row.get("need_id") or new_s),
+        "was": str(row.get("was") or cur or old_s),
+        "op": str(row.get("op") or "renamed"),
+        "why": why_s,
+    }
+
+
 def find_retired(cn, project: str, need: str) -> dict | None:
     """A retired card on this roster by need slug or numeric id (the reclaim lookup)."""
     from agent_coord.server.records.name import roster_ids
@@ -311,7 +398,8 @@ def find_retired(cn, project: str, need: str) -> dict | None:
         if raw.isdigit() and int(r.get("id") or 0) == int(raw):
             return r
     for r in rows:
-        if str(unpack(r.get("body") or "", r.get("id"))["need_id"]) == raw:
+        fields = unpack(r.get("body") or "", r.get("id"))
+        if str(fields["need_id"]) == raw or raw in (fields.get("aliases") or []):
             return r
     return None
 

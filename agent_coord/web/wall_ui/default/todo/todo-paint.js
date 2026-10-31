@@ -344,6 +344,7 @@
           ? todoTreeDesk(rowFace.assigned || rowFace.volunteer || rowFace.owner || "")
           : todoTreeDesk(p.who);
         const nid = rowFace ? String(rowFace.need_id || "").trim() : "";
+        const wasNeed = rowFace ? String(rowFace.was || "").trim() : "";
         const kids = _todoTreeChainOpen
           ? millTodoKidsOf(forest.todos, n).filter(k => todoTreeOnSpine(forest.todos, k, d, q))
           : [];
@@ -354,6 +355,7 @@
             ? `<span class="st">${esc(st)}</span><b>${esc(bodyLine)}</b>` +
               (note ? `<span class="todo-card-note">${esc(note)}</span>` : "") +
               (nid ? `<span class="todo-tree-id"><code>${esc(nid)}</code></span>` : "") +
+              (wasNeed ? `<span class="todo-tree-field"><span>was</span> <code>${esc(wasNeed)}</code></span>` : "") +
               (asker ? `<span class="todo-tree-field"><span>asker</span> <b>${esc(asker)}</b></span>` : "") +
               (holder ? `<span class="todo-tree-field"><span>holder</span> <b>${esc(holder)}</b></span>` : "") +
               (rowFace ? wallClaimedSlot(rowFace) : "") +

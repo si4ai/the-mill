@@ -275,7 +275,7 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 # Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
 # activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
 # (it is new; main's focus rows keep it NULL).
-ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id"}
+ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id", "trashed"}
 DROPPED = {"evidence", "weight", "n"}
 # A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
 # assign).

@@ -197,6 +197,21 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
         return args
 
     if cmd == "rename":
+        if args.kind == "todo":
+            # #926: mill rename todo ROSTER OLD NEW [--why] (asker or Admin).
+            to = str(getattr(args, "to", "") or "").strip()
+            if not to:
+                raise CoordError("rename: mill rename todo ROSTER OLD NEW")
+            retype(to, f"rename todo {args.old} {args.new} -> {to}", yes=yes, ask=ask)
+            args.project = args.old
+            args.need = args.new
+            args.new = to
+            args.old = ""
+            args.confirm = to
+            args.yes = True
+            return args
+        if str(getattr(args, "to", "") or ""):
+            raise CoordError(f"rename: {args.kind} takes OLD NEW (no fourth name)")
         if args.kind == "desk":
             # Card 880: your own desk stays on the self path; another desk needs --yes (Admin path, outbound).
             args.desk_admin = yes
@@ -241,6 +256,37 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
             args.confirm = ""
             return args
         retype(args.slug, f"retire {args.kind} {args.slug}", yes=yes, ask=ask)
+        args.confirm = args.slug
+        args.yes = True
+        return args
+
+
+    if cmd == "delete":
+        # Card 879: mill delete roster|label|tree NAME stamps trashed (restorable).
+        kind = str(getattr(args, "kind", "") or "").strip().lower()
+        if kind not in ("roster", "label", "tree"):
+            raise CoordError("delete: mill delete roster|label|tree NAME")
+        if str(getattr(args, "score_name", "") or getattr(args, "need", "") or ""):
+            raise CoordError(f"delete: {kind} takes one NAME")
+        retype(args.slug, f"delete {kind} {args.slug}", yes=yes, ask=ask)
+        args.confirm = args.slug
+        args.yes = True
+        return args
+
+    if cmd == "restore":
+        kind = str(getattr(args, "kind", "") or "").strip().lower()
+        if kind not in ("roster", "label", "tree"):
+            raise CoordError("restore: mill restore roster|label|tree NAME")
+        retype(args.slug, f"restore {kind} {args.slug}", yes=yes, ask=ask)
+        args.confirm = args.slug
+        args.yes = True
+        return args
+
+    if cmd == "purge":
+        kind = str(getattr(args, "kind", "") or "").strip().lower()
+        if kind not in ("roster", "label", "tree"):
+            raise CoordError("purge: mill purge roster|label|tree NAME")
+        retype(args.slug, f"purge {kind} {args.slug}", yes=yes, ask=ask)
         args.confirm = args.slug
         args.yes = True
         return args

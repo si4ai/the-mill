@@ -14,7 +14,7 @@
 -- activity is the timeline, not a parent: no payload (mail, todo, doing, hold, score) has an FK to it.
 -- A writer inserts the payload, takes LAST_INSERT_ID(), then writes the activity row in the same transaction.
 -- label and tree keep their FKs to activity: they point at a timeline row that already exists.
--- Every mill FK to name is RESTRICT, and name_no_delete refuses a hard DELETE (retire stamps name.deleted).
+-- Every mill FK to name is RESTRICT. name_no_delete refuses a hard DELETE unless sp_name_purge set @mill_allow_name_hard_delete for roster|label|tree (card 879). Retire stamps name.deleted; delete stamps name.trashed.
 -- name.n = desk count for a roster.
 -- member is N-N only. name_id is a roster, pinned by name_kind (kind-checked FK). Not an activity type.
 
@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS name (
   updated     DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   name        VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   deleted     DATETIME(6)       NULL,
+  trashed     DATETIME(6)       NULL,  -- card 879: mill delete soft-trash; purge hard-deletes when set
   n           INT UNSIGNED      NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   UNIQUE KEY idx_type (type, name),
@@ -134,7 +135,7 @@ CREATE TABLE IF NOT EXISTS activity (
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_activity_roster
   -- BETA (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
-  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'create',
+  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   KEY idx_type (type, roster_id, updated),
@@ -304,7 +305,7 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_type  ENUM('mail','todo','hold','desk') NULL,
   waiting_id    BIGINT UNSIGNED NULL,
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'focus',
+  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'focus',
   peer_id       BIGINT UNSIGNED NULL,   -- BETA: the second desk of a move; not waiting_* (that is what a focus is blocked on)
   evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- BETA: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),
@@ -560,12 +561,16 @@ BEGIN
   END IF;
 END //
 
--- A name row is never hard-deleted. Retire stamps name.deleted (sp_name_retire; main: mill_name_delete).
+-- Hard DELETE only via sp_name_purge: session flag + roster|label|tree (card 879). Desks always refused.
+-- Retire stamps name.deleted; mill delete stamps name.trashed (soft, restorable).
 CREATE TRIGGER name_no_delete BEFORE DELETE ON name
 FOR EACH ROW
 BEGIN
-  SIGNAL SQLSTATE '45000'
-    SET MESSAGE_TEXT = 'name: retire only (sp_name_retire stamps deleted); DELETE refused';
+  IF IFNULL(@mill_allow_name_hard_delete, 0) <> 1
+     OR OLD.type NOT IN ('roster', 'label', 'tree') THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'name: retire only (sp_name_retire stamps deleted); DELETE refused';
+  END IF;
 END //
 
 -- BETA (name restore): a name keeps its type and id, and a retired name is not renamed (reclaim first).

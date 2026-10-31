@@ -15,7 +15,7 @@ TABLES = ROOT / "agent_coord" / "server" / "sql" / "tables.sql"
 ACTS = [
     "create", "send", "reply", "note", "park", "claim", "unclaim", "assign", "unpark",
     "ship", "done", "back", "hold", "drop", "focus", "clear", "finish", "score",
-    "retire", "reclaim", "remove",
+    "retire", "reclaim", "remove", "delete", "restore", "purge", "rename",
 ]
 
 
