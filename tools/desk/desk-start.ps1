@@ -30,6 +30,45 @@ $ErrorActionPreference = "Stop"
 
 function New-SessionUuid { return [guid]::NewGuid().ToString() }
 
+
+function Format-WinArg([string]$Arg) {
+  # commandlinetoargvw quoting: wrap when empty or the value holds whitespace
+  # or a quote; double each run of backslashes that sits before a quote (or
+  # the closing quote); escape an embedded quote as backslash-quote.
+  if ($null -eq $Arg) { $Arg = "" }
+  if ($Arg -eq "") { return '""' }
+  if ($Arg -notmatch '[\s"]') { return $Arg }
+  $out = '"'
+  $numBs = 0
+  foreach ($ch in $Arg.ToCharArray()) {
+    if ($ch -eq [char]0x5C) {
+      $numBs++
+      continue
+    }
+    if ($ch -eq [char]0x22) {
+      $out += ([string][char]0x5C) * ($numBs * 2 + 1)
+      $out += [char]0x22
+      $numBs = 0
+      continue
+    }
+    if ($numBs -gt 0) {
+      $out += ([string][char]0x5C) * $numBs
+      $numBs = 0
+    }
+    $out += $ch
+  }
+  if ($numBs -gt 0) {
+    $out += ([string][char]0x5C) * ($numBs * 2)
+  }
+  $out += [char]0x22
+  return $out
+}
+
+function Join-WinArgv([string[]]$Argv) {
+  return (($Argv | ForEach-Object { Format-WinArg ([string]$_) }) -join " ")
+}
+
+
 function Read-DeskConfig([string]$path) {
   if (-not (Test-Path -LiteralPath $path)) {
     throw "desk-start: config file not found: $path"
@@ -258,7 +297,8 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
   }
 
   if ($dry) {
-    $plan | ConvertTo-Json -Depth 8
+    # write json off the success pipeline so `$rc = Invoke-OneDesk` stays an int.
+    [Console]::Out.WriteLine(($plan | ConvertTo-Json -Depth 8))
     return 0
   }
 
@@ -290,10 +330,16 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
   $psi.FileName = $grok.Source
   $psi.UseShellExecute = $false
   $psi.WorkingDirectory = $work
-  # Rebuild ArgumentList from argv without the leading "grok"
-  for ($i = 1; $i -lt $argv.Count; $i++) { [void]$psi.ArgumentList.Add([string]$argv[$i]) }
-  if ($psi.Environment.ContainsKey("PYTHONPATH")) { [void]$psi.Environment.Remove("PYTHONPATH") }
-  $psi.Environment["PYTHONPATH"] = ""
+  # netfx / ps 5.1: set arguments (one string) with join-winargv.
+  # skip leading grok (filename); quote the rest (commandlinetoargvw via format-winarg).
+  $argTail = @()
+  for ($i = 1; $i -lt $argv.Count; $i++) { $argTail += [string]$argv[$i] }
+  $psi.Arguments = Join-WinArgv $argTail
+  # netfx: environmentvariables (stringdictionary), not the core environment map.
+  if ($psi.EnvironmentVariables.ContainsKey("PYTHONPATH")) {
+    $psi.EnvironmentVariables.Remove("PYTHONPATH")
+  }
+  $psi.EnvironmentVariables["PYTHONPATH"] = ""
 
   $proc = [System.Diagnostics.Process]::Start($psi)
   if (-not $proc) {
@@ -321,7 +367,7 @@ Assert-Config $cfg
 $chosen = Resolve-Desks $cfg $Desk
 $code = 0
 foreach ($d in $chosen) {
-  $rc = Invoke-OneDesk $d $cfg ([bool]$DryRun)
+  $rc = [int](Invoke-OneDesk $d $cfg ([bool]$DryRun))
   if ($rc -ne 0) { $code = $rc }
 }
 exit $code
