@@ -75,16 +75,14 @@
         return { invite_url: url, desk: bare, seat: rawSeat || "", stub: !!stub };
       }
       let human = "";
-      let token = "";
       let owner = "";
       try {
         human = localStorage.getItem("factory-human") || "";
-        token = localStorage.getItem("factory-human-token") || "";
         owner = human || localStorage.getItem("factory-desk") || localStorage.getItem("AGENT_COORD_OWNER") || "builder";
       } catch (eLs) {
         owner = "builder";
       }
-      const seatBody = { action: "mint_seat", desk: desk, owner: owner, token: token };
+      const seatBody = { action: "mint_seat", desk: desk, owner: owner };
       let status = 0;
       let data = null;
       try {
@@ -109,7 +107,7 @@
       if (liveCollide) {
         desk = wallFreshMintDesk();
         try { if (deskIn) deskIn.value = desk; } catch (eDesk2) {}
-        const seatBody2 = { action: "mint_seat", desk: desk, owner: owner, token: token };
+        const seatBody2 = { action: "mint_seat", desk: desk, owner: owner };
         try {
           const r2 = await fetch("/api/admin/invites", {
             method: "POST",
