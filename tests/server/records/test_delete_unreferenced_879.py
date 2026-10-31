@@ -249,3 +249,43 @@ def test_restore_roster_refuses_non_sole_non_admin(cn) -> None:
         rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by="d879-outsider")
     out = rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by=admin)
     assert out["op"] == "restored" and out["id"] == rid
+
+
+def test_delete_roster_refuses_non_sole_non_admin(cn) -> None:
+    """Card 938: trash of a roster matches restore - sole remaining member or Admin.
+
+    With the gate removed from sp_name_trash, this row fails (mutant killed).
+    """
+    admin = admin_desk(cn)
+    _seat(cn, "d879-del-r1")
+    _seat(cn, "d879-del-r2")
+    _seat(cn, "d879-del-out")
+    rid = rec_name.get_or_insert(cn, "r879-del-gate", "roster")
+    rec_member.put(cn, "r879-del-gate", "d879-del-r1")
+    rec_member.put(cn, "r879-del-gate", "d879-del-r2")
+    with pytest.raises(CoordError, match="Admin|sole"):
+        rec_name.trash(cn, "r879-del-gate", "roster", by="d879-del-out")
+    with pytest.raises(CoordError, match="Admin|sole"):
+        rec_name.trash(cn, "r879-del-gate", "roster", by="d879-del-r1")
+    assert _trashed(cn, "roster", "r879-del-gate") in (0, False, None)
+    out = rec_name.trash(cn, "r879-del-gate", "roster", by=admin)
+    assert out["op"] == "deleted" and out["id"] == rid
+    assert _trashed(cn, "roster", "r879-del-gate") in (1, True)
+
+
+def test_delete_roster_sole_member_may_trash(cn) -> None:
+    """Sole remaining member may trash; empty roster still needs Admin."""
+    admin = admin_desk(cn)
+    sole = _seat(cn, "d879-sole")
+    outsider = _seat(cn, "d879-sole-out")
+    rid = rec_name.get_or_insert(cn, "r879-sole-gate", "roster")
+    rec_member.put(cn, "r879-sole-gate", sole)
+    out = rec_name.trash(cn, "r879-sole-gate", "roster", by=sole)
+    assert out["op"] == "deleted" and out["id"] == rid
+    rec_name.restore_trashed(cn, "r879-sole-gate", "roster", by=sole)
+    # empty after removing the sole member: outsider refused, Admin ok
+    rec_member.delete(cn, "r879-sole-gate", sole)
+    with pytest.raises(CoordError, match="Admin"):
+        rec_name.trash(cn, "r879-sole-gate", "roster", by=outsider)
+    out = rec_name.trash(cn, "r879-sole-gate", "roster", by=admin)
+    assert out["op"] == "deleted" and out["id"] == rid
