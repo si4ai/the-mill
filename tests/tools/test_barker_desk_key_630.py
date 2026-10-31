@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-GUIDE = ROOT / "docs/protocol/models/grok-bot/SKILL.md"
+KIT = ROOT / "docs/dev/barker-kit.md"
 CONNECT = ROOT / "docs/protocol/connect.md"
 TABLES = ROOT / "agent_coord/server/sql/tables.sql"
 
@@ -23,7 +23,7 @@ def test_desk_names_are_unique_per_office():
 
 
 def test_the_map_is_keyed_by_desk_alone():
-    t = GUIDE.read_text(encoding="utf-8")
+    t = KIT.read_text(encoding="utf-8")
     assert "ROSTER/DESK" not in t
     assert "`DESK`, a tab, then that desk's Grok Bot agent id" in t
     assert "Look up `desk` in ~/.config/mill-barker/map.tsv" in t
