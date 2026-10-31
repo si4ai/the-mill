@@ -257,7 +257,7 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             if not p and command != "todo":
                 raise CoordError(f"{name}: project required")
             if len(p) > 64:
-                raise CoordError(f"{name}: no such project {p[:64]}")
+                raise CoordError(f"{name}: no such roster {p[:64]}. list them: mill member")
     # #326: hold with no resource is the lock list, with or without --peek.
     if command == "hold" and not str(getattr(args, "resource", "") or "").strip():
         if str(getattr(args, "doing", "") or ""):
