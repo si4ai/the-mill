@@ -197,6 +197,21 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
         return args
 
     if cmd == "rename":
+        if args.kind == "todo":
+            # #926: mill rename todo ROSTER OLD NEW [--why] (asker or Admin).
+            to = str(getattr(args, "to", "") or "").strip()
+            if not to:
+                raise CoordError("rename: mill rename todo ROSTER OLD NEW")
+            retype(to, f"rename todo {args.old} {args.new} -> {to}", yes=yes, ask=ask)
+            args.project = args.old
+            args.need = args.new
+            args.new = to
+            args.old = ""
+            args.confirm = to
+            args.yes = True
+            return args
+        if str(getattr(args, "to", "") or ""):
+            raise CoordError(f"rename: {args.kind} takes OLD NEW (no fourth name)")
         if args.kind == "desk":
             # Card 880: your own desk stays on the self path; another desk needs --yes (Admin path, outbound).
             args.desk_admin = yes

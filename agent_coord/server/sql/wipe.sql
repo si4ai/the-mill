@@ -88,6 +88,7 @@ DROP PROCEDURE IF EXISTS mill_todo_select;
 DROP PROCEDURE IF EXISTS mill_todo_page;
 DROP PROCEDURE IF EXISTS mill_todo_retire;
 DROP PROCEDURE IF EXISTS mill_todo_reclaim;
+DROP PROCEDURE IF EXISTS mill_todo_rename;
 DROP PROCEDURE IF EXISTS mill_join_upsert;
 DROP PROCEDURE IF EXISTS mill_join_delete;
 DROP PROCEDURE IF EXISTS mill_join_reset;

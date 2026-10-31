@@ -28,7 +28,7 @@ Every command takes `--office ALIAS` (before or after the command) and `-h`. Tru
 | command | form | what |
 |---|---|---|
 | `create` | `mill create roster <name> [--yes]` / `mill create label <name> [--yes]` | Create a name. Asks y/N; the name is typed once. |
-| `rename` | `mill rename <roster|label|desk> <old> <new> [--yes]` | Admin (or desk self-rename). Retype the new name at the prompt. The reserved Admin roster keeps its name; Office may be renamed and stays reachable as Office (F92). |
+| `rename` | `mill rename <roster|label|desk> <old> <new> [--yes]` ; `mill rename todo <roster> <old> <new> [--why TEXT] [--yes]` | Admin (or desk self-rename) for names. Todo form (card 926 / F220): asker or Admin; card id stays the key; old need still resolves and create refuses it; one timeline row; retype the new need. The reserved Admin roster keeps its name; Office may be renamed and stays reachable as Office (F92). |
 | `retire` | `mill retire <roster|label|desk> <name> [--yes]` | Admin (a desk may retire itself): soft delete. Retype the name at the prompt. `mill retire score <roster> <name>` is the desk form for a score (cli-desk.md). |
 | `reclaim` | `mill reclaim <roster|label|desk> <name> [--yes]` | Admin: undelete a retired name. Asks y/N. |
 

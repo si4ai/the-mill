@@ -470,6 +470,13 @@ def body_from_args(args: Any) -> dict[str, Any]:
     if cmd in ("retire", "rename", "reclaim", "delete", "restore", "purge") and str(getattr(args, "kind", "") or "") in ("roster", "label", "desk", "tree"):
         # #537: the wall acts on the type named; a label may share its desk's name.
         body["name_type"] = str(args.kind)
+    if cmd == "rename" and str(getattr(args, "kind", "") or "") == "todo":
+        # #926: rename a card need; project is ROSTER, need is OLD, new is NEW.
+        body["name_type"] = "todo"
+        body.pop("slug", None)
+        why = str(getattr(args, "why", "") or "").strip()
+        if why:
+            body["why"] = why
     if cmd in ("retire", "rename") and str(getattr(args, "kind", "") or "") == "desk" and getattr(args, "desk_admin", False):
         # Card 880: another desk's name goes to the wall's Admin path (yes + the name twice);
         # your own desk keeps the self path, which needs no Admin.

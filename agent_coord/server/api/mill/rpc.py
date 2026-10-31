@@ -494,6 +494,10 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
         card["done_when"] = str(r["done_when"])
     if r.get("evidence"):
         card["evidence"] = str(r["evidence"])
+    # #926: former need from the rename timeline / aliases.
+    was = str(fields.get("was") or "").strip()
+    if was:
+        card["was"] = was
     # #330: notes land in detail. A progress token that was never set is left
     # out, so no field in the reply is always empty. #818: cards have no title.
     if not card["progress"]:
@@ -605,8 +609,11 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         if st == "done" and not with_done and not want and not id_hit:
             continue
         fields = rec_todo.unpack(r.get("body") or "", r.get("id"))
-        if want and not id_hit and slug(str(fields.get("need_id") or "")) != want:
-            continue
+        if want and not id_hit:
+            cur_need = slug(str(fields.get("need_id") or ""))
+            aliases = [slug(str(a)) for a in (fields.get("aliases") or [])]
+            if cur_need != want and want not in aliases:
+                continue
         out.append(_todo_card(r, project, st, fields))
     # A3 Nest SoR: single-need peek marks nest=1 when card is on a TREE.
     if want and len(out) == 1:
@@ -1235,6 +1242,8 @@ def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     from agent_coord.server.records import name as rec_name
     from agent_coord.server.admin import catalog as admin_cat
 
+    if str(body.get("name_type") or "").strip().lower() == "todo":
+        return _todo_rename_one(c, body, project, owner)
     old = str(body.get("old") or "").strip()
     new = str(body.get("new") or "").strip()
     if body.get("yes"):
@@ -1245,6 +1254,61 @@ def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
             raise CoordError("mill rename: hash owns this desk only")
         rows = rec_name.rename(c._cn, old_d, new_d, "desk", by=old_d, by_hash=_seat_hash(c, project, owner))
     return rows
+
+
+def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | None) -> dict[str, Any]:
+    """#926: mill rename todo ROSTER OLD NEW - asker or Admin; id key; old need reserved."""
+    from agent_coord.server.admin.guard import is_role_admin
+    from agent_coord.server.records import todo as rec_todo
+
+    need = slug(str(body.get("need") or body.get("old") or ""))
+    new_need = slug(str(body.get("new") or body.get("to") or ""))
+    why = str(body.get("why") or "").strip()
+    if not need or not new_need:
+        raise CoordError("rename: mill rename todo ROSTER OLD NEW [--why TEXT]")
+    hit = rec_todo.find(c._cn, project, need)
+    if hit is None:
+        raise CoordError(f"no such need: {project}/{need}")
+    who = _stored(owner or "")
+    ask = _desk_slug(c._cn, hit, "asker", "creator")
+    if not who or (who != ask and not is_role_admin(c._cn, who)):
+        hint = (
+            f"who-may: rename todo is the asker ({ask}) or Admin; "
+            f"ask them, or mill note {project} {need} --note TEXT"
+            if ask
+            else (
+                "who-may: rename todo is the asker or Admin; the card's asker does not resolve, "
+                f"so only Admin may; mill note {project} {need} --note TEXT"
+            )
+        )
+        raise CoordError(hint)
+    fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
+    old_slug = str(fields["need_id"])
+    # Prefer the current slug as "old" when the caller used a former alias.
+    if need != old_slug and need in (fields.get("aliases") or []):
+        # still rename from current slug to new; old timeline names the alias they typed
+        pass
+    try:
+        out = rec_todo.rename(
+            c._cn,
+            int(hit["id"]),
+            who,
+            old_slug,
+            new_need,
+            why=why,
+        )
+    except CoordError:
+        raise
+    except Exception as e:
+        msg = _sql_refusal(e)
+        if msg:
+            raise CoordError(msg) from e
+        raise
+    # Timeline "was" prefers the need the caller typed when it was an alias.
+    if need != old_slug:
+        out["was"] = need
+    _poke(c, "todo", int(out["id"]), "rename", owner=owner)
+    return out
 
 
 def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:

@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS activity (
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_activity_roster
   -- 0.8.0 (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
-  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge') NOT NULL DEFAULT 'create',
+  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   KEY idx_type (type, roster_id, updated),
@@ -304,7 +304,7 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_type  ENUM('mail','todo','hold','desk') NULL,
   waiting_id    BIGINT UNSIGNED NULL,
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge') NOT NULL DEFAULT 'focus',
+  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'focus',
   peer_id       BIGINT UNSIGNED NULL,   -- 0.8.0: the second desk of a move; not waiting_* (that is what a focus is blocked on)
   evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- 0.8.0: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),

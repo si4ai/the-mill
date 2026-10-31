@@ -509,11 +509,11 @@ BEGIN
   ELSEIF p_step = 'columns' THEN
     -- Same shape as tables.sql (test_migrate_080_book compares the two through information_schema).
     IF NOT mill_migrate_080_col('activity', 'act') THEN
-      ALTER TABLE activity ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'create' AFTER roster_kind;
+      ALTER TABLE activity ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'create' AFTER roster_kind;
       SET @m080_rows = @m080_rows + 1;
     END IF;
     IF NOT mill_migrate_080_col('doing', 'act') THEN
-      ALTER TABLE doing ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove') NOT NULL DEFAULT 'focus' AFTER waiting_why;
+      ALTER TABLE doing ADD COLUMN act ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'focus' AFTER waiting_why;
       SET @m080_rows = @m080_rows + 1;
     END IF;
     IF NOT mill_migrate_080_col('doing', 'peer_id') THEN
