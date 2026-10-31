@@ -365,11 +365,11 @@
       color: var(--amber); font-weight: 700;
     }
     .mill-outline-row {
-      --d: 0;
       display: grid;
       grid-template-columns: 1.35rem 5.2rem minmax(0, 1fr);
       gap: .35rem .55rem; align-items: start;
       padding: .4rem .6rem; margin: 0 0 .28rem;
+      --d: 0;
       margin-left: calc(var(--d) * 1.35rem);
       width: calc(100% - var(--d) * 1.35rem);
       max-width: 40rem;

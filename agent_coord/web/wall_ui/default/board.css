@@ -617,7 +617,7 @@
       display: inline-block; width: 2.4rem; height: .4rem; margin-right: .35rem;
       background: var(--bar-track, var(--shop-2)); border-radius: 99px; vertical-align: middle; overflow: hidden;
     }
-    #pane-score .score-verb-bar > i { display: block; height: 100%; background: var(--bar-col, var(--cyan)); }
+    #pane-score .score-verb-bar > i { display: block; height: 100%; background: var(--bar-col, var(--cyan)); width: 0%; }
     #pane-score .score-product > #score-graphs { flex: 1 1 100%; min-width: 0; }
     #pane-score .score-product > #score-desk-table { flex: 1 1 12rem; max-height: 7.5rem; }
     #pane-score .score-product > #score-verbs { flex: 1 1 12rem; max-height: 7.5rem; }

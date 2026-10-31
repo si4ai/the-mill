@@ -42,9 +42,11 @@ def test_board_html_instant_shell_load_order():
     assert 0 <= theme_i < shell_i < board_i
     assert re.search(r'<link[^>]+href="/?shell\.css[^>]*>', html)
     assert re.search(
-        r'<link[^>]+href="/?board\.css[^>]*media="print"[^>]*onload=',
+        r'<link[^>]+id="board-css"[^>]+href="/?board\.css[^>]*media="print"',
         html,
     )
+    assert re.search(r'<script[^>]+src="/?lib/board-css\.js', html)
+    assert "onload=" not in html
     ns = html.find("<noscript>")
     assert ns >= 0 and "board.css" in html[ns : ns + 200]
     assert re.search(r'<script\s+defer\s+src="/?boot\.js', html)

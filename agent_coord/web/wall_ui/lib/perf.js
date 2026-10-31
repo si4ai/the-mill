@@ -26,7 +26,7 @@
   var dumped = false;
   var firstDone = {};
   var stripEl = null;
-  var styleInjected = false;
+
 
   function mark(name) {
     try { performance.mark(name); } catch (e) {}
@@ -71,30 +71,9 @@
     try { setTimeout(dump, ms || 0); } catch (e) {}
   }
 
-  function ensureStyle() {
-    if (styleInjected || typeof document === "undefined") return;
-    styleInjected = true;
-    try {
-      var st = document.createElement("style");
-      st.setAttribute("data-wall-perf", "1");
-      st.textContent = [
-        "#wall-perf-strip.wall-perf-strip{",
-        "display:flex;flex-wrap:wrap;gap:.35rem .7rem;align-items:center;",
-        "padding:.2rem 1.1rem .28rem;font-size:11px;letter-spacing:.03em;",
-        "color:var(--dim,#8d99a8);background:var(--deep,#0a0e14);",
-        "border-bottom:1px solid var(--edge,#2c3644);min-width:0;",
-        "}",
-        "#wall-perf-strip.wall-perf-strip b{color:var(--ink,#e8eef5);font-weight:600;}",
-        "#wall-perf-strip.wall-perf-strip .wp-route{color:var(--amber,#e4b56a);}",
-      ].join("");
-      (document.head || document.documentElement).appendChild(st);
-    } catch (e) {}
-  }
-
   function ensureStrip() {
     if (stripEl && stripEl.isConnected) return stripEl;
     if (typeof document === "undefined") return null;
-    ensureStyle();
     var existing = document.getElementById("wall-perf-strip");
     if (existing) { stripEl = existing; return stripEl; }
     var stack = document.querySelector(".strip-stack");
