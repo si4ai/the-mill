@@ -44,6 +44,16 @@ jobs:
         with:
           name: dist
           path: dist/
+      # F207 (#762): a v* tag off main must not publish. fetch-depth 0 is set;
+      # fetch origin/main and require the tagged SHA is an ancestor of it.
+      - name: Tagged commit is on main
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$TAG_SHA" origin/main
       - name: Tag matches the built version
         if: startsWith(github.ref, 'refs/tags/v')
         env:

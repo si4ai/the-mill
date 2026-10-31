@@ -367,3 +367,22 @@ def test_validator_pass_runs_in_the_queue_outside_ci() -> None:
     assert "python3 tools/check_validator_pass.py" in _job(code, "validator_pass")
     assert "secrets." not in code and "pip" not in code
     assert "validator_pass" not in _code(WF / "ci.yml")
+
+def test_release_verify_requires_tag_on_main() -> None:
+    """#762: a v* tag whose commit is not an ancestor of origin/main must fail
+    verify before publish. fetch-depth 0 is already set; verify fetches main and
+    refuses unless the tagged SHA is an ancestor of origin/main."""
+    text = (WF / "release.yml").read_text(encoding="utf-8")
+    verify = _job(text, "verify")
+    assert "fetch-depth: 0" in verify, verify
+    # Step is gated to tag pushes (same as the dist-name check); sha via env (F94).
+    assert "if: startsWith(github.ref, 'refs/tags/v')" in verify
+    assert "TAG_SHA: ${{ github.sha }}" in verify
+    assert "git fetch --no-tags origin main" in verify
+    assert 'git merge-base --is-ancestor "$TAG_SHA" origin/main' in verify
+    # The ancestor check sits under the tagged-commit step, before publish.
+    i_step = verify.index("Tagged commit is on main")
+    i_fetch = verify.index("git fetch --no-tags origin main")
+    i_anc = verify.index('git merge-base --is-ancestor "$TAG_SHA" origin/main')
+    i_dist = verify.index("Tag matches the built version")
+    assert i_step < i_fetch < i_anc < i_dist, (i_step, i_fetch, i_anc, i_dist)
