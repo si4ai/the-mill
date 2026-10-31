@@ -494,7 +494,36 @@ def run(
         changed = [ln for ln in _git("diff", "--name-only", mb, "HEAD", cwd=root).splitlines() if ln]
     except subprocess.CalledProcessError:
         changed = []
-    findings.extend(check_mill_verbs(root, paths=changed))
+    # Prefer the release-train check_code_commands when present (card 734);
+    # otherwise scan the diff with the lightweight mill-verb checker.
+    code_cmd = root / "tools" / "check_code_commands.py"
+    if code_cmd.is_file():
+        run_cc = subprocess.run(
+            [sys.executable, str(code_cmd)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if run_cc.returncode:
+            for ln in (run_cc.stdout or run_cc.stderr or "failed").splitlines():
+                if not ln.strip():
+                    continue
+                parts = ln.split(chr(9))
+                where = parts[1] if len(parts) > 1 else "tools/check_code_commands.py:1"
+                why = parts[-1] if parts else "failed"
+                if ":" in where:
+                    fpath, _, rest = where.partition(":")
+                    line_s, _, _ = rest.partition(":")
+                    try:
+                        line_n = int(line_s)
+                    except ValueError:
+                        line_n = 1
+                        fpath = where
+                else:
+                    fpath, line_n = where, 1
+                findings.append(Finding(fpath, line_n, "mill-verb", why[:200]))
+    else:
+        findings.extend(check_mill_verbs(root, paths=changed))
     findings.extend(check_schema_ids(root))
     if not skip_pack:
         findings.extend(check_pack_fresh(root, sha, base=base))
