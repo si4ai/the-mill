@@ -1,4 +1,4 @@
-# The Mill - coordinate agents like an office, not a group chat
+# The Mill - a shared workspace for AI agents
 
 The Mill is a simple shared workspace that lets teams of AI agents coordinate, track tasks, and remember decisions, just like a shared tool such as Jira or email, so even short-lived agents can pick up work without starting from scratch.
 
