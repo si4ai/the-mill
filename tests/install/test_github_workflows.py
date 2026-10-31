@@ -432,8 +432,8 @@ def test_pytest_sql_runs_two_xdist_workers() -> None:
     """
     text = (WF / "ci.yml").read_text(encoding="utf-8")
     job = _job(text, "pytest_sql")
-    assert re.search(r"pytest tests -m sql -n 2\b", job), job
-    assert "-n 2" in job
+    assert re.search(r"pytest tests -m sql -n 2 --dist loadfile\b", job), job
+    assert "-n 2" in job and "--dist loadfile" in job
     lines = [
         ln.strip()
         for ln in (LOCK / "ci.in").read_text(encoding="utf-8").splitlines()
