@@ -68,3 +68,42 @@ def test_clean_text_passes() -> None:
         "",
     ):
         assert mod.credential_kinds(text) == [], text
+
+
+def test_k7_assignment_shapes() -> None:
+    """JSON, unquoted YAML/.env/export/INI, and hex40/hex64 must fail (K7)."""
+    mod = _mod()
+    secret = _j("Zx9/Kq2LmN8pR4sT6vW1yZ3aB5cD7eF0gH2iJ4k", "L")
+    hex40 = "3f9a" * 10
+    hex64 = "9c1e" * 16
+    cases = (
+        ('"client_secret": "' + secret + '"', "high-entropy-secret-assign"),
+        ("client_secret: " + secret, "high-entropy-secret-assign"),
+        ("GITHUB_TOKEN=" + secret, "high-entropy-secret-assign"),
+        ("export MY_SECRET=" + secret, "high-entropy-secret-assign"),
+        ("aws_secret_access_key = " + secret, "high-entropy-secret-assign"),
+        ('API_KEY = "' + hex40 + '"', "high-entropy-secret-assign"),
+        ('WEBHOOK_SECRET = "' + hex64 + '"', "high-entropy-secret-assign"),
+    )
+    for text, kind in cases:
+        kinds = mod.credential_kinds(text)
+        assert kind in kinds, (text[:40], kinds)
+
+
+def test_precommit_msg_rejects_github_pat(tmp_path) -> None:
+    """precommit_hygiene msg must fail on a ghp_ token in the commit message."""
+    import subprocess
+    import sys
+
+    ghp = _j("ghp_", "A" * 36)
+    msg = tmp_path / "COMMIT_MSG"
+    msg.write_text(_j("card 760: seed ", ghp, "\n"), encoding="utf-8")
+    got = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "precommit_hygiene.py"), "msg", str(msg)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert got.returncode == 1, got.stdout + got.stderr
+    assert "credential" in (got.stderr + got.stdout).lower()
