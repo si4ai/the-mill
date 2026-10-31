@@ -14,6 +14,10 @@
 #   window - one interactive grok process per desk (fallback).
 # Writes only under each desk's work_dir parent (session.json) and export_dir.
 # Never deletes sessions.
+# defaults.context_restart_tokens (default 190000): printed in the plan; the
+# desk asks for a fresh desk-start near that count (never resume, never compact).
+# lessons_byte_cap is enforced by desk_start_plan.select_lessons; this script
+# does not assemble lessons (template or HANDOFF.md + handoff_char_cap only).
 
 [CmdletBinding()]
 param(
@@ -189,13 +193,22 @@ function Build-Argv($desk, $cfg, [string]$handoff, [string]$sessionId, [string]$
 }
 
 function Get-FirstMessage($desk, $cfg) {
-  $tpl = [string](Get-Default $cfg "first_message_template" "desk {desk}`ndo the open work (claimed cards, open letters) first, then start mill connect-wait")
+  # lean foreground sit: connect-wait blocking; restart near context_restart_tokens.
+  $defaultTpl = "desk {desk} on office {mill_office}. learn-label {lessons_label}. load only the mill-desk skill (not mill-build-assist). run ``mill --office {mill_office} todo --mine`` and do open work; do not read the mail backlog or scan the board. then sit: ``mill --office {mill_office} connect-wait {desk}`` in the FOREGROUND (never background, never &, never a separate mill connect). on a hint: read that letter first; work letter -> do it, reply, sit again; status note -> mark, sit again; stop letter -> stay down; dropped socket -> sit again. never two sits. human chat wins over mail. after crash/resume, read inbox before sitting. near {context_restart_tokens} tokens: write learn-{desk}, open work, and a handoff, then ask for a fresh desk-start (never resume, never compact)."
+  $tpl = [string](Get-Default $cfg "first_message_template" $defaultTpl)
   if ($desk.first_message_template) { $tpl = [string]$desk.first_message_template }
+  $restartTok = 190000
+  $restartDef = Get-Default $cfg "context_restart_tokens" 190000
+  if ($null -ne $restartDef -and "$restartDef" -ne "") { $restartTok = [int]$restartDef }
+  if ($null -ne $desk.context_restart_tokens -and "$($desk.context_restart_tokens)" -ne "") {
+    $restartTok = [int]$desk.context_restart_tokens
+  }
   $map = @{
-    desk           = [string]$desk.name
-    lessons_label  = [string]$(if ($desk.lessons_label) { $desk.lessons_label } else { "" })
-    mill_office    = [string]$cfg.office.mill_office
-    roster         = [string]$(if ($cfg.office.roster) { $cfg.office.roster } else { "" })
+    desk                    = [string]$desk.name
+    lessons_label           = [string]$(if ($desk.lessons_label) { $desk.lessons_label } else { "" })
+    mill_office             = [string]$cfg.office.mill_office
+    roster                  = [string]$(if ($cfg.office.roster) { $cfg.office.roster } else { "" })
+    context_restart_tokens  = [string]$restartTok
   }
   $text = (Format-Template $tpl $map).Trim()
   # Prefer HANDOFF.md beside work_dir when present (bot-written).
@@ -276,6 +289,13 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
     export_path      = $exportPath
     handoff          = $handoff
     handoff_chars    = $handoff.Length
+    context_restart_tokens = $(
+      if ($null -ne $desk.context_restart_tokens -and "$($desk.context_restart_tokens)" -ne "") {
+        [int]$desk.context_restart_tokens
+      } elseif ($cfg.defaults -and $null -ne $cfg.defaults.context_restart_tokens -and "$($cfg.defaults.context_restart_tokens)" -ne "") {
+        [int]$cfg.defaults.context_restart_tokens
+      } else { 190000 }
+    )
     launch           = "positional-prompt"
     launch_mode      = $(if ($cfg.office.launch_mode) { [string]$cfg.office.launch_mode } else { 'dashboard' })
     leader_socket    = $(if ($cfg.office.leader_socket) { [string]$cfg.office.leader_socket } else { '' })

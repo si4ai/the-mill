@@ -9,6 +9,11 @@ interactive prompt. Fresh start uses ``-s`` (new UUID), never ``-r``/``-c``/
 shared Grok leader so they appear in ``grok dashboard``) or ``window``
 (one interactive process per desk). The exact dashboard attach recipe is
 UNVERIFIED until the owner probe in the runbook passes.
+``defaults.context_restart_tokens`` (default 190000) is printed in the plan;
+the desk asks for a fresh desk-start near that count (operator/desk enforced;
+never resume, never compact). ``lessons_byte_cap`` / ``lessons_count_cap`` are
+enforced by ``select_lessons`` when the planner assembles lessons; the PS1
+launcher does not assemble lessons (template or HANDOFF.md + handoff_char_cap).
 """
 from __future__ import annotations
 
@@ -77,10 +82,22 @@ def validate_config(data: dict[str, Any]) -> dict[str, Any]:
     defaults.setdefault("lessons_byte_cap", 12_000)
     defaults.setdefault("lessons_count_cap", 25)
     defaults.setdefault("handoff_char_cap", 1_500)
+    defaults.setdefault("context_restart_tokens", 190_000)
     defaults.setdefault(
         "first_message_template",
-        "desk {desk}\ndo the open work (claimed cards, open letters) first, "
-        "then start mill connect-wait",
+        (
+            "desk {desk} on office {mill_office}. learn-label {lessons_label}. "
+            "load only the mill-desk skill (not mill-build-assist). "
+            "run `mill --office {mill_office} todo --mine` and do open work; "
+            "do not read the mail backlog or scan the board. "
+            "then sit: `mill --office {mill_office} connect-wait {desk}` in the FOREGROUND "
+            "(never background, never &, never a separate mill connect). "
+            "on a hint: read that letter first; work letter -> do it, reply, sit again; "
+            "status note -> mark, sit again; stop letter -> stay down; dropped socket -> sit again. "
+            "never two sits. human chat wins over mail. after crash/resume, read inbox before sitting. "
+            "near {context_restart_tokens} tokens: write learn-{desk}, open work, and a handoff, "
+            "then ask for a fresh desk-start (never resume, never compact)."
+        ),
     )
     if not isinstance(defaults["allow_bypass_permissions"], bool):
         raise ConfigError("desk-start: defaults.allow_bypass_permissions must be a boolean")
@@ -109,6 +126,10 @@ def validate_config(data: dict[str, Any]) -> dict[str, Any]:
         d.setdefault("lessons_byte_cap", defaults["lessons_byte_cap"])
         d.setdefault("lessons_count_cap", defaults["lessons_count_cap"])
         d.setdefault("permission_mode", defaults["permission_mode"])
+        d.setdefault(
+            "context_restart_tokens",
+            defaults["context_restart_tokens"],
+        )
         d.setdefault(
             "first_message_template",
             defaults["first_message_template"],
@@ -371,6 +392,11 @@ def plan_desk(
         "lessons_kept": 0,
         "lessons_byte_cap": int(desk.get("lessons_byte_cap") or defaults["lessons_byte_cap"]),
         "lessons_count_cap": int(desk.get("lessons_count_cap") or defaults["lessons_count_cap"]),
+        "context_restart_tokens": int(
+            desk.get("context_restart_tokens")
+            if desk.get("context_restart_tokens") is not None
+            else defaults.get("context_restart_tokens") or 190_000
+        ),
         "handoff_letter_id": desk.get("handoff_letter_id"),
         "handoff_query": desk.get("handoff_query") or "",
     }
@@ -400,6 +426,7 @@ def plan_desk(
         "lessons_label": out["lessons_label"],
         "mill_office": office.get("mill_office", ""),
         "roster": office.get("roster", ""),
+        "context_restart_tokens": out["context_restart_tokens"],
     }
     handoff = build_handoff_text(
         template=str(desk.get("first_message_template") or defaults["first_message_template"]),
