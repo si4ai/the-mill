@@ -133,11 +133,110 @@ def peek(cn, project: str, resource: str) -> dict:
     }
 
 
-def drop(cn, project: str, desk: str, resource: str) -> dict:
-    """Release the lock when this desk owns the resource. The row stays, desk_id NULL.
+def seat_connected(cn, desk: str) -> bool:
+    """True when the desk has a live connected seat (floor alive; F223).
 
-    Reply reads as a release, not a hold: released true/false, owner is who holds
-    it now (null once released), was_owner is the desk that let go.
+    Floor definition (sp_floor_scope / glance): time_connect is set and
+    time_disconnect is null or not after time_connect. A missing seat, a never-
+    connected seat, or a socket-down seat is not connected.
+    """
+    from agent_coord.server.records.db import scalar_done
+    from agent_coord.server.records.name import bare
+
+    who = bare(desk, CONST_DESK) if str(desk or "").strip() else ""
+    if not who:
+        return False
+    return (
+        scalar_done(
+            cn,
+            "SELECT 1 FROM seat j JOIN name n ON n.id = j.desk_id"
+            " AND n.type = 'desk' AND n.name = %s AND n.deleted IS NULL"
+            " WHERE j.time_connect IS NOT NULL"
+            "   AND (j.time_disconnect IS NULL OR j.time_connect >= j.time_disconnect)"
+            " LIMIT 1",
+            (who,),
+        )
+        is not None
+    )
+
+
+def hold_since(rec: dict):
+    """Held-since timestamp for stale age (activity take time preferred; else hold.updated)."""
+    return rec.get("activity_updated") or rec.get("updated")
+
+
+def _hold_age_days(cn, hold_id: int, since) -> float | None:
+    """Age of the hold in days from since (or activity.updated / hold.updated)."""
+    from datetime import datetime, timezone
+
+    from agent_coord.server.records.db import scalar_done
+
+    raw = since
+    if raw is None and hold_id:
+        raw = scalar_done(
+            cn,
+            "SELECT COALESCE("
+            " (SELECT a.updated FROM activity a WHERE a.type = 'hold' AND a.id = %s),"
+            " (SELECT h.updated FROM hold h WHERE h.id = %s))",
+            (int(hold_id), int(hold_id)),
+        )
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        at = raw.replace(tzinfo=None) if raw.tzinfo else raw
+    else:
+        s = str(raw).strip().replace("T", " ").replace("Z", "").split("+")[0].strip()
+        try:
+            at = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+        if at.tzinfo:
+            at = at.replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return max(0.0, (now - at).total_seconds() / 86400.0)
+
+
+def may_drop_other(cn, actor: str, holder: str, *, hold_id: int = 0, since=None) -> tuple[bool, str]:
+    """May actor drop holder's hold? (F223). Returns (allowed, refusal_reason)."""
+    from agent_coord.config import hold_stale_days, mill_trust
+    from agent_coord.server.admin.guard import is_role_admin
+
+    if is_role_admin(cn, actor):
+        return True, ""
+    if mill_trust() == "limited":
+        return False, (
+            f"drop: held by {holder}, not you "
+            f"(limited trust: only the holder or Admin may drop)"
+        )
+    if seat_connected(cn, holder):
+        return False, (
+            f"drop: held by {holder}, not you "
+            f"(holder is connected; Admin only for a live hold)"
+        )
+    age = _hold_age_days(cn, hold_id, since)
+    need = hold_stale_days()
+    if age is None or age < float(need):
+        return False, (
+            f"drop: held by {holder}, not you "
+            f"(stale needs holder disconnected and held {need}+ days; Admin only until then)"
+        )
+    return True, ""
+
+
+def delete_other(cn, hold_id: int, actor: str) -> list[dict]:
+    """Release another desk's hold as actor (card 931). Auth checked by caller."""
+    from agent_coord.server.records.name import bare
+
+    return call(cn, "mill_hold_release_other", [int(hold_id), bare(actor, CONST_DESK)])
+
+
+def drop(cn, project: str, desk: str, resource: str) -> dict:
+    """Release the lock. Own hold: always. Other desk's hold: Admin, or high-trust stale (F223).
+
+    The row stays, desk_id NULL. Reply: released true/false, owner is who holds it
+    now (null once released), was_owner is the desk that let go. A drop of another's
+    hold writes the drop move by the acting desk with peer_id = the holder; the
+    holder's seat token is untouched.
     """
     from agent_coord.server.records.name import bare
 
@@ -149,11 +248,44 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
         holder = bare(str(rec.get("desk") or ""), CONST_DESK)
         if got != want:
             continue
-        if holder != who:
-            other = other or holder
-            continue
         nid = int(rec.get("id") or 0)
-        released = delete(cn, nid, desk)
+        if not holder:
+            # Freed row still present; not held by anyone (same as a missing row).
+            continue
+        if holder == who:
+            released = delete(cn, nid, desk)
+            ok = bool(released) and int((released[0] or {}).get("ok") or 0) == 1
+            if ok:
+                return {
+                    "ok": True,
+                    "released": True,
+                    "resource": got or resource,
+                    "id": nid,
+                    "owner": None,
+                    "was_owner": holder or desk,
+                }
+            return {
+                "ok": False,
+                "released": False,
+                "resource": got or resource,
+                "id": nid,
+                "owner": holder or None,
+                "reason": "release refused",
+            }
+        other = other or holder
+        allowed, reason = may_drop_other(
+            cn, who, holder, hold_id=nid, since=None
+        )
+        if not allowed:
+            return {
+                "ok": False,
+                "released": False,
+                "resource": got or resource,
+                "id": nid,
+                "owner": holder or None,
+                "reason": reason,
+            }
+        released = delete_other(cn, nid, desk)
         ok = bool(released) and int((released[0] or {}).get("ok") or 0) == 1
         if ok:
             return {
@@ -162,7 +294,7 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
                 "resource": got or resource,
                 "id": nid,
                 "owner": None,
-                "was_owner": holder or desk,
+                "was_owner": holder,
             }
         return {
             "ok": False,

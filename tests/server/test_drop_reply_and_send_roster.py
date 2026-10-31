@@ -30,10 +30,13 @@ def test_drop_own_hold_reads_as_release():
 
 def test_drop_someone_elses_hold_names_holder():
     with patch.object(rec_hold, "find", return_value=_rows()), patch.object(
-        rec_hold, "delete"
-    ) as d:
+        rec_hold, "may_drop_other", return_value=(False, "held by bob, not you")
+    ), patch.object(rec_hold, "delete") as d, patch.object(
+        rec_hold, "delete_other"
+    ) as d2:
         out = rec_hold.drop(MagicMock(), "the-mill", "alice", "other")
     d.assert_not_called()
+    d2.assert_not_called()
     assert out["ok"] is False and out["released"] is False
     assert out["owner"] == "bob"
     assert "bob" in out["reason"]

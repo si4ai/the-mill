@@ -34,6 +34,8 @@ DEFAULTS: dict[str, Any] = {
     "mill_url": "",
     "token_required": "1",
     "trust": "high",
+    # Card 931 / F223: days a disconnected desk's hold must age before any high-trust desk may drop it.
+    "hold_stale_days": "7",
     # MySQL Connector/Python knobs (optional; empty = connector default)
     "use_pure": "",
     "compress": "",
@@ -68,6 +70,7 @@ _ENV = {
     "mill_url": "AGENT_COORD_MILL_URL",
     "token_required": "AGENT_COORD_TOKEN_REQUIRED",
     "trust": "AGENT_COORD_TRUST",
+    "hold_stale_days": "AGENT_COORD_HOLD_STALE_DAYS",
     "use_pure": "AGENT_COORD_USE_PURE",
     "compress": "AGENT_COORD_COMPRESS",
     "buffered": "AGENT_COORD_BUFFERED",
@@ -75,7 +78,7 @@ _ENV = {
     "perf": "AGENT_COORD_PERF",
 }
 
-_INT_KEYS = {"port", "dashboard_port"}
+_INT_KEYS = {"port", "dashboard_port", "hold_stale_days"}
 
 
 def mill_debug() -> bool:
@@ -104,6 +107,22 @@ def mill_trust() -> str:
     """high (default) or limited. Reclaim/group-name create: mill host always."""
     raw = str(settings().get("trust") or "high").strip().lower()
     return "limited" if raw in ("limited", "low", "strict") else "high"
+
+
+HOLD_STALE_DAYS_DEFAULT = 7
+
+
+def hold_stale_days() -> int:
+    """Days a disconnected desk's hold must age before a non-Admin may drop it at high trust (F223).
+
+    Config key hold_stale_days / env AGENT_COORD_HOLD_STALE_DAYS. Default 7. Values below 1
+    fall back to the default.
+    """
+    try:
+        n = int(settings().get("hold_stale_days") or HOLD_STALE_DAYS_DEFAULT)
+    except (TypeError, ValueError):
+        return HOLD_STALE_DAYS_DEFAULT
+    return n if n >= 1 else HOLD_STALE_DAYS_DEFAULT
 
 
 def set_mill_trust(level: str, path: Path | None = None) -> str:

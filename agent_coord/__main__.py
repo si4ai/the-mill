@@ -536,7 +536,7 @@ def _build_parser() -> MillArgumentParser:
 
     r = sub.add_parser(
         "drop",
-        help="release your lock: mill drop NAME",
+        help="release a lock (own, or Admin / high-trust stale other): mill drop NAME",
     )
     r.add_argument("resource")
 

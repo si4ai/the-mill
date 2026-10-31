@@ -315,7 +315,7 @@ BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
   DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
   DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
-  DECLARE v_doing BIGINT UNSIGNED;
+  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
   SET v_type = LOWER(TRIM(p_type));
   IF v_type NOT IN ('roster','label','tree') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: type is roster, label or tree (desks keep mill retire)';
@@ -327,6 +327,20 @@ BEGIN
   END IF;
   IF v_tr IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: not trashed; mill delete first';
+  END IF;
+  -- Card 931: restore gated the same way as delete (roster: sole member or Admin).
+  IF v_type = 'roster' THEN
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
+      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    IF NOT b_is_admin(v_by) THEN
+      IF v_members = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: only Admin can restore a roster with no members';
+      END IF;
+      IF v_members <> 1 OR v_sole = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: sole remaining member or Admin; nothing changed';
+      END IF;
+    END IF;
   END IF;
   UPDATE name SET trashed = NULL WHERE id = v_id;
   INSERT INTO doing (created, desk_id, roster_id, text, act)
@@ -392,9 +406,16 @@ BEGIN
       END IF;
     END IF;
   ELSEIF v_type = 'label' THEN
+    -- Card 931: purge of label/tree is Admin only (cli-desk.md; roster keeps sole-member path above).
+    IF NOT b_is_admin(v_by) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: Admin only for a label';
+    END IF;
     SELECT COUNT(*) INTO v_n FROM label WHERE name_id = v_id AND name_kind = 'label';
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: label is on items; mill retire soft-deletes instead'; END IF;
   ELSE
+    IF NOT b_is_admin(v_by) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: Admin only for a tree';
+    END IF;
     SELECT COUNT(*) INTO v_n FROM tree WHERE name_id = v_id AND name_kind = 'tree';
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has nodes; remove them first, or mill retire soft-deletes'; END IF;
     SELECT COUNT(*) INTO v_n FROM tree_read WHERE tree_id = v_id;
