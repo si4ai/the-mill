@@ -10,6 +10,9 @@ from agent_coord.server.records import todo
 from agent_coord.server.records import tree as rec_tree
 
 
+pytestmark = pytest.mark.sql
+
+
 class _Book:
     def __init__(self, cn) -> None:
         self._cn = cn
