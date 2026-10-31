@@ -266,6 +266,8 @@ def trash(cn, name: str, kind: str, *, by: str) -> dict:
     bare_name = bare(name, k)
     if not bare_name:
         raise CoordError("delete: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("delete: name is 1 to 64 characters")
     try:
         rows = call(cn, "sp_name_trash", [_by(by), k, bare_name])
     except Exception as e:
@@ -290,6 +292,8 @@ def restore_trashed(cn, name: str, kind: str, *, by: str) -> dict:
     bare_name = bare(name, k)
     if not bare_name:
         raise CoordError("restore: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("restore: name is 1 to 64 characters")
     try:
         rows = call(cn, "sp_name_restore", [_by(by), k, bare_name])
     except Exception as e:
@@ -314,6 +318,8 @@ def purge_trashed(cn, name: str, kind: str, *, by: str) -> dict:
     bare_name = bare(name, k)
     if not bare_name:
         raise CoordError("purge: name is empty")
+    if len(bare_name) > 64:
+        raise CoordError("purge: name is 1 to 64 characters")
     try:
         rows = call(cn, "sp_name_purge", [_by(by), k, bare_name])
     except Exception as e:

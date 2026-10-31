@@ -100,6 +100,28 @@ class World:
         self.ok(["label", "todo", str(t), "c238-lbl"])
         return t
 
+
+    def del_roster(self):
+        """Sole-member roster this desk can trash (card 879)."""
+        from agent_coord.server.records import member as rec_member
+        from agent_coord.server.records import name as rec_name
+
+        r = self.fresh("c238del")
+        rec_name.get_or_insert(self.cn, r, "roster")
+        rec_member.put(self.cn, r, self.desk, kind="roster")
+        return r
+
+    def trashed_roster(self):
+        from agent_coord.server.records import name as rec_name
+
+        r = self.del_roster()
+        rec_name.trash(self.cn, r, "roster", by=self.desk)
+        return r
+
+    def purgeable_roster(self):
+        """Trashed unreferenced roster (no cards/mail) for mill purge."""
+        return self.trashed_roster()
+
     def fill(self, argv):
         joined = " ".join(argv)
         makers = [
@@ -112,6 +134,9 @@ class World:
             ("MAIL", self.mail),
             ("RES", lambda: self.fresh("c238r")),
             ("HELD", self.held),
+            ("DEL", self.del_roster),
+            ("TRASHED", self.trashed_roster),
+            ("PURGEABLE", self.purgeable_roster),
         ]
         subs = {"P": pc.P, "ME": ME, "PEER": PEER, "LBL": "c238-lbl", "BODY": str(self.body)}
         for key, make in makers:
