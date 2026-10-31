@@ -7,15 +7,16 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 933: macOS reset-seat coverage near beta
 - after 0.8.2: CI timing review and a speed-up card with numbers
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
+- card 938: `sp_name_trash` roster-gate (validator 3891 set-aside; not in this release)
 
 ## New changes
 
-0.8.2 (in progress)
+0.8.2
 
 - #279 card 935 / F225: `check_pack --commits` scans every commit a pull request would bring to main
 - #281 card 931 / F226: drop-call holder race refuses; already-free wording; `hold_stale_days` docs
 - #282 card 814 / F227: harden wall session-cookie tests
-- card 936 / F228: this changelog (three sections, newest first)
+- #283 card 936 / F228: changelog with three sections (TBD, New, Last)
 
 ## Last changes
 
