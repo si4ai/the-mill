@@ -262,3 +262,13 @@ Setting a fixed switch to 0 is the pre-fix mutant, not an option on the pin.
   text, votes (none in 0.8.0).
 - Card statuses in `doing.pml` (any card move succeeds there; `todo.pml` has the
   guards).
+
+## Product-edge sync (card 916)
+
+Deterministic product tests name each covered edge as the token `SPIN <id>` (see `product_edges.txt`). On demand, not in CI:
+
+```
+python tools/check_spin_edges.py
+```
+
+Exit 0 only when every listed id is mapped. N03 stays on card 906.

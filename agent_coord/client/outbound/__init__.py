@@ -386,6 +386,15 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body["history"] = True
         if int(getattr(args, "page", 0) or 0):
             body["page"] = int(args.page)
+        # Card 647: released clients always send limit=10. Move a typed --limit
+        # onto connected_limit so those bodies stay uncapped, including history.
+        raw_limit = body.pop("limit", None)
+        if raw_limit is not None:
+            if int(raw_limit) < 1:
+                raise CoordError("connected: --limit must be at least 1")
+            if body.get("history"):
+                raise CoordError("connected: --limit is for the live list, not --history")
+            body["connected_limit"] = int(raw_limit)
     if command in ("hold", "drop"):
         from agent_coord.helpers.bounds import resource_name
 

@@ -13,6 +13,8 @@
 (d) it ends with its entry (pass, reply, drop, clear or a newer --doing);
 (e) on an existing book `migrate.ensure()` widens waiting_type and adds
     waiting_why; a second ensure changes nothing; a run killed between them converges.
+
+SPIN D4 SPIN D5 SPIN D6: Idle/Active -> Waiting via --waiting-on and back.
 """
 from __future__ import annotations
 

@@ -13,6 +13,8 @@ run's lease. Now every wake carries wake.lease (a token per lease) and
 mill wake-done --lease TOKEN ends only that lease; a stale done stores its note
 and changes nothing else. A done with no token (an older client) ends the
 current lease, as before.
+
+SPIN L01 (good / wrong --lease token), SPIN L05 (wake-done with no token), SPIN L06 (late done after the lease lapsed while its POST was in flight; card 890).
 """
 from __future__ import annotations
 

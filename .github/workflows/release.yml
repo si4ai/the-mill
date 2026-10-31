@@ -94,4 +94,23 @@ jobs:
       # image build, against hash constraints; the upload (twine, id, sigstore,
       # requests) trusts the image's certifi 2026.10.19, which has no emSign
       # ECC G3 root. PEP 740 attestations are on by default.
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+      # F208 (#761): the composite action pulls
+      # ghcr.io/pypa/gh-action-pypi-publish:<action-sha> (mutable registry tag).
+      # Resolve it and refuse unless the digest matches the pin on the uses line;
+      # bump ACTION_SHA, WANT_DIGEST and the uses pin together.
+      - name: Publish image digest matches pin
+        env:
+          ACTION_SHA: "7245906fb61fa33a13554f9d5fb856fe61758086"
+          WANT_DIGEST: "sha256:411241df99067c98b6d08fd8e26d14e86740a22460599c2af571e6dc26e27ffc"
+        run: |
+          set -eu
+          token=$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:pypa/gh-action-pypi-publish:pull" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+          got=$(curl -fsSI \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/pypa/gh-action-pypi-publish/manifests/${ACTION_SHA}" \
+            | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2; exit}')
+          test -n "$got"
+          test "$got" = "$WANT_DIGEST"
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3 image sha256:411241df99067c98b6d08fd8e26d14e86740a22460599c2af571e6dc26e27ffc

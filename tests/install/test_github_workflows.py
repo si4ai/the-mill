@@ -14,20 +14,16 @@ WF = ROOT / ".github" / "workflows"
 USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)", re.M)
 SHA_REF_RE = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
-
 def _code(p: Path) -> str:
     """Workflow text without comment lines (comments may name banned words)."""
     return "\n".join(ln for ln in p.read_text(encoding="utf-8").splitlines() if not ln.lstrip().startswith("#"))
 
-
 def _workflows() -> list[Path]:
     return sorted(WF.glob("*.yml")) + sorted(WF.glob("*.yaml"))
-
 
 def test_workflows_exist() -> None:
     names = {p.name for p in _workflows()}
     assert {"ci.yml", "release.yml", "codeql.yml"} <= names, names
-
 
 def test_actions_pinned_to_full_sha() -> None:
     bad = []
@@ -39,25 +35,21 @@ def test_actions_pinned_to_full_sha() -> None:
                 bad.append(f"{p.name}: {ref}")
     assert not bad, bad
 
-
 def test_no_pull_request_target_or_self_hosted() -> None:
     for p in _workflows():
         text = _code(p)
         assert "pull_request_target" not in text, p.name
         assert "self-hosted" not in text, p.name
 
-
 def test_top_level_permissions_set() -> None:
     for p in _workflows():
         text = p.read_text(encoding="utf-8")
         assert re.search(r"^permissions:", text, re.M), p.name
 
-
 def _job(text: str, name: str) -> str:
     body = text.split(f"\n  {name}:\n", 1)[1]
     nxt = re.search(r"\n  [a-z_]+:\n", body)
     return body[: nxt.start()] if nxt else body
-
 
 def test_history_jobs_clone_full_history() -> None:
     """check_pack and both pytest jobs scan commit messages; shallow fails closed."""
@@ -67,7 +59,6 @@ def test_history_jobs_clone_full_history() -> None:
         assert job.count("fetch-depth: 0") == job.count("actions/checkout@"), name
         assert "fetch-depth: 0" in job, name
 
-
 def test_publish_jobs_use_oidc_not_tokens() -> None:
     """No stored publish token. The only secret is the #339 private-name list."""
     text = _code(WF / "release.yml")
@@ -76,11 +67,9 @@ def test_publish_jobs_use_oidc_not_tokens() -> None:
     assert "secrets." not in _job(text, "publish_pypi")
     assert "password:" not in text
 
-
 def _on(text: str) -> str:
     """The top-level on: block of a workflow."""
     return text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
-
 
 def test_release_runs_only_on_v_tags_or_by_hand() -> None:
     """S-9: a push to main or a PR never starts release.yml."""
@@ -88,7 +77,6 @@ def test_release_runs_only_on_v_tags_or_by_hand() -> None:
     assert re.search(r'^  push:\n    tags: \["v\*"\]$', on, re.M), on
     assert "branches" not in on and "pull_request" not in on and "schedule" not in on
     assert set(re.findall(r"^  (\w+):", on, re.M)) == {"push", "workflow_dispatch"}
-
 
 def test_publish_jobs_are_gated_by_environment_and_event() -> None:
     text = _code(WF / "release.yml")
@@ -98,20 +86,17 @@ def test_publish_jobs_are_gated_by_environment_and_event() -> None:
     jobs = set(re.findall(r"^  (\w+):\n    ", text.split("\njobs:\n", 1)[1], re.M))
     assert jobs == {"ci", "verify", "publish_pypi"}, jobs
 
-
 def test_publish_job_is_oidc_in_pypi_env_with_pinned_action() -> None:
     pypi = _job(_code(WF / "release.yml"), "publish_pypi")
     assert "id-token: write" in pypi and "name: pypi" in pypi
     assert re.search(r"uses: pypa/gh-action-pypi-publish@[0-9a-f]{40}", pypi), pypi
     assert "password" not in pypi and "secrets." not in pypi and "repository-url" not in pypi
 
-
 def test_ci_and_codeql_never_publish() -> None:
     for name in ("ci.yml", "codeql.yml"):
         text = _code(WF / name)
         assert "id-token: write" not in text, name
         assert "pypi-publish" not in text and "twine upload" not in text, name
-
 
 def test_tree_hygiene_runs_wherever_check_pack_runs() -> None:
     """S-11: whole-tree hygiene drift fails CI, not only the local hook."""
@@ -120,7 +105,6 @@ def test_tree_hygiene_runs_wherever_check_pack_runs() -> None:
     for name, job in (("ci check_pack", ci), ("release verify", verify)):
         assert "python tools/check_pack.py dist" in job, name
         assert "python tools/precommit_hygiene.py tree" in job, name
-
 
 # #634: no PyPI vector. Everything CI installs from an index is hash-checked,
 # so a CA or mirror compromise cannot swap a package into a run that release.yml
@@ -132,7 +116,6 @@ PIP_BOOTSTRAP_RE = re.compile(
 )
 LOCAL_DIST_RE = re.compile(r"^python -m pip install --no-deps --no-build-isolation dist/the_mill-\*\.(tar\.gz|whl)$")
 LOCK_INSTALL_RE = re.compile(r"^python -m pip install --require-hashes( --no-deps)? -r tools/ci-lock/([\w-]+\.txt)$")
-
 
 def _run_lines(p: Path) -> list[str]:
     """Shell lines of every run: step, with backslash continuations joined."""
@@ -164,7 +147,6 @@ def _run_lines(p: Path) -> list[str]:
         out.extend(x for x in joined if x)
     return out
 
-
 def _lock_reqs(path: Path) -> list[str]:
     """Requirement entries of a lock file, continuations joined."""
     entries, cur = [], ""
@@ -177,7 +159,6 @@ def _lock_reqs(path: Path) -> list[str]:
             entries.append(cur.strip())
             cur = ""
     return entries
-
 
 def test_every_pip_install_in_workflows_is_hash_checked() -> None:
     """Only three install shapes: the hash-pinned pip wheel, a hashed lock, a local dist."""
@@ -196,7 +177,6 @@ def test_every_pip_install_in_workflows_is_hash_checked() -> None:
     for name in seen_locks:
         assert (LOCK / name).is_file(), name
 
-
 def test_ci_locks_are_fully_hashed_and_pinned() -> None:
     locks = sorted(LOCK.glob("*.txt"))
     assert {p.name for p in locks} >= {"build.txt", "ci.txt", "desk.txt"}, locks
@@ -207,7 +187,6 @@ def test_ci_locks_are_fully_hashed_and_pinned() -> None:
             assert re.match(r"^[A-Za-z0-9._-]+(\[[\w,-]+\])?==[\w.+!-]+ ", r), (p.name, r)
             assert re.search(r"--hash=sha256:[0-9a-f]{64}", r), (p.name, r)
 
-
 def test_ci_lock_runtime_lines_match_pyproject() -> None:
     """ci.in carries the pack's runtime deps verbatim, so CI tests what users resolve."""
     import tomllib
@@ -216,7 +195,6 @@ def test_ci_lock_runtime_lines_match_pyproject() -> None:
     lines = [ln.strip() for ln in (LOCK / "ci.in").read_text(encoding="utf-8").splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     assert lines[: len(deps)] == deps, (lines, deps)
-
 
 def test_runtime_dependencies_have_floors() -> None:
     """Every runtime dep names a >= floor; CI audits those floors (pack-floors.txt)."""
@@ -229,12 +207,10 @@ def test_runtime_dependencies_have_floors() -> None:
     assert "pip-audit --disable-pip --no-deps -r pack-floors.txt" in ci, ci
     assert "pip-audit --disable-pip --require-hashes -r tools/ci-lock/ci.txt" in ci, ci
 
-
 def test_build_is_hash_locked_and_dated_by_commit() -> None:
     build = _job((WF / "ci.yml").read_text(encoding="utf-8"), "build_pack")
     assert "python -m pip install --require-hashes -r tools/ci-lock/build.txt" in build, build
     assert "--no-isolation" in build and "SOURCE_DATE_EPOCH" in build, build
-
 
 def _perm_block(text: str) -> dict[str, str]:
     """permissions: mapping right under the given text start (or {} for the inline form)."""
@@ -254,7 +230,6 @@ def _perm_block(text: str) -> dict[str, str]:
         k, _, v = ln.strip().partition(":")
         out[k.strip()] = v.strip()
     return out
-
 
 def test_permissions_are_minimal() -> None:
     """Top level read-only (release: none); id-token: write only in publish_pypi."""
@@ -279,7 +254,6 @@ def test_permissions_are_minimal() -> None:
             assert "id-token" not in text, p.name
     assert _code(WF / "release.yml").count("id-token: write") == 1
 
-
 def test_pack_rebuilds_byte_identical_in_ci_and_release() -> None:
     """F78: CI and release verify rebuild the commit and compare sha256 with dist/."""
     ci = _job((WF / "ci.yml").read_text(encoding="utf-8"), "build_pack")
@@ -293,7 +267,6 @@ def test_pack_rebuilds_byte_identical_in_ci_and_release() -> None:
     ci_pins = {e.split(" ")[0] for e in _lock_reqs(LOCK / "ci.txt")}
     assert build <= ci_pins, build - ci_pins
 
-
 def test_pack_uses_the_reproducible_backend_and_spdx_license() -> None:
     """F78: the in-tree backend normalizes both archives; the license is SPDX."""
     import tomllib
@@ -305,13 +278,11 @@ def test_pack_uses_the_reproducible_backend_and_spdx_license() -> None:
     assert py["project"]["license-files"] == ["LICENSE"]
     assert "include build_backend/mill_build.py" in (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
-
 def test_no_expression_in_any_run_line() -> None:
     """F94: event text (PR title, body, comments) is untrusted. No run: line in
     any workflow expands a ${{ }} expression; values reach a shell only by env."""
     bad = [f"{p.name}: {ln}" for p in _workflows() for ln in _run_lines(p) if "${{" in ln]
     assert not bad, bad
-
 
 def test_pr_text_scans_every_posted_text_read_only() -> None:
     """F94: PR and issue title, body and comments are scanned when posted and daily."""
@@ -327,8 +298,6 @@ def test_pr_text_scans_every_posted_text_read_only() -> None:
     assert "python3 tools/check_pr_text.py sweep" in _job(code, "sweep")
     assert "pip" not in code
 
-
-
 def test_pr_text_never_runs_on_a_review_event() -> None:
     """F122 (#823): a review by a bot (Copilot's automatic review, even one that
     fails on quota) starts a pr_text run GitHub holds at action_required until a
@@ -342,13 +311,11 @@ def test_pr_text_never_runs_on_a_review_event() -> None:
 def _on_block(text: str) -> str:
     return text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
 
-
 def test_required_workflows_run_in_the_merge_queue() -> None:
     """#810 (F109): ci and codeql hold the required checks on main, so both
     must run on merge_group or a merge queue waits on them forever."""
     for name in ("ci.yml", "codeql.yml"):
         assert re.search(r"^  merge_group:", _on_block(_code(WF / name)), re.M), name
-
 
 def test_check_pack_scans_the_queued_squash_message() -> None:
     """#810 (F109): in the merge queue HEAD is the squash commit GitHub will
@@ -356,7 +323,6 @@ def test_check_pack_scans_the_queued_squash_message() -> None:
     job = _job(_code(WF / "ci.yml"), "check_pack")
     m = re.search(r"- if: github\.event_name == 'merge_group'\n(?:\s+\S.*\n)*?\s+run: python tools/check_pack\.py --head-message\n", job)
     assert m, "check_pack job lacks the merge_group --head-message step"
-
 
 def test_validator_pass_runs_in_the_queue_outside_ci() -> None:
     """#810 (F110): validator_pass runs on merge_group and pull_request, in its
@@ -386,3 +352,61 @@ def test_release_verify_requires_tag_on_main() -> None:
     i_anc = verify.index('git merge-base --is-ancestor "$TAG_SHA" origin/main')
     i_dist = verify.index("Tag matches the built version")
     assert i_step < i_fetch < i_anc < i_dist, (i_step, i_fetch, i_anc, i_dist)
+def test_ci_service_images_are_digest_pinned() -> None:
+    """#763: every `services:` image in a workflow carries @sha256:<64 hex>."""
+    pin = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+    bad: list[str] = []
+    for path in _workflows():
+        lines = _code(path).splitlines()
+        in_services = False
+        services_indent = 0
+        for i, ln in enumerate(lines, 1):
+            stripped = ln.lstrip(" ")
+            indent = len(ln) - len(stripped)
+            if re.match(r"services:\s*$", stripped):
+                in_services = True
+                services_indent = indent
+                continue
+            if in_services and stripped and indent <= services_indent and not stripped.startswith("#"):
+                in_services = False
+            if not in_services:
+                continue
+            m = re.match(r"image:\s*(\S+)\s*$", stripped)
+            if not m:
+                continue
+            image = m.group(1).strip("\"'")
+            if not pin.match(image):
+                bad.append("%s:%d %s" % (path.name, i, image))
+    assert bad == [], "service image missing digest pin: %s" % bad
+
+def test_ci_mysql_service_matches_dependabot_docker_pin() -> None:
+    """#763: the Dockerfile Dependabot watches names the same mysql pin as ci.yml."""
+    ci = (WF / "ci.yml").read_text(encoding="utf-8")
+    m = re.search(r"^\s+image:\s*(mysql:\S+)\s*$", ci, re.M)
+    assert m, "ci.yml pytest_sql mysql image missing"
+    image = m.group(1)
+    assert "@sha256:" in image, image
+    df = ROOT / ".github" / "docker" / "mysql" / "Dockerfile"
+    assert df.is_file(), "missing Dependabot docker pin Dockerfile"
+    assert ("FROM " + image) in df.read_text(encoding="utf-8"), (image, df.read_text(encoding="utf-8"))
+    dep = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    assert "package-ecosystem: docker" in dep
+    assert "directory: /.github/docker/mysql" in dep
+def test_publish_action_image_digest_is_pinned() -> None:
+    """#761: the composite publish action pulls ghcr.io/pypa/gh-action-pypi-publish
+    tagged with the action SHA (a mutable registry tag). publish_pypi must resolve
+    that tag and fail unless its digest equals a pin kept next to the action SHA."""
+    text = (WF / "release.yml").read_text(encoding="utf-8")
+    pypi = _job(text, "publish_pypi")
+    m = re.search(r"uses: pypa/gh-action-pypi-publish@([0-9a-f]{40})", pypi)
+    assert m, pypi
+    sha = m.group(1)
+    assert f'ACTION_SHA: "{sha}"' in pypi, pypi
+    dig = re.search(r'WANT_DIGEST: "(sha256:[0-9a-f]{64})"', pypi)
+    assert dig, pypi
+    # Pin kept next to the action SHA (comment on the uses: line).
+    uses_line = next(ln for ln in text.splitlines() if "gh-action-pypi-publish@" in ln)
+    assert dig.group(1) in uses_line, uses_line
+    assert "ghcr.io/v2/pypa/gh-action-pypi-publish/manifests/" in pypi, pypi
+    assert "docker-content-digest" in pypi, pypi
+    assert 'test "$got" = "$WANT_DIGEST"' in pypi, pypi

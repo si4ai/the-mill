@@ -1,0 +1,18 @@
+# Card 916: SPIN edge / property ids that need a deterministic product test.
+# Each id must appear in a tests/ file as the token `SPIN <id>` (word boundary).
+# On-demand: python tools/check_spin_edges.py
+# N03 stays on card 906 (not listed here).
+L01
+L02
+L05
+L06
+W07
+W23
+H11
+D4
+D5
+D6
+N1
+N2
+N4
+JOIN_RETIRED
