@@ -869,7 +869,10 @@ def sync_view(msg: dict[str, Any]) -> dict[str, Any]:
         hello = hello.strip()
         if hello and hello != "ok":
             out["hello"] = hello
-    return out
+    # 923: once per process, when this pack is older than the office mill field.
+    from agent_coord.client.older import attach_older_once
+
+    return attach_older_once(out)
 
 
 # connect holds the ready and sync lines until the project check passes (#237).

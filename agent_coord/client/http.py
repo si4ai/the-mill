@@ -808,6 +808,11 @@ def mill_http_from_args(args: Any) -> int:
     ):
         from agent_coord.helpers.trail_text import render
 
+        from agent_coord.client.older import attach_older_once
+
+        noted = attach_older_once(row)
+        if noted.get("older"):
+            print(noted["older"], file=sys.stderr, flush=True)
         print(render(row["result"]), flush=True)
         return 0
     cmd_now = str(getattr(args, "cmd", "") or "")
@@ -837,6 +842,10 @@ def mill_http_from_args(args: Any) -> int:
     if mail_block is not None:
         row = dict(row, result=mail_rows.short_inbox(row["result"]))
         row["page"] = mail_block
+    if isinstance(row, dict):
+        from agent_coord.client.older import attach_older_once
+
+        row = attach_older_once(row)
     refused_hold = isinstance(row, dict) and _refused_hold(args, row)
     if refused_hold:
         row = _hold_refusal(row)
@@ -1049,6 +1058,10 @@ def mill_here_over_http(args: Any) -> int:
                 flush=True,
             )
             return 130
+        from agent_coord.client.older import attach_older_once
+
+        if isinstance(got, dict):
+            got = attach_older_once(got)
         print(json.dumps(got, default=str), flush=True)
         if got.get("ok"):
             return 0
