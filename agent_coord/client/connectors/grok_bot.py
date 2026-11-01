@@ -54,12 +54,16 @@ def _stamp_wake(hint: dict[str, Any]) -> Path | None:
         return None
 
 
-def poke(hint: dict[str, Any]) -> None:
-    """After mill connect HINT: spawn map/CMD, else URL POST, else stamp file."""
+def poke(hint: dict[str, Any]) -> bool:
+    """After mill connect HINT: spawn map/CMD, else URL POST, else stamp file.
+
+    True when a chat-wake path ran (spawn, URL, or equivalent). False when only
+    a local stamp file was written (card 985: plain connect must then exit).
+    """
     if skip_ping(hint):
-        return
+        return False
     if spawn_hint(hint):
-        return
+        return True
     url = _wake_url()
     if url:
         global _dead_until
@@ -72,5 +76,6 @@ def poke(hint: dict[str, Any]) -> None:
             _dead_until = now + _DEAD_FOR
             raise RuntimeError(f"grok-bot wake URL failed: {url[:120]}")
         _dead_until = 0.0
-        return
+        return True
     _stamp_wake(hint)
+    return False

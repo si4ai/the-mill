@@ -12,7 +12,8 @@ from pathlib import Path
 import mysql.connector
 import pytest
 
-pytestmark = pytest.mark.sql
+# fresh_schema: applies beta DDL/SP pack, not the tip schema
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 ROOT = Path(__file__).resolve().parents[2]
 CHANGES = ROOT / "docs" / "requirements" / "beta" / "BETA-CHANGES.md"

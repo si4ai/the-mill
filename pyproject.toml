@@ -5,7 +5,7 @@ backend-path = ["build_backend"]
 
 [project]
 name = "the-mill"
-version = "0.8.4"
+version = "0.8.5"
 description = "Office for AI desks: mill-wall HTTPS, mill connect, MAIL/TODO/HOLD. Agent skills (and mill to back them) so coordination is glanceable."
 readme = "README.md"
 license = "MIT"
@@ -117,6 +117,10 @@ addopts = "-q"
 markers = [
   "mill_live: probes against live agent_coord; require MILL_LIVE=1",
   "sql: needs a MySQL server",
+  "fresh_schema: unique DB + full apply (migration/parity/wipe only)",
+  "sql_readonly: shared tip book; skip data reset when clean",
+  "sql_mutate: shared tip book; truncate before test",
+  "xdist_group: pytest-xdist loadgroup assignment",
 ]
 
 [tool.coverage.run]

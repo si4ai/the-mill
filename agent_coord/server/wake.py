@@ -770,7 +770,9 @@ def _clean_note(raw: Any) -> str:
 def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     """mill wake-done (F144): the woken run is finished. Ends this desk's lease; when
     items were held back and still wait, sends exactly one trailing wake with
-    pending_count and the note. sent | error | none | stale. A second done is a no-op.
+    pending_count and the note. sent | error | none | stale | sitting. A second
+    done is a no-op. sitting (#889): the desk still has a live /ws, so no trailing
+    POST; the connect or ring-on-leave covers the rows.
 
     lease (F144b, card 888): the wake.lease token the run was woken with. A token
     that is not the current lease's is a stale done (a run that outlived its
@@ -804,6 +806,16 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     _bc_log_safe(f"webhook desk={d} wake=done held_s={age} queued={held} note={'yes' if text else 'no'}")
     if not t:
         return "none"
+    # #889: wake-done inside an open connect must not POST a trailing wake to a
+    # still-sitting desk; the live connect (or ring-on-leave) covers the rows.
+    try:
+        from agent_coord.server.push import desk_sitting
+        sitting = desk_sitting(d)
+    except Exception:
+        sitting = False
+    if sitting:
+        _bc_log_safe(f"webhook desk={d} wake=done sitting=yes held={held} reason=no-trailing")
+        return "sitting"
     try:
         return _send_trailing(cn, d, t, "trailing")
     except Exception as e:
