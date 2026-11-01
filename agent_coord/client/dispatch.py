@@ -165,10 +165,10 @@ def dispatch_hint(desk: str, msg: dict[str, Any], *, replay: bool = False) -> st
     # Stamp wake before poke (existing freeze/ordering contract), then correct
     # to sit-exit when the poke could not ring a chat (card 985).
     _stamp_dispatch("wake", frame, vendor)
-    rang = bool(poke(vendor, frame))
-    if rang:
-        return "wake"
-    return finish("sit-exit", vendor)
+    rang = poke(vendor, frame)
+    if rang is False:
+        return finish("sit-exit", vendor)
+    return "wake"
 
 
 def replay_items(desk: str, sync: list[Any]) -> list[dict[str, Any]]:

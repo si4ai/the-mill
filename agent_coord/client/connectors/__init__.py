@@ -26,5 +26,5 @@ def poke(vendor: str, hint: dict[str, Any]) -> bool:
     if fn is None:
         raise NotImplementedError(f"no mill connector for vendor={vendor!r}")
     rang = fn(hint)
-    # Connectors that still return None did some volunteer print; treat as no chat wake.
-    return bool(rang)
+    # Explicit False = stamp-only / could not ring (card 985). None/True = rang or legacy.
+    return False if rang is False else True
