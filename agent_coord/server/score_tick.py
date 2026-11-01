@@ -120,6 +120,11 @@ from agent_coord.server.mail_sor import (  # noqa: E402
     KPI_MAIL_HIT,
     KPI_MAIL_REASK,
 )
+from agent_coord.server.wasted_wake import (  # noqa: E402
+    BOOK_PERF as _WASTED_BOOK_PERF,
+    KPI_SHARE as KPI_WASTED_SHARE,
+    KPI_WASTED,
+)
 
 BOOK_PERF: dict[str, str] = {
     **_WAKE_BOOK_PERF,
@@ -127,10 +132,13 @@ BOOK_PERF: dict[str, str] = {
     **_HOLD_BOOK_PERF,
     **_NEST_BOOK_PERF,
     **_MAIL_BOOK_PERF,
+    **_WASTED_BOOK_PERF,
 }
 
 for _kpi in BOOK_PERF:
     BOOK_TARGET.setdefault(_kpi, "")
+BOOK_TARGET[KPI_WASTED] = "0"
+BOOK_TARGET[KPI_WASTED_SHARE] = "0"
 
 _TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z\s+")
 _PERF_OP = re.compile(r"\bop=([^\s]+)")
@@ -219,6 +227,7 @@ _HOLD_BLOCKED_OP = re.compile(r"\bop=hold\.blocked\b")
 _NEST_HIT_OP = re.compile(r"\bop=nest\.hit\b")
 _REASK_N = re.compile(r"\breask=(\d+)")
 _MAIL_HIT_OP = re.compile(r"\bop=mail\.hit\b")
+_WASTED_WAKE_OP = re.compile(r"\bop=wake\.wasted\b")
 
 
 def measure_wake_first(text: str, since: datetime) -> tuple[int, int]:
@@ -328,6 +337,36 @@ def measure_nest_sor(text: str, since: datetime) -> tuple[int, int]:
                 pass
     return hits, reasks
 
+
+
+def measure_wasted_wake(text: str, since: datetime) -> tuple[int, int]:
+    """count wake.wasted lines in window; return (wasted_n, share_percent 0..100)."""
+    wasted = 0
+    for line in (text or "").splitlines():
+        ts = _parse_ts(line)
+        if not _in_window(ts, since):
+            continue
+        if not _WASTED_WAKE_OP.search(line):
+            continue
+        wasted += 1
+    # Each wasted line is one wasted wake; share is 100 when only wasted lines
+    # are counted here (useful wakes do not emit a line). Callers that need
+    # true share use wasted_wake.office_snapshot(); this KPI is the count share
+    # of wasted lines vs wasted lines (=100) when only wasted events log.
+    # Prefer counting wakes= tags when present.
+    wakes = 0
+    for line in (text or "").splitlines():
+        ts = _parse_ts(line)
+        if not _in_window(ts, since):
+            continue
+        if not _WASTED_WAKE_OP.search(line):
+            continue
+        m = re.search(r"\bwakes=(\d+)", line)
+        wakes += int(m.group(1)) if m else 1
+    if wakes <= 0:
+        return 0, 0
+    share = int(round(100.0 * float(wasted) / float(wakes)))
+    return wasted, max(0, min(100, share))
 
 def measure_mail_sor(text: str, since: datetime) -> tuple[int, int]:
     """count mail.hit lines + reask=1 lines in window. (0,0) if none."""
@@ -509,6 +548,8 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
     nest_reask_n = 0
     mail_hit_n = 0
     mail_reask_n = 0
+    wasted_n = 0
+    wasted_share = 0
     if perf.is_file():
         perf_text = perf.read_text(encoding="utf-8", errors="replace")
         wake_ms, wake_rpc = measure_wake_first(perf_text, since)
@@ -517,6 +558,7 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
         hold_blocked_ms = measure_hold_blocked(perf_text, since)
         nest_hit_n, nest_reask_n = measure_nest_sor(perf_text, since)
         mail_hit_n, mail_reask_n = measure_mail_sor(perf_text, since)
+        wasted_n, wasted_share = measure_wasted_wake(perf_text, since)
     return {
         KPI_TICKS: ticks,
         KPI_IDLE: idle,
@@ -532,6 +574,8 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
         KPI_NEST_REASK: nest_reask_n,
         KPI_MAIL_HIT: mail_hit_n,
         KPI_MAIL_REASK: mail_reask_n,
+        KPI_WASTED: wasted_n,
+        KPI_WASTED_SHARE: wasted_share,
         "desks": _measure_desks(dest, since),
         "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "until": now.strftime("%Y-%m-%dT%H:%M:%SZ"),

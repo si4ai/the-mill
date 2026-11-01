@@ -613,6 +613,12 @@ def gate_clear(desk: str) -> None:
         _GATE.pop(d, None)
         _EPOCH.pop(d, None)
         _TRAIL.pop(d, None)
+    try:
+        from agent_coord.server import wasted_wake
+
+        wasted_wake.clear_lease(d)
+    except Exception:
+        pass
 
 
 def lease_synced(desk: str) -> None:
@@ -804,6 +810,12 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     held = len((t or {}).get("keys") or ())
     age = f"{now - at:.0f}" if at is not None else "none"
     _bc_log_safe(f"webhook desk={d} wake=done held_s={age} queued={held} note={'yes' if text else 'no'}")
+    try:
+        from agent_coord.server import wasted_wake
+
+        wasted_wake.finish_lease(d)
+    except Exception:
+        pass
     if not t:
         return "none"
     # #889: wake-done inside an open connect must not POST a trailing wake to a
@@ -1159,6 +1171,23 @@ def post_desk(
                     _NOTE.pop(desk, None)  # the note rode this wake
         _fail_clear(desk)
         _wake_log(desk, frame, hint_id, f"sent status={status}{tag}")
+        try:
+            from agent_coord.server import wasted_wake
+
+            opened = False
+            if str(frame.get("kind") or "") == "mail" and hint_id is not None:
+                try:
+                    from agent_coord.server.records import opened as rec_opened
+
+                    opened = int(hint_id) in rec_opened.read_ids(cn, [int(hint_id)], desk)
+                except Exception:
+                    opened = False
+            tag_name = wasted_wake.classify_trigger(
+                frame=frame, reason=reason, opened=opened, ring=ring, trailing=trailing
+            )
+            wasted_wake.mark_lease(desk, trigger=tag_name)
+        except Exception:
+            pass
         return "sent"
     why = f"status={status}" if status is not None else f"err={err or 'Exception'}"
     if status is not None and err:
