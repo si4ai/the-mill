@@ -14,7 +14,8 @@ CONSTANTS
   GuardOwnDropOnly,
   GuardExpectHolder,
   GuardAlreadyFree,
-  GuardAutoExpire
+  GuardAutoExpire,
+  GuardDropClears
 
 ASSUME MaxSteps \in Nat /\ MaxSteps >= 1
 ASSUME GuardTakeWhenFree \in BOOLEAN
@@ -22,6 +23,7 @@ ASSUME GuardOwnDropOnly \in BOOLEAN
 ASSUME GuardExpectHolder \in BOOLEAN
 ASSUME GuardAlreadyFree \in BOOLEAN
 ASSUME GuardAutoExpire \in BOOLEAN
+ASSUME GuardDropClears \in BOOLEAN
 
 VARIABLES
   holder,       \* 0 free, 1 desk A, 2 desk B
@@ -104,15 +106,20 @@ DropOwn(d) ==
        /\ lastActor' = d
        /\ steps' = steps + 1
        /\ IF doRelease
-          THEN /\ holder' = 0
-               /\ lastOut' = "released"
+          THEN /\ lastOut' = "released"
                /\ twoHolders' = FALSE
                /\ age' = 0
+               /\ IF GuardDropClears
+                  THEN holder' = 0
+                  ELSE UNCHANGED holder
           ELSE /\ lastOut' = "kept"
                /\ UNCHANGED <<holder, twoHolders, age>>
 
 \* mill_hold_release_other: free only when desk_id = expect; already free / holder
 \* changed are honest outs. Guards off = lie or blind free.
+\* mill_hold_release_other. Actor is desk 2 (matches the Python caller).
+\* Holder = actor -> kept (code ELSEIF v_holder = v_by). GuardDropClears off
+\* reports released without clearing (code twin of B3/B7).
 ReleaseOther(expect) ==
   /\ Room /\ expect \in {1, 2}
   /\ priorHolder' = holder
@@ -123,18 +130,21 @@ ReleaseOther(expect) ==
   /\ IF holder = 0
      THEN /\ lastOut' = IF GuardAlreadyFree THEN "already_free" ELSE "kept"
           /\ UNCHANGED <<holder, twoHolders, age>>
+     ELSE IF holder = 2
+          THEN /\ lastOut' = "kept"
+               /\ UNCHANGED <<holder, twoHolders, age>>
      ELSE IF holder # expect
           THEN IF GuardExpectHolder
                THEN /\ lastOut' = "holder_changed"
                     /\ UNCHANGED <<holder, twoHolders, age>>
-               ELSE /\ holder' = 0
-                    /\ lastOut' = "released"
+               ELSE /\ lastOut' = "released"
                     /\ twoHolders' = FALSE
                     /\ age' = 0
-          ELSE /\ holder' = 0
-               /\ lastOut' = "released"
+                    /\ IF GuardDropClears THEN holder' = 0 ELSE UNCHANGED holder
+          ELSE /\ lastOut' = "released"
                /\ twoHolders' = FALSE
                /\ age' = 0
+               /\ IF GuardDropClears THEN holder' = 0 ELSE UNCHANGED holder
 
 \* Time passes. With GuardAutoExpire, the step that would cross the bound
 \* frees the hold instead (proposed fix for the no-TTL finding).
@@ -196,6 +206,7 @@ AlreadyFreeHonest ==
   (lastStep = "release_other" /\ priorHolder = 0) => (lastOut = "already_free")
 
 DropIdempotent ==
+  \* by-construction sanity (no breakable guard; letter 4252)
   (lastStep = "drop" /\ priorHolder = 0) => (lastOut = "kept" /\ holder = 0)
 
 \* Known finding (SPIN H11): without an actor, a hold stays held past any bound.

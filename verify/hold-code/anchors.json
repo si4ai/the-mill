@@ -1,12 +1,12 @@
 {
-  "sync_note": "Anchors couple the hold recovery model to the real files. Each marker is the guard line plus its first effect line (card 1014). Line numbers are hints; the check matches the marker string and expected_count.",
+  "sync_note": "Each marker is the real guard line plus its first effect line (card 1014 / letter 4252). expected_count defaults to 1. Auth anchors are presence-only.",
   "anchors": [
     {
       "id": "upsert-for-update",
       "path": "agent_coord/server/sql/sp_hold.sql",
-      "marker": "SELECT id, desk_id INTO v_id, v_held\n    FROM hold\n   WHERE resource_id = v_res\n   FOR UPDATE;",
-      "property": "AtMostOneHolder / seat-then-hold lock order",
-      "lines": "56-59"
+      "marker": "WHERE resource_id = v_res\n   FOR UPDATE;",
+      "property": "AtMostOneHolder / seat-then-hold FOR UPDATE",
+      "lines": "58-59"
     },
     {
       "id": "take-when-null",
@@ -14,6 +14,13 @@
       "marker": "WHERE id = v_id AND desk_id IS NULL;\n    SET v_n = ROW_COUNT();",
       "property": "TakeFromFreeOrRefresh / GuardTakeWhenFree",
       "lines": "74-75"
+    },
+    {
+      "id": "take-refuse",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "ELSE\n    SET v_ok = 0;\n  END IF;",
+      "property": "AtMostOneHolder / refuse when another holds (code twin of no_take_free)",
+      "lines": "99-101"
     },
     {
       "id": "same-holder-refresh",
@@ -25,9 +32,9 @@
     {
       "id": "own-drop-owner",
       "path": "agent_coord/server/sql/sp_hold.sql",
-      "marker": "WHERE id = p_id AND desk_id = v_desk;\n  SET v_gone = ROW_COUNT();",
-      "property": "OnlyOwnerDropReleases / DropFreesRow / GuardOwnDropOnly",
-      "lines": "137-138"
+      "marker": "SET desk_id = NULL, updated = v_ts\n   WHERE id = p_id AND desk_id = v_desk;",
+      "property": "OnlyOwnerDropReleases / DropFreesRow / GuardOwnDropOnly / GuardDropClears",
+      "lines": "136-137"
     },
     {
       "id": "release-desk",
@@ -42,6 +49,13 @@
       "marker": "CREATE PROCEDURE mill_hold_release_other(",
       "property": "Admin/stale drop of another's hold (card 931 / F223)",
       "lines": "180"
+    },
+    {
+      "id": "expect-resolve",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "SET v_expect = MILL_NAME_GET('desk', p_expect);\n  IF v_expect IS NULL THEN",
+      "property": "expect desk resolved before release-other (blocks B5c class)",
+      "lines": "207-208"
     },
     {
       "id": "already-free",
@@ -60,22 +74,22 @@
     {
       "id": "expect-guard",
       "path": "agent_coord/server/sql/sp_hold.sql",
-      "marker": "WHERE id = p_id AND desk_id = v_expect;\n    SET v_gone = ROW_COUNT();",
-      "property": "ExpectGuardHolds / GuardExpectHolder",
-      "lines": "232-233"
+      "marker": "SET desk_id = NULL, updated = v_ts\n     WHERE id = p_id AND desk_id = v_expect;",
+      "property": "ExpectGuardHolds / DropFreesRow / GuardExpectHolder / GuardDropClears",
+      "lines": "231-232"
     },
     {
       "id": "may-drop-other",
       "path": "agent_coord/server/records/hold.py",
       "marker": "if is_role_admin(cn, actor):\n        return True, \"\"",
-      "property": "Admin may drop other (F223); pairs with stale-days",
+      "property": "Admin may drop other (F223); auth out of scope beyond presence",
       "lines": "204-205"
     },
     {
       "id": "stale-days",
       "path": "agent_coord/server/records/hold.py",
       "marker": "need = hold_stale_days()\n    if age is None or age < float(need):",
-      "property": "stale bound for high-trust non-Admin release-other",
+      "property": "stale bound presence; auth out of scope beyond presence (B8 info-only)",
       "lines": "217-218"
     }
   ]

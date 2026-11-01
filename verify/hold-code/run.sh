@@ -51,6 +51,8 @@ find_statechart() {
   for d in \
     /home/user/sand-data/plugins/cache/cursor-public/pstack/*/skills/statechart/scripts \
     /home/user/agent-data/plugins/cache/cursor-public/pstack/*/skills/statechart/scripts \
+    "$HOME/sand-data/plugins/cache/cursor-public/pstack/*/skills/statechart/scripts" \
+    "$HOME/agent-data/plugins/cache/cursor-public/pstack/*/skills/statechart/scripts" \
     /home/user/agent-data/plugins/pstack/pstack/skills/statechart/scripts
   do
     for s in $d/statechart; do

@@ -29,7 +29,7 @@ stale drop scenarios. This package keeps the SQL/Python *markers* those assume.
   scenarios; this check keeps `desk_id = v_expect` (`sp_hold.sql:232`),
   `holder changed` (`sp_hold.sql:228`), and `already free` (`sp_hold.sql:221`).
 - `NoStuckHoldPastBound` (known): SPIN H11 (no TTL) already violated; this check
-  re-anchors the code-side absence of auto-expire and shows a proposed
+  reproduces the no-TTL stuck-hold finding in the model and shows a proposed
   `GuardAutoExpire` fix cfg. Starvation of waiters (SPIN H09) stays with SPIN
   (mill never queues; refuse at once).
 
@@ -44,7 +44,8 @@ drop while `mill_hold_release_other` exists; this PR does not rewrite
 ## properties and results (model at sync ce115f8)
 
 - at most one holder / take only from free: proved; fails on `no_take_free`
-- only the owner drop releases; drop frees the row; drop on free is honest: proved; fails on `no_own_drop`
+- only the owner drop releases; drop frees the row: proved; fails on `no_own_drop` / `no_drop_clears`
+- drop on free is honest (`DropIdempotent`): by-construction sanity (no breakable guard; letter 4252)
 - release-other frees only the expected holder: proved; fails on `no_expect`
 - already-free is honest: proved; fails on `no_already_free`
 - no stuck hold past bound: **known violated** (no TTL); proposed `no_ttl_fixed` passes
@@ -55,6 +56,7 @@ Run: `verify/hold-code/run.sh`. Read results with `/statechart` on `Hold.tla`.
 
 - One resource, two desks, at most 6 steps; age bound 3 for the no-TTL check.
 - Concurrent interleaving of two upserts is out of scope (SPIN).
+- may-drop-other / stale-days anchors are presence-only; auth out of scope beyond them (B8 info-only).
 - Admin/stale *authorization* (`may_drop_other`) is out of scope beyond anchors;
   the model assumes an authorized release-other call.
 - Waiter starvation stays with SPIN H09 (no queue in product).
@@ -71,5 +73,5 @@ token-free).
 ## findings
 
 - no auto-expire / no TTL: re-anchored here as `known/no_ttl` (same class as
-  SPIN H11). Filed as card 1013 (`hold-no-auto-expire`, loop:2).
+  SPIN H11). Filed as card 1013 (`hold-no-auto-expire`, loop:2). The known check is model-side (letter 4252); a product TTL would need a new code anchor.
 - card 941 remains for SPIN/docs lag on release_other.
