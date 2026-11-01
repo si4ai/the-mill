@@ -6,7 +6,7 @@ Measure only. A wake lease that ends in mill wake-done with no action command
 mark and read alone still count as waste. Trigger tags (human 2026-11-01):
 hold_release, room_or_fyi_mail, rering_handled, version_notice, other.
 
-Emits ``op=wake.wasted`` on mill-perf for score_tick. Keeps per-desk and
+Emits ``op=wake.done`` (wasted=0|1) on mill-perf for score_tick; also ``op=wake.wasted`` when wasted. Keeps per-desk and
 per-office counts for mill score (share + trigger breakdown). Does not change
 wake behavior (card 949 rules stay on hold).
 """
@@ -33,10 +33,16 @@ ACTION_COMMANDS = frozenset(
         "pass",
         "hold",
         "label",
+        "label-add",
+        "label-remove",
         "drop",  # drop is a hold action
         "assign",
         "unclaim",
         "open",  # create todo
+        "unpark",
+        "attach",
+        "move",
+        "retire",
     }
 )
 
@@ -170,10 +176,20 @@ def finish_lease(desk: str) -> dict[str, Any] | None:
         }
     if stamp is None:
         return None
-    if stamp["wasted"]:
-        try:
-            from agent_coord.server.push import perf_log
+    try:
+        from agent_coord.server.push import perf_log
 
+        # Every finished lease logs once so share = wasted / all wakes (card 1002 Fail).
+        wasted_i = 1 if stamp["wasted"] else 0
+        perf_log(
+            "wake.done",
+            0.0,
+            trigger=stamp["trigger"],
+            desk=stamp["desk"],
+            wasted=wasted_i,
+            wakes=1,
+        )
+        if stamp["wasted"]:
             perf_log(
                 "wake.wasted",
                 0.0,
@@ -182,8 +198,8 @@ def finish_lease(desk: str) -> dict[str, Any] | None:
                 wasted=1,
                 wakes=1,
             )
-        except Exception:
-            pass
+    except Exception:
+        pass
     return {
         "wasted": stamp["wasted"],
         "trigger": stamp["trigger"],

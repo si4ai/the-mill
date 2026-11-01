@@ -227,7 +227,7 @@ _HOLD_BLOCKED_OP = re.compile(r"\bop=hold\.blocked\b")
 _NEST_HIT_OP = re.compile(r"\bop=nest\.hit\b")
 _REASK_N = re.compile(r"\breask=(\d+)")
 _MAIL_HIT_OP = re.compile(r"\bop=mail\.hit\b")
-_WASTED_WAKE_OP = re.compile(r"\bop=wake\.wasted\b")
+_WASTED_WAKE_DONE_OP = re.compile(r"\bop=wake\.done\b")
 
 
 def measure_wake_first(text: str, since: datetime) -> tuple[int, int]:
@@ -339,32 +339,32 @@ def measure_nest_sor(text: str, since: datetime) -> tuple[int, int]:
 
 
 
-def measure_wasted_wake(text: str, since: datetime) -> tuple[int, int]:
-    """count wake.wasted lines in window; return (wasted_n, share_percent 0..100)."""
+def measure_wasted_wake(
+    text: str, since: datetime
+) -> tuple[int | None, int | None]:
+    """count wake.done lines; return (wasted_n, share_percent 0..100).
+
+    Share is wasted / all finished wakes. An empty sample returns (None, None)
+    so publish omits the KPIs (missing, never 0 or 100).
+    """
     wasted = 0
-    for line in (text or "").splitlines():
-        ts = _parse_ts(line)
-        if not _in_window(ts, since):
-            continue
-        if not _WASTED_WAKE_OP.search(line):
-            continue
-        wasted += 1
-    # Each wasted line is one wasted wake; share is 100 when only wasted lines
-    # are counted here (useful wakes do not emit a line). Callers that need
-    # true share use wasted_wake.office_snapshot(); this KPI is the count share
-    # of wasted lines vs wasted lines (=100) when only wasted events log.
-    # Prefer counting wakes= tags when present.
     wakes = 0
     for line in (text or "").splitlines():
         ts = _parse_ts(line)
         if not _in_window(ts, since):
             continue
-        if not _WASTED_WAKE_OP.search(line):
+        if not _WASTED_WAKE_DONE_OP.search(line):
             continue
-        m = re.search(r"\bwakes=(\d+)", line)
-        wakes += int(m.group(1)) if m else 1
+        m_wakes = re.search(r"\bwakes=(\d+)", line)
+        wakes += int(m_wakes.group(1)) if m_wakes else 1
+        m_wasted = re.search(r"\bwasted=(\d+)", line)
+        if m_wasted:
+            wasted += int(m_wasted.group(1))
+        else:
+            # A wake.done line without wasted= is treated as useful (0).
+            pass
     if wakes <= 0:
-        return 0, 0
+        return None, None
     share = int(round(100.0 * float(wasted) / float(wakes)))
     return wasted, max(0, min(100, share))
 
@@ -548,8 +548,8 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
     nest_reask_n = 0
     mail_hit_n = 0
     mail_reask_n = 0
-    wasted_n = 0
-    wasted_share = 0
+    wasted_n: int | None = None
+    wasted_share: int | None = None
     if perf.is_file():
         perf_text = perf.read_text(encoding="utf-8", errors="replace")
         wake_ms, wake_rpc = measure_wake_first(perf_text, since)
@@ -760,7 +760,12 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
         for kpi in wanted:
             note = BOOK_PERF[kpi]
             tgt = BOOK_TARGET.get(kpi, TARGET)
-            val = str(int(counts.get(kpi) or 0))
+            raw = counts.get(kpi)
+            # Empty sample (None): omit - missing data is not zero (card 1002 / 1019).
+            if raw is None:
+                out.setdefault("omitted", []).append(kpi)
+                continue
+            val = str(int(raw))
             rows = rec_score.admin_upsert(cn, kpi, val, tgt, note[:200])
             out["rows"].append({"kpi": kpi, "value": val, "target": tgt, "sql": rows})
     except Exception as e:
