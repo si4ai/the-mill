@@ -2593,6 +2593,20 @@ def _claim_once(c: Book, body: dict[str, Any], project: str, need: str, hit: dic
         rec["eta_at"] = payload["eta_at"]
     if note:
         rec["note"] = note
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if rec["id"] > 0 and did > 0:
+            ta.emit_claim(
+                c._cn,
+                todo_id=int(rec["id"]),
+                desk_id=did,
+                take_over=bool(take_over),
+                fixture=ta.roster_excluded(project),
+            )
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "claim", owner=owner)
     return rec
 
@@ -2687,6 +2701,15 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     rec = {"project_id": project, "need_id": need, "id": tid, "status": st, "detail": detail}
     if str(body.get("done_when") or "").strip():
         rec["done_when"] = _done_when(c, tid, project, need, body.get("done_when"), owner)["done_when"]
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        fx = ta.roster_excluded(project)
+        if tid > 0 and did > 0:
+            ta.emit_create(c._cn, todo_id=tid, desk_id=did, parked=(st == "parked"), fixture=fx)
+    except Exception:
+        pass
     _poke(c, "todo", tid, "open", owner=owner)
     return rec
 
@@ -2727,6 +2750,14 @@ def _h_unpark(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         raise CoordError(f"unpark: {project}/{need} is {st}; nothing changed")
     rec_todo.update(c._cn, tid, _stored(owner or ""), status="open")
     rec = {"ok": True, "need": need, "status": "open"}
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if tid > 0 and did > 0:
+            ta.emit_unpark(c._cn, todo_id=tid, desk_id=did, fixture=ta.roster_excluded(project))
+    except Exception:
+        pass
     _poke(c, "todo", tid, "unpark", owner=owner)
     return rec
 
@@ -2770,6 +2801,15 @@ def _h_yield(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     hit = _card_hit(c, project, need)
     _card_sp(c, "cmd_unclaim", [_desk_arg(owner), int(hit["id"])], project, need)
     rec = {"ok": True, "need": need, "status": "open"}
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        tid = int(hit["id"])
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if tid > 0 and did > 0:
+            ta.emit_unclaim(c._cn, todo_id=tid, desk_id=did, fixture=ta.roster_excluded(project))
+    except Exception:
+        pass
     _poke(c, "todo", int(hit["id"]), "unclaim", owner=owner)
     return rec
 
@@ -2832,6 +2872,37 @@ def _pass_one(
     # #867: the card's evidence after the step (a done keeps the ship's; a back step clears it).
     if got.get("evidence"):
         rec["evidence"] = str(got["evidence"])
+    try:
+        from agent_coord.server import todo_activity as ta
+        from agent_coord.server.transition_enums import State as TrState
+
+        tid = int(rec["id"])
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        fx = ta.roster_excluded(project)
+        was = str(rec.get("was") or "")
+        if tid > 0 and did > 0:
+            if step == "ship":
+                ta.emit_ship(c._cn, todo_id=tid, desk_id=did, fixture=fx)
+            elif step == "done":
+                ta.emit_done(c._cn, todo_id=tid, desk_id=did, fixture=fx)
+            elif step == "back":
+                src = {
+                    "done": TrState.done,
+                    "shipped": TrState.shipped,
+                    "claimed": TrState.claimed,
+                    "open": TrState.open,
+                }.get(was)
+                dst = {
+                    "shipped": TrState.shipped,
+                    "claimed": TrState.claimed,
+                    "open": TrState.open,
+                }.get(nxt)
+                if src is not None and dst is not None:
+                    ta.emit_pass_back(
+                        c._cn, todo_id=tid, desk_id=did, from_state=src, to_state=dst, fixture=fx
+                    )
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "pass", owner=owner)
     return rec
 
@@ -3247,6 +3318,26 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 did = ha.desk_id_for(c._cn, owner)
                 return ha.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "todo.open_to_claim_ms",
+                "todo.claim_to_ship_ms",
+                "todo.ship_to_done_ms",
+                "todo.open_age_ms",
+                "todo.claimed_age_ms",
+                "todo.open_n",
+                "todo.claimed_n",
+                "open-cards-open-to-claim",
+                "open-cards-claim-to-ship",
+                "open-cards-ship-to-done",
+                "open-cards-open-age",
+                "open-cards-claimed-age",
+                "open-cards-open-n",
+                "open-cards-claimed-n",
+            ):
+                from agent_coord.server import todo_activity as ta
+
+                did = ta.desk_id_for(c._cn, owner)
+                return ta.score_view_for_name(c._cn, name, desk_id=did)
             raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
@@ -3295,6 +3386,30 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 one = dict(one)
                 did = ha.desk_id_for(c._cn, owner)
                 one.update(ha.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "todo.open_to_claim_ms",
+            "todo.claim_to_ship_ms",
+            "todo.ship_to_done_ms",
+            "todo.open_age_ms",
+            "todo.claimed_age_ms",
+            "todo.open_n",
+            "todo.claimed_n",
+            "open-cards-open-to-claim",
+            "open-cards-claim-to-ship",
+            "open-cards-ship-to-done",
+            "open-cards-open-age",
+            "open-cards-claimed-age",
+            "open-cards-open-n",
+            "open-cards-claimed-n",
+        ):
+            try:
+                from agent_coord.server import todo_activity as ta
+
+                one = dict(one)
+                did = ta.desk_id_for(c._cn, owner)
+                one.update(ta.score_view_for_name(c._cn, name, desk_id=did))
             except Exception:
                 pass
         return one
