@@ -1,0 +1,13 @@
+Card 925 wake-slice build tokens (auditor, this PR only; runs are token-free)
+
+Approximate: 45000 tokens (band 35000-55000).
+Exact provider count was not available to the auditor turn; this is a
+conservative estimate from the work done in one auditor session:
+  - load create-formal-verification-skill, TDD, verification-before-completion,
+    mill-pack-hygiene, mill-desk
+  - inventory SPIN wake.pml, pytest wake suite, and CI (orthogonality)
+  - read wake.py / push.py guards at ce115f8 and PR #270's verify/todo-code
+  - write Wake.tla + anchors + mutants + known/card_1005 + SKILL + run.sh
+  - prove model, mutants and known finding
+
+Update this file when the model or anchors are revised (maintenance tokens).
