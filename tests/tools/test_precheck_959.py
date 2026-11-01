@@ -148,3 +148,78 @@ def test_ci_runs_precheck():
     text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "precheck" in text
     assert "tools/precheck.sh" in text or "tools/precheck.py" in text
+
+
+_STUB_CHECK_PACK = textwrap.dedent(
+    """\
+    import os, subprocess, sys
+    args = sys.argv[1:]
+    log = os.environ["PRECHECK_STUB_LOG"]
+    if args[:1] == ["--commits"]:
+        r = subprocess.run(["git", "rev-list", args[1]], capture_output=True, text=True)
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(f"commits rc={r.returncode} n={len(r.stdout.split())}\\n")
+        sys.exit(r.returncode)
+    sys.exit(0)
+    """
+)
+
+
+def _git_t(cwd, *args):
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize("detached", [False, True])
+def test_pack_fresh_commits_from_non_main_branch(pc, tmp_path, monkeypatch, detached):
+    """check_pack_fresh resolves origin/main from a release branch or a detached head."""
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    _git_t(upstream, "init", "-q", "-b", "main")
+    (upstream / "tools").mkdir()
+    (upstream / "tools" / "check_pack.py").write_text(_STUB_CHECK_PACK, encoding="utf-8")
+    _git_t(upstream, "add", ".")
+    _git_t(upstream, "commit", "-q", "-m", "base")
+    work = tmp_path / "work"
+    _git_t(tmp_path, "clone", "-q", str(upstream), str(work))
+    _git_t(work, "checkout", "-q", "-b", "release/9.9.9")
+    (work / "a.txt").write_text("a\n", encoding="utf-8")
+    _git_t(work, "add", ".")
+    _git_t(work, "commit", "-q", "-m", "release change")
+    if detached:
+        _git_t(work, "checkout", "-q", "--detach")
+    sha = pc._rev_parse("HEAD", cwd=work)
+
+    fake_py = tmp_path / "fake-python"
+    fake_py.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "-m" ] && [ "$2" = "build" ]; then exit 0; fi\n'
+        f'exec "{pc.sys.executable}" "$@"\n',
+        encoding="utf-8",
+    )
+    fake_py.chmod(0o755)
+    log = tmp_path / "stub.log"
+    monkeypatch.setenv("PRECHECK_STUB_LOG", str(log))
+    monkeypatch.setattr(pc.sys, "executable", str(fake_py))
+
+    findings = pc.check_pack_fresh(work, sha)
+
+    assert findings == [], findings
+    assert log.read_text(encoding="utf-8").splitlines() == ["commits rc=0 n=1"]
+
+
+def test_pack_fresh_unresolvable_base_is_a_finding(pc, tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git_t(repo, "init", "-q", "-b", "feature")
+    (repo / "x").write_text("x\n", encoding="utf-8")
+    _git_t(repo, "add", ".")
+    _git_t(repo, "commit", "-q", "-m", "x")
+    findings = pc.check_pack_fresh(repo, pc._rev_parse("HEAD", cwd=repo), base="origin/main")
+    assert [f.rule for f in findings] == ["check-pack"]
+    assert "does not resolve" in findings[0].message

@@ -335,8 +335,24 @@ def check_schema_ids(root: Path) -> list[Finding]:
 
 
 def check_pack_fresh(root: Path, sha: str, base: str = "origin/main") -> list[Finding]:
-    """check_pack dist + --commits + --head-message on a fresh single-branch clone."""
+    """check_pack dist + --commits + --head-message on a fresh single-branch clone.
+
+    ``base`` is resolved to a sha in ``root`` first: the clone only maps the
+    checked-out branch, so a ref such as origin/main does not exist there.
+    """
     findings: list[Finding] = []
+    try:
+        base_sha = _rev_parse(f"{base}^{{commit}}", cwd=root)
+    except subprocess.CalledProcessError as e:
+        findings.append(
+            Finding(
+                "tools/check_pack.py",
+                1,
+                "check-pack",
+                f"base {base} does not resolve: {e.stderr[-200:] if e.stderr else e}",
+            )
+        )
+        return findings
     with tempfile.TemporaryDirectory(prefix="precheck-pack-") as tmp:
         tmp_p = Path(tmp)
         clone = tmp_p / "src"
@@ -362,6 +378,21 @@ def check_pack_fresh(root: Path, sha: str, base: str = "origin/main") -> list[Fi
                 capture_output=True,
                 text=True,
             )
+            # --commits needs the base commit in the clone; fetch it by sha
+            # when the single-branch clone did not bring it along.
+            has_base = subprocess.run(
+                ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"],
+                cwd=clone,
+                capture_output=True,
+            )
+            if has_base.returncode:
+                subprocess.run(
+                    ["git", "fetch", "-q", "--no-tags", "origin", base_sha],
+                    cwd=clone,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
         except subprocess.CalledProcessError as e:
             findings.append(
                 Finding(
@@ -395,16 +426,8 @@ def check_pack_fresh(root: Path, sha: str, base: str = "origin/main") -> list[Fi
         for args in (
             ["dist"],
             ["--head-message"],
-            ["--commits", f"{base}..{sha}"],
+            ["--commits", f"{base_sha}..{sha}"],
         ):
-            # --commits needs base in the clone; fetch it
-            if args[0] == "--commits":
-                subprocess.run(
-                    ["git", "fetch", "-q", "--no-tags", "origin", "main"],
-                    cwd=clone,
-                    capture_output=True,
-                )
-                args = ["--commits", f"origin/main..{sha}"]
             run = subprocess.run(
                 [sys.executable, "tools/check_pack.py", *args],
                 cwd=clone,
