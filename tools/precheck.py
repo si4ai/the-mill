@@ -440,6 +440,11 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
             if p.startswith("tests/") and p.endswith(".py") and Path(root, p).is_file()
         }
     )
+    # Wall surface validators need tools/wall-validators (npm ci). Precheck stays
+    # cheap: pytest_no_sql already covers them with Node installed.
+    wall_npm = root / "tools" / "wall-validators" / "node_modules"
+    if not wall_npm.is_dir():
+        tests = [p for p in tests if not p.startswith("tests/wall/")]
     if not tests:
         return findings
     run = subprocess.run(

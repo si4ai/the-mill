@@ -276,8 +276,19 @@ jobs:
           python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
           python -m pip install --require-hashes -r tools/ci-lock/ci.txt
       - run: python -m pip install --no-deps --no-build-isolation dist/the_mill-*.tar.gz
-      - name: Fetch main for diff base
-        run: git fetch --no-tags origin main
+      - name: Fetch PR base for targeted pytest
+        run: |
+          git fetch --no-tags origin main
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+          fi
       # Card 959 / F-precheck: cheap checks before a Pass ask. Pack scan is
-      # already the check_pack job; skip the nested rebuild here.
-      - run: ./tools/precheck.sh HEAD --skip-pack
+      # already the check_pack job; skip the nested rebuild here. Diff base is
+      # the PR target (release/* or main), not always main, so a release-branch
+      # PR does not re-run every test the release already folded.
+      - run: |
+          base=origin/main
+          if [ -n "${{ github.base_ref }}" ]; then
+            base="origin/${{ github.base_ref }}"
+          fi
+          ./tools/precheck.sh HEAD --skip-pack --base "$base"
