@@ -3361,6 +3361,20 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 from agent_coord.server import open_prs_score as ops
 
                 return ops.score_view_for_name(name)
+            if name in (
+                "connect.startup_ms",
+                "connect.session_ms",
+                "connect.drop_n",
+                "connect.reconnect_n",
+                "connect-startup",
+                "connect-session",
+                "connect-drop",
+                "connect-reconnect",
+            ):
+                from agent_coord.server import connect_activity as ca
+
+                did = ca.desk_id_for(c._cn, owner)
+                return ca.score_view_for_name(c._cn, name, desk_id=did)
             raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
@@ -3460,6 +3474,24 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 one = dict(one)
                 one.update(ops.score_view_for_name(name))
+            except Exception:
+                pass
+        if name in (
+            "connect.startup_ms",
+            "connect.session_ms",
+            "connect.drop_n",
+            "connect.reconnect_n",
+            "connect-startup",
+            "connect-session",
+            "connect-drop",
+            "connect-reconnect",
+        ):
+            try:
+                from agent_coord.server import connect_activity as ca
+
+                one = dict(one)
+                did = ca.desk_id_for(c._cn, owner)
+                one.update(ca.score_view_for_name(c._cn, name, desk_id=did))
             except Exception:
                 pass
         return one

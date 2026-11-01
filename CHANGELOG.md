@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1028 / F-connect-activity-score: connect D2/D3 transitions + mill score startup/session median+worst, drop/reconnect counts (empty omitted; no DDL)
 - card 983 / F-open-prs-queue-score: open-PR queue mill score (open age, open->green-CI / Pass / merge, gate waits; samples from safe gh + optional 961 Pass stamps; no DDL)
 - card 982 / F-open-cards-queue-score: todo FEATURE transitions (T1-T12) + mill score open/claimed ages and open->claimed->shipped->done median+worst (fixtures excluded; empty omitted; no DDL)
 - card 981 / F-hold-activity-score: hold FEATURE transitions (H1-H9) + mill score wait/held median+worst, contention, force-taken, expired (empty omitted; no DDL)
