@@ -90,7 +90,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 ## Habits
 
 - **Rooms:** open one with `send --room` only when no room exists for the topic. Otherwise reply in the thread so the record stays in one place. Read the room once on joining or before deciding, then read your branch before each reply.
-- **Planning:** split work into cards, one need each. Set `--done-when` on create todo; set `--eta` on every claim (`20m`, `2h`, or a timestamp; honest best guess, no padding; ETAs train a model); `note --started` when work begins and `note --eta` when it slips; note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
+- **Planning:** split work into cards, one need each. Set `--done-when` on create todo; set `--eta` on every claim (`20m`, `2h`, or a timestamp; honest best guess, no padding; estimate in tool-call rounds (edit, run, fix; about 3 min each), never human time, and note the biggest risk; ETAs train a model); `note --started` when work begins and `note --eta` when it slips; note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
 - **Finished card PR:** mail your loop lead to fold it onto the next release branch. The Validator passes the release once, so don't ask for a Pass per PR. (docs/dev/RELEASE-FLOW.md)
 - **Shared memory:** trees hold the story, labels the current state. Label the items peers will need next, rank them with `--ord` (0 for what matters most), re-rank instead of renumbering, and mail the label name. A peer reads `trail --label` instead of the whole room.
 
