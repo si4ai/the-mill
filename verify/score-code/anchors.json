@@ -1,0 +1,89 @@
+{
+  "sync_note": "Card 1014: guard+first effect. Also caller-observed fields (letter 4267). expected_count default 1.",
+  "anchors": [
+    {
+      "id": "ws-miss-count",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        if _WS_MISS.search(line):\n            out[KPI_WS_MISS] += 1",
+      "property": "WsMissNotDropped / GuardCountWsMiss (caller sees mill-wall.ws_miss)",
+      "lines": "464-465"
+    },
+    {
+      "id": "hold-blocked-sum",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "def measure_hold_blocked(text: str, since: datetime) -> int:\n    \"\"\"sum ms= from hold.blocked stamps in window. 0 if none.\"\"\"\n    total = 0.0",
+      "property": "HoldBlockedNotDropped / measure entry",
+      "lines": "293-295"
+    },
+    {
+      "id": "hold-blocked-add",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        if not _HOLD_BLOCKED_OP.search(line):\n            continue\n        mm = _MS.search(line)\n        if mm:\n            try:\n                total += float(mm.group(1))",
+      "property": "HoldBlockedNotDropped / GuardCountHoldBlocked effect",
+      "lines": "299-304"
+    },
+    {
+      "id": "window-fields",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        \"window_s\": int(window_s),",
+      "property": "caller-observed: measure returns window_s (with since/until neighbours)",
+      "lines": "538"
+    },
+    {
+      "id": "p50-empty-zero",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "def _p50(values: list[float]) -> int:\n    if not values:\n        return 0",
+      "property": "known EmptyShowsMissing twin: empty p50 becomes 0",
+      "lines": "204-206"
+    },
+    {
+      "id": "publish-book-or-zero",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "            val = str(int(counts.get(kpi) or 0))\n            rows = rec_score.admin_upsert(cn, kpi, val, tgt, note[:200])",
+      "property": "known EmptyShowsMissing: publish writes 0 for missing counts",
+      "lines": "736-737"
+    },
+    {
+      "id": "gap-none-missing",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "    if latest is None or t is None:\n        return None",
+      "property": "caller-observed: gap is None when latest or target missing (not 0)",
+      "lines": "87-88"
+    },
+    {
+      "id": "number-blank-none",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "def number(raw: Any) -> float | None:\n    \"\"\"A finite float from raw, else None (blank, words, nan and inf refused).\"\"\"\n    try:\n        v = float(str(raw).strip())",
+      "property": "blank/non-numeric -> None (not 0)",
+      "lines": "52-56"
+    },
+    {
+      "id": "missing-last",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "        if last is None or last == \"\":\n            by[desk][\"missing\"] += 1",
+      "property": "caller-observed: empty Last counted as missing (not green)",
+      "lines": "122-123"
+    },
+    {
+      "id": "kpi-miss-empty-target",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "    if not T:\n        return False",
+      "property": "informational empty target is not a miss (not false-red)",
+      "lines": "47-48"
+    },
+    {
+      "id": "shape-truncate",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "        if limit > 0:\n            one[\"points\"] = pts[: int(limit)]",
+      "property": "known TruncationLabelled: points sliced with no truncated flag",
+      "lines": "159-160"
+    },
+    {
+      "id": "value-must-number",
+      "path": "agent_coord/server/sql/sp_score.sql",
+      "marker": "  IF p_value IS NULL THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: value must be a number';",
+      "property": "NULL value refused (missing input not stored as zero)",
+      "lines": "194-195"
+    }
+  ]
+}
