@@ -1,0 +1,1 @@
+| F-reset-clears-wake-lease | After `mill reset seat DESK` or `mill retire desk DESK`, the desk's in-memory wake lease is dropped (`wake.gate_clear`) with no trailing POST. The next wake for that desk is sent, not coalesced under the prior holder's lease. Card 892. | `rpc._h_reset`, `rpc._h_retire`, `wake.gate_clear` | `tests/server/test_reset_clears_wake_lease_892.py` |

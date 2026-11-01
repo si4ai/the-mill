@@ -1321,6 +1321,7 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
 def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import name as rec_name
     from agent_coord.server.admin import catalog as admin_cat
+    from agent_coord.server import wake
 
     if str(body.get("name_type") or "").strip().lower() == "todo":
         return _each_need(body.get("need"), lambda n: _todo_retire_one(c, n, project, owner, back=False))
@@ -1334,6 +1335,10 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         if slug_guess:
             freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_guess, held=True) or []) if r.get("id")]
         rows = admin_cat.retire(c._cn, owner or "", body)
+        # #892: retire desk ends the wake lease (no trailing POST).
+        kind = str(body.get("name_type") or "").strip().lower()
+        if slug_guess and kind in ("", "desk"):
+            wake.gate_clear(slug_guess)
         _poke_freed_holds(c, freed, owner=owner)
     else:
         slug_s = _stored(raw)
@@ -1341,6 +1346,8 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
             raise CoordError("mill retire: hash owns this desk only")
         freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_s, held=True) or []) if r.get("id")]
         rows = rec_name.retire(c._cn, slug_s, "desk", by=slug_s, by_hash=_seat_hash(c, project, owner))
+        # #892: self-retire desk ends the wake lease.
+        wake.gate_clear(slug_s)
         _poke_freed_holds(c, freed, owner=owner)
     return rows
 
@@ -1424,6 +1431,7 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.records import hold as rec_hold
     from agent_coord.server.records import join as rec_join
     from agent_coord.server.admin.guard import require_admin
+    from agent_coord.server import wake
 
     require_admin(c._cn, owner or "")
     if body.get("dead") or body.get("prune_dead"):
@@ -1432,8 +1440,11 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if not who:
         raise CoordError("reset: desk required (or --dead to count seats with no token_hash)")
     # Card 881: capture hold ids before release so watchers get a drop-shaped hint.
-    freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=_stored(who), held=True) or []) if r.get("id")]
-    rows = rec_join.reset(c._cn, _stored(project), _stored(who))
+    desk = _stored(who)
+    freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=desk, held=True) or []) if r.get("id")]
+    rows = rec_join.reset(c._cn, _stored(project), desk)
+    # #892: drop the in-memory wake lease so the next holder is not coalesced.
+    wake.gate_clear(desk)
     _poke_freed_holds(c, freed, owner=owner)
     return {"ok": True, "reset": rows}
 
