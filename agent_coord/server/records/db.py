@@ -10,6 +10,8 @@ from typing import Any
 from agent_coord.install.migrate import apply_records
 
 _POOL = None
+_POOL_DB: str | None = None  # schema the live pool was built for
+_POOL_SEQ = 0
 _POOL_LOCK = threading.Lock()
 _POOL_SIZE = 8
 _POOL_NAME = "mill_wall"
@@ -31,22 +33,33 @@ def conn_kwargs() -> dict:
 
 
 def _pool():
-    """Lazy MySQLConnectionPool (modest size). Shared by Book / HTTP path."""
-    global _POOL
-    if _POOL is not None:
+    """Lazy MySQLConnectionPool (modest size). Shared by Book / HTTP path.
+
+    Rebuild when ``AGENT_COORD_DATABASE`` (via conn_kwargs) no longer matches the
+    schema the pool was first built for. Throwaway sql suites under xdist flip
+    the env per file; Book() / bare ``connect()`` must follow that name or ws
+    auth looks at an empty book (4401 bad token).
+    """
+    global _POOL, _POOL_DB, _POOL_SEQ
+    want = str(conn_kwargs().get("database") or "")
+    if _POOL is not None and _POOL_DB == want:
         return _POOL
     with _POOL_LOCK:
-        if _POOL is not None:
+        want = str(conn_kwargs().get("database") or "")
+        if _POOL is not None and _POOL_DB == want:
             return _POOL
         from mysql.connector import pooling
 
         kw = conn_kwargs()
+        _POOL_SEQ += 1
+        # Connector keeps pools by name for the process; bump so a rebuild works.
         _POOL = pooling.MySQLConnectionPool(
-            pool_name=_POOL_NAME,
+            pool_name=f"{_POOL_NAME}_{_POOL_SEQ}",
             pool_size=_POOL_SIZE,
             pool_reset_session=True,
             **kw,
         )
+        _POOL_DB = want
         return _POOL
 
 
@@ -222,12 +235,11 @@ def retryable_db(exc: BaseException) -> bool:
 def connect(database: str | None = None):
     """Checkout a pooled connection (close() returns it). Override DB -> direct.
 
-    An explicit ``database=`` always opens a direct connection. The process pool
-    stays on the schema it was first built for; when tests set
-    ``AGENT_COORD_DATABASE`` to that same name and then call ``connect(name)``,
-    a name-equal check would hand back the stale pool and ``apply`` / invite SPs
-    would land on the wrong book (release/0.8.3 pytest_sql under xdist). A full
-    pool waits about 2s. A down book fails at once (#144).
+    An explicit ``database=`` always opens a direct connection (never the pool),
+    even when the name matches ``AGENT_COORD_DATABASE`` - see F-connect-explicit-db.
+    Bare ``connect()`` uses the pool, which rebuilds when the configured database
+    name changes (F-pool-follows-database). A full pool waits about 2s. A down
+    book fails at once (#144).
     """
     kw = conn_kwargs()
     if database is not None:
