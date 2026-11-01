@@ -25,14 +25,14 @@
     {
       "id": "h-send-def",
       "path": "agent_coord/server/api/mill/rpc.py",
-      "marker": "def _h_send(",
+      "marker": "def _h_send(\n    c: Book, body: dict[str, Any], project: str, owner: str | None, *, room_only: set[str] | None = None\n) -> Any:\n    \"\"\"Speak. Letter body + mail_tos[{deskId}].\n\n    Accept mail_tos in body, or dst (comma To). Top-level roster /\n    --roster = sender tag (mail.roster_id); omitted, the letter's\n    project (the seat's project when the body names none, #241). A dest roster\n    is not stored: mail_to is the dest name, opened, and receipt.\n    To is *, a project name, project:role, a desk name, or a session role.\n    Host room: body name/tree/room (CLI --name) is the plan name.\n    Multi-To alone does NOT open a room. Room cast = sender \u222a mail_tos.\n\n    room_only (#627) is set only by reply: the dests that get this letter as\n    room members (reply-all), not by name. A client body cannot set it.\n    \"\"\"\n\n    from agent_coord.client.outbound.addressing import parse_mail_to\n    from agent_coord.server.records import mail as rec_mail\n    from agent_coord.server.records import name as rec_name\n    from agent_coord.server.records import tree as rec_tree\n\n    src = _stored(str(body.get(\"src\") or owner or \"\"))",
       "property": "send entry",
       "lines": "1526"
     },
     {
       "id": "h-reply-def",
       "path": "agent_coord/server/api/mill/rpc.py",
-      "marker": "def _h_reply(",
+      "marker": "def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:\n    \"\"\"Nest under mail_id. Default mail_to = reply-all: parent sender U parent mail_tos;\n    when the parent is in a room (on a TREE), every room participant (any desk that\n    sent or received a letter on that TREE) is added too.\n\n    Exclude the replying desk from dest (no self-To). --to-desk replaces the full\n    dest list. Recipients on a letter and below it change with mill add|remove mail:ID.\n    Room cast = sender U mail_tos. If parent is not on a TREE, create a room with\n    parent as root and this mail as child. Optional --roster overrides the\n    replying desk's sender tag (mail.roster_id); the letter always carries one.\n    \"\"\"\n    from agent_coord.server.records import mail as rec_mail\n    from agent_coord.server.records import name as rec_name\n    from agent_coord.server.records import tree as rec_tree\n\n    if body.get(\"add_to\") or body.get(\"remove_to\"):",
       "property": "reply entry",
       "lines": "1891"
     },
@@ -46,7 +46,7 @@
     {
       "id": "insert-rollback",
       "path": "agent_coord/server/sql/sp_mail.sql",
-      "marker": "DECLARE EXIT HANDLER FOR SQLEXCEPTION\n  BEGIN\n    ROLLBACK;\n    RESIGNAL;\n  END;\n  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;\n  SET v_ts = MILL_NOW();\n  -- Roster: the sender roster name.",
+      "marker": "  DECLARE EXIT HANDLER FOR SQLEXCEPTION\n  BEGIN\n    ROLLBACK;\n    RESIGNAL;\n  END;\n  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;\n  SET v_ts = MILL_NOW();\n  -- Roster: the sender roster name.\n  SET v_proj = MILL_NAME_GET('roster', p_project);",
       "property": "FailedInsertLeavesNoPartial / GuardRollbackOnError (mill_mail_insert)",
       "lines": "254-261"
     },
@@ -59,10 +59,11 @@
     },
     {
       "id": "mail-body-varchar",
-      "path": "agent_coord/server/sql/sp_mail.sql",
-      "marker": "IN p_body    VARCHAR(4096),",
-      "property": "SQL body cap matches rpc refuse",
-      "lines": "240"
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "rpc body cap 1..4096 matches SQL VARCHAR(4096)",
+      "lines": "1557-1558,1914-1915",
+      "expected_count": 2
     },
     {
       "id": "open-for-update",
