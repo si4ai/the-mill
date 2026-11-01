@@ -358,7 +358,13 @@ BEGIN
   IF v_sender IS NOT NULL THEN
     CALL mill_tree_detach('mail', p_id);
   END IF;
-  -- card 1022: mark matching wakes taken (no delete)
+  -- card 1022: mark matching wakes taken (no delete) and write transitions
+  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+  SELECT 'wake', id, state, 'taken', 'wake_deliver', 0, 'office'
+    FROM wake
+   WHERE cause IN ('mail', 'receipt')
+     AND state <> 'taken'
+     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = p_id;
   UPDATE wake
      SET state = 'taken'
    WHERE cause IN ('mail', 'receipt')

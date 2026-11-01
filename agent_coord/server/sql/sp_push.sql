@@ -115,6 +115,7 @@ BEGIN
       SELECT MIN(id) AS id
         FROM wake
        WHERE cause = 'expired'
+         AND state <> 'taken'
        GROUP BY desk_id
     ) AS keep_one
   ) AS one ON one.id = e.id
@@ -154,7 +155,7 @@ BEGIN
            'missed', IFNULL(CAST(JSON_EXTRACT(e.payload, '$.missed') AS UNSIGNED), 0) + s.n_missed,
            'error', IFNULL(CAST(JSON_EXTRACT(e.payload, '$.error') AS UNSIGNED), 0) + s.n_error
          )
-   WHERE e.cause = 'expired';
+   WHERE e.cause = 'expired' AND e.state <> 'taken';
 
   -- New expired markers need activity+wake rows
   BEGIN
@@ -186,6 +187,7 @@ BEGIN
        WHERE NOT EXISTS (
          SELECT 1 FROM wake AS already
           WHERE already.desk_id = s.desk_id AND already.cause = 'expired'
+            AND already.state <> 'taken'
        );
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
     OPEN cur;

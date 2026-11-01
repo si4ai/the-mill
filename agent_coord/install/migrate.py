@@ -298,6 +298,7 @@ _SP_FULL_REFRESH: tuple[str, ...] = (
     "sp_score.sql",
     "sp_label.sql",
     "sp_tree.sql",
+    "sp_cmd.sql",  # card 1022 R3: cmd_push_sent/put_back/mark write transitions
 )
 
 # #216: activity is the timeline, not a parent. A payload row is written first and its

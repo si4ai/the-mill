@@ -256,3 +256,24 @@ def test_expire_on_a_fresh_queue_writes_no_line(cn) -> None:
 
 def test_take_for_an_unknown_desk_is_empty(cn) -> None:
     assert rec_push.take(cn, "push-f17-nobody") == []
+
+def test_second_expire_window_after_take_gets_new_marker(cn) -> None:
+    """R2 / card 1032: after the desk takes the expired marker, a later window gets a new one."""
+    away = _desk(cn, "push-expire-retaken")
+    _push(cn, "push-expire-retaken", away, "mail", "missed", 40, {"body": "first-window"})
+    rec_push.expire(cn)
+    take1 = rec_push.take(cn, "push-expire-retaken")
+    assert [i["kind"] for i in take1] == ["expired"]
+    assert _counts(take1[0])["mail"] == 1
+    assert _rows(cn, away) == []
+    # later window while the first marker is taken
+    _push(cn, "push-expire-retaken", away, "mail", "missed", 40, {"body": "second-mail"})
+    _push(cn, "push-expire-retaken", away, "hint", "missed", 40, {"body": "second-hint"})
+    rec_push.expire(cn)
+    take2 = rec_push.take(cn, "push-expire-retaken")
+    assert [i["kind"] for i in take2] == ["expired"], take2
+    assert _counts(take2[0])["mail"] == 1
+    assert _counts(take2[0])["hint"] == 1
+    assert "second-mail" not in _blob(take2[0])
+    assert "second-hint" not in _blob(take2[0])
+

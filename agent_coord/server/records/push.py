@@ -325,7 +325,7 @@ def pending(cn, desk: str) -> int:
     try:
         count_rows = (
             "SELECT COUNT(*) FROM wake p JOIN name d ON d.id = p.desk_id"
-            " WHERE d.type = 'desk' AND d.name = %s"
+            " WHERE d.type = 'desk' AND d.name = %s AND p.state <> 'taken'"
         )
         cur.execute(count_rows, (str(desk or "").strip(),))
         row = cur.fetchone()

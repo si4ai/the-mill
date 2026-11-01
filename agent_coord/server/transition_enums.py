@@ -192,6 +192,8 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.wake, State.error, State.taken, Reason.wake_deliver),  # Q7
         (ActivityType.wake, State.queued, State.taken, Reason.wake_deliver),  # Q8
         (ActivityType.wake, State.sent, State.missed, Reason.wake_owed),  # Q9 put_back
+        (ActivityType.wake, State.missed, State.sent, Reason.wake_sent),  # Q10 mark live
+        (ActivityType.wake, State.missed, State.error, Reason.wake_fail),  # Q11 mark error
         (ActivityType.wake, State.idle, State.push_pending, Reason.wake_queue),  # W1
         (ActivityType.wake, State.none, State.unread_owed, Reason.wake_owed),  # W2
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_sent),  # W3a

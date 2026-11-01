@@ -581,6 +581,8 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','lease_live','idle','wake_stale'),
   ('wake','lease_live','trail','wake_trail'),
   ('wake','left','ring','wake_ring'),
+  ('wake','missed','error','wake_fail'),
+  ('wake','missed','sent','wake_sent'),
   ('wake','missed','taken','wake_deliver'),
   ('wake','none','queued','wake_queue'),
   ('wake','none','unread_owed','wake_owed'),

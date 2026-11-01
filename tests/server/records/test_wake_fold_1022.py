@@ -71,34 +71,40 @@ def test_hint_push_writes_activity_wake_and_transition_survives_handback(cn):
 
 
 def test_two_desk_mail_wake_handback_no_lost_or_duplicate(cn):
-    """Live-style: desk A queues a mail wake for desk B; B takes once; no lost/dup."""
-    a = f"desk-a-1022-{id(cn) % 100000}"
-    b = f"desk-b-1022-{id(cn) % 100000}"
-    for d in (a, b):
-        _exec(cn, "INSERT INTO name (type, name) VALUES ('desk', %s)", (d,))
-        did = _q(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (d,))[0][0]
-        _exec(
-            cn,
-            "INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on)"
-            " VALUES (%s, NULL, 'polling', 'addressed')",
-            (did,),
-        )
-    cn.commit()
+    """Live-style: A sends a real letter to B; B hand-back via peek+ack; no lost/dup."""
+    from agent_coord.server import push as server_push
+    from agent_coord.server.records import mail as rec_mail
+
+    a = admin_desk(cn, f"desk-a-1022-{id(cn) % 100000}")
+    b = admin_desk(cn, f"desk-b-1022-{id(cn) % 100000}")
     b_id = _q(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (b,))[0][0]
 
-    # A "sends" a mail wake toward B (payload carries mail id)
-    mail_id = 9100221
-    put_rows = push_rec.put(cn, b, "mail", {"id": mail_id, "from": a}, "missed")
+    # A sends a real letter to B (mail.insert), then emit queues the wake as send does.
+    letter = rec_mail.insert(cn, "Office", a, b, "hello from a for 1022")
     cn.commit()
-    wid = int(put_rows[0]["id"])
-    before = _q(cn, "SELECT COUNT(*) FROM wake WHERE desk_id=%s AND cause='mail' AND state<>'taken'", (b_id,))[0][0]
+    mail_id = int(letter[0]["id"])
+    server_push.emit(cn, b, "mail", {"id": mail_id, "from": a, "kind": "mail"})
+    cn.commit()
+    before = _q(
+        cn,
+        "SELECT COUNT(*) FROM wake WHERE desk_id=%s AND cause='mail' AND state<>'taken'",
+        (b_id,),
+    )[0][0]
     assert before >= 1
+    wid = _q(
+        cn,
+        "SELECT id FROM wake WHERE desk_id=%s AND cause='mail' AND state<>'taken'"
+        " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s ORDER BY id",
+        (b_id, mail_id),
+    )[0][0]
 
-    # B is woken: take once (hand-back). Sync item carries mail id in payload.
-    got = push_rec.take(cn, b)
+    # B hand-back via production peek+ack (#831), not mill_push_take.
+    held = push_rec.peek(cn, b)
+    mail_items = [it for it in held if int(it.get("id") or 0) == mail_id and it.get("kind") == "mail"]
+    assert len(mail_items) == 1, (list(held), _q(cn, "SELECT id,desk_id,cause,state FROM wake"))
+    assert wid in held.ids
+    assert push_rec.ack(cn, b, held.ids) >= 1
     cn.commit()
-    mail_items = [it for it in got if int(it.get("id") or 0) == mail_id and it.get("kind") == "mail"]
-    assert len(mail_items) == 1, (got, _q(cn, "SELECT id,desk_id,cause,state FROM wake"))
     row = _q(cn, "SELECT state, cause FROM wake WHERE id=%s", (wid,))
     assert row == [("taken", "mail")]
     assert _q(
@@ -107,10 +113,56 @@ def test_two_desk_mail_wake_handback_no_lost_or_duplicate(cn):
         (wid,),
     )
     # no second delivery of this wake row
-    got2 = push_rec.take(cn, b)
+    held2 = push_rec.peek(cn, b)
     cn.commit()
-    assert not [it for it in got2 if int(it.get("id") or 0) == mail_id and it.get("kind") == "mail"]
+    assert not [it for it in held2 if int(it.get("id") or 0) == mail_id and it.get("kind") == "mail"]
     assert _q(cn, "SELECT COUNT(*) FROM wake WHERE id=%s", (wid,)) == [(1,)]
+
+
+
+def test_pending_zero_and_drained_after_ack(cn):
+    """R1 / card 1031: pending and _queue_drained ignore taken rows (real ack, no monkeypatch)."""
+    from agent_coord.server import wake as wake_mod
+
+    desk = admin_desk(cn, "pending-ack-1031")
+    push_rec.put(cn, desk, "hint", {"id": 10311}, "missed")
+    push_rec.put(cn, desk, "hint", {"id": 10312}, "missed")
+    cn.commit()
+    assert push_rec.pending(cn, desk) == 2
+    held = push_rec.peek(cn, desk)
+    assert len(held.ids) == 2
+    assert push_rec.ack(cn, desk, held.ids) == 2
+    cn.commit()
+    assert push_rec.pending(cn, desk) == 0
+    assert wake_mod._queue_drained(desk) is True
+
+
+def test_ack_writes_taken_transition(cn):
+    """R3: production peek+ack (cmd_push_sent) writes a taken transition."""
+    desk = admin_desk(cn, "ack-transition-r3")
+    rows = push_rec.put(cn, desk, "hint", {"id": 10331}, "missed")
+    cn.commit()
+    wid = int(rows[0]["id"])
+    before = {
+        r[0]
+        for r in _q(
+            cn,
+            "SELECT to_state FROM transition WHERE activity_type='wake' AND activity_id=%s",
+            (wid,),
+        )
+    }
+    assert "taken" not in before
+    held = push_rec.peek(cn, desk)
+    assert wid in held.ids
+    assert push_rec.ack(cn, desk, held.ids) == 1
+    cn.commit()
+    assert _q(cn, "SELECT state FROM wake WHERE id=%s", (wid,)) == [("taken",)]
+    assert _q(
+        cn,
+        "SELECT 1 FROM transition WHERE activity_type='wake' AND activity_id=%s"
+        " AND to_state='taken' AND reason='wake_deliver' LIMIT 1",
+        (wid,),
+    )
 
 
 def test_migrate_moves_queued_push_queue_rows(cn):
