@@ -90,10 +90,13 @@ person or host leaks:
 
 5. Tell your loop lead the PR number in the card's thread. Merge path
    (who Passes, who merges, squash vs merge commit) is in
-   [RELEASE-FLOW.md](RELEASE-FLOW.md): a card PR needs a Validator Pass at
-   head and lands as a squash via the queue; a `release/*` PR lands as a
-   merge commit (card 935, F225). The head branch is deleted on merge. Do
-   not merge your own PR; a partner desk merges.
+   [RELEASE-FLOW.md](RELEASE-FLOW.md): the default is to fold the card onto
+   `release/X.Y.Z` with **no** per-card Pass; the Validator does one Pass on
+   the release head, and a partner merges that release PR as a merge commit
+   (card 935, F225). A standalone card PR to `main` with its own Pass is the
+   exception (urgent desk-blocking, when the loop lead says so on the card)
+   and then lands as a squash via the queue. The head branch is deleted on
+   merge. Do not merge your own PR; a partner desk merges.
    Automatic Copilot code review is off (the `copilot-review` ruleset is
    disabled to save AI credits). A partner may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
@@ -191,9 +194,9 @@ builder-type desks that are not the author, with all seven CI checks green
 at that sha; the merge desk is not the author and re-checks before
 enqueueing. After a bypass, the validator desk re-measures within one
 session; the auditor desk's weekly pass matches bypasses to letters. A
-post-hoc fail or a release-candidate tip FAIL opens a card for the merge
-desk and an incident note to the auditor desk. The ruleset keeps `validator` required on every PR (both
-desks can post it through the same app).
+post-hoc fail or a FAIL on the release tip (the head the Validator Passed) opens a card for the merge
+desk and an incident note to the auditor desk. The ruleset keeps `validator` required on every PR head (the release
+PR head carries that success; both desks can post it through the same app).
 
 Pass classes get the full validator check: security, SQL and migrations,
 wire or CLI shape, connect, wake and webhook, CI and dependency gates, and
