@@ -3106,8 +3106,8 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
 
 
 def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """#288: NAME VALUE records a point; NAME --target/--better/--unit sets them (#306);
-    retire removes the score (#302); NAME reads the series; neither lists the roster."""
+    """#288 / card 1021: NAME reads the series; neither lists the roster.
+    Desk VALUE / define / retire writes are refused; the server tick writes points."""
     from agent_coord.helpers.errors import CoordError
     from agent_coord.server import score_series as ss
     from agent_coord.server.records import score as rec_score
@@ -3117,89 +3117,26 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     roster = _stored(project)
     has_value = raw is not None and str(raw).strip() != ""
     at = str(body.get("at") or "").strip() or None
-    if body.get("retire"):
-        if not name:
-            raise CoordError("score: retire needs ROSTER NAME")
-        if has_value or at:
-            raise CoordError("score: retire takes no VALUE or --at; nothing changed")
-        from agent_coord.server.admin.guard import is_role_admin
-
-        try:
-            rows = rec_score.retire(
-                c._cn, roster, _stored(owner or ""), name, admin=is_role_admin(c._cn, _stored(owner or ""))
-            )
-        except Exception as e:
-            text = str(e)
-            if "no such score" in text:
-                raise CoordError(f"score: no score {name} on {project}; nothing retired") from e
-            if "only a desk" in text:
-                raise CoordError(
-                    f"score: only a desk that recorded on {name}, or Admin, can retire it; nothing retired"
-                ) from e
-            raise
-        nid = (rows[0] or {}).get("id") if rows else None
-        return {"score": name, "id": nid, "retired": True}
-    target = body.get("target")
-    if target is not None and str(target).strip() != "":
-        if ss.number(target) is None:
-            raise CoordError(f"score: --target must be a number, got {str(target)[:40]!r}; nothing stored")
-        target = str(target).strip()
-    else:
-        target = None
-    better = str(body.get("better") or "").strip() or None
-    if better is not None and better not in ("up", "down"):
-        raise CoordError("score: --better must be up or down; nothing stored")
-    unit = str(body.get("unit") or "").strip() or None
-    if unit is not None and len(unit) > 16:
-        raise CoordError("score: --unit must be 1..16 characters; nothing stored")
-    note = str(body.get("note") or "")
-    if len(note) > ss.NOTE_MAX:
-        # #707: say the limit, not the book's column error.
-        raise CoordError(
-            f"score: --note is {len(note)} characters; the most is {ss.NOTE_MAX}, one line; nothing stored"
+    # Card 1021: desks only read. Server ticks / admin_upsert write points.
+    target_early = body.get("target")
+    better_early = str(body.get("better") or "").strip() or None
+    unit_early = str(body.get("unit") or "").strip() or None
+    defining = bool(
+        name
+        and (
+            (target_early is not None and str(target_early).strip() != "")
+            or better_early is not None
+            or unit_early is not None
         )
-    if at and not has_value:
-        raise CoordError("score: --at needs a VALUE; nothing stored")
-    if at and not ss.at_ok(at):
-        raise CoordError("score: --at must be YYYY-MM-DD[THH:MM[:SS]] or Nm, Nh, Nd ago; nothing stored")
-    if has_value:
-        value = ss.number(raw)
-        if value is None:
-            raise CoordError(f"score: VALUE must be a number, got {str(raw)[:40]!r}; nothing stored")
-        try:
-            rows = rec_score.point_add(
-                c._cn,
-                roster,
-                _stored(owner or ""),
-                name,
-                value,
-                target=target,
-                note=note,
-                better=better,
-                unit=unit,
-                at=at,
-            )
-        except Exception as e:
-            text = str(e)
-            if "--at" in text:
-                raise CoordError(text[text.index("score:"):] + "; nothing stored") from e
-            raise
-    elif name and (target is not None or better is not None or unit is not None):
-        if str(body.get("note") or "").strip():
-            raise CoordError("score: --note goes with a VALUE; nothing stored")
-        rows = rec_score.define(c._cn, roster, _stored(owner or ""), name, target=target, better=better, unit=unit)
-    else:
-        rows = None
-    if rows is not None:
-        nid = (rows[0] or {}).get("id") if rows else None
-        _poke(c, "score", nid, "score", owner=owner)
-        got = ss.shape(rec_score.points(c._cn, roster, name, ss.TREND_POINTS), 0) if nid else []
-        return got[0] if got else rows
+    )
+    if has_value or body.get("retire") or defining or at:
+        hint = f"mill score {project}" + (f" {name}" if name else "")
+        raise CoordError(f"score: desks only read scores; use {hint}")
     limit = int(body.get("limit") or 10)
     if name:
         got = ss.shape(rec_score.points(c._cn, roster, name, max(limit, ss.TREND_POINTS)), limit)
         if not got:
-            raise CoordError(f"score: no score {name} on {project}; record one with mill score {project} {name} VALUE")
+            raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
             one = _cards_score_view(c, one, project, owner)
