@@ -284,8 +284,14 @@ def test_refused_hold_records_no_doing(w):
 
 
 def test_score_doing_links_the_score(w):
-    res = w.ok(["score", R, "k818", "3", "--doing", "measuring"])
-    assert res["doing_entry"]["on"] == f"score-{int(res['id'])}"
+    """Card 1021: desks only read scores; seed via point_add, then --doing on the read."""
+    from agent_coord.server.records import score as rec_score
+
+    rows = rec_score.point_add(w.cn, R, ME, "k818", 3.0)
+    w.cn.commit()
+    sid = int(rows[0]["id"])
+    res = w.ok(["score", R, "k818", "--doing", "measuring"])
+    assert res["doing_entry"]["on"] == f"score-{sid}"
 
 
 # (e) refusals and the command standing --------------------------------------------

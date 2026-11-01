@@ -3129,7 +3129,8 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             or unit_early is not None
         )
     )
-    if has_value or body.get("retire") or defining or at:
+    note_early = str(body.get("note") or "")
+    if has_value or body.get("retire") or defining or at or note_early.strip():
         hint = f"mill score {project}" + (f" {name}" if name else "")
         raise CoordError(f"score: desks only read scores; use {hint}")
     limit = int(body.get("limit") or 10)
