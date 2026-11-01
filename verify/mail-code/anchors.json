@@ -1,0 +1,89 @@
+{
+  "sync_note": "Anchors couple the mail recovery model to the real files. Each marker is the guard line plus its first effect line (card 1014). Line numbers are hints; the check matches the marker string and expected_count.",
+  "anchors": [
+    {
+      "id": "send-body-refuse",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "raw = str(body.get(\"body\") or \"\").strip()\n    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "OversizedBodyRefused / GuardBodyRefuse (_h_send)",
+      "lines": "1556-1558"
+    },
+    {
+      "id": "reply-body-refuse",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "raw = str(body.get(\"body\") or body.get(\"msg\") or \"\").strip()\n    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "OversizedBodyRefused / GuardBodyRefuse (_h_reply)",
+      "lines": "1913-1915"
+    },
+    {
+      "id": "send-receipt-zero",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "receipt = 0\n    sender_roster = _stored(body.get(\"roster\"))",
+      "property": "CLI send never sets receipt (activity-states)",
+      "lines": "1563-1564"
+    },
+    {
+      "id": "h-send-def",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "def _h_send(",
+      "property": "send entry",
+      "lines": "1526"
+    },
+    {
+      "id": "h-reply-def",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "def _h_reply(",
+      "property": "reply entry",
+      "lines": "1891"
+    },
+    {
+      "id": "orphan-refuse",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "IF NOT EXISTS (SELECT 1 FROM mail_to WHERE type = 'mail' AND id = v_id LIMIT 1) THEN\n    SIGNAL SQLSTATE '45000'",
+      "property": "NoOrphanMail / GuardNoOrphan",
+      "lines": "281-282"
+    },
+    {
+      "id": "mail-insert-def",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "CREATE PROCEDURE mill_mail_insert(",
+      "property": "mill_mail_insert",
+      "lines": "235"
+    },
+    {
+      "id": "mail-body-varchar",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "IN p_body    VARCHAR(4096),",
+      "property": "SQL body cap matches rpc refuse",
+      "lines": "240"
+    },
+    {
+      "id": "open-for-update",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "SELECT opened, receipt, 1 INTO v_prev, v_receipt, v_n FROM mail_to\n   WHERE type = 'mail' AND id = p_mail AND desk_id = v_desk\n   LIMIT 1 FOR UPDATE;",
+      "property": "GuardOpenLocked (SPIN E01)",
+      "lines": "29-31"
+    },
+    {
+      "id": "open-first-only",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "IF v_n > 0 AND v_prev IS NULL THEN\n    UPDATE mail_to\n       SET opened = v_ts\n     WHERE type = 'mail' AND id = p_mail AND desk_id = v_desk AND opened IS NULL;",
+      "property": "FirstOpenKept / HandledIsFinal / GuardFirstOpenOnly",
+      "lines": "33-36"
+    },
+    {
+      "id": "push-receipt-first",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "IF(v_prev IS NULL AND v_n > 0 AND v_receipt <> 0, 1, 0) AS push_receipt",
+      "property": "OneReceiptPerRecipient / GuardOneReceipt",
+      "lines": "41"
+    },
+    {
+      "id": "mail-open-def",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "CREATE PROCEDURE mill_mail_open(",
+      "property": "mill_mail_open",
+      "lines": "9"
+    }
+  ]
+}
