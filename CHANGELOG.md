@@ -16,7 +16,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 902 / F-hint-cut-tail: visible cut tail on mail HINT and lean bodies
 - card 934 / F-desk-start-sh: POSIX desk-start.sh for Linux and WSL
 - card 973: grok-bot guide restores cold-desk leave line after barker move
-- card 950 / F-desk-start-exit-wait: desk-start window WaitForExit and `-Stub` open/close path
+- card 950 / F229: desk-start window WaitForExit and `-Stub` open/close path
 - card 979 / F-rooms-live-ws: mill rooms works on live /ws
 - card 974 / F-leave-retire: desk self-retire on live /ws; remove roster without `--yes` exits 1
 

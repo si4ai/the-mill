@@ -1,4 +1,4 @@
-"""F-desk-start-exit-wait / card 950: desk-start window mode WaitForExit + stub child.
+"""F229 / card 950: desk-start window mode WaitForExit + stub child.
 
 Without WaitForExit, grok shares the console with the calling PowerShell and
 a clean grok exit hangs the terminal. Stub mode exercises the same
@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PS1 = ROOT / "tools" / "desk" / "desk-start.ps1"
 README = ROOT / "tools" / "desk" / "README.md"
-ROW = ROOT / "docs" / "security" / "regression" / "F-desk-start-exit-wait.md"
+ROW = ROOT / "docs" / "security" / "regression" / "F229.md"
 MATRIX = ROOT / "docs" / "security" / "REGRESSION-MATRIX.md"
 
 
@@ -76,13 +76,13 @@ def test_readme_documents_stub_and_wait():
     assert "MILL_DESK_START_STUB" in text
 
 
-def test_desk_start_exit_wait_row_and_matrix():
-    assert ROW.is_file(), "docs/security/regression/F-desk-start-exit-wait.md missing"
+def test_f229_row_and_matrix():
+    assert ROW.is_file(), "docs/security/regression/F229.md missing"
     line = ROW.read_text(encoding="utf-8")
-    assert "| F-desk-start-exit-wait" in line
+    assert "| F229" in line
     assert "WaitForExit" in line
     assert "Stub" in line or "stub" in line
     assert "test_desk_start_exit_hang_950" in line
     assert "950" in line
     matrix = MATRIX.read_text(encoding="utf-8")
-    assert "| F-desk-start-exit-wait" in matrix
+    assert "| F229" in matrix
