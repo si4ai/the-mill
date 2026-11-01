@@ -120,6 +120,11 @@ from agent_coord.server.mail_sor import (  # noqa: E402
     KPI_MAIL_HIT,
     KPI_MAIL_REASK,
 )
+from agent_coord.server.wasted_wake import (  # noqa: E402
+    BOOK_PERF as _WASTED_BOOK_PERF,
+    KPI_SHARE as KPI_WASTED_SHARE,
+    KPI_WASTED,
+)
 
 BOOK_PERF: dict[str, str] = {
     **_WAKE_BOOK_PERF,
@@ -127,10 +132,13 @@ BOOK_PERF: dict[str, str] = {
     **_HOLD_BOOK_PERF,
     **_NEST_BOOK_PERF,
     **_MAIL_BOOK_PERF,
+    **_WASTED_BOOK_PERF,
 }
 
 for _kpi in BOOK_PERF:
     BOOK_TARGET.setdefault(_kpi, "")
+BOOK_TARGET[KPI_WASTED] = "0"
+BOOK_TARGET[KPI_WASTED_SHARE] = "0"
 
 _TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z\s+")
 _PERF_OP = re.compile(r"\bop=([^\s]+)")
@@ -219,6 +227,7 @@ _HOLD_BLOCKED_OP = re.compile(r"\bop=hold\.blocked\b")
 _NEST_HIT_OP = re.compile(r"\bop=nest\.hit\b")
 _REASK_N = re.compile(r"\breask=(\d+)")
 _MAIL_HIT_OP = re.compile(r"\bop=mail\.hit\b")
+_WASTED_WAKE_DONE_OP = re.compile(r"\bop=wake\.done\b")
 
 
 def measure_wake_first(text: str, since: datetime) -> tuple[int, int]:
@@ -328,6 +337,36 @@ def measure_nest_sor(text: str, since: datetime) -> tuple[int, int]:
                 pass
     return hits, reasks
 
+
+
+def measure_wasted_wake(
+    text: str, since: datetime
+) -> tuple[int | None, int | None]:
+    """count wake.done lines; return (wasted_n, share_percent 0..100).
+
+    Share is wasted / all finished wakes. An empty sample returns (None, None)
+    so publish omits the KPIs (missing, never 0 or 100).
+    """
+    wasted = 0
+    wakes = 0
+    for line in (text or "").splitlines():
+        ts = _parse_ts(line)
+        if not _in_window(ts, since):
+            continue
+        if not _WASTED_WAKE_DONE_OP.search(line):
+            continue
+        m_wakes = re.search(r"\bwakes=(\d+)", line)
+        wakes += int(m_wakes.group(1)) if m_wakes else 1
+        m_wasted = re.search(r"\bwasted=(\d+)", line)
+        if m_wasted:
+            wasted += int(m_wasted.group(1))
+        else:
+            # A wake.done line without wasted= is treated as useful (0).
+            pass
+    if wakes <= 0:
+        return None, None
+    share = int(round(100.0 * float(wasted) / float(wakes)))
+    return wasted, max(0, min(100, share))
 
 def measure_mail_sor(text: str, since: datetime) -> tuple[int, int]:
     """count mail.hit lines + reask=1 lines in window. (0,0) if none."""
@@ -509,6 +548,8 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
     nest_reask_n = 0
     mail_hit_n = 0
     mail_reask_n = 0
+    wasted_n: int | None = None
+    wasted_share: int | None = None
     if perf.is_file():
         perf_text = perf.read_text(encoding="utf-8", errors="replace")
         wake_ms, wake_rpc = measure_wake_first(perf_text, since)
@@ -517,6 +558,7 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
         hold_blocked_ms = measure_hold_blocked(perf_text, since)
         nest_hit_n, nest_reask_n = measure_nest_sor(perf_text, since)
         mail_hit_n, mail_reask_n = measure_mail_sor(perf_text, since)
+        wasted_n, wasted_share = measure_wasted_wake(perf_text, since)
     return {
         KPI_TICKS: ticks,
         KPI_IDLE: idle,
@@ -532,6 +574,8 @@ def measure(*, dest: Path | None = None, window_s: int = WINDOW_S, now: datetime
         KPI_NEST_REASK: nest_reask_n,
         KPI_MAIL_HIT: mail_hit_n,
         KPI_MAIL_REASK: mail_reask_n,
+        KPI_WASTED: wasted_n,
+        KPI_WASTED_SHARE: wasted_share,
         "desks": _measure_desks(dest, since),
         "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "until": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -716,7 +760,12 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
         for kpi in wanted:
             note = BOOK_PERF[kpi]
             tgt = BOOK_TARGET.get(kpi, TARGET)
-            val = str(int(counts.get(kpi) or 0))
+            raw = counts.get(kpi)
+            # Empty sample (None): omit - missing data is not zero (card 1002 / 1019).
+            if raw is None:
+                out.setdefault("omitted", []).append(kpi)
+                continue
+            val = str(int(raw))
             rows = rec_score.admin_upsert(cn, kpi, val, tgt, note[:200])
             out["rows"].append({"kpi": kpi, "value": val, "target": tgt, "sql": rows})
     except Exception as e:

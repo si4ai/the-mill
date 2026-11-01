@@ -3203,6 +3203,14 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         one = got[0]
         if name == "cards":
             one = _cards_score_view(c, one, project, owner)
+        if name in ("wasted-wake", "wasted_wake", "mill-office.wasted_wake_n"):
+            try:
+                from agent_coord.server import wasted_wake
+
+                one = dict(one)
+                one.update(wasted_wake.score_view(owner if "office" not in name else None))
+            except Exception:
+                pass
         return one
     shaped = ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)
     out = {"roster": project, "scores": shaped}
@@ -3905,7 +3913,15 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
         raise CoordError("wake-done: owner required")
     got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""),
                           lease=str(body.get("lease") or ""))
-    return {"ok": True, "desk": owner, "wake": got}
+    out = {"ok": True, "desk": owner, "wake": got}
+    try:
+        from agent_coord.server import wasted_wake
+
+        view = wasted_wake.score_view(owner)
+        out["wasted_wake"] = view
+    except Exception:
+        pass
+    return out
 
 
 
@@ -4132,6 +4148,12 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
         except Exception:
             pass
         try:
+            from agent_coord.server import wasted_wake
+
+            wasted_wake.note_rpc(owner, command, ok=True)
+        except Exception:
+            pass
+        try:
             from agent_coord.server import commands_to_done
 
             commands_to_done.note_card(owner, command, out, body=body)
@@ -4301,6 +4323,12 @@ def dispatch_ws(
             from agent_coord.server import wake_first
 
             wake_first.note_rpc(owner, v, ok=True)
+        except Exception:
+            pass
+        try:
+            from agent_coord.server import wasted_wake
+
+            wasted_wake.note_rpc(owner, v, ok=True)
         except Exception:
             pass
         try:
