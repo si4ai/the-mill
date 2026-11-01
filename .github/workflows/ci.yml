@@ -277,18 +277,22 @@ jobs:
           python -m pip install --require-hashes -r tools/ci-lock/ci.txt
       - run: python -m pip install --no-deps --no-build-isolation dist/the_mill-*.tar.gz
       - name: Fetch PR base for targeted pytest
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags origin main
-          if [ -n "${{ github.base_ref }}" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF"
           fi
       # Card 959 / F-precheck: cheap checks before a Pass ask. Pack scan is
       # already the check_pack job; skip the nested rebuild here. Diff base is
       # the PR target (release/* or main), not always main, so a release-branch
       # PR does not re-run every test the release already folded.
-      - run: |
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
           base=origin/main
-          if [ -n "${{ github.base_ref }}" ]; then
-            base="origin/${{ github.base_ref }}"
+          if [ -n "$BASE_REF" ]; then
+            base="origin/$BASE_REF"
           fi
           ./tools/precheck.sh HEAD --skip-pack --base "$base"
