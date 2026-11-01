@@ -1,5 +1,6 @@
 /*
- * wake.pml - the mill wake path, as the code at the sync commit implements it.
+ * wake.pml - the mill wake path, as the code at the sync commit implements it
+ * (SYNC in run.sh: PR #322's head, main 0.8.4 plus card 889).
  *
  * One desk D, armed with a webhook, and N items (letters or hints) for it.
  * Every step names the code it stands for. One atomic block here is one
@@ -24,8 +25,40 @@
  *   SESSIONS     concurrent connects of D (2 lets a new connect supersede an old one)
  *   REFUSE       runs connect with -r: refused with 4409 while another holds the seat
  *   ATOMIC_EMIT  1 = treat emit/fanout as one step (hides the races, isolates loss)
- *   RETRY827     1 = card 827's proposed backoff retry (bounded, same idem key)
- *   RETRIES      how many backoff retries card 827 makes (each is one _fire)
+ *   RETRY827     1 = card 827 / #300 (F232, in 0.8.3): post_desk makes ONE POST
+ *                (_post_status); a retryable failure arms a retry chain off the
+ *                request (_arm_retry): full jitter from 5 s, doubling, capped at
+ *                10 min, about 1 h (RETRY_BUDGET_S) or RETRY_MAX attempts. Same
+ *                body: same idem key, same lease, no new window. Armed only when
+ *                the push queue is not empty (pending > 0). Stops when the push
+ *                queue is drained (_queue_drained), when any later wake of the
+ *                desk succeeds (_OK_GEN), or on a 401/404 (not modelled: a
+ *                receiver that refuses for good is MAXFAIL=255).
+ *                0 = before #300: _fire POSTs once and retries once at once.
+ *   RETRIES      how many retries the chain makes (the code's budget is at
+ *                least 12 and at most RETRY_MAX = 64; the model keeps it small)
+ *   UNREAD       1 = card 949 / #297 (F-replay-unread, in 0.8.3): items 1..N-1 are
+ *                letters, item 0 a hint. A letter is unread in the mailbox until the
+ *                desk opens it. A connect sync merges unread mail not already in it
+ *                (_merge_unread_into_sync); _send_trailing and ring_waiting also
+ *                ring when the push queue is empty but unread mail remains.
+ *                0 = before #297: only push rows ring or sync.
+ *   MAXSKIP      UNREAD: how many times in all a run may leave without opening the
+ *                letters it got (255 = a desk that never opens them)
+ *   MUT_NO_RERING mutation of #297: letters still need opening, but neither the
+ *                sync merge nor trailing nor ring-on-leave looks at unread mail
+ *                (must fail all_handled)
+ *   RETRY_UNREAD 1 = proposed: a failed wake also arms and keeps its retry while
+ *                unread mail remains (the code reads only the push queue)
+ *   DONE_IN_CONNECT 1 = a run may say mill wake-done inside its connect, while it
+ *                still sits (the routine wrapper runs every command inside its
+ *                connect); a run may also say it after the leave, or not at all.
+ *                0 = done only after the last leave (the model before 0.8.5)
+ *   SITTING_DONE 1 = card 889 / #322 (0.8.5): wake-done ends the lease, and when the
+ *                desk still has a live /ws (desk_sitting) it sends no trailing POST
+ *                (wake=sitting); held-back rows wait for that connect's sync or for
+ *                ring-on-leave. An away desk keeps the F144 trailing POST.
+ *                0 = before #322: the trailing POST goes out to a sitting desk.
  *   RECEIPT      1 = item 0 is a receipt: queued, never rings (push.py:573)
  *   RESTART      1 = the wall may restart once: windows and timers (memory) are lost
  *   PUTFIRST     1 = fix for card 832: rec_push.put (as missed) before the sitting
@@ -99,7 +132,22 @@
 #define ATOMIC_EMIT 0
 #endif
 #ifndef RETRY827
-#define RETRY827 0
+#define RETRY827 1
+#endif
+#ifndef UNREAD
+#define UNREAD 1
+#endif
+#ifndef MAXSKIP
+#define MAXSKIP 1
+#endif
+#ifndef RETRY_UNREAD
+#define RETRY_UNREAD 0
+#endif
+#ifndef DONE_IN_CONNECT
+#define DONE_IN_CONNECT 1
+#endif
+#ifndef SITTING_DONE
+#define SITTING_DONE 1
 #endif
 #ifndef RETRIES
 #define RETRIES 2
@@ -146,6 +194,22 @@
 #else
 #define RINGMASK ALL
 #endif
+/* #297: items 1..N-1 are letters (a mailbox row, unread until opened); item 0 is
+   a hint or a receipt */
+#define MAILMASK (ALL & ~1)
+#if UNREAD && !defined(MUT_NO_RERING)
+#define UNREAD_LEFT (MAILMASK & ~opened)
+#else
+#define UNREAD_LEFT 0      /* MUT_NO_RERING: letters still need opening, nothing rings or syncs them */
+#endif
+/* _send_trailing: push rows wait, or (#297) unread mail remains */
+#define WAITING (queued != 0 || UNREAD_LEFT != 0)
+/* _arm_retry / _queue_drained read only the push queue (rec_push.pending) */
+#if RETRY_UNREAD
+#define RETRY_WAIT WAITING
+#else
+#define RETRY_WAIT (queued != 0)
+#endif
 
 /* push_queue rows for D: one bit per item (sp_push.sql). */
 byte queued = 0;
@@ -155,6 +219,11 @@ byte dlv = 0;
 byte lost = 0;
 byte created = 0;      /* bitmask of items whose emit finished */
 byte sent = 0;         /* rows marked sent (a live frame reached a socket), 832 fix */
+byte opened = 0;       /* #297: letters the desk opened (mail.opened set) */
+byte skips = 0;        /* #297: leaves without opening, bounded by MAXSKIP */
+/* ghost (#322): a trailing POST from wake-done went out while the run's own
+   connect still sat */
+bool dup_done = false;
 
 /* wake.py _GATE / _TRAIL, kept in wall memory. */
 byte gate_ep = 0;      /* the window's start time, as an epoch number; 0 = none */
@@ -193,7 +262,7 @@ chan pend = [MAXRUNS] of { byte };
 #endif
 byte posts = 0;        /* every POST attempted, for the record */
 
-/* card 827 (proposal only) */
+/* card 827 (#300): the retry chain */
 bool chain = false;
 byte chain_left = 0;
 byte chain_gen = 0;    /* which failed wake the chain belongs to (see Retrier) */
@@ -222,18 +291,25 @@ inline post(ok, tk) {
   posts++;
   if
   :: cf < MAXFAIL -> cf++; ok = false
-  :: atomic { true -> cf = 0; ok = true; if :: nfull(pend) -> PEND_PUT(RUNTK(SENT_TK(tk)), RUNTK(tk)) :: full(pend) -> skip fi }
+  :: atomic { true -> cf = 0; ok = true; if :: nfull(pend) -> PEND_PUT(RUNTK(SENT_TK(tk)), RUNTK(tk)) :: full(pend) -> skip fi;
+#if RETRY827
+              chain = false        /* _wake_ok: a later success stops every older retry */
+#endif
+            }
   fi
 }
 
-/* wake.py _fire: POST once; a body with idem (every letter and hint wake has
-   one, poke_key) retries a failure once, at once, with no delay. */
+/* RETRY827 (#300): post_desk and each retry POST once (_post_status).
+   Before #300, wake.py _fire: POST once; a body with idem retries a failure
+   once, at once, with no delay. */
 inline fire(ok, tk) {
   post(ok, tk);
+#if !RETRY827
   if
   :: !ok -> post(ok, tk)
   :: else -> skip
   fi
+#endif
 }
 
 /* wake.py _coalesced: the first item held back in a window schedules the
@@ -271,7 +347,7 @@ inline post_desk(ok, took, tk) {
         atomic {
           firing--;
 #if RETRY827
-          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
+          if :: !ok && RETRY_WAIT -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
 #endif
         }
      :: else -> skip
@@ -305,7 +381,7 @@ inline post_desk(ok, took, tk) {
           firing--;
 #if RETRY827
           /* 827: a failed wake starts (or refreshes) the backoff chain */
-          if :: !ok -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
+          if :: !ok && RETRY_WAIT -> chain = true; chain_left = RETRIES; chain_gen++; chain_tk = tk :: else -> skip fi
 #endif
         }
      :: else ->
@@ -322,7 +398,7 @@ coal:
    waits -> post_desk (window, wake_on and checks as for any wake). */
 inline ring_waiting(ok, took, tk) {
   if
-  :: atomic { !SITTING && (queued & ~sent & RINGMASK) != 0 -> skip }; post_desk(ok, took, tk)
+  :: atomic { !SITTING && ((queued & ~sent & RINGMASK) != 0 || UNREAD_LEFT != 0) -> skip }; post_desk(ok, took, tk)
   :: else -> skip
   fi
 }
@@ -381,7 +457,7 @@ end_t:
 #if LEASE
      /* _send_trailing(lease-expired): POST only when rows still wait */
      if
-     :: atomic { queued != 0 -> skip }; post_desk(ok, took, tk)
+     :: atomic { WAITING -> skip }; post_desk(ok, took, tk)
      :: else -> skip                               /* wake=none reason=drained */
      fi
 #else
@@ -401,15 +477,19 @@ end_c:
 }
 
 #if RETRY827
-/* Card 827 (proposed): retry a failed wake with backoff, the same idem key,
-   bounded; stop as soon as D connects (gate_clear). Retries are the same wake:
-   they take no window. The delay is abstract (some time passes). */
+/* Card 827 (#300, live since 0.8.3): retry a failed wake off the request with
+   backoff, the same idem key and lease, bounded. Retries are the same wake: they
+   take no window. The delay is abstract (some time passes; an hour of retries
+   outlives the 900 s lease, which Clock allows between POSTs). Each attempt
+   first checks _stopped: the push queue drained ends the chain with no POST; a
+   later success elsewhere already ended it (post). */
 proctype Retrier() {
   bool ok;
   byte g, tk;
 end_r:
   do
-  :: atomic { chain && chain_left > 0 -> chain_left--; firing++; g = chain_gen; tk = chain_tk };
+  :: atomic { chain && chain_left > 0 && !RETRY_WAIT -> chain = false }   /* _queue_drained */
+  :: atomic { chain && chain_left > 0 && RETRY_WAIT -> chain_left--; firing++; g = chain_gen; tk = chain_tk };
      fire(ok, tk);
      /* A retry ends only its own chain. Without the g check (MUT_827_NOGEN),
         a late answer to an old retry cancels the chain of a newer failed wake. */
@@ -439,15 +519,20 @@ inline deliver(s) {
   atomic {
     if
 #if ACK_AFTER_SEND
-    :: !closed[s] -> dlv = dlv | infl[s]; queued = queued & ~infl[s]   /* sent, then ack */
+    :: !closed[s] -> dlv = dlv | infl[s] | UNREAD_LEFT; queued = queued & ~infl[s]   /* sent, then ack; #297 merge */
     :: else -> skip                                 /* not sent: rows stay queued */
 #else
-    :: !closed[s] -> dlv = dlv | infl[s]
+    :: !closed[s] -> dlv = dlv | infl[s] | UNREAD_LEFT
     :: else -> lost = lost | (infl[s] & ~dlv)      /* rows already deleted */
 #endif
     fi;
     infl[s] = 0
-  }
+  };
+#if UNREAD
+  /* the run opens (mill mark) the letters it got, or, at most MAXSKIP times in
+     all, leaves them unread (a short connect that only drained the push queue) */
+  atomic { if :: skips < MAXSKIP -> skips++ :: true -> opened = opened | (dlv & MAILMASK) fi }
+#endif
 }
 
 #if ACK_AFTER_SEND
@@ -460,7 +545,7 @@ inline deliver(s) {
    held-back items under the lock (TOKEN: only when the run's token is the
    current lease's, else stale: nothing ends, no POST); when the popped
    items belong to that lease and rows still wait, one trailing POST. */
-inline wake_done(ep, own, ok, took, t, tk) {
+inline wake_done(ep, own, ok, took, t, tk, s) {
   atomic {
 #if TOKEN
     /* --lease TOKEN: a token that is not the current lease's ends nothing */
@@ -478,7 +563,13 @@ inline wake_done(ep, own, ok, took, t, tk) {
   };
 #ifndef MUT_DONE_ANY
   if
-  :: atomic { t && queued != 0 -> skip }; post_desk(ok, took, tk)   /* _send_trailing */
+#if SITTING_DONE
+  :: atomic { t && SITTING -> skip }                            /* #322: wake=sitting, no POST */
+  :: atomic { t && !SITTING && WAITING -> skip }; post_desk(ok, took, tk)   /* _send_trailing */
+#else
+  :: atomic { t && WAITING -> if :: seat[s] -> dup_done = true :: else -> skip fi };
+     post_desk(ok, took, tk)                                    /* _send_trailing */
+#endif
   :: else -> skip                                               /* none / drained */
   fi
 #else
@@ -488,10 +579,10 @@ inline wake_done(ep, own, ok, took, t, tk) {
 
 proctype Session(byte s) {
   byte o, ep, own, tk;
-  bool ok, took, t;
+  bool ok, took, t, dn;
 end_s:
   do
-  :: atomic { nempty(pend) && !seat[s] -> PEND_GET(ep, own);   /* ep = wake.lease from the POST body */
+  :: atomic { nempty(pend) && !seat[s] -> PEND_GET(ep, own); dn = false;   /* ep = wake.lease from the POST body */
 #ifdef MUT_RUN_CURRENT
                 ep = gate_ep                 /* the lease current at run start */
 #endif
@@ -530,6 +621,9 @@ end_s:
         /* up: it may run commands (each one takes and replies), then it exits */
         do
         :: atomic { !closed[s] -> TAKE(s) }; deliver(s)
+#if LEASE && DONE_IN_CONNECT
+        :: !dn && !closed[s] -> wake_done(ep, own, ok, took, t, tk, s); dn = true; break   /* done inside the connect */
+#endif
         :: break
         od;
         atomic { seat[s] = false; closed[s] = false };              /* Hub.discard */
@@ -537,14 +631,14 @@ end_s:
         ring_waiting(ok, took, tk);                                   /* 832: last leave */
 #endif
 #if MULTI
-        if :: true -> skip :: true -> break fi                      /* another shell call? */
+        if :: dn -> break :: !dn -> skip :: !dn -> break fi           /* another shell call? */
 #else
         break
 #endif
      od;
 #if LEASE
      /* the run's last step: mill wake-done, or none (crash, old client) */
-     if :: wake_done(ep, own, ok, took, t, tk) :: skip fi;
+     if :: !dn -> wake_done(ep, own, ok, took, t, tk, s) :: skip fi;
 #endif
 refused:
      skip
@@ -577,3 +671,10 @@ ltl no_stale_done { [] (!stale_done) }
 /* Every item is eventually received by the desk. Checked with weak
    fairness (pan -a -f); the receiver's failures are bounded by MAXFAIL. */
 ltl all_delivered { <> (dlv == ALL) }
+
+/* #297: every item reaches the desk and every letter is eventually opened (a
+   run leaves letters unread at most MAXSKIP times). */
+ltl all_handled { <> (dlv == ALL && (!UNREAD || (opened & MAILMASK) == MAILMASK)) }
+
+/* #322: wake-done never sends its trailing POST while the run's own connect sits. */
+ltl no_dup_done { [] (!dup_done) }

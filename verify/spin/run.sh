@@ -22,8 +22,9 @@ CC="${CC:-gcc}"; command -v "$CC" >/dev/null || { echo "run.sh: no C compiler ($
 OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
-# The commit at which these models were last confirmed to describe the code.
-SYNC=8a80dc1
+# The commit at which the wake and hold models were last confirmed to describe the
+# code: PR #322's head (0.8.4 main plus card 889). Main differs only by #322.
+SYNC=c1c1d87
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
 agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py
@@ -55,27 +56,27 @@ fi
 CHECKS='
 W01|wake|-DN=2 -DSESSIONS=1 -DMAXFAIL=2|safety|pass|one wake per lease; no invalid end state (main)
 W02|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=0 -DMULTI=0|safety|pass|same, three items, one connect per run (more runs out of memory)
-W03|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1|safety|pass|same, two connects of the desk
+W03|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1 -DUNREAD=0|safety|pass|same, two connects of the desk
 W04|wake|-DN=3 -DSESSIONS=1 -DMAXFAIL=0 -DMULTI=0|no_loss|pass|no taken row is lost, one connect at a time, three items
-W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0|no_loss|pass|main (831 fix shipped): a superseded connect (--take) loses no rows
-W06|wake|-DN=2 -DSESSIONS=2 -DREFUSE=1 -DMAXFAIL=0|no_loss|pass|connect -r (4409) never supersedes, so nothing is lost
+W05|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DUNREAD=0|no_loss|pass|main (831 fix shipped): a superseded connect (--take) loses no rows
+W06|wake|-DN=2 -DSESSIONS=2 -DREFUSE=1 -DMAXFAIL=0 -DUNREAD=0|no_loss|pass|connect -r (4409) never supersedes, so nothing is lost
 W07|wake|-DN=2 -DMAXFAIL=0|live|pass|card 887 fix (PR #218): lease check and record in one hold: every item delivered
-W08|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1|live|violated|EXPECTED: both POSTs fail, no later try (current main)
+W08|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1|live|pass|#300 (827 live since 0.8.3): two POSTs in a row fail, the retry chain delivers
 W09|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1|live|pass|no loss and no races: every item delivered
 W10|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DRECEIPT=1|live|violated|BY DESIGN: a receipt never rings; it waits for a connect
 W11|wake|-DN=2 -DMAXFAIL=2 -DRESTART=1|safety|violated|minor: a wall restart forgets the window; a 2nd POST inside the lease
-W12|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|card 827: up to 5 lost POSTs in a row, delivered
-W13|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=6|live|violated|card 827: 6 in a row outlast the 6 POSTs of the budget
+W12|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRIES=2 -DMAXFAIL=2|live|pass|#300: one POST plus 2 retries outlasts 2 lost POSTs in a row (the code makes 12 to 64 in about 1 h)
+W13|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRIES=2 -DMAXFAIL=3|live|violated|#300: 3 lost in a row outlast 1 POST + 2 retries (the bound, not a finding)
 W14|wake|-DN=2 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|pre-886 gate, fix 832: queue first, mark sent after a live send, ring on leave: no strand
 W15|wake|-DN=3 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0|live|pass|same, three items
-W16|wake|-DN=2 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5|live|pass|827 + fix 832, real interleaving, lossy receiver
-W17|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=255|live|violated|EXPECTED: a receiver down forever; no bounded retry helps
-W18|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1|no_loss|pass|fix 831: read, send, then delete: a superseded connect loses nothing
-W19|wake|-DN=3 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=0 -DRING_ON_LEAVE=0|no_loss|pass|fix 831 alone, three items, a lossy receiver (both fixes at N=3: the search ran out of memory)
-W20|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|safety|pass|both fixes: still one wake per window, no invalid end state
-W21|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|no_loss|pass|both fixes, two connects: nothing lost
-W22|wake|-DN=2 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1|live|pass|both fixes, two connects, pre-886 gate: every item delivered
-W23|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=0|no_loss|violated|pre-831 order (take, then send): a superseded connect loses taken rows
+W16|wake|-DN=2 -DLEASE=0 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRIES=2 -DMAXFAIL=2|live|pass|#300 + fix 832, real interleaving, lossy receiver
+W17|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DRETRIES=2 -DMAXFAIL=255|live|violated|EXPECTED: a receiver down forever; no bounded retry helps
+W18|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DUNREAD=0|no_loss|pass|fix 831: read, send, then delete: a superseded connect loses nothing
+W19|wake|-DN=3 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=0 -DRING_ON_LEAVE=0 -DUNREAD=0|no_loss|pass|fix 831 alone, three items, a lossy receiver (both fixes at N=3: the search ran out of memory)
+W20|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=1 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DUNREAD=0|safety|pass|both fixes: still one wake per window, no invalid end state
+W21|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DUNREAD=0|no_loss|pass|both fixes, two connects: nothing lost
+W22|wake|-DN=2 -DLEASE=0 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=1 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DUNREAD=0|live|pass|both fixes, two connects, pre-886 gate: every item delivered
+W23|wake|-DN=2 -DSESSIONS=2 -DMAXFAIL=0 -DACK_AFTER_SEND=0 -DUNREAD=0|no_loss|violated|pre-831 order (take, then send): a superseded connect loses taken rows
 W24|wake|-DN=2 -DLEASE=0 -DMAXFAIL=0 -DPUTFIRST=0 -DRING_ON_LEAVE=0|live|violated|pre-832 order (POST, then queue): perfect receiver, still stranded
 W25|wake|-DN=2 -DMAXFAIL=0 -DHOLD1=0|live|violated|pre-887 order (#216): peek sees the lease, wake-done ends it, the record finds none: no POST
 L01|wake|-DN=2 -DMAXFAIL=0|no_stale_done|pass|card 888 fix (PR #218): wake-done --lease TOKEN ends only its own lease
@@ -88,8 +89,16 @@ M06|wake|-DN=2 -DMAXFAIL=0 -DATOMIC_EMIT=1 -DMUT_DONE_ANY|live|violated|mutation
 M07|wake|-DN=2 -DMAXFAIL=0 -DMUT_RUN_CURRENT|no_stale_done|violated|mutation of card 888: the run binds the lease current at its start, not the token its POST carried
 M21|wake|-DN=2 -DMAXFAIL=0 -DLAPSE_FIRING=1 -DMUT_LATE_TOKEN|no_stale_done|violated|mutation of card 890: the POST body reads the lease current at send time, not the token its take returned
 M01|wake|-DN=2 -DMUT_SPLIT_GATE|safety|violated|mutation: peek-then-set gate gives two wakes in one window
-M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRY827=1 -DRETRIES=2 -DMAXFAIL=5 -DMUT_827_NOGEN|live|violated|mutation: an old retry cancels a newer chain
+M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRIES=2 -DMAXFAIL=2 -DMUT_827_NOGEN|live|violated|mutation: an old chain that runs out cancels a newer chain
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
+W26|wake|-DN=2 -DMAXFAIL=0 -DSITTING_DONE=0|ltl:no_dup_done|violated|pre-#322 (main 0.8.4): wake-done inside the connect POSTs its trailing wake to the sitting desk
+W27|wake|-DN=2 -DMAXFAIL=0|ltl:no_dup_done|pass|#322 (card 889): wake-done while sitting ends the lease and sends no trailing POST
+W28|wake|-DN=2 -DMAXFAIL=0|handled|pass|#297 + #322: every item delivered and every letter opened, a run may leave letters unread once
+W29|wake|-DN=2 -DMAXFAIL=0 -DSITTING_DONE=0|handled|pass|#297 before #322: also delivered (the extra trailing POST costs a wake, not an item)
+W30|wake|-DN=2 -DMAXFAIL=1 -DATOMIC_EMIT=1|handled|violated|FINDING: a failed wake for unread mail alone is never retried (retry reads only the push queue)
+W31|wake|-DN=2 -DMAXFAIL=1 -DATOMIC_EMIT=1 -DRETRY_UNREAD=1|handled|pass|proposed: retry while unread mail remains: delivered
+M22|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1 -DRETRY827=0|live|violated|pre-#300 _fire: both POSTs fail, no later try
+M23|wake|-DN=2 -DMAXFAIL=0 -DMUT_NO_RERING|handled|violated|mutation of #297: a letter left unread after its push row drained never rings again
 H01|holds|-DDESKS=2 -DPOLICY=0|mutex|pass|mutual exclusion, 2 desks
 H02|holds|-DDESKS=3 -DPOLICY=1|mutex|pass|mutual exclusion, 3 desks
 H03|holds|-DDESKS=3 -DPOLICY=0 -DROUNDS=1|safety|pass|the mill never blocks: no invalid end state
@@ -161,13 +170,14 @@ while IFS='|' read -r id model defs mode expect what; do
       safety) flags="-DNOCLAIM -DSAFETY"; run="-m$DEPTH";;
       no_loss|mutex|no_stale_done) flags="-DSAFETY"; run="-m$DEPTH -N $mode";;
       live) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N all_delivered";;
+      handled) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N all_handled";;
       starve) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N no_starve0";;
       np) flags="-DNP -DNOCLAIM -DNFAIR=3"; run="-l -f -m$DEPTH";;
       inv) flags="-DNOCLAIM -DSAFETY"; run="-m$DEPTH -E";;       # assertions only (a lock cycle is D03's)
       ltl:*) flags="-DSAFETY"; run="-m$DEPTH -N ${mode#ltl:}";;  # a safety claim named after ltl:
     esac
     # The 0.8.0 models store states compressed (their vectors are larger).
-    case "$model" in wake|holds) ;; *) flags="$flags -DCOLLAPSE";; esac
+    case "$model" in holds) ;; *) flags="$flags -DCOLLAPSE";; esac
     # shellcheck disable=SC2086
     "$CC" -O2 $flags -o pan pan.c > cc.txt 2>&1 || exit 4
     s=$(date +%s.%N)
