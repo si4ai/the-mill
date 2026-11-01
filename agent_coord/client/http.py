@@ -759,6 +759,7 @@ def mill_http_from_args(args: Any) -> int:
     from agent_coord.client import rooms_rows
 
     rooms_short = rooms_rows.applies(args)
+    rooms_digest = rooms_rows.digest_applies(args)
     mail_block: dict | None = None
     rooms_block: dict | None = None
     # Lock: never let argv --owner rewrite session active / Bearer.
@@ -828,6 +829,19 @@ def mill_http_from_args(args: Any) -> int:
         mail_block = None
     if note_short and isinstance(row, dict) and row.get("ok") is True:
         row = dict(row, result=mail_rows.short_note(row.get("result")))
+    if (
+        rooms_digest
+        and isinstance(row, dict)
+        and row.get("ok") is True
+        and isinstance(row.get("result"), dict)
+        and isinstance(row["result"].get("rooms"), list)
+    ):
+        shaped = dict(
+            row["result"],
+            rooms=rooms_rows.digest_short(row["result"]["rooms"]),
+            digest=True,
+        )
+        row = dict(row, result=shaped)
     if (
         rooms_short
         and isinstance(row, dict)

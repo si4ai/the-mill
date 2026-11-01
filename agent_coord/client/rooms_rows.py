@@ -1,4 +1,4 @@
-"""mill rooms short rows + paging (card 958)."""
+"""mill rooms short rows + paging (card 958); digest shaping (card 975)."""
 from __future__ import annotations
 
 from typing import Any
@@ -17,13 +17,48 @@ _SHORT_KEYS = (
     "members",
 )
 
+_DIGEST_KEYS = (
+    "tree",
+    "root_id",
+    "size",
+    "breadth",
+    "created",
+    "last_at",
+    "starter",
+    "root",
+    "tags",
+)
+
 
 def applies(args: Any) -> bool:
     if str(getattr(args, "cmd", "") or "") != "rooms":
         return False
     if bool(getattr(args, "full", False)) or bool(getattr(args, "raw", False)):
         return False
+    if bool(getattr(args, "digest", False)):
+        # Digest returns every named room in one shot; no short-row paging.
+        return False
     return True
+
+
+def digest_applies(args: Any) -> bool:
+    return (
+        str(getattr(args, "cmd", "") or "") == "rooms"
+        and bool(getattr(args, "digest", False))
+        and not bool(getattr(args, "raw", False))
+    )
+
+
+def digest_short(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        item = {k: r.get(k) for k in _DIGEST_KEYS if k in r}
+        if "tags" not in item:
+            item["tags"] = []
+        out.append(item)
+    return out
 
 
 def cut(rows: list[dict[str, Any]], page: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:

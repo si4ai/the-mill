@@ -3949,6 +3949,9 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     includes hex plans. --sort recency|size|depth|breadth|created|starter
     (default recency); --asc flips the order. Sort is SQL ORDER BY.
     breadth = distinct member desks (senders U recipients).
+    --digest (card 975): one short block per room (name, opener, letter and
+    member counts, first/last dates, root first line, tags=[]); one SQL query,
+    no per-room members walk. Works on live /ws (card 979).
     """
     from agent_coord.server.admin.guard import require_admin
     from agent_coord.server.records import tree as rec_tree
@@ -3961,14 +3964,20 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         require_admin(c._cn, owner or "")
     sort = str(body.get("sort") or "recency").strip() or "recency"
     asc = bool(body.get("asc"))
+    digest = bool(body.get("digest"))
     rows = rec_tree.list_mail_rooms(
-        c._cn, sort=sort, asc=asc, include_hidden=include_hidden
+        c._cn,
+        sort=sort,
+        asc=asc,
+        include_hidden=include_hidden,
+        digest=digest,
     )
     return {
         "rooms": rows,
         "sort": sort,
         "asc": asc,
         "all": include_hidden,
+        "digest": digest,
         "count": len(rows),
     }
 
