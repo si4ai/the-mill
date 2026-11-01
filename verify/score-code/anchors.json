@@ -200,7 +200,7 @@
       "kind": "absent",
       "path": "agent_coord/server/sql/sp_score.sql",
       "start": "CREATE PROCEDURE mill_score_point_add(",
-      "end": "  IF p_value IS NULL THEN",
+      "end": "  IF p_value IS NULL THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: value must be a number';",
       "forbid": [
         "SET\\s+p_value\\s*:?=",
         ",\\s*p_value\\s*:?=",
@@ -208,8 +208,8 @@
         "(IFNULL|COALESCE|NULLIF|IF)\\s*\\(\\s*p_value"
       ],
       "inject": "  SET p_value = IFNULL(p_value, 0);",
-      "property": "NULL value refused: nothing coerces or rewrites p_value before the guard (SET =, SET :=, SELECT ... INTO, IFNULL/COALESCE)",
-      "lines": "169-194"
+      "property": "NULL value refused: nothing coerces or rewrites p_value before the guard block (IF p_value IS NULL THEN plus its SIGNAL line), including an IF-NULL-THEN-SET coerce placed above it (SET =, SET :=, SELECT ... INTO, IFNULL/COALESCE)",
+      "lines": "169-195"
     },
     {
       "id": "points-limit",

@@ -5,6 +5,7 @@
 #
 #   verify/score-code/run.sh              # anchors + model + mutants + known
 #   verify/score-code/run.sh anchors      # code anchors only
+#   verify/score-code/run.sh behave       # caller-observed fixture (no DB) + its mutants
 #   verify/score-code/run.sh model        # TLC on Score.cfg (via statechart)
 #   verify/score-code/run.sh mutants      # each mutant cfg must violate
 #   verify/score-code/run.sh mutant NAME  # one mutant (e.g. no_ws_miss)
@@ -84,6 +85,11 @@ run_anchors() {
     fi
   done < <(python3 "$HERE/check_anchors.py" --list)
   return $rc
+}
+
+run_behave() {
+  (cd "${TMPDIR:-/tmp}" && python3 "$HERE/behave.py" --root "$ROOT") || return 1
+  (cd "${TMPDIR:-/tmp}" && python3 "$HERE/behave.py" --root "$ROOT" --mutants) || return 1
 }
 
 run_model() {
@@ -204,6 +210,7 @@ cmd=${1:-all}
 case "$cmd" in
   -h|--help) usage; exit 0 ;;
   anchors) run_anchors ;;
+  behave) run_behave ;;
   model) run_model ;;
   mutants) run_mutants ;;
   mutant) run_one_mutant "${2:?mutant name}" ;;
@@ -211,6 +218,7 @@ case "$cmd" in
   all)
     rc=0
     run_anchors || rc=1
+    run_behave || rc=1
     run_model || rc=1
     run_mutants || rc=1
     run_known || rc=1
