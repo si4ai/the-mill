@@ -307,7 +307,10 @@ def _cols(cn, table):
 
 def dump(cn, tables=MAIN_TABLES) -> dict[str, list[tuple]]:
     out = {}
+    present = {r[0] for r in _q(cn, "SHOW TABLES")}
     for t in tables:
+        if t not in present:
+            continue  # gone after card 1022 fold (push_queue -> wake)
         cols = [c for c in _cols(cn, t) if c not in ADDED]
         sel = ", ".join(f"`{c}`" for c in cols)
         out[t] = (cols, _q(cn, f"SELECT {sel} FROM `{t}` ORDER BY {', '.join(f'`{c}`' for c in _pk(cn, t))}"))
@@ -534,8 +537,10 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
         assert snap[key] == fresh_snapshot[key], (kill_after, key)
     after = dump(main_book)
     for t in MAIN_TABLES:
+        if t not in after or t not in before:
+            continue  # push_queue folded away after 1022
         grow = len(before["todo"][1]) if t == "doing" else 0  # one move row per card
-        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher", "name"), t  # name: System id 0
+        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
     assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(
         before["todo"][1])
 

@@ -2,7 +2,7 @@
 
 One state diagram per activity type, and one table row per transition, read from the code on main (0.7.19). File:line refs below are v0.7.19 coordinates pending a refresh against 0.8.0 (act, move rows, doing.evidence). A cold desk can walk every row: run the command, then run the check and compare.
 
-The five types are the `activity.type` enum at `agent_coord/server/sql/tables.sql:46`: `mail`, `todo`, `doing`, `hold`, `score`. The headings use those spellings. Where the CLI word differs, the section says so once.
+The six types are the `activity.type` enum at `agent_coord/server/sql/tables.sql:46`: `mail`, `todo`, `doing`, `hold`, `score`. The headings use those spellings. Where the CLI word differs, the section says so once.
 
 Paths are from the repo root. `rpc.py` is `agent_coord/server/api/mill/rpc.py`; SQL files are in `agent_coord/server/sql/`. A line number points at the procedure or the branch that makes the move. "Gap" marks a place where the code has no path, or does something a desk would not expect. Gaps are reported, not fixed here.
 

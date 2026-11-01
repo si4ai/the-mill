@@ -194,6 +194,7 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `restore` | a trashed name came back (`mill restore`; card 879) | name.trashed cleared |
 | `purge` | a trashed unreferenced name was hard-deleted (`mill purge`; card 879) | name row removed |
 | `rename` | a card's need was renamed (`mill rename todo`); evidence holds old, new, why | activity only; card id and status unchanged |
+| `ring` | a wake/push was queued for a desk (card 1022) | activity only; wake payload holds cause/state |
 
 Not in the list: `open` and `mark` (opening a letter writes no move: `mail_to.opened` keeps the first open and
 activity is not bumped), `status` and `pass` (a pass is ship, done or back), `cast` and `close` (no votes).
@@ -259,3 +260,12 @@ the top of admin.md:
 - F5. Lab bad states that main permits and this baseline keeps (not applied, need a decision): a mail reaching or
   sent by a non-member (P4/P17), two read states (`tree_read` and `mail_to.opened`, P1), holds with no card link
   (H6). RESULTS.md lines 64-88 and 115.
+
+## card 1022 (owner 2026-11-01)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1022a | `push_queue` stand-alone queue; delete on hand-back | `wake` activity kind table (fold); hand-back marks `taken` + `transition` row; 7-day rollup to `cause=expired` | instrument-score / transition table under 1001; owner fold decision | accepted |
+| 1022b | 22 tables | 24 tables (`wake` + `transition` + `transition_edge`; `push_queue` gone) | card 1022 | accepted |
+| 1022c | `activity.act` without `ring` | `activity.act` / `doing.act` gain `ring`; label/tree/watcher type gain `wake` | wake activity rows | accepted |
+
