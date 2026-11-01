@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 974 / F-leave-retire: desk self-retire on live /ws; remove roster without --yes exits 1
 - card 979 / F-rooms-live-ws: mill rooms works on live /ws (drop _require_live_ws from _h_rooms)
 - card 934: POSIX desk-start.sh (planner JSON + Credential Manager/Keychain/mode-600 file)
 - card 902: visible cut tail on mail HINT and lean bodies; addressed wakes carry whole letter

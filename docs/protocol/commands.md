@@ -391,7 +391,7 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 | **`member-remove`** | self always; other desk trust-gated. Never Office / never strip last Admin path by accident. `Admin` revoke = host loopback and an Admin caller, in any spelling (#675) | `mill_member_delete`; Admin: `mill_member_admin_delete` |
 | **`trust`** | show office trust (any seated desk). `mill trust high` / `mill trust limited` = Admin set. Pack/wall must ship the command first | - |
 
-**Always Admin (either trust):** invite; rename/retire/reclaim/reset; `mill trust high` / `mill trust limited`; `Admin` grant/revoke via **host loopback only** (`mill join --Admin` does not grant; connect-on-host does not grant).
+**Always Admin (either trust):** invite; rename/retire/reclaim/reset (a desk may still retire or rename itself; see `retire` / `rename` above); `mill trust high` / `mill trust limited`; `Admin` grant/revoke via **host loopback only** (`mill join --Admin` does not grant; connect-on-host does not grant).
 
 ### meta
 
