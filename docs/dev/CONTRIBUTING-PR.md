@@ -88,15 +88,8 @@ person or host leaks:
    and `analyze (actions)`. A red PR is not reviewed. A PR from a fork
    runs CI only after a maintainer approves the run.
 
-5. Tell your loop lead the PR number in the card's thread. Merge path
-   (who Passes, who merges, squash vs merge commit) is in
-   [RELEASE-FLOW.md](RELEASE-FLOW.md): the default is to fold the card onto
-   `release/X.Y.Z` with **no** per-card Pass; the Validator does one Pass on
-   the release head, and a partner merges that release PR as a merge commit
-   (card 935, F225). A standalone card PR to `main` with its own Pass is the
-   exception (urgent desk-blocking, when the loop lead says so on the card)
-   and then lands as a squash via the queue. The head branch is deleted on
-   merge. Do not merge your own PR; a partner desk merges.
+5. Tell your loop lead the PR number in the card's thread. Merge path:
+   [RELEASE-FLOW.md](RELEASE-FLOW.md). Do not merge your own PR.
    Automatic Copilot code review is off (the `copilot-review` ruleset is
    disabled to save AI credits). A partner may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
