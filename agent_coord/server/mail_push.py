@@ -12,23 +12,64 @@ def _nm(value: object) -> str:
 # A typical letter arrives whole; a letter is at most 4096 characters, so a
 # connect sync of many missed letters stays bounded (#584).
 BODY_CAP = 1024
+# Addressed live wakes carry the whole letter (card 902); letters cap at 4096.
+LETTER_CAP = 4096
 
 
-def _body(raw: object, mail_id: int) -> dict:
-    """The body, whole when it fits. A cut says so, like inbox rows (body_trunc),
-    with the full length and the command that reads the letter whole (#584)."""
+def cut_marker(mail_id: int, remaining: int) -> str:
+    """Visible ASCII tail when a body is cut (card 902). Counts inside the cap."""
+    return f"... [cut: {int(remaining)} more chars, mill mail-thread {int(mail_id)}]"
+
+
+def clip_body(raw: object, mail_id: int, cap: int) -> dict:
+    """The body, whole when it fits. A cut ends with a visible tail inside cap."""
     text = str(raw or "")
-    if len(text) <= BODY_CAP:
+    limit = int(cap)
+    if limit < 1:
+        limit = BODY_CAP
+    if len(text) <= limit:
         return {"body": text}
+    # Tail counts inside the cap. Remaining digit width can shift length; settle.
+    rem = len(text)
+    prefix = 0
+    tail = cut_marker(mail_id, rem)
+    for _ in range(12):
+        tail = cut_marker(mail_id, rem)
+        prefix = max(0, limit - len(tail))
+        rem2 = len(text) - prefix
+        if rem2 == rem and prefix + len(tail) <= limit:
+            break
+        rem = rem2
+    else:
+        tail = cut_marker(mail_id, rem)
+        prefix = max(0, limit - len(tail))
+        rem = len(text) - prefix
+        tail = cut_marker(mail_id, rem)
+        prefix = max(0, limit - len(tail))
+        rem = len(text) - prefix
+        tail = cut_marker(mail_id, rem)
+        prefix = max(0, limit - len(tail))
     return {
-        "body": text[:BODY_CAP],
+        "body": text[:prefix] + tail,
         "body_trunc": True,
         "body_chars": len(text),
         "read": f"mill mail-thread {int(mail_id)}",
     }
 
 
-def compact_mail(letter: dict, dest_rows: list[dict], for_desk: str) -> dict:
+def _body(raw: object, mail_id: int, *, reason: str | None = None) -> dict:
+    """Preview cap for room/replay; whole letter for addressed (card 902)."""
+    cap = LETTER_CAP if (reason or "").strip().lower() == "addressed" else BODY_CAP
+    return clip_body(raw, mail_id, cap)
+
+
+def compact_mail(
+    letter: dict,
+    dest_rows: list[dict],
+    for_desk: str,
+    *,
+    reason: str | None = None,
+) -> dict:
     """Short mail for one mail_to desk."""
     want = _nm(for_desk)
     tos: list[str] = []
@@ -51,7 +92,7 @@ def compact_mail(letter: dict, dest_rows: list[dict], for_desk: str) -> dict:
         "roster_id": letter.get("sender_roster"),
         "opened": mine.get("opened"),
         "receipt": int(mine.get("receipt") or 0),
-        **_body(letter.get("body"), mid),
+        **_body(letter.get("body"), mid, reason=reason),
     }
 
 
@@ -98,7 +139,14 @@ def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
         if not desk:
             continue
         reason = "room" if desk.strip() in members else "addressed"
-        emit(cn, desk, "mail", compact_mail(letter, dests, desk), reason=reason, room=room)
+        emit(
+            cn,
+            desk,
+            "mail",
+            compact_mail(letter, dests, desk, reason=reason),
+            reason=reason,
+            room=room,
+        )
 
 
 def push_receipt(cn, row: dict) -> None:
