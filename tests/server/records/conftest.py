@@ -3,10 +3,12 @@
 mill_name_get is SELECT-only. Tests that need project/desk/role/label rows
 must mint them via mill_name_put (get_or_insert / host_put / join upsert),
 not rely on read/list side effects.
+
+Card 986: module ``cn`` reuses one tip schema per xdist worker and only
+clears table data between modules. Schema/migration/parity suites use
+``fresh_schema`` instead (see tests/sql_book.py).
 """
 from __future__ import annotations
-
-import os
 
 import pytest
 
@@ -28,74 +30,28 @@ def seed_names(cn, *specs: tuple[str, str]) -> list[int]:
     return out
 
 
-def open_book(test_db: str):
-    """Create test_db and apply the pack's SQL to it. Returns the connection.
+def open_book(test_db: str, *, fresh: bool = False, request=None):
+    """Open a tip book.
 
-    Skips only when MySQL does not answer. When it answers and the schema or a
-    routine fails to apply, the suite fails (0.8.0, F168): a skip hid a broken
-    apply behind a green run.
+    Default (fresh=False): worker shared schema; apply once; reset data.
+    ``test_db`` is ignored on the shared path (kept for call-site compatibility).
+    fresh=True: unique DB + full apply + DROP finalizer (needs request).
     """
-    import mysql.connector
+    from tests import sql_book
 
-    from agent_coord.server import records
-    from agent_coord.server.records.db import conn_kwargs
-
+    if fresh:
+        if request is None:
+            raise TypeError("open_book(fresh=True) needs request for finalizer")
+        return sql_book.open_fresh_book(
+            test_db or "mill_fresh",
+            nodeid=getattr(request.node, "nodeid", test_db),
+            finalizer_register=request.addfinalizer,
+        )
+    # Shared path: ignore per-module names so every module shares one apply.
     try:
-        kw = conn_kwargs()
-        kw.pop("database", None)
-        kw["autocommit"] = True
-        admin = mysql.connector.connect(**kw)
+        return sql_book.connect_shared(reset=True)
     except Exception as e:
         pytest.skip(f"mysql mill records: {e}")
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{test_db}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    c = records.connect(test_db)
-    try:
-        records.apply(c, wipe=True)
-    except Exception as e:
-        pytest.fail(f"mill records: MySQL answered but the SQL did not apply: {e}", pytrace=False)
-    # Cap InnoDB lock waits so a stuck FOR UPDATE fails the test instead of hanging CI (~15 min).
-    cur = c.cursor()
-    cur.execute("SET SESSION innodb_lock_wait_timeout = 30")
-    cur.execute("SET SESSION lock_wait_timeout = 30")
-    cur.close()
-    return c
-
-
-@pytest.fixture(scope="module")
-def cn(request):
-    """One wiped book per test module.
-
-    Two modules in one process must not share a book. A read cursor left by
-    test_room_reply would hide the branch on the next file.
-    """
-    from tests.sql_isolate import throwaway_db
-
-    mod = request.module.__name__.rsplit(".", 1)[-1]
-    test_db = throwaway_db("mill_" + mod)
-    # connect() returns the process pool when the name matches the env book.
-    # That pool stays on the first schema, and wipe.sql does not drop tree_read,
-    # so the next module's mail ids restart on top of a stale read cursor.
-    saved = os.environ.pop("AGENT_COORD_DATABASE", None)
-    try:
-        c = open_book(test_db)
-    except BaseException:
-        if saved is not None:
-            os.environ["AGENT_COORD_DATABASE"] = saved
-        raise
-    try:
-        yield c
-    finally:
-        c.close()
-        if saved is None:
-            os.environ.pop("AGENT_COORD_DATABASE", None)
-        else:
-            os.environ["AGENT_COORD_DATABASE"] = saved
 
 
 ADMIN_DESK = "test-admin"
@@ -105,7 +61,6 @@ def admin_desk(cn, name: str = ADMIN_DESK) -> str:
     """A seated Admin desk to act as (0.8.0: sp_name_* check the acting desk). Idempotent."""
     from agent_coord.client.tokens import token_hash
     from agent_coord.server.records import join as rec_join
-    from agent_coord.server.records.db import call
 
     rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
     return make_admin(cn, name)

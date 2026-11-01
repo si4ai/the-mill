@@ -460,7 +460,10 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
         {
             p
             for p in diff.splitlines()
-            if p.startswith("tests/") and p.endswith(".py") and Path(root, p).is_file()
+            if p.startswith("tests/")
+            and Path(p).name.startswith("test_")
+            and p.endswith(".py")
+            and Path(root, p).is_file()
         }
     )
     # Wall surface validators need tools/wall-validators (npm ci). Precheck stays
@@ -471,7 +474,8 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
     if not tests:
         return findings
     run = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=no", *tests],
+        # Skip @pytest.mark.sql: this job has no MySQL (pytest_sql covers those).
+        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-m", "not sql", *tests],
         cwd=root,
         capture_output=True,
         text=True,

@@ -463,12 +463,16 @@ def is_hidden_tree(name: str) -> bool:
 ROOM_SORTS = frozenset({"recency", "size", "depth", "breadth", "created", "starter"})
 
 
+ROOM_ROOT_LINE_CAP = 200
+
+
 def list_mail_rooms(
     cn,
     *,
     sort: str = "recency",
     asc: bool = False,
     include_hidden: bool = False,
+    digest: bool = False,
 ) -> list[dict[str, Any]]:
     """Every mail room root (type=mail AND lft=1), with size/depth/breadth.
 
@@ -477,6 +481,9 @@ def list_mail_rooms(
     breadth = distinct member desks (senders U recipients on any letter).
     The sort is ORDER BY in SQL (not a post-fetch reorder). Default is recency, newest first.
     Hex-minted plan names are omitted unless include_hidden.
+    digest=True (card 975): one SQL query, no per-room members walk; each row
+    carries tree, starter, size, breadth, created, last_at, root (first line,
+    capped), and tags=[] (hook for card 976). Depth and members are omitted.
     """
     key = str(sort or "recency").strip().lower() or "recency"
     if key not in ROOM_SORTS:
@@ -553,20 +560,23 @@ ORDER BY {order_sql}
     out: list[dict[str, Any]] = []
     for row in raw_rows:
         root_id = int(row.get("root_id") or 0)
-        out.append(
-            {
-                "tree": str(row.get("tree") or ""),
-                "root_id": root_id,
-                "size": int(row.get("size") or 0),
-                "depth": int(row.get("depth") or 0),
-                "breadth": int(row.get("breadth") or 0),
-                "last_at": _dt(row.get("last_at")),
-                "created": _dt(row.get("created")),
-                "starter": str(row.get("starter") or ""),
-                "root": str(row.get("root_line") or "")[:200],
-                "members": _room_member_names_by_root(cn, root_id),
-            }
-        )
+        item: dict[str, Any] = {
+            "tree": str(row.get("tree") or ""),
+            "root_id": root_id,
+            "size": int(row.get("size") or 0),
+            "breadth": int(row.get("breadth") or 0),
+            "last_at": _dt(row.get("last_at")),
+            "created": _dt(row.get("created")),
+            "starter": str(row.get("starter") or ""),
+            "root": str(row.get("root_line") or "")[:ROOM_ROOT_LINE_CAP],
+        }
+        if digest:
+            # Stable empty hook for card 976 concept tags; no members walk.
+            item["tags"] = []
+        else:
+            item["depth"] = int(row.get("depth") or 0)
+            item["members"] = _room_member_names_by_root(cn, root_id)
+        out.append(item)
     return out
 
 

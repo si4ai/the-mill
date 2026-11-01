@@ -337,6 +337,8 @@ def body_from_args(args: Any) -> dict[str, Any]:
         body["all"] = bool(args.all)
     if hasattr(args, "asc"):
         body["asc"] = bool(args.asc)
+    if hasattr(args, "digest"):
+        body["digest"] = bool(args.digest)
     if hasattr(args, "star"):
         body["star"] = bool(args.star)
     if command == "pass":

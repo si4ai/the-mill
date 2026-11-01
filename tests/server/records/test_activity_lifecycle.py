@@ -2,67 +2,26 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records import hold, join as here, mail, name, opened, score, todo
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import admin_desk
 from tests.server.records.conftest import seed_names
 
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_activity_life_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
-
 def _has(cn, typ: str, nid: int) -> None:
     rec = scalar(cn, "SELECT id FROM activity WHERE type=%s AND id=%s", (typ, nid))
     assert rec is not None, f"missing activity {typ} {nid}"
 
-
 def _updated(cn, typ: str, nid: int):
     return scalar(cn, "SELECT updated FROM activity WHERE type=%s AND id=%s", (typ, nid))
-
 
 def _gone(cn, table: str, nid: int) -> bool:
     rec = scalar(cn, f"SELECT id FROM `{table}` WHERE id=%s", (nid,))
     return rec is None
-
 
 def test_mail_update_then_delete_keeps_activity_and_id(cn) -> None:
     seed_names(cn, ("life_mail", "roster"), ("life_mail", "desk"), ("life_reader", "desk"))
@@ -89,7 +48,6 @@ def test_mail_update_then_delete_keeps_activity_and_id(cn) -> None:
     _has(cn, "mail", mid)  # soft-delete keeps the activity row
     _has(cn, "mail", nxt)
 
-
 def test_todo_update_then_delete_keeps_activity_and_id(cn) -> None:
     seed_names(cn, ("life_todo", "roster"), ("life_todo", "desk"))
     tid = int(todo.insert(cn, "life_todo", "life_todo", "open", "card")[0]["id"])
@@ -106,7 +64,6 @@ def test_todo_update_then_delete_keeps_activity_and_id(cn) -> None:
     nxt = int(todo.insert(cn, "life_todo", "life_todo", "open", "next")[0]["id"])
     assert nxt > tid
     _has(cn, "todo", tid)
-
 
 def test_hold_release_nulls_desk_and_keeps_the_row(cn) -> None:
     seed_names(cn, ("life_hold", "roster"), ("life_hold", "desk"), ("life_hold_b", "desk"))
@@ -137,7 +94,6 @@ def test_hold_release_nulls_desk_and_keeps_the_row(cn) -> None:
     nxt = int(hold.upsert(cn, "life_hold", "life_hold", "pool")[0]["id"])
     assert nxt > hid
 
-
 def test_score_update_then_delete_keeps_activity_and_id(cn) -> None:
     seed_names(cn, ("life_score", "roster"), ("life_score", "desk"))
     kid = int(score.upsert(cn, "life_score", "life_score", "KPI_life", "0", "1", "a")[0]["id"])
@@ -156,7 +112,6 @@ def test_score_update_then_delete_keeps_activity_and_id(cn) -> None:
     nxt = int(score.upsert(cn, "life_score", "life_score", "KPI_life_2", "0", "1", "c")[0]["id"])
     assert nxt > kid
     _has(cn, "score", kid)
-
 
 def test_join_updates_bump_activity_and_row_stays(cn) -> None:
     """#818: seat events bump the current doing entry's activity; doing appends."""
@@ -186,13 +141,11 @@ def test_join_updates_bump_activity_and_row_stays(cn) -> None:
     again = int(here.upsert(cn, "life_join", "life_join", "", None, "back")[0]["id"])
     assert again > cur and scalar(cn, "SELECT text FROM doing WHERE id=%s", (again,)) == "back"
 
-
 def test_join_refuses_role_admin(cn) -> None:
     seed_names(cn, ("life_admin_proj", "roster"), ("life_admin", "desk"))
     with pytest.raises(Exception) as ei:
         here.upsert(cn, "life_admin_proj", "life_admin", "Admin", token_hash="c" * 64)
     assert "Admin is not granted by join" in str(ei.value)
-
 
 def test_name_rename_retire_reclaim_keep_id(cn) -> None:
     nid = name.get_or_insert(cn, "life_nm", "roster")
@@ -210,7 +163,6 @@ def test_name_rename_retire_reclaim_keep_id(cn) -> None:
     name.reclaim(cn, "life_nm2", "roster", by=admin_desk(cn))
     assert name.get(cn, "life_nm2", "roster") == nid
 
-
 def test_membership_does_not_write_a_name_activity(cn) -> None:
     assert scalar(cn, "SELECT 1 FROM activity WHERE type='name' AND id=1") is None
     here.upsert(cn, "Office", "life_office", "", "b" * 64, "")
@@ -221,7 +173,6 @@ def test_membership_does_not_write_a_name_activity(cn) -> None:
     assert scalar(cn, "SELECT type FROM name WHERE id=%s", (rid,)) == "roster"
     assert scalar(cn, "SELECT name FROM name WHERE id=%s", (rid,)) == "life_role"
     assert scalar(cn, "SELECT 1 FROM activity WHERE type='name' AND id=%s", (rid,)) is None
-
 
 def test_hard_activity_delete_leaves_the_card(cn) -> None:
     """#216: activity is the timeline, not a parent. No payload FK, so no cascade either:

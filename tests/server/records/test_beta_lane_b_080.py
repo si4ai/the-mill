@@ -24,7 +24,8 @@ from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import call, rows_done, scalar_done
 from tests.server.records.conftest import seed_names
 
-pytestmark = pytest.mark.sql
+# fresh_schema: runs lane B against a beta book, not tip
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 ROSTER = "lb080"
 ADMIN = "lb080-adm"

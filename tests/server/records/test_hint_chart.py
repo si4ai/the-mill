@@ -7,7 +7,6 @@ DOING is pushed and dispatch ignores it. A name is not a watcher target.
 from __future__ import annotations
 
 import importlib.util
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +17,6 @@ pytestmark = pytest.mark.sql
 
 from agent_coord.client.dispatch import dispatch_hint
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import hold, join as here, member, name, score, todo, watcher as watchers
 from agent_coord.helpers.ident import desk
 from agent_coord.server import push
@@ -31,10 +29,7 @@ _hint_check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_hint_check)
 check_frame = _hint_check.check_frame
 
-from tests.sql_isolate import throwaway_db
 from tests.server.records.conftest import make_admin
-
-TEST_DB = throwaway_db("mill_records_test")
 
 # Activity, chart hint, example recipe from hints.md.
 CHART = [
@@ -43,38 +38,11 @@ CHART = [
     ("score", "SCORE", "kpi,value,target"),
 ]
 
-
-@pytest.fixture
-def cn(monkeypatch):
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    try:
-        admin = mysql.connector.connect(**kw)
-    except mysql.connector.Error as e:
-        pytest.skip(f"mysql mill records: {e}")
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    monkeypatch.setenv("AGENT_COORD_DATABASE", TEST_DB)
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
-    yield c
-    c.close()
-
-
 def _sit(cn, who: str = "alice"):
     project = "unit"
     stored = who
     rec = here.upsert(cn, project, stored, "builder", token_hash="a" * 64, doing="present")
     return project, stored, rec
-
 
 def _frames(cn, typ: str, nid: int) -> dict[str, dict]:
     rows = watchers.select(cn, typ, int(nid)) or []
@@ -91,12 +59,10 @@ def _frames(cn, typ: str, nid: int) -> dict[str, dict]:
         fanout(cn, typ, int(nid), typ.upper())
     return {room: payload for room, payload in notified}
 
-
 def _desk_id(cn, stored: str) -> int:
     nid = name.get(cn, stored, "desk")
     assert nid, stored
     return int(nid)
-
 
 @pytest.mark.parametrize("typ,hint,recipe", CHART)
 def test_default_then_custom_recipe(cn, typ, hint, recipe) -> None:
@@ -133,7 +99,6 @@ def test_default_then_custom_recipe(cn, typ, hint, recipe) -> None:
     frames = _frames(cn, typ, nid)
     check_frame(frames[desk(alice)])
 
-
 def test_name_member_does_not_push_a_name_hint(cn) -> None:
     _sit(cn)
     bob = "bob"
@@ -153,7 +118,6 @@ def test_name_member_does_not_push_a_name_hint(cn) -> None:
     finally:
         cur.close()
     assert "name" not in types
-
 
 def test_label_create_does_not_push_a_name_hint(cn) -> None:
     project, alice, _ = _sit(cn)
@@ -183,7 +147,6 @@ def test_label_create_does_not_push_a_name_hint(cn) -> None:
     assert nid
     with pytest.raises(Exception):
         watchers.set_hint(cn, "name", nid, _desk_id(cn, alice), "slug")
-
 
 def test_label_retire_does_not_push_a_name_hint(cn) -> None:
     project, alice, _ = _sit(cn)
@@ -223,7 +186,6 @@ def test_label_retire_does_not_push_a_name_hint(cn) -> None:
     assert notified == []
     assert name.get(cn, "chart2", "label") is None
     assert nid
-
 
 def test_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
     project, alice, rec = _sit(cn)
@@ -269,7 +231,6 @@ def test_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
     check_frame(frames[desk(alice)], "session")
     assert dispatch_hint(alice, frames[desk(alice)]) == "skip"
 
-
 def test_note_connect_pushes_doing(cn) -> None:
     """Connect pushes DOING to other watchers of the seat, not back to the connecting desk."""
     _, alice, rec = _sit(cn)
@@ -291,11 +252,9 @@ def test_note_connect_pushes_doing(cn) -> None:
     assert notified[0][1]["hint"] == "DOING"
     check_frame(notified[0][1])
 
-
 def test_dispatch_ignores_ping_and_doing() -> None:
     assert dispatch_hint("alice", {"type": "heartbeat", "id": 0, "hint": "PING"}) == "skip"
     assert dispatch_hint("alice", {"type": "doing", "id": 1, "hint": "DOING", "detail": "{}"}) == "skip"
-
 
 def test_dispatch_doing_route_still_runs(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)

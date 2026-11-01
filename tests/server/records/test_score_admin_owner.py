@@ -1,50 +1,20 @@
 """score_tick office KPIs are owned by the office: roster Office, no desk (beta 0.8.0; main used the Admin roster)."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import score as rec_score
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_score_admin_owner_test")
-
-
-@pytest.fixture()
-def cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
-    yield c
-    c.close()
-
 
 def _office_admin(cn) -> tuple[int, int]:
     return (
         scalar(cn, "SELECT id FROM name WHERE type='roster' AND name='Office'"),
         scalar(cn, "SELECT id FROM name WHERE type='roster' AND name='Admin'"),
     )
-
 
 def _admin_rows(cn, kpi: str) -> list[tuple]:
     cn.commit()  # end this connection's snapshot; publish writes on its own connection
@@ -60,14 +30,12 @@ def _admin_rows(cn, kpi: str) -> list[tuple]:
     finally:
         cur.close()
 
-
 def test_admin_is_a_roster_and_old_upsert_refuses(cn):
     from agent_coord.helpers.errors import CoordError  # noqa: F401  (import path check)
 
     assert scalar(cn, "SELECT COUNT(*) FROM name WHERE name='Admin' AND type='desk'") == 0
     with pytest.raises(Exception, match="no such desk"):
         rec_score.upsert(cn, "Office", "Admin", "mill-wall.ticks", "1", "0", "")
-
 
 def test_publish_writes_office_rows_with_no_desk(cn):
     from agent_coord.client.tokens import token_hash
@@ -93,7 +61,6 @@ def test_publish_writes_office_rows_with_no_desk(cn):
     seen = glance._office_scores(cn)
     assert score_tick.KPI_API_N in seen
 
-
 def test_second_publish_updates_the_same_row(cn):
     from agent_coord.server import score_tick
 
@@ -104,14 +71,12 @@ def test_second_publish_updates_the_same_row(cn):
     assert len(first) == len(second) == 1  # the tables.sql seed row, not a duplicate
     assert first[0][0] == second[0][0] and second[0][1] == "9"
 
-
 def test_admin_upsert_adds_no_watcher_and_an_activity(cn):
     office, _admin = _office_admin(cn)
     sid = int(rec_score.admin_upsert(cn, "mill-wall.err_n", "3", "0", "n")[0]["id"])
     assert scalar(cn, "SELECT COUNT(*) FROM watcher WHERE type='score' AND id=%s", (sid,)) == 0
     assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='score' AND id=%s AND desk_id IS NULL", (sid,)) == 1
     assert scalar(cn, "SELECT roster_id FROM score WHERE id=%s", (sid,)) == office
-
 
 def test_soft_deleted_office_score_revives(cn):
     sid = int(rec_score.admin_upsert(cn, "todo.open", "1", "", "n")[0]["id"])
@@ -123,11 +88,9 @@ def test_soft_deleted_office_score_revives(cn):
     assert again == sid
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is None
 
-
 def test_empty_kpi_refused(cn):
     with pytest.raises(Exception, match="kpi required"):
         rec_score.admin_upsert(cn, "", "1", "", "")
-
 
 def test_office_rows_do_not_need_the_admin_roster(cn):
     # Beta 0.8.0: an office score has no owner name, so a retired Admin roster does not stop it.
@@ -141,7 +104,6 @@ def test_office_rows_do_not_need_the_admin_roster(cn):
     out = score_tick.publish({score_tick.KPI_TICKS: 4})
     assert out["ok"] is True and "fallback" not in out, out
     assert [r[1] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == ["4"]
-
 
 def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     from agent_coord.server import score_tick
@@ -157,7 +119,6 @@ def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     assert [s["desk"] for s in out.get("skipped", [])] == ["sa_gone"]
     assert [r[1] for r in _admin_rows(cn, score_tick.KPI_ERR_N)] == ["2"]
     assert any(r.get("desk") == "sa_ok" for r in out["rows"])
-
 
 def test_score_add_is_owned_by_the_office(cn):
     from agent_coord.server import score_tick

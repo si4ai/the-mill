@@ -849,7 +849,10 @@ def _build_parser() -> MillArgumentParser:
             "(deepest reply chain), last activity, starter, and the root letter's "
             "first line. Default sort is recency (last activity, newest first). "
             "breadth = distinct member desks (senders U recipients). "
-            "Sort runs in SQL. --all (Admin) includes hex-minted plan names."
+            "Sort runs in SQL. --all (Admin) includes hex-minted plan names. "
+            "--digest prints one short block per room (name, opener, letter and "
+            "member counts, first/last dates, root first line, tags=[]) in one "
+            "SQL query with no model calls (card 975)."
         ),
     )
     rms.add_argument(
@@ -869,6 +872,15 @@ def _build_parser() -> MillArgumentParser:
         help="ascending sort (default is descending)",
     )
     rview = rms.add_mutually_exclusive_group()
+    rview.add_argument(
+        "--digest",
+        action="store_true",
+        help=(
+            "one short block per room: name, opener, letter count, member count, "
+            "first and last activity dates, root first line, tags=[] (card 975); "
+            "one SQL query, every named room, no paging"
+        ),
+    )
     rview.add_argument(
         "--full",
         action="store_true",
@@ -1976,7 +1988,16 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
             if _who and not read_session_token(_who).strip():
                 # #281: no seat here. One line for a roster or an unknown name alike;
                 # no server lookup, so the refusal never tells which names exist.
-                print(seatless_connect_line(_who), file=sys.stderr, flush=True)
+                line = seatless_connect_line(_who)
+                print(line, file=sys.stderr, flush=True)
+                # Card 742: sibling commands in this shell should name the seat error,
+                # not only "no sitting mill connect".
+                try:
+                    from agent_coord.client.ws import write_connect_fail
+
+                    write_connect_fail(_who, line)
+                except Exception:
+                    pass
                 return 2
             if not project:
                 # 0.7.x: no roster named = the Office roster; a named roster overrides it.

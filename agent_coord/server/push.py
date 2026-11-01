@@ -264,8 +264,9 @@ def ring_waiting(cn, desk: str, why: str) -> str:
         return "sitting"
     row = rec_push.waiting(cn, desk)
     if not row:
-        # #949 / #826: push may be empty after a short connect marked rows sent, while
-        # the mailbox letter is still unread. Ring on that unread so the desk wakes.
+        # #949 / #826: push may be empty after a short connect marked rows sent
+        # (push-at-leave: ws ok>=1, run never drained it), while the mailbox
+        # letter is still unread. Ring on that unread so the desk wakes.
         unread = unread_mail_frames(cn, desk, limit=1)
         if not unread:
             return "none"

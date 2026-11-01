@@ -252,7 +252,13 @@ jobs:
                   last = e
                   time.sleep(2)
           sys.exit("mysql not ready: %s" % last)
-      - run: python -m pytest tests -m sql -n 2 --dist loadfile
+      - run: python -m pytest tests -m sql -n 2 --dist loadgroup --durations=50 --junitxml=pytest-sql-junit.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pytest-sql-junit
+          path: pytest-sql-junit.xml
+          if-no-files-found: warn
 
   precheck:
     needs: build_pack

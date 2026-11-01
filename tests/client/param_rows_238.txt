@@ -101,6 +101,7 @@ rooms (command)
 rooms all
 rooms sort
 rooms asc
+rooms digest
 rooms full
 rooms page
 rooms office

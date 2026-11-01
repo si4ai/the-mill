@@ -160,7 +160,15 @@ class HintBuf:
             pass
 
 
-def _drain_one(buf: HintBuf, frame: dict[str, Any], hint: str, t0: float, replay: bool = False) -> None:
+def _drain_one(
+    buf: HintBuf,
+    frame: dict[str, Any],
+    hint: str,
+    t0: float,
+    replay: bool = False,
+    stop: threading.Event | None = None,
+    outcome: dict[str, Any] | None = None,
+) -> None:
     """One frame's chain. Waiting for a program must not hold the next frame."""
     import time
 
@@ -192,6 +200,40 @@ def _drain_one(buf: HintBuf, frame: dict[str, Any], hint: str, t0: float, replay
                 q=buf.q.qsize(),
             )
             return
+        if kind == "sit-exit":
+            # Card 985: plain connect with no chat-wake path exits like connect-wait.
+            line = {
+                "ok": True,
+                "mode": "sit-exit",
+                "desk": buf.desk,
+                "hint": frame,
+                "next": (
+                    "plain mill connect cannot wake a chat for this HINT; "
+                    "use mill connect-wait DESK, or mill connect DESK "
+                    "--vendor grok-build --session UUID"
+                ),
+            }
+            print(json.dumps(line, default=str), flush=True)
+            if outcome is not None:
+                outcome["exit"] = 0
+                outcome["sit_exit"] = frame
+            if stop is not None:
+                stop.set()
+            ms = (time.perf_counter() - t0) * 1000.0
+            _bc_log(
+                f"hint drain desk={buf.desk} hint={hint} id={frame.get('id')} ok={ok} sit-exit=1 q={buf.q.qsize()}"
+            )
+            perf_log(
+                "hint.drain",
+                ms,
+                desk=buf.desk,
+                hint=hint,
+                id=frame.get("id"),
+                ok=ok,
+                sit_exit=1,
+                q=buf.q.qsize(),
+            )
+            return
         if kind == "work":
             print({"route": "hit", "desk": buf.desk}, flush=True)
         elif kind == "suppress":
@@ -214,7 +256,11 @@ def _drain_one(buf: HintBuf, frame: dict[str, Any], hint: str, t0: float, replay
     perf_log("hint.drain", ms, **kv)
 
 
-def drain_loop(buf: HintBuf, stop: threading.Event) -> None:
+def drain_loop(
+    buf: HintBuf,
+    stop: threading.Event,
+    outcome: dict[str, Any] | None = None,
+) -> None:
     """Work thread. Each frame walks its own chain. Recv does not wait. The hub does not wait."""
     import time
 
@@ -241,7 +287,7 @@ def drain_loop(buf: HintBuf, stop: threading.Event) -> None:
             continue
         threading.Thread(
             target=_drain_one,
-            args=(buf, frame, hint, t0, replay),
+            args=(buf, frame, hint, t0, replay, stop, outcome),
             name=f"mill-hint-{buf.desk}-{frame.get('id')}",
             daemon=True,
         ).start()
