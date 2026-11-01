@@ -1521,6 +1521,12 @@ def _undelivered(item: Any) -> bool:
     return not (isinstance(item, dict) and str(item.get("outcome") or "") == "sent")
 
 
+def _push_queued(item: Any) -> bool:
+    """True when the item came from push_queue (has time). Card 949 mailbox
+    resurfacing omits time so connect-wait can tell it apart (card 1030)."""
+    return isinstance(item, dict) and item.get("time") not in (None, "")
+
+
 def wait_one_hint(
     desk: str,
     token: str,
@@ -1548,9 +1554,11 @@ def wait_one_hint(
     until the next hint or a non-empty list (card #278). A list whose items
     were all sent live already counts as empty (card #328).
 
-    skip_first_sync (card 1030 / connect-wait): the first kind=sync frame is
-    never the HINT. Unread backlog on that sync is ignored so the wait holds
-    for a live frame after sit. mill-hold leaves this false.
+    skip_first_sync (card 1030 / connect-wait): on the first kind=sync, end the
+    wait only for undelivered push_queue items (they carry time). Card 949
+    mailbox resurfacing omits time and does not end it; outcome sent never
+    does. Later syncs and live HINTs behave as usual. mill-hold leaves this
+    false (a non-empty first sync still ends that wait).
     """
     try:
         import websockets
@@ -1640,11 +1648,15 @@ def wait_one_hint(
                 if kind == "sync":
                     items = msg.get("sync")
                     queued = items if isinstance(items, list) else []
-                    # Card 1030: connect-wait ignores the first sync (startup /
-                    # unread backlog replay) and keeps holding for a live HINT.
+                    # Card 1030: on the first sync, only genuine push_queue work
+                    # (undelivered + time) ends the wait. Mailbox-only resurfacing
+                    # from card 949 has no time and must not; hold for a live HINT.
                     if skip_first_sync and not first_sync_seen:
                         first_sync_seen = True
-                        continue
+                        if not any(
+                            _undelivered(it) and _push_queued(it) for it in queued
+                        ):
+                            continue
                     # Whole list is the queue. Do not drop a missed DOING inside it.
                     # An item a sitting connect of this desk already got (outcome
                     # sent) does not end the wait; an undelivered one does (#328).

@@ -753,7 +753,10 @@ def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:
 
     Soft-fails to [] so connect and wake keep working if the inbox read fails.
     A short connect that drained the push queue without opening the letter still
-    sees these on the next connect-wait, and wake-done / leave can ring again.
+    sees these on the next connect sync, and wake-done / leave can ring again.
+    Frames omit time on purpose: push_queue rows carry time, and connect-wait
+    (card 1030) uses that to hold past mailbox-only resurfacing while still
+    exiting when a missed push_queue row is on the first sync.
     """
     try:
         from agent_coord.server.records import mail as rec_mail
@@ -825,8 +828,10 @@ def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     An empty push queue stays an empty list. If the hold read fails, holds is [].
     hold=True (#831): the queue rows stay until ack_sync after the frame is sent.
     #949: unread mailbox mail (opened IS NULL) not already in the queue is merged
-    into sync so the next connect-wait exits at once after a short connect drained
-    the push rows without opening the letter.
+    into sync so a later connect still sees it after a short connect drained the
+    push rows without opening the letter. Those frames omit time; connect-wait
+    (card 1030) holds past them on the first sync and exits on push_queue work
+    or a live HINT.
     """
     sync = _merge_unread_into_sync(cn, desk, take_sync(cn, desk, hold=hold))
     holds: list = []

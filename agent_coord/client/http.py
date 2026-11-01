@@ -1113,7 +1113,7 @@ def mill_here_over_http(args: Any) -> int:
         from agent_coord.client.ws import wait_one_hint
 
         try:
-            # First sync is startup/backlog (card 1030); hold for a live HINT.
+            # Card 1030: first sync ends only on push_queue work; mailbox resurfacing holds.
             got = wait_one_hint(
                 who, tok, skip_ping=True, timeout_s=None, parent_pid=parent, hold_empty_sync=True,
                 refuse=refuse, skip_first_sync=True,

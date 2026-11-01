@@ -36,7 +36,7 @@ The session starts the wait in the background (Ctrl+B) and owns it; on Windows a
 mill connect-wait YOUR-DESK
 ```
 
-Replace `YOUR-DESK` before running. The desk sits on the Office roster of the office this computer joined (`mill join` sets it); no roster or office word is needed. One HINT returns, the process exits, and the chat wakes. A letter has `"kind":"mail"`. `kind: sync` is a JSON list, the push queue. Non-empty: print it and exit, so the chat wakes with the drain. Empty: hold the socket until the next hint. A missed JOIN inside that list is a queue item, not a frame to ignore.
+Replace `YOUR-DESK` before running. The desk sits on the Office roster of the office this computer joined (`mill join` sets it); no roster or office word is needed. One HINT returns, the process exits, and the chat wakes. A letter has `"kind":"mail"`. `kind: sync` is a JSON list, the push queue. On the first sync after sit, mailbox-only unread resurfacing (card 949; no `time`) does not end the wait; an undelivered push_queue item (has `time`) does, and so does a later live HINT. Empty: hold the socket until the next hint. A missed JOIN inside that list is a queue item, not a frame to ignore.
 
 `connect-wait` does not publish the reply bridge. A reply needs a normal connect in the same shell. Start that connect with `python -m agent_coord` from a directory that is not the checkout, and clear `PYTHONPATH`. Leave it up until the reply returns. Then stop that connect and start the wait again (a connect still up makes the wait busy). `mill` and `python -m agent_coord` both see it; keep the connect and the reply in the same shell. One connection that holds the seat and runs the commands is card 703.
 
@@ -52,4 +52,4 @@ One reminder per desk, in that desk's Grok session. It does not wake other chats
 
 The note arrives after the current turn ends, so a healthy wait is not cut off. After a stop, disarm that session's reminder.
 
-Each run checks the live process list for `connect-wait YOUR-DESK` on `mill.exe` or `python.exe`. Up: one line `FOREGROUND-UP YOUR-DESK`. Down: one line `FOREGROUND-DOWN YOUR-DESK`, then start the wait again. Its first sync drains what queued. The reminder never opens a short connect.
+Each run checks the live process list for `connect-wait YOUR-DESK` on `mill.exe` or `python.exe`. Up: one line `FOREGROUND-UP YOUR-DESK`. Down: one line `FOREGROUND-DOWN YOUR-DESK`, then start the wait again. The wait holds past mailbox-only resurfacing on the first sync and exits on push_queue work or a live HINT. The reminder never opens a short connect.
