@@ -826,6 +826,44 @@ def busy_for_parent(parent_pid: int | None = None) -> str:
     return ""
 
 
+def connect_fail_path(desk: str) -> Path:
+    """Note that this desk's connect in this shell exited with an error (card 742)."""
+    start = connect_starting_path(desk)
+    return start.with_name(start.name.removesuffix(".starting") + ".fail")
+
+
+def write_connect_fail(desk: str, text: str, *, parent_pid: int | None = None) -> Path:
+    """Leave the connect error for sibling commands in the same shell (card 742)."""
+    path = connect_fail_path(desk)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "desk": _stored_desk(desk),
+        "parent_pid": int(parent_pid if parent_pid is not None else _shell_ppid()),
+        "next": text,
+    }
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(row, separators=(",", ":")) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def fail_for_parent(parent_pid: int | None = None) -> str:
+    """The connect-fail text a connect of this parent left in the last BUSY_NOTE_S, else ""."""
+    want = int(_shell_ppid() if parent_pid is None else parent_pid)
+    if want <= 0:
+        return ""
+    for fail in _starting_files("ws.fail"):
+        try:
+            if time.time() - fail.stat().st_mtime > BUSY_NOTE_S:
+                continue
+            row = json.loads(fail.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(row, dict) and int(row.get("parent_pid") or 0) == want:
+            return str(row.get("next") or "connect failed")
+    return ""
+
+
 def bridge_close_error(exc: BaseException | None) -> str:
     """Honest error for in-flight bridge RPCs when the sitting /ws ends (#66)."""
     code = close_code_of(exc)
@@ -1696,7 +1734,11 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
         ep = bridge_for_parent()
         if not ep:
             died = dead_connect_for_parent()
-            raise CoordError(SESSION_CONNECT_DIED if died else SESSION_WS_BRIDGE_REQUIRED)
+            if died:
+                raise CoordError(SESSION_CONNECT_DIED)
+            # Card 742: prefer this shell's connect-fail note over the generic bridge miss.
+            note = fail_for_parent() or busy_for_parent()
+            raise CoordError(note or SESSION_WS_BRIDGE_REQUIRED)
         who = str(ep.get("desk") or "")
         if not who:
             raise CoordError(SESSION_WS_BRIDGE_REQUIRED)
