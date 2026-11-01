@@ -3033,6 +3033,43 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     }
     if ok and rec.get("since") is not None:
         out["since"] = str(rec.get("since"))[:26]
+    # Card 981: hold FEATURE transitions (existing H1-H8); soft-fail; ids only in meta.
+    try:
+        from agent_coord.server import hold_activity as ha
+        from agent_coord.server.transition_enums import State as TrState
+
+        hid = int(rec.get("id") or 0)
+        actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
+        if hid > 0 and actor_id > 0:
+            if not ok:
+                holder_id = 0
+                try:
+                    holder_id = int(rec.get("desk_id") or 0)
+                except (TypeError, ValueError):
+                    holder_id = 0
+                ha.emit_refuse(
+                    c._cn, hold_id=hid, desk_id=actor_id, holder_desk_id=holder_id or None
+                )
+                ha.note_refused(actor_id, hid)
+            elif out.get("refreshed"):
+                ha.emit_refresh(c._cn, hold_id=hid, desk_id=actor_id)
+            elif ha.take_waited(actor_id, hid):
+                ha.emit_wait_acquire(c._cn, hold_id=hid, desk_id=actor_id)
+            else:
+                cur = c._cn.cursor()
+                try:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM transition"
+                        " WHERE activity_type='hold' AND activity_id=%s",
+                        (hid,),
+                    )
+                    n_prev = int((cur.fetchone() or [0])[0])
+                finally:
+                    cur.close()
+                from_state = TrState.no_row if n_prev == 0 else TrState.free
+                ha.emit_grant(c._cn, hold_id=hid, desk_id=actor_id, from_state=from_state)
+    except Exception:
+        pass
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)
@@ -3049,6 +3086,25 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     key = resource_name(str(body.get("resource") or ""))
     out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
     if out.get("released"):
+        try:
+            from agent_coord.server import hold_activity as ha
+
+            hid = int(out.get("id") or 0)
+            actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
+            was = str(out.get("was_owner") or "").strip()
+            holder_id = int(ha.desk_id_for(c._cn, was) or 0)
+            if hid > 0 and holder_id > 0:
+                if was and owner and was == str(owner).strip():
+                    ha.emit_drop(c._cn, hold_id=hid, desk_id=holder_id)
+                else:
+                    ha.emit_force(
+                        c._cn,
+                        hold_id=hid,
+                        desk_id=holder_id,
+                        by_desk_id=actor_id or None,
+                    )
+        except Exception:
+            pass
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
     return out
 
@@ -3175,6 +3231,22 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 did = ma.desk_id_for(c._cn, owner)
                 return ma.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "hold.wait_ms",
+                "hold.held_ms",
+                "hold.contention_n",
+                "hold.force_taken_n",
+                "hold.expired_n",
+                "hold-wait",
+                "hold-held",
+                "hold-contention",
+                "hold-force-taken",
+                "hold-expired",
+            ):
+                from agent_coord.server import hold_activity as ha
+
+                did = ha.desk_id_for(c._cn, owner)
+                return ha.score_view_for_name(c._cn, name, desk_id=did)
             raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
@@ -3203,6 +3275,26 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 one = dict(one)
                 did = ma.desk_id_for(c._cn, owner)
                 one.update(ma.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "hold.wait_ms",
+            "hold.held_ms",
+            "hold.contention_n",
+            "hold.force_taken_n",
+            "hold.expired_n",
+            "hold-wait",
+            "hold-held",
+            "hold-contention",
+            "hold-force-taken",
+            "hold-expired",
+        ):
+            try:
+                from agent_coord.server import hold_activity as ha
+
+                one = dict(one)
+                did = ha.desk_id_for(c._cn, owner)
+                one.update(ha.score_view_for_name(c._cn, name, desk_id=did))
             except Exception:
                 pass
         return one
