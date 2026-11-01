@@ -24,6 +24,21 @@ example and the launcher.
 3. Create each Credential Manager target named in the config (UI or `cmdkey`).
 4. Create each desk's `work_dir` and `export_dir` folders.
 
+
+## Linux / WSL / macOS
+
+`desk-start.sh` is the POSIX launcher (card 934). Same config shape as the
+PowerShell script. It calls `desk_start_plan.py` for the plan JSON, checks the
+credential (Credential Manager via `cmdkey`, macOS keychain, or a mode-600
+file at `credential_target`), prints the plan on `--dry-run`, and execs `grok`
+from `argv` in window mode.
+
+```sh
+sh ./desk-start.sh --config "$HOME/.config/mill-desk/desks.json" --desk example-desk --dry-run
+```
+
+macOS live coverage is tracked on card 933.
+
 ## Usage
 
 ```powershell
