@@ -1,0 +1,222 @@
+{
+  "sync_note": "Card 1014 + letter 4283: guard and its effects, caller-observed fields and publish paths. expected_count default 1. kind absent: region must not hold the forbid patterns. Letter 4292: ws_miss chain counter to Wall anchored end to end; hold_blocked_ms no-reassign.",
+  "anchors": [
+    {
+      "id": "host-kpis-ws-miss",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "HOST_KPIS = (\n    KPI_API_N,\n    KPI_API_MS,\n    KPI_API_BYTES,\n    KPI_FLOOR_N,\n    KPI_FLOOR_MS,\n    KPI_FLOOR_BYTES,\n    KPI_WS_PUSH,\n    KPI_WS_MISS,\n    KPI_ERR_N,\n)",
+      "property": "caller-observed: ws_miss is one of the HOST_KPIS the tick publishes",
+      "lines": "36-46"
+    },
+    {
+      "id": "ws-miss-regex",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "_WS_MISS = re.compile(r\"\\bfanout miss\\b|\\bmiss=[1-9]\")",
+      "property": "GuardCountWsMiss: only real misses (miss>=1, fanout miss) match",
+      "lines": "53"
+    },
+    {
+      "id": "ws-miss-count",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    for line in bc_text.splitlines():\n        ts = _parse_ts(line)\n        if not _in_window(ts, since):\n            continue\n        if _WS_PUSH.search(line):\n            out[KPI_WS_PUSH] += 1\n        if _WS_MISS.search(line):\n            out[KPI_WS_MISS] += 1\n    for line in svc_text.splitlines():",
+      "property": "WsMissNotDropped / GuardCountWsMiss: in-window filter, then count (caller sees mill-wall.ws_miss)",
+      "lines": "458-466"
+    },
+    {
+      "id": "ws-miss-no-reset",
+      "kind": "absent",
+      "path": "agent_coord/server/score_tick.py",
+      "start": "            out[KPI_WS_MISS] += 1\n",
+      "end": "    return out\n",
+      "forbid": [
+        "KPI_WS_MISS\\]\\s*(?:[-*/%&|^@]|//|\\*\\*|<<|>>)?=(?!=)",
+        "del\\s+out\\b",
+        "\\bout\\s*(?:\\|)?=(?!=)",
+        "\\bout\\s*\\.\\s*(?:update|pop|clear|setdefault|popitem)\\s*\\(",
+        "KPI_WS_MISS\\s*:"
+      ],
+      "inject": "    out[KPI_WS_MISS] = 0",
+      "property": "WsMissNotDropped: nothing resets, rebinds, pops or overwrites the miss count before return (=, -=, *=, /=, update, pop, clear, del)",
+      "lines": "465-472"
+    },
+    {
+      "id": "hold-blocked-sum",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "def measure_hold_blocked(text: str, since: datetime) -> int:\n    \"\"\"sum ms= from hold.blocked stamps in window. 0 if none.\"\"\"\n    total = 0.0\n    for line in (text or \"\").splitlines():\n        ts = _parse_ts(line)\n        if not _in_window(ts, since):\n            continue\n        if not _HOLD_BLOCKED_OP.search(line):\n            continue\n        mm = _MS.search(line)\n        if mm:\n            try:\n                total += float(mm.group(1))\n            except ValueError:\n                pass\n    return int(round(total))",
+      "property": "HoldBlockedNotDropped / GuardCountHoldBlocked: in-window hold.blocked ms= summed and returned",
+      "lines": "293-308"
+    },
+    {
+      "id": "since-from-window",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    since = now - timedelta(seconds=max(60, int(window_s)))",
+      "property": "caller-observed: the window start follows window_s",
+      "lines": "478"
+    },
+    {
+      "id": "measure-host-call",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    host = _measure_host(dest, since)",
+      "property": "caller-observed: measure() takes the host counts (incl. ws_miss) from _measure_host over the window",
+      "lines": "501"
+    },
+    {
+      "id": "measure-hold-call",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        hold_blocked_ms = measure_hold_blocked(perf_text, since)",
+      "property": "caller-observed: measure() computes hold_blocked_ms from the perf log",
+      "lines": "517"
+    },
+    {
+      "id": "hold-blocked-no-reassign",
+      "kind": "absent",
+      "path": "agent_coord/server/score_tick.py",
+      "start": "        hold_blocked_ms = measure_hold_blocked(perf_text, since)\n",
+      "end": "        KPI_HOLD_BLOCKED_MS: hold_blocked_ms,",
+      "forbid": [
+        "\\bhold_blocked_ms\\s*(?:[-+*/%&|^@]|//|\\*\\*|<<|>>|:)?=(?!=)(?!\\s*measure_hold_blocked\\(perf_text, since\\))",
+        "\\bhold_blocked_ms\\s*,[^\\n=]*=(?!=)",
+        ",\\s*hold_blocked_ms\\s*=(?!=)",
+        "del\\s+hold_blocked_ms\\b"
+      ],
+      "inject": "        hold_blocked_ms = 0",
+      "property": "HoldBlockedNotDropped: nothing reassigns hold_blocked_ms between the sum and the returned field",
+      "lines": "517-530"
+    },
+    {
+      "id": "measure-hold-field",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        KPI_HOLD_BLOCKED_MS: hold_blocked_ms,",
+      "property": "caller-observed: measure() returns the summed hold_blocked_ms",
+      "lines": "530"
+    },
+    {
+      "id": "measure-host-spread",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    return {\n        KPI_TICKS: ticks,\n        KPI_IDLE: idle,\n        KPI_DROP: drops,\n        **host,",
+      "property": "caller-observed: measure() returns the host counts (incl. ws_miss) via **host",
+      "lines": "520-524"
+    },
+    {
+      "id": "window-fields",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        \"window_s\": int(window_s),",
+      "property": "caller-observed: measure returns window_s",
+      "lines": "538"
+    },
+    {
+      "id": "p50-empty-zero",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "def _p50(values: list[float]) -> int:\n    if not values:\n        return 0",
+      "property": "known EmptyShowsMissing twin: empty p50 becomes 0",
+      "lines": "204-206"
+    },
+    {
+      "id": "publish-host-kpis",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "        for kpi in HOST_KPIS:\n            tgt = TARGET_MS if kpi.endswith(\"_ms\") else (\"0\" if kpi in (KPI_WS_MISS, KPI_ERR_N) else \"\")\n            val = str(int(counts.get(kpi) or 0))\n            rows = rec_score.admin_upsert(cn, kpi, val, tgt, HOST_NOTES.get(kpi, \"mill-host\")[:200])",
+      "property": "caller-observed: each HOST_KPI (incl. ws_miss, target 0) publishes the measured count with its target (known EmptyShowsMissing: missing becomes 0)",
+      "lines": "668-671"
+    },
+    {
+      "id": "publish-book-or-zero",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "            val = str(int(counts.get(kpi) or 0))\n            rows = rec_score.admin_upsert(cn, kpi, val, tgt, note[:200])",
+      "property": "known EmptyShowsMissing: BOOK_PERF opt-in publish writes 0 for missing counts",
+      "lines": "719-720"
+    },
+    {
+      "id": "gap-none-missing",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "    if latest is None or t is None:\n        return None",
+      "property": "caller-observed: gap is None when latest or target missing (not 0)",
+      "lines": "87-88"
+    },
+    {
+      "id": "shape-gap-field",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "            \"gap\": gap(latest, cur[\"target\"], cur[\"better\"]),",
+      "property": "caller-observed: shape passes gap through unchanged (None stays None)",
+      "lines": "153"
+    },
+    {
+      "id": "number-blank-none",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "def number(raw: Any) -> float | None:\n    \"\"\"A finite float from raw, else None (blank, words, nan and inf refused).\"\"\"\n    try:\n        v = float(str(raw).strip())\n    except (TypeError, ValueError):\n        return None\n    return v if math.isfinite(v) else None",
+      "property": "blank/non-numeric -> None, nan/inf -> None (not 0)",
+      "lines": "52-58"
+    },
+    {
+      "id": "missing-last",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "        if last is None or last == \"\":\n            by[desk][\"missing\"] += 1",
+      "property": "caller-observed: empty Last counted as missing (not green)",
+      "lines": "122-123"
+    },
+    {
+      "id": "wall-hot-missing",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "        row[\"hot\"] = (row[\"miss\"] > 0) or (row[\"missing\"] > 0) or (row[\"stale\"] > 0)",
+      "property": "caller-observed: a missing Last or stale publish makes the desk hot",
+      "lines": "135"
+    },
+    {
+      "id": "wall-missing-reason",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "        if row[\"missing\"]:\n            reasons.append(f\"{row['missing']} missing Last\")",
+      "property": "caller-observed: a missing Last is named in the desk's reasons (display only)",
+      "lines": "139-140"
+    },
+    {
+      "id": "kpi-miss-target",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "    T = str(\"\" if target is None else target).strip()\n    if not T:\n        return False",
+      "property": "informational empty target is not a miss (target read from input, not forced)",
+      "lines": "46-48"
+    },
+    {
+      "id": "kpi-miss-zero-target",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "    if tn == 0:\n        return ln != 0\n    return ln < tn",
+      "property": "caller-observed: a target-0 KPI (ws_miss) is red on any nonzero Last",
+      "lines": "52-54"
+    },
+    {
+      "id": "shape-truncate",
+      "path": "agent_coord/server/score_series.py",
+      "marker": "        if limit > 0:\n            one[\"points\"] = pts[: int(limit)]\n        shaped.append(one)",
+      "property": "known TruncationLabelled: points sliced with no truncated flag",
+      "lines": "159-161"
+    },
+    {
+      "id": "value-must-number",
+      "path": "agent_coord/server/sql/sp_score.sql",
+      "marker": "  IF p_value IS NULL THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: value must be a number';\n  END IF;",
+      "property": "NULL value refused (missing input not stored as zero)",
+      "lines": "194-196"
+    },
+    {
+      "id": "value-not-coerced",
+      "kind": "absent",
+      "path": "agent_coord/server/sql/sp_score.sql",
+      "start": "CREATE PROCEDURE mill_score_point_add(",
+      "end": "  IF p_value IS NULL THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: value must be a number';",
+      "forbid": [
+        "SET\\s+p_value\\s*:?=",
+        ",\\s*p_value\\s*:?=",
+        "\\bINTO\\s+[^;]*\\bp_value\\b",
+        "(IFNULL|COALESCE|NULLIF|IF)\\s*\\(\\s*p_value"
+      ],
+      "inject": "  SET p_value = IFNULL(p_value, 0);",
+      "property": "NULL value refused: nothing coerces or rewrites p_value before the guard block (IF p_value IS NULL THEN plus its SIGNAL line), including an IF-NULL-THEN-SET coerce placed above it (SET =, SET :=, SELECT ... INTO, IFNULL/COALESCE)",
+      "lines": "169-195"
+    },
+    {
+      "id": "points-limit",
+      "path": "agent_coord/server/sql/sp_score.sql",
+      "marker": "  SET v_n = LEAST(GREATEST(IFNULL(p_limit, 10), 1), 100);",
+      "property": "caller-observed: points limit follows p_limit (1..100, default 10)",
+      "lines": "398"
+    }
+  ]
+}
