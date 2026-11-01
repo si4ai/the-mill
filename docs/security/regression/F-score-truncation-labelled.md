@@ -1,0 +1,1 @@
+| F-score-truncation-labelled | score_series.shape labels a capped point window with truncated=true and truncated_n (dropped count); a short history and limit 0 carry no truncation flags. Card 1020. | `server/score_series.shape` | `tests/server/test_score_series_288.py::test_shape_labels_truncated_window`, `::test_shape_limit_zero_is_not_a_truncated_window` |

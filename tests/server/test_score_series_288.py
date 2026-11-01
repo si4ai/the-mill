@@ -219,3 +219,22 @@ def test_cli_parses_read_write_and_list() -> None:
     assert (a.name, a.value) == ("", "")
     with pytest.raises(SystemExit):
         p.parse_args(["score", "the-mill", "x", "1", "--better", "sideways"])
+
+
+def test_shape_labels_truncated_window() -> None:
+    """Card 1020: a capped point window is labelled; a short history is not."""
+    long = ss.shape(_rows(12), 10)[0]
+    assert long.get("truncated") is True
+    assert long.get("truncated_n") == 2
+    assert len(long["points"]) == 10
+    short = ss.shape(_rows(4), 10)[0]
+    assert "truncated" not in short
+    assert "truncated_n" not in short
+    assert len(short["points"]) == 4
+
+
+def test_shape_limit_zero_is_not_a_truncated_window() -> None:
+    """limit 0 omits points for trend-only reads; not a truncation label."""
+    one = ss.shape(_rows(6), 0)[0]
+    assert "points" not in one
+    assert "truncated" not in one
