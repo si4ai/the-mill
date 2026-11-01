@@ -1,0 +1,1 @@
+| F-rooms-live-ws | `mill rooms` on a sitting /ws (dispatch_ws) returns the rooms list. `_h_rooms` does not call `_require_live_ws` (that helper always raises the HTTP cut). HTTP non-OPEN commands stay refused at dispatch. Card 979. | `rpc._h_rooms`, `rpc.dispatch_ws` | `tests/server/test_rooms_live_ws_979.py` (all cases) |
