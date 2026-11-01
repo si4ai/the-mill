@@ -23,9 +23,9 @@ Rules (cards 1014 and the Validator's D4/D5/comment findings):
   - the first line must be a guard or effect statement (branch, loop, return,
     def, assignment, SQL statement, or a dict entry whose value is not a bare
     string); a def marker also needs a guard or effect line after it
-  - matches are counted on the file with comments and Python triple-quoted
-    strings blanked out, so a guard that has been commented or stringed out
-    no longer counts
+  - matches are counted on the file with comments, Python triple-quoted
+    strings, and SQL string literals blanked out, so a guard that has been
+    commented or stringed out no longer counts
   - the marker must match expected_count times (default 1)
   - kind "absent" anchors name a region (start and end markers) and regexes
     that must not appear in it with comments blanked out (for "this path
@@ -48,13 +48,19 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 ANCHORS = HERE / "anchors.json"
 
-LOG_RE = re.compile(r"^(?:await\s+)?(?:[\w.]+\.)?(?:\w*log\w*|print|warn\w*)\s*\(", re.I)
+LOG_RE = re.compile(
+    r"^(?:await\s+)?(?:logging|logger|log)\.\w+\s*\("
+    r"|^(?:await\s+)?(?:print|warn)\s*\("
+    r"|^sys\.stderr\.write\s*\("
+    r"|^sys\.stdout\.write\s*\(",
+    re.I,
+)
 MESSAGE_RE = re.compile(r"MESSAGE_TEXT|^SIGNAL\b|^RESIGNAL\b|^raise\b", re.I)
 # A guard or effect line: a branch, loop, return, definition, assignment,
 # SQL statement, or a dict entry whose value is an expression (not a bare
 # string literal). Anything else (a note string, a bare call) is refused.
 EFFECT_RE = re.compile(
-    r"^(?:if|elif|while|for|return|def|with|IF|ELSEIF|WHILE|REPEAT|SET|UPDATE|INSERT|DELETE|SELECT|CALL|LEAVE|RETURN|CASE)\b"
+    r"^(?:if|elif|while|for|return|def|with|IF|ELSEIF|WHILE|REPEAT|SET|UPDATE|INSERT|DELETE|SELECT|CALL|LEAVE|RETURN|CASE|CREATE|DROP|ALTER|DECLARE|ROLLBACK|COMMIT|START)\b"
     r"|^[\w.]+(?:\[[^\]]*\])*\s*(?:[-+*/|&]?=)(?!=)"
 )
 DICT_ENTRY_RE = re.compile(r"""^(?:"[^"]*"|'[^']*'|[\w.]+)\s*:\s*(.+?),?$""")
@@ -76,11 +82,11 @@ def lang_of(path: str) -> str:
 
 
 def mask_comments(text: str, lang: str) -> str:
-    """Blank out comments, and Python triple-quoted strings (keep length and newlines).
+    """Blank out comments, Python triple-quoted strings, and SQL string literals.
 
-    Single-line strings are kept, so markers on real code that holds a string
-    still match. A guard wrapped in a triple-quoted string or a block comment
-    is blanked and no longer counts.
+    Python single-line strings are kept so markers on real code that hold a
+    string still match. A guard wrapped in a triple-quoted string, a SQL
+    string literal, or a block comment is blanked and no longer counts.
     """
     out = list(text)
     i, n = 0, len(text)
@@ -98,9 +104,18 @@ def mask_comments(text: str, lang: str) -> str:
             continue
         if c in quotes:
             j = i + 1
-            while j < n and text[j] != c and text[j] != "\n":
+            while j < n and text[j] != c:
+                if text[j] == "\n":
+                    break
                 j += 2 if text[j] == "\\" else 1
-            i = j + 1
+            end = j + 1 if j < n and text[j] == c else j
+            # SQL: blank string interiors so a guard wrapped in a literal
+            # does not count as live. Python single-line strings stay.
+            if lang == "sql":
+                for k in range(i, end):
+                    if out[k] != "\n":
+                        out[k] = " "
+            i = end
             continue
         line_comment = c == "#" or (
             lang == "sql"
@@ -142,6 +157,9 @@ def classify(line: str) -> str:
         return "block"
     if DOCSTRING_RE.match(s):
         return "docstring"
+    # SQL SELECT of only a string literal is a message, not a guard/effect.
+    if re.match(r"^SELECT\s+'[^']*'(?:\s+AS\s+\w+)?\s*;?$", s, re.I):
+        return "message"
     if EFFECT_RE.match(s):
         return "code"
     m = DICT_ENTRY_RE.match(s)
@@ -218,9 +236,12 @@ def comment_out(marker: str, lang: str) -> list[tuple[str, str]]:
             ("comment-line", "\n".join("# " + ln for ln in lines)),
             ("string-wrap", '"""\n' + marker + '\n"""'),
         ]
+    # Wrap in a SQL string so string-blanking must make the mutant go red.
+    wrapped = "'" + marker.replace("'", "''").replace("\n", " ") + "'"
     return [
         ("comment-line", "\n".join("-- " + ln for ln in lines)),
         ("comment-block", "/* " + marker + " */"),
+        ("string-wrap", wrapped),
     ]
 
 
@@ -281,6 +302,11 @@ SELFTEST = [
     ("-- IF x THEN\n  SET y = 1;", "x.sql", "comment"),
     ('    KPI_WS_MISS: "Hub fanout miss; target 0",', "x.py", "note string"),
     ("            _log(row)", "x.py", "log call"),
+    ("logger.info('wake done')", "x.py", "logger.info only"),
+    ("logging.debug('x')", "x.py", "logging.debug only"),
+    ("sys.stderr.write('x')", "x.py", "sys.stderr.write only"),
+    ("SELECT 'msg';", "x.sql", "SQL SELECT message only"),
+    ("SELECT 'released' AS op;", "x.sql", "SQL SELECT string AS only"),
     ('def f(x):\n    """doc."""', "x.py", "def + docstring only"),
     ("from a import (  # noqa\n    B as C,", "x.py", "import + name"),
 ]
@@ -299,6 +325,7 @@ def selftest() -> int:
         ("/* IF x THEN\n  SET y = 1; */", "sql", "sql block comment"),
         ("-- IF x THEN\n--   SET y = 1;", "sql", "sql line comment"),
         ('"""\nif x:\n    return 1\n"""\n', "py", "py triple-quoted string"),
+        ("SELECT 'IF x THEN SET y = 1;';\n", "sql", "sql string literal wrap"),
     ):
         m = "if x:\n    return 1" if lang == "py" else "IF x THEN\n  SET y = 1;"
         if count_live(text, m, lang) != 0:
