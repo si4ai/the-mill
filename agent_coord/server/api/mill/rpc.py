@@ -3227,6 +3227,13 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
     eta_n = int(doc.get("eta_n") or 0)
     eta_sum = int(doc.get("eta_sum") or 0)
     actual_sum = int(doc.get("actual_sum") or 0)
+    escapes = None
+    try:
+        from agent_coord.server import delivery_escapes as de
+
+        escapes = de.escapes_view_live(shipped=shipped)
+    except Exception:
+        escapes = None
     out["guards"] = {
         "median_lead_min": (lead_sum // lead_n) if lead_n else None,
         "eta_vs_actual": {
@@ -3235,7 +3242,7 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
             "n": eta_n,
         },
         "doing_min": int(doc.get("doing_sum") or 0),
-        "escapes": None,
+        "escapes": escapes,
         "size_mix": {
             "claimed": int(doc.get("claimed") or 0),
             "started": int(doc.get("started") or 0),

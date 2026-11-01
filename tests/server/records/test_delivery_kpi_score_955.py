@@ -127,3 +127,6 @@ def test_mill_score_cards_shows_guards(cn):
     # Lead time / size mix / escapes surface somehow on the read.
     blob = json.dumps(shaped)
     assert "lead" in blob or "lead_min" in blob or "median_lead" in blob
+    assert "escapes" in guards
+    assert guards["escapes"] is None or isinstance(guards["escapes"], dict)
+    assert "size_mix" in guards
