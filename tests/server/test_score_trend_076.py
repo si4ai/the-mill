@@ -83,16 +83,16 @@ def rec(monkeypatch):
     return rpc, calls
 
 
-def test_target_alone_defines_without_a_point(rec) -> None:
+def test_desk_define_and_value_writes_are_refused(rec) -> None:
+    """Card 1021: desk define / VALUE / --at never reach records."""
     rpc, calls = rec
-    rpc._h_score(_Book(), {"name": "k", "target": "5", "better": "down"}, "r", "d1")
-    assert calls == [("define", ("r", "d1", "k"), {"target": "5", "better": "down", "unit": None})]
-
-
-def test_unit_alone_defines(rec) -> None:
-    rpc, calls = rec
-    rpc._h_score(_Book(), {"name": "k", "unit": "ms"}, "r", "d1")
-    assert calls[0][0] == "define" and calls[0][2]["unit"] == "ms"
+    with pytest.raises(CoordError, match=r"desks only read scores; use mill score r k"):
+        rpc._h_score(_Book(), {"name": "k", "target": "5", "better": "down"}, "r", "d1")
+    with pytest.raises(CoordError, match=r"desks only read scores; use mill score r k"):
+        rpc._h_score(_Book(), {"name": "k", "unit": "ms"}, "r", "d1")
+    with pytest.raises(CoordError, match=r"desks only read scores; use mill score r k"):
+        rpc._h_score(_Book(), {"name": "k", "value": "3", "at": "2h"}, "r", "d1")
+    assert calls == []
 
 
 def test_name_alone_is_still_a_read(rec) -> None:
@@ -102,35 +102,23 @@ def test_name_alone_is_still_a_read(rec) -> None:
     assert calls == []
 
 
-def test_at_rides_the_point(rec) -> None:
-    rpc, calls = rec
-    rpc._h_score(_Book(), {"name": "k", "value": "3", "at": "2h"}, "r", "d1")
-    assert calls[0][0] == "add" and calls[0][2]["at"] == "2h"
-
-
 @pytest.mark.parametrize(
-    "body,msg",
+    "body",
     [
-        ({"name": "k", "at": "2h"}, "--at needs a VALUE"),
-        ({"name": "k", "value": "1", "at": "soon"}, "--at must be"),
-        ({"name": "k", "target": "x"}, "--target must be a number"),
-        ({"name": "k", "target": "1", "note": "n"}, "--note goes with a VALUE"),
-        ({"retire": True}, "retire needs ROSTER NAME"),
-        ({"name": "k", "retire": True, "at": "1d"}, "retire takes no VALUE or --at"),
+        {"name": "k", "at": "2h"},
+        {"name": "k", "value": "1", "at": "soon"},
+        {"name": "k", "target": "x"},
+        {"name": "k", "target": "1", "note": "n"},
+        {"retire": True},
+        {"name": "k", "retire": True, "at": "1d"},
+        {"name": "k", "retire": True},
     ],
 )
-def test_refusals_store_nothing(rec, body, msg) -> None:
+def test_refusals_store_nothing(rec, body) -> None:
     rpc, calls = rec
-    with pytest.raises(CoordError, match=msg):
+    with pytest.raises(CoordError, match=r"desks only read scores"):
         rpc._h_score(_Book(), body, "r", "d1")
     assert calls == []
-
-
-def test_retire_passes_admin_flag(rec) -> None:
-    rpc, calls = rec
-    assert rpc._h_score(_Book(), {"name": "k", "retire": True}, "r", "boss")["retired"] is True
-    rpc._h_score(_Book(), {"name": "k", "retire": True}, "r", "d1")
-    assert [c[2]["admin"] for c in calls] == [True, False]
 
 
 def test_cli_retire_score_rides_the_score_command(monkeypatch) -> None:
