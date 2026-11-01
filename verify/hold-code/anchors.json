@@ -1,0 +1,82 @@
+{
+  "sync_note": "Anchors couple the hold recovery model to the real files. Each marker is the guard line plus its first effect line (card 1014). Line numbers are hints; the check matches the marker string and expected_count.",
+  "anchors": [
+    {
+      "id": "upsert-for-update",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "SELECT id, desk_id INTO v_id, v_held\n    FROM hold\n   WHERE resource_id = v_res\n   FOR UPDATE;",
+      "property": "AtMostOneHolder / seat-then-hold lock order",
+      "lines": "56-59"
+    },
+    {
+      "id": "take-when-null",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "WHERE id = v_id AND desk_id IS NULL;\n    SET v_n = ROW_COUNT();",
+      "property": "TakeFromFreeOrRefresh / GuardTakeWhenFree",
+      "lines": "74-75"
+    },
+    {
+      "id": "same-holder-refresh",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "ELSEIF v_held = v_desk THEN\n    -- Same holder again refreshes the row (#194). It does not stack a second lock and writes no move row.\n    -- Card 853: bump updated for #194, but report since as the take time (activity.updated),\n    -- so a second hold keeps since and sets refreshed true.\n    SELECT a.updated INTO v_since FROM activity a WHERE a.type = 'hold' AND a.id = v_id;",
+      "property": "same holder refreshes (#194)",
+      "lines": "88-92"
+    },
+    {
+      "id": "own-drop-owner",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "WHERE id = p_id AND desk_id = v_desk;\n  SET v_gone = ROW_COUNT();",
+      "property": "OnlyOwnerDropReleases / DropFreesRow / GuardOwnDropOnly",
+      "lines": "137-138"
+    },
+    {
+      "id": "release-desk",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "CREATE PROCEDURE mill_hold_release_desk(",
+      "property": "reset/retire frees desk holds (card 842)",
+      "lines": "152"
+    },
+    {
+      "id": "release-other",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "CREATE PROCEDURE mill_hold_release_other(",
+      "property": "Admin/stale drop of another's hold (card 931 / F223)",
+      "lines": "180"
+    },
+    {
+      "id": "already-free",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "IF v_holder IS NULL THEN\n    -- Freed between the Python read and this call: not held, so not 'kept'.\n    SET v_gone = 0;\n    SET v_reason = 'already free';",
+      "property": "AlreadyFreeHonest / GuardAlreadyFree",
+      "lines": "218-221"
+    },
+    {
+      "id": "holder-changed",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "ELSEIF v_holder <> v_expect THEN\n    -- Holder changed since the Python check: refuse (do not drop the new holder).\n    SET v_gone = 0;\n    SET v_reason = 'holder changed';",
+      "property": "ExpectGuardHolds",
+      "lines": "225-228"
+    },
+    {
+      "id": "expect-guard",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "WHERE id = p_id AND desk_id = v_expect;\n    SET v_gone = ROW_COUNT();",
+      "property": "ExpectGuardHolds / GuardExpectHolder",
+      "lines": "232-233"
+    },
+    {
+      "id": "may-drop-other",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "if is_role_admin(cn, actor):\n        return True, \"\"",
+      "property": "Admin may drop other (F223); pairs with stale-days",
+      "lines": "204-205"
+    },
+    {
+      "id": "stale-days",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "need = hold_stale_days()\n    if age is None or age < float(need):",
+      "property": "stale bound for high-trust non-Admin release-other",
+      "lines": "217-218"
+    }
+  ]
+}
