@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CHANGES = ROOT / "docs" / "requirements" / "beta" / "BETA-CHANGES.md"
 MAIN_22 = {"name", "seat", "member", "activity", "label", "tree", "watcher", "mail", "mail_to", "tree_read", "todo",
            "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
-           "mill_invite", "mill_invite_join", "push_queue"}
+           "mill_invite", "mill_invite_join", "push_queue", "wake", "transition", "transition_edge"}
 
 
 def doc_acts() -> list[str]:
@@ -57,6 +57,7 @@ def col_type(cn, db, t, c):
 
 
 def test_no_new_tables(book):
+    # card 1022 added wake/transition/transition_edge (owner 2026-11-01); still no vote/todo_event/etc.
     cn, db = book
     tables = {t for (t,) in q(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=%s", (db,))}
     assert tables == MAIN_22, sorted(tables ^ MAIN_22)

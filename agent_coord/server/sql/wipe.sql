@@ -16,6 +16,7 @@ DROP TRIGGER IF EXISTS name_fixed;
 -- 0.8.0 has no new table; seat and doing reference each other (FOREIGN_KEY_CHECKS is off, so order is free).
 DROP TABLE IF EXISTS mill_invite_join;
 DROP TABLE IF EXISTS mill_invite;
+DROP TABLE IF EXISTS transition_edge;
 DROP TABLE IF EXISTS transition;
 DROP TABLE IF EXISTS wake;
 DROP TABLE IF EXISTS label;

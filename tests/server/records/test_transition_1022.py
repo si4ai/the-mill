@@ -1,14 +1,28 @@
-"""card 1022: transition table, wake activity, System desk id 0."""
+"""card 1022: transition table, wake activity, System desk id 0; enums in code, text in rows."""
 from __future__ import annotations
+
+import re
+from pathlib import Path
 
 import pytest
 
 from agent_coord.install.migrate import apply_transition_1022, transition_1022_needed
 from agent_coord.server import transition as tr
 from agent_coord.server.records.db import call
+from agent_coord.server.transition_enums import (
+    ALLOWED_TRANSITIONS,
+    AMBIGUOUS_MAP_NOTES,
+    ActivityType,
+    Reason,
+    State,
+    WakeCause,
+)
 from tests.server.records.conftest import admin_desk
 
 pytestmark = pytest.mark.sql
+
+ROOT = Path(__file__).resolve().parents[3]
+STATE_MAP = ROOT / "docs" / "protocol" / "state-instrumentation.md"
 
 
 def _q(cn, sql, args=()):
@@ -56,11 +70,36 @@ def test_transition_desk_id_not_null_default_zero(cn):
     assert str(rows[0][1]) in ("0", "0.0")
 
 
+def test_state_reason_columns_are_varchar_not_enum(cn):
+    """Owner 2026-11-01: enums in code, text in rows."""
+    for table, col in (
+        ("transition", "from_state"),
+        ("transition", "to_state"),
+        ("transition", "reason"),
+        ("wake", "state"),
+        ("wake", "cause"),
+    ):
+        rows = _q(
+            cn,
+            "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, CHARACTER_SET_NAME, COLLATION_NAME,"
+            " COLUMN_DEFAULT FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+            (table, col),
+        )
+        assert rows, (table, col)
+        dtype, maxlen, charset, coll, default = rows[0]
+        assert str(dtype).lower() == "varchar", (table, col, dtype)
+        assert int(maxlen) == 32, (table, col, maxlen)
+        assert charset == "ascii"
+        assert coll == "ascii_bin"
+        if (table, col) == ("transition", "from_state"):
+            assert str(default).strip("'") == "none"
+
+
 def test_synthetic_transition_insert_select_by_type_to_state(cn):
     """Auditor check: after migrate, insert + SELECT by (activity_type, to_state)."""
     desk = admin_desk(cn)
     desk_id = _q(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (desk,))[0][0]
-    # wake activity + payload (explicit id; wake has no AUTO_INCREMENT in the draft)
     wid = 910022
     _exec(
         cn,
@@ -75,17 +114,17 @@ def test_synthetic_transition_insert_select_by_type_to_state(cn):
     _exec(
         cn,
         "INSERT INTO wake (id, type, desk_id, cause, state)"
-        " VALUES (%s, 'wake', %s, 'test', 'queued')",
-        (wid, desk_id),
+        " VALUES (%s, 'wake', %s, %s, %s)",
+        (wid, desk_id, WakeCause.test.value, State.idle.value),
     )
     cn.commit()
     tr.put(
         cn,
-        activity_type="wake",
+        activity_type=ActivityType.wake,
         activity_id=wid,
-        from_state="",
-        to_state="queued",
-        reason="create",
+        from_state=State.idle,
+        to_state=State.push_pending,
+        reason=Reason.wake_queue,
         desk_id=0,
         role="office",
         join_key=f"wake:{wid}",
@@ -96,9 +135,18 @@ def test_synthetic_transition_insert_select_by_type_to_state(cn):
         "SELECT activity_type, activity_id, from_state, to_state, reason, desk_id"
         " FROM transition WHERE activity_type = %s AND to_state = %s"
         " ORDER BY id DESC LIMIT 1",
-        ("wake", "queued"),
+        (ActivityType.wake.value, State.push_pending.value),
     )
-    assert rows == [("wake", wid, "", "queued", "create", 0)]
+    assert rows == [
+        (
+            ActivityType.wake.value,
+            wid,
+            State.idle.value,
+            State.push_pending.value,
+            Reason.wake_queue.value,
+            0,
+        )
+    ]
 
 
 def test_unknown_edge_refused_by_sp_and_helper(cn):
@@ -112,14 +160,77 @@ def test_unknown_edge_refused_by_sp_and_helper(cn):
     cn.commit()
     assert _q(cn, "SELECT id FROM activity WHERE type='wake' AND id=%s", (wid,)) == [(wid,)]
     with pytest.raises(tr.UnknownTransition):
-        tr.check_edge("wake", "queued", "nope")
+        tr.check_edge(
+            ActivityType.wake,
+            State.idle,
+            State.deleted,
+            Reason.other,
+        )
     with pytest.raises(Exception) as ei:
         call(
             cn,
             "mill_transition_put",
-            ["wake", wid, "queued", "nope", "bogus", 0, "office", None, None],
+            [
+                ActivityType.wake.value,
+                wid,
+                State.idle.value,
+                State.deleted.value,
+                Reason.other.value,
+                0,
+                "office",
+                None,
+                None,
+            ],
         )
     assert "unknown" in str(ei.value).lower()
+
+
+def test_helper_rejects_raw_string():
+    """Enums only: a bare str for state/reason/type is TypeError."""
+    with pytest.raises(TypeError):
+        tr.check_edge("wake", State.idle, State.push_pending, Reason.wake_queue)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        tr.check_edge(ActivityType.wake, "idle", State.push_pending, Reason.wake_queue)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        tr.check_edge(ActivityType.wake, State.idle, "push_pending", Reason.wake_queue)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        tr.check_edge(ActivityType.wake, State.idle, State.push_pending, "wake_queue")  # type: ignore[arg-type]
+
+
+def test_enum_values_fit_varchar_32_ascii():
+    for cls in (ActivityType, State, Reason, WakeCause):
+        for m in cls:
+            v = m.value
+            assert isinstance(v, str)
+            assert v.isascii(), (cls.__name__, v)
+            assert 1 <= len(v) <= 32, (cls.__name__, v, len(v))
+            assert " " not in v
+
+
+def test_allowed_edges_use_enums_and_cover_wake_create():
+    assert (ActivityType.wake, State.idle, State.push_pending, Reason.wake_queue) in tr.ALLOWED_TRANSITIONS
+    assert (ActivityType.wake, State.none, State.unread_owed, Reason.wake_owed) in tr.ALLOWED_TRANSITIONS
+    for edge in ALLOWED_TRANSITIONS:
+        assert all(isinstance(x, (ActivityType, State, Reason)) for x in edge)
+
+
+def test_state_map_coverage():
+    """Every map row id (W1..S7 etc.) has at least one ALLOWED_TRANSITIONS edge (expansions ok)."""
+    text = STATE_MAP.read_text(encoding="utf-8")
+    # Map ids like | W1 | or | M1 | or | Tsk1 | in transition tables
+    ids = set(re.findall(r"^\|\s*([A-Za-z]+\d+)\s*\|", text, flags=re.M))
+    # Drop non-transition legend noise if any
+    ids = {i for i in ids if re.match(r"^(W|M|T|D|H|S|Tsk)\d*$", i) or i.startswith("Tsk")}
+    covered = set()
+    src = Path(tr.__file__).with_name("transition_enums.py").read_text(encoding="utf-8")
+    for m in re.finditer(r"#\s*([A-Za-z]+\d*[a-z]?)\s*$", src, flags=re.M):
+        covered.add(re.sub(r"[a-z]$", "", m.group(1)))  # W3a -> W3
+        covered.add(m.group(1))
+    # Map total ~70; our edges expand some rows
+    missing = sorted(i for i in ids if i not in covered and re.sub(r"[a-z]$", "", i) not in covered)
+    # Known map sections use W1-W18, M1-M9, T1-T15, D1-D11, H1-H9, S1-S7, Tsk1-Tsk8
+    assert len(ids) >= 60, sorted(ids)[:20]
+    assert not missing, f"state-map ids not covered by ALLOWED_TRANSITIONS comments: {missing}; notes={AMBIGUOUS_MAP_NOTES[:2]}"
 
 
 def test_system_survives_dump_restore(cn):
@@ -141,10 +252,8 @@ def test_system_survives_dump_restore(cn):
         f"CREATE DATABASE `{dst}` DEFAULT CHARACTER SET utf8mb4"
         " DEFAULT COLLATE utf8mb4_0900_ai_ci"
     )
-    # copy name + seat rows only (enough for System id 0)
     cur.execute(f"CREATE TABLE `{dst}`.name LIKE `{src}`.name")
     cur.execute(f"CREATE TABLE `{dst}`.seat LIKE `{src}`.seat")
-    # restore with NO_AUTO_VALUE_ON_ZERO so id 0 sticks
     cur.execute("SET @old := @@SESSION.sql_mode")
     cur.execute("SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO')")
     cur.execute(
@@ -167,19 +276,10 @@ def test_system_survives_dump_restore(cn):
     assert seat == (0, None)
 
 
-def test_allowed_edges_match_sp_comment_contract():
-    """Python list is the model SoT; must include the wake create edge used in tests."""
-    assert ("wake", "", "queued") in tr.ALLOWED_EDGES
-    assert ("wake", "taken", "wasted") in tr.ALLOWED_EDGES
-
-
 def test_new_name_id_at_least_100(cn):
     """Fresh install reserves 0-99; next minted name is id >= 100."""
     cur = cn.cursor()
     try:
-        cur.execute("SHOW TABLE STATUS LIKE 'name'")
-        row = cur.fetchone()
-        # Auto_increment column index varies; use information_schema
         cur.execute(
             "SELECT AUTO_INCREMENT FROM information_schema.TABLES"
             " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'name'"
@@ -192,6 +292,5 @@ def test_new_name_id_at_least_100(cn):
         new_id = cur.lastrowid
         cn.commit()
         assert new_id >= 100, new_id
-        # leave the row; shared-book reset truncates name between tests
     finally:
         cur.close()

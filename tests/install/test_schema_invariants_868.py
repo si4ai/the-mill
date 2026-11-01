@@ -29,11 +29,15 @@ SHORT_TEXT_OK = {
     ("mill_invite_join", "party"): "desk or human, a kind",
     ("seat", "lan_ip"): "an address",
     ("wake", "route"): "matched wake route key, ascii",
+    ("wake", "cause"): "wake cause key, ascii",
     ("wake", "state"): "wake lifecycle state, ascii",
     ("transition", "from_state"): "prior activity state, ascii",
     ("transition", "to_state"): "new activity state, ascii",
     ("transition", "reason"): "transition reason key, ascii",
     ("transition", "join_key"): "join key tying related rows, ascii",
+    ("transition_edge", "from_state"): "allowed-edge prior state, ascii",
+    ("transition_edge", "to_state"): "allowed-edge new state, ascii",
+    ("transition_edge", "reason"): "allowed-edge reason key, ascii",
 }
 # Id-like columns that are not BIGINT UNSIGNED (main's id type, owner decision 2026-10-24), with the reason.
 ID_TYPE_OK = {
@@ -53,6 +57,8 @@ DESK_COLS = ("desk_id", "updated_id", "creator_id", "assigned_id")
 ROSTER_COLS = ("roster_id",)
 ROSTER_NAME_ID = {"member", "human_member"}  # name_id is a roster there (main's comments)
 EDGE_WORDS = ("parent", "reply_to", "from_card", "from_letter", "from_score", "edge", "link", "adjacen", "child")
+# card 1022: allowed-transitions seed table (not a tree adjacency).
+EDGE_TABLE_OK = frozenset({"transition_edge"})
 
 
 @pytest.fixture(scope="module")
@@ -103,7 +109,7 @@ def test_trees_are_nested_sets_no_edge_table(book):
     cols = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s", (db,))
     tables = {t for t, _ in cols}
     bad_cols = sorted((t, c) for t, c in cols if any(w in c.lower() for w in EDGE_WORDS))
-    bad_tables = sorted(t for t in tables if any(w in t.lower() for w in EDGE_WORDS))
+    bad_tables = sorted(t for t in tables if t not in EDGE_TABLE_OK and any(w in t.lower() for w in EDGE_WORDS))
     assert not bad_cols and not bad_tables, f"no edge or adjacency structure: {bad_cols} {bad_tables}"
     tree = {c for t, c in cols if t == "tree"}
     assert {"lft", "rgt", "name_id", "type", "id"} <= tree
@@ -170,11 +176,11 @@ def test_app_grant_is_execute_only(book):
 
 
 def test_no_name_event_anywhere_in_the_book(book):
-    # No name history (the owner): no table, trigger or routine names name_event, and the book has main's 22 tables (F166).
+    # No name history (the owner): no table, trigger or routine names name_event, and the book has 25 tables (22 + card 1022 wake/transition/transition_edge) (F166).
     cn, db = book
     tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
     assert "name_event" not in tables
-    assert len(tables) == 22, f"beta book has {len(tables)} tables"
+    assert len(tables) == 25, f"beta book has {len(tables)} tables"
     trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
                      " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
                      " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))

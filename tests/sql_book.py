@@ -40,6 +40,7 @@ DATA_TABLES = (
     "human_desk",
     "human",
     "push_queue",
+    "transition_edge",
     "transition",
     "wake",
     "activity",
@@ -166,6 +167,19 @@ def reseed(cn) -> None:
             "FROM score s WHERE s.kpi IN "
             "('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop')"
         )
+
+        # card 1022: allowed edges (truncated clears them; reseed from Python Enums)
+        from agent_coord.server.transition_enums import ALLOWED_TRANSITIONS
+        cur.execute("DELETE FROM transition_edge")
+        rows = sorted(
+            {(a.value, f.value, to.value, r.value) for a, f, to, r in ALLOWED_TRANSITIONS}
+        )
+        if rows:
+            cur.executemany(
+                "INSERT INTO transition_edge (activity_type, from_state, to_state, reason) "
+                "VALUES (%s, %s, %s, %s)",
+                rows,
+            )
         cn.commit()
     finally:
         cur.close()

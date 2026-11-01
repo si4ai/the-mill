@@ -1,7 +1,7 @@
--- 22 tables. Wipe then apply.
+-- 25 tables. Wipe then apply.
 -- 0.8.0 schema (card 868): main's 0.7.18 tables with the departures in docs/requirements/beta/BETA-CHANGES.md;
 -- name, seat, member, activity, label, tree, watcher, mail, mail_to, tree_read, todo,
--- doing, hold, score, score_point, score_evidence, human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
+-- doing, hold, score, score_point, score_evidence, wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
 -- No new table (the owner, 2026-10-26): doing is the history of card and hold moves, and seat.doing_id
 -- names a desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- Order: name, then seat (the desk kind table), then main's order.
@@ -10,7 +10,7 @@
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
 -- id 0 = System (desk). id 1 = Office. id 2 = Admin. Ids 0-99 reserved for built-ins (AUTO_INCREMENT=100). Never retire.
 -- activity PK (type, id). Payload type uses this same ENUM list. Ids are per type (each payload table's AUTO_INCREMENT).
--- activity is the timeline, not a parent: no payload (mail, todo, doing, hold, score) has an FK to it.
+-- activity is the timeline, not a parent: no payload (mail, todo, doing, hold, score, wake) has an FK to it; transition references activity.
 -- A writer inserts the payload, takes LAST_INSERT_ID(), then writes the activity row in the same transaction.
 -- label and tree keep their FKs to activity: they point at a timeline row that already exists.
 -- Every mill FK to name is RESTRICT. name_no_delete refuses a hard DELETE unless sp_name_purge set @mill_allow_name_hard_delete for roster|label|tree (card 879). Retire stamps name.deleted; delete stamps name.trashed.
@@ -436,28 +436,32 @@ WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop'
 -- One human. They hold the bearer. The host stores only the hash.
 -- directory_sub is the directory or IAM subject, when that door is on.
 -- card 1022: wake as an activity (one row per wake fired at a desk).
+-- state/cause are text in rows; Python Enums (State, WakeCause) are the only names in code.
 CREATE TABLE IF NOT EXISTS wake (
   id          BIGINT UNSIGNED NOT NULL,          -- = activity.id where type='wake'
   type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL DEFAULT 'wake',
   desk_id     BIGINT UNSIGNED NOT NULL DEFAULT 0,  -- desk being woken; 0 = System (default desk)
-  cause       ENUM('mail','hint','receipt','room','retry','test') NOT NULL,
+  cause       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   cause_type  ENUM('mail','todo','doing','hold','score') NULL,   -- what rang it
   cause_id    BIGINT UNSIGNED NULL,
   route       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,  -- matched route key, e.g. mail:MAIL
-  state       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'queued',
-  PRIMARY KEY (id),
+  state       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'push_pending',
+  PRIMARY KEY (type, id),
+  UNIQUE KEY idx_id (id),
   KEY idx_desk_state (desk_id, state),
   CONSTRAINT fk_wake_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT,
   CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1022: one row per state change of one activity. desk_id DEFAULT 0 = System (the default desk).
+-- from_state/to_state/reason are VARCHAR text in rows (enums only in Python code).
+-- from_state defaults to 'none' (never empty string).
 CREATE TABLE IF NOT EXISTS transition (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   at            DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),   -- always UTC (card 1008)
   activity_type ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   activity_id   BIGINT UNSIGNED NOT NULL,
-  from_state    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+  from_state    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'none',
   to_state      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   reason        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   desk_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,  -- who acted; 0 = System (default desk); never NULL
@@ -465,13 +469,122 @@ CREATE TABLE IF NOT EXISTS transition (
   join_key      VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NULL,
   meta          JSON NULL,                     -- small and capped; no text, names or hosts
   PRIMARY KEY (id),
-  KEY idx_type_id_at   (activity_type, activity_id, at),
+  KEY idx_type_id_at (activity_type, activity_id, at),
   KEY idx_desk_type_at (desk_id, activity_type, at),
-  KEY idx_join         (join_key, at),
-  KEY idx_type_to_at   (activity_type, to_state, at),
+  KEY idx_join (join_key, at),
+  KEY idx_type_to_at (activity_type, to_state, at),
   CONSTRAINT fk_transition_activity FOREIGN KEY (activity_type, activity_id) REFERENCES activity (type, id) ON DELETE RESTRICT,
   CONSTRAINT fk_transition_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Allowed edges. Seeded to match transition_enums.ALLOWED_TRANSITIONS (text values = enum .value).
+CREATE TABLE IF NOT EXISTS transition_edge (
+  activity_type ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
+  from_state    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  to_state      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reason        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (activity_type, from_state, to_state, reason)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('doing','active','active','doing_newer'),
+  ('doing','active','failed','tw_failed'),
+  ('doing','active','finished','finish_drop'),
+  ('doing','active','finished','finish_pass'),
+  ('doing','active','finished','finish_reply'),
+  ('doing','active','finished','tw_finished'),
+  ('doing','active','stale','tw_stale'),
+  ('doing','active','waiting','doing_wait'),
+  ('doing','active','waiting','tw_wait'),
+  ('doing','any','cleared','clear'),
+  ('doing','connected','seated','disconnect'),
+  ('doing','idle','active','doing_put'),
+  ('doing','idle','active','tw_start'),
+  ('doing','no_seat','seated','join'),
+  ('doing','seated','connected','connect'),
+  ('doing','seated','reset','reset_seat'),
+  ('doing','waiting','active','tw_resume'),
+  ('doing','waiting','failed','tw_failed'),
+  ('doing','waiting','finished','tw_finished'),
+  ('doing','waiting','stale','tw_stale');
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('doing','waiting','waiting','wait_cycle'),
+  ('hold','any','refused','hold_refuse'),
+  ('hold','any','same','hold_peek'),
+  ('hold','free','held','hold_grant'),
+  ('hold','held','expired','hold_expire'),
+  ('hold','held','free','hold_drop'),
+  ('hold','held','free','hold_force'),
+  ('hold','held','held','hold_refresh'),
+  ('hold','no_row','held','hold_grant'),
+  ('hold','refused','held','hold_wait_acquire'),
+  ('mail','any','refused','orphan_refuse'),
+  ('mail','any','refused','size_limit'),
+  ('mail','delivered','woken','woken'),
+  ('mail','handled','answered','answered'),
+  ('mail','handled','handled','mark'),
+  ('mail','handled','removed','remove_recipient'),
+  ('mail','live','deleted','delete_probe'),
+  ('mail','live','delivered','delivered'),
+  ('mail','none','live','reply'),
+  ('mail','none','live','send_or_queue');
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('mail','none','unread','add_recipient'),
+  ('mail','none','unread','send_or_queue'),
+  ('mail','unread','answered','answered'),
+  ('mail','unread','handled','mark'),
+  ('mail','unread','handled','thread_read'),
+  ('mail','unread','removed','remove_recipient'),
+  ('mail','unread','unread','preview'),
+  ('score','any','refused','score_refuse'),
+  ('score','defined','live','score_point'),
+  ('score','defined','retired','score_retire'),
+  ('score','live','live','score_point'),
+  ('score','live','live','score_retarget'),
+  ('score','live','retired','score_retire'),
+  ('score','none','defined','score_define'),
+  ('score','none','live','score_point'),
+  ('score','retired','defined','score_revive'),
+  ('score','retired','live','score_revive'),
+  ('todo','any','retired','retire'),
+  ('todo','any','same','note'),
+  ('todo','claimed','claimed','take_over');
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('todo','claimed','open','unclaim'),
+  ('todo','claimed','shipped','pass_ship'),
+  ('todo','done','shipped','pass_back'),
+  ('todo','live','deleted','delete_probe'),
+  ('todo','none','open','create'),
+  ('todo','none','parked','create_parked'),
+  ('todo','open','claimed','assign'),
+  ('todo','open','claimed','claim'),
+  ('todo','parked','open','unpark'),
+  ('todo','retired','prior','reclaim'),
+  ('todo','shipped','claimed','pass_back'),
+  ('todo','shipped','done','pass_done'),
+  ('todo','shipped','open','pass_back'),
+  ('wake','any','coalesced','wake_coalesce'),
+  ('wake','any','sitting','wake_sit'),
+  ('wake','any','skipped','wake_skip'),
+  ('wake','fail','retry_armed','wake_retry'),
+  ('wake','idle','push_pending','wake_queue'),
+  ('wake','lease_live','expire','wake_expire'),
+  ('wake','lease_live','idle','wake_done');
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('wake','lease_live','idle','wake_sitting'),
+  ('wake','lease_live','idle','wake_stale'),
+  ('wake','lease_live','trail','wake_trail'),
+  ('wake','left','ring','wake_ring'),
+  ('wake','none','unread_owed','wake_owed'),
+  ('wake','push_pending','drained','wake_deliver'),
+  ('wake','push_pending','lease_live','wake_fail'),
+  ('wake','push_pending','lease_live','wake_sent'),
+  ('wake','retry_armed','drained','wake_drain'),
+  ('wake','retry_armed','idle','wake_drain'),
+  ('wake','sitting','left','wake_leave'),
+  ('wake','unread_owed','lease_live','wake_fail'),
+  ('wake','unread_owed','lease_live','wake_sent'),
+  ('wake','unread_owed','lost_unread','wake_lost');
 
 CREATE TABLE IF NOT EXISTS human (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -13,6 +13,7 @@ SKIP = frozenset(
         "migrate_070_roster.sql",
         "migrate_080.sql",
         "migrate_818_doing.sql",
+        "migrate_1022_transition.sql",
         "name_type.sql",
     }
 )
