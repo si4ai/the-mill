@@ -3338,6 +3338,29 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 did = ta.desk_id_for(c._cn, owner)
                 return ta.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "pr.open_n",
+                "pr.red_n",
+                "pr.open_age_ms",
+                "pr.open_to_green_ci_ms",
+                "pr.open_to_validator_pass_ms",
+                "pr.open_to_merge_ms",
+                "pr.ci_gate_wait_ms",
+                "pr.validator_gate_wait_ms",
+                "pr.merge_gate_wait_ms",
+                "open-prs-open-n",
+                "open-prs-red-n",
+                "open-prs-open-age",
+                "open-prs-open-to-green",
+                "open-prs-open-to-pass",
+                "open-prs-open-to-merge",
+                "open-prs-ci-gate",
+                "open-prs-validator-gate",
+                "open-prs-merge-gate",
+            ):
+                from agent_coord.server import open_prs_score as ops
+
+                return ops.score_view_for_name(name)
             raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
@@ -3410,6 +3433,33 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 one = dict(one)
                 did = ta.desk_id_for(c._cn, owner)
                 one.update(ta.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "pr.open_n",
+            "pr.red_n",
+            "pr.open_age_ms",
+            "pr.open_to_green_ci_ms",
+            "pr.open_to_validator_pass_ms",
+            "pr.open_to_merge_ms",
+            "pr.ci_gate_wait_ms",
+            "pr.validator_gate_wait_ms",
+            "pr.merge_gate_wait_ms",
+            "open-prs-open-n",
+            "open-prs-red-n",
+            "open-prs-open-age",
+            "open-prs-open-to-green",
+            "open-prs-open-to-pass",
+            "open-prs-open-to-merge",
+            "open-prs-ci-gate",
+            "open-prs-validator-gate",
+            "open-prs-merge-gate",
+        ):
+            try:
+                from agent_coord.server import open_prs_score as ops
+
+                one = dict(one)
+                one.update(ops.score_view_for_name(name))
             except Exception:
                 pass
         return one
