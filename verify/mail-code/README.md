@@ -32,6 +32,7 @@ mailbox preview, inbox paging, addressing parsers, wake unread retry (wake-code
 
 - oversized body refused, never truncated into storage: proved; fails on `no_body_refuse`
 - no live letter without a recipient row: proved; fails on `no_orphan_guard`
+- failed insert rolls back (no partial letter after orphan SIGNAL): proved; fails on `no_rollback`
 - first open stamp kept / handled is final: proved; fails on `no_first_open` / `no_handled_final`
 - at most one receipt per recipient row: proved; fails on `no_one_receipt` / `no_open_lock`
 

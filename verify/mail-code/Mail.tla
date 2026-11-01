@@ -26,7 +26,8 @@ CONSTANTS
   GuardNoOrphan,         \* mill_mail_insert: empty mail_to SIGNALs
   GuardOpenLocked,       \* mill_mail_open: SELECT ... FOR UPDATE before stamp
   GuardFirstOpenOnly,    \* UPDATE ... AND opened IS NULL (first stamp kept)
-  GuardOneReceipt        \* push_receipt only when v_prev IS NULL and receipt set
+  GuardOneReceipt,       \* push_receipt only when v_prev IS NULL and receipt set
+  GuardRollbackOnError   \* mill_mail_insert EXIT HANDLER ROLLBACK (letter 4262)
 
 ASSUME MaxSteps \in Nat /\ MaxSteps >= 1
 ASSUME GuardBodyRefuse \in BOOLEAN
@@ -34,6 +35,7 @@ ASSUME GuardNoOrphan \in BOOLEAN
 ASSUME GuardOpenLocked \in BOOLEAN
 ASSUME GuardFirstOpenOnly \in BOOLEAN
 ASSUME GuardOneReceipt \in BOOLEAN
+ASSUME GuardRollbackOnError \in BOOLEAN
 
 VARIABLES
   bodyLen,        \* proposed body length (chars)
@@ -136,11 +138,15 @@ SendNoRecipient ==
   /\ IF GuardNoOrphan
      THEN /\ lastOut' = "refused"
           /\ lastStep' = "send"
-          /\ orphaned' = FALSE
-          /\ letterLive' = letterLive
-          /\ recipient' = recipient
           /\ steps' = steps + 1
           /\ UNCHANGED <<bodyLen, opened, firstKept, receipts, silentTrunc>>
+          /\ IF GuardRollbackOnError
+             THEN /\ orphaned' = FALSE
+                  /\ letterLive' = letterLive
+                  /\ recipient' = recipient
+             ELSE /\ letterLive' = TRUE
+                  /\ recipient' = FALSE
+                  /\ orphaned' = TRUE
      ELSE /\ letterLive' = TRUE
           /\ recipient' = FALSE
           /\ orphaned' = TRUE
@@ -233,5 +239,9 @@ OneReceiptPerRecipient ==
 \* (sp_opened.sql:34-36 AND opened IS NULL).
 HandledIsFinal ==
   opened \in {0, 1}
+
+\* SIGNAL on empty mail_to rolls back the insert (handler ROLLBACK).
+FailedInsertLeavesNoPartial ==
+  ~ (letterLive /\ ~recipient /\ lastOut = "refused")
 
 ====
