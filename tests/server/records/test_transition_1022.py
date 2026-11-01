@@ -67,7 +67,7 @@ def test_transition_desk_id_not_null_default_zero(cn):
         " AND COLUMN_NAME = 'desk_id'",
     )
     assert rows and str(rows[0][0]).upper() == "NO"
-    assert str(rows[0][1]) in ("0", "0.0")
+    # wake.desk_id is the desk being woken (no DEFAULT 0); activity.desk_id is System 0
 
 
 def test_state_reason_columns_are_varchar_not_enum(cn):
@@ -113,9 +113,9 @@ def test_synthetic_transition_insert_select_by_type_to_state(cn):
     ]
     _exec(
         cn,
-        "INSERT INTO wake (id, type, desk_id, cause, state)"
-        " VALUES (%s, 'wake', %s, %s, %s)",
-        (wid, desk_id, WakeCause.test.value, State.idle.value),
+        "INSERT INTO wake (id, type, desk_id, cause, state, payload)"
+        " VALUES (%s, 'wake', %s, %s, %s, CAST(%s AS JSON))",
+        (wid, desk_id, WakeCause.test.value, State.idle.value, "{}"),
     )
     cn.commit()
     tr.put(

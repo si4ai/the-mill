@@ -23,6 +23,11 @@ class ActivityType(str, Enum):
 
 class State(str, Enum):
     none = "none"
+    error = "error"
+    missed = "missed"
+    sent = "sent"
+    taken = "taken"
+    queued = "queued"
     any = "any"
     same = "same"
     prior = "prior"
@@ -156,9 +161,11 @@ class WakeCause(str, Enum):
     mail = "mail"
     hint = "hint"
     receipt = "receipt"
+    expired = "expired"
     room = "room"
     retry = "retry"
     test = "test"
+
 
 AMBIGUOUS_MAP_NOTES: tuple[str, ...] = (
     "W3/W4: map from 'push/unread' expanded to push_pending and unread_owed",
@@ -175,6 +182,16 @@ AMBIGUOUS_MAP_NOTES: tuple[str, ...] = (
 
 ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = frozenset(
     {
+
+        (ActivityType.wake, State.none, State.queued, Reason.wake_queue),  # Q1
+        (ActivityType.wake, State.queued, State.sent, Reason.wake_sent),  # Q2
+        (ActivityType.wake, State.queued, State.missed, Reason.wake_owed),  # Q3
+        (ActivityType.wake, State.queued, State.error, Reason.wake_fail),  # Q4
+        (ActivityType.wake, State.sent, State.taken, Reason.wake_deliver),  # Q5
+        (ActivityType.wake, State.missed, State.taken, Reason.wake_deliver),  # Q6
+        (ActivityType.wake, State.error, State.taken, Reason.wake_deliver),  # Q7
+        (ActivityType.wake, State.queued, State.taken, Reason.wake_deliver),  # Q8
+        (ActivityType.wake, State.sent, State.missed, Reason.wake_owed),  # Q9 put_back
         (ActivityType.wake, State.idle, State.push_pending, Reason.wake_queue),  # W1
         (ActivityType.wake, State.none, State.unread_owed, Reason.wake_owed),  # W2
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_sent),  # W3a

@@ -1,11 +1,11 @@
--- 25 tables. Wipe then apply.
--- BETA (0.8, card 868 + 1022): main's tables.sql with the departures listed in BETA-CHANGES.md; 25 tables (22 + wake/transition/transition_edge).
+-- 24 tables. Wipe then apply.
+-- BETA (0.8, card 868 + 1022): main's tables.sql with the departures listed in BETA-CHANGES.md; 24 tables (fold wake into wake + transition + transition_edge).
 -- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). doing is the history of card and hold moves, and seat.doing_id names a
 -- desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.
 -- name, member, activity, label, tree, watcher,
 -- mail, mail_to, tree_read, todo, seat, doing, hold, score, score_point, score_evidence,
--- wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join, push_queue.
+-- wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join.
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS activity (
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_activity_roster
   -- BETA (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
-  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'create',
+  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   KEY idx_type (type, roster_id, updated),
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS activity (
 -- BETA (owner rule): ordinals with periodic renumber. sp_label_renumber spreads one label's ranks 1..65534 again
 -- when a gap runs out; 0 and 65535 keep their meaning. (Main said 'Gaps stay. Never renumber.')
 CREATE TABLE IF NOT EXISTS label (
-  type        ENUM('mail','todo','doing','hold','score') NOT NULL,
+  type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   id          BIGINT UNSIGNED NOT NULL,
   name_id     BIGINT UNSIGNED NOT NULL,
   name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'label' CHECK (name_kind = 'label'),   -- BETA: pins the name kind for fk_label_name
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS label (
 CREATE TABLE IF NOT EXISTS tree (
   name_id  BIGINT UNSIGNED NOT NULL,
   name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'tree' CHECK (name_kind = 'tree'),   -- BETA: pins the name kind for fk_tree_name
-  type     ENUM('mail','todo','doing','hold','score') NOT NULL,
+  type     ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   id       BIGINT UNSIGNED NOT NULL,
   lft      INT UNSIGNED NOT NULL,
   rgt      INT UNSIGNED NOT NULL,
@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS tree (
 -- Who to poke (desk_id = subscriber name.id). Mail is not a watcher type.
 -- A name row is not a watcher target.
 CREATE TABLE IF NOT EXISTS watcher (
-  type        ENUM('todo','doing','hold','score') NOT NULL,
+  type        ENUM('todo','doing','hold','score','wake') NOT NULL,
   id          BIGINT UNSIGNED NOT NULL,
   desk_id     BIGINT UNSIGNED NOT NULL,
   hint        VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
@@ -316,7 +316,7 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_type  ENUM('mail','todo','hold','desk') NULL,
   waiting_id    BIGINT UNSIGNED NULL,
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename') NOT NULL DEFAULT 'focus',
+  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring') NOT NULL DEFAULT 'focus',
   peer_id       BIGINT UNSIGNED NULL,   -- BETA: the second desk of a move; not waiting_* (that is what a focus is blocked on)
   evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- BETA: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),
@@ -435,19 +435,24 @@ WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop'
 
 -- One human. They hold the bearer. The host stores only the hash.
 -- directory_sub is the directory or IAM subject, when that door is on.
--- card 1022: wake as an activity (one row per wake fired at a desk).
--- state/cause are text in rows; Python Enums (State, WakeCause) are the only names in code.
+-- card 1022: wake activity (= former wake). One row per wake/push at a desk.
+-- cause was kind (hint/mail/receipt/expired); state was outcome, plus queued/taken.
+-- activity row uses desk_id 0 (System); wake.desk_id is the desk being woken.
+-- Hand-back does not delete: transition queued -> sent|missed|error -> taken.
 CREATE TABLE IF NOT EXISTS wake (
   id          BIGINT UNSIGNED NOT NULL,          -- = activity.id where type='wake'
   type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL DEFAULT 'wake',
-  desk_id     BIGINT UNSIGNED NOT NULL DEFAULT 0,  -- desk being woken; 0 = System (default desk)
-  cause       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  desk_id     BIGINT UNSIGNED NOT NULL,            -- desk being woken
+  cause       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,  -- hint|mail|receipt|expired
   cause_type  ENUM('mail','todo','doing','hold','score') NULL,   -- what rang it
   cause_id    BIGINT UNSIGNED NULL,
-  route       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,  -- matched route key, e.g. mail:MAIL
-  state       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'push_pending',
+  route       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,  -- matched route key
+  state       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'queued',
+  payload     JSON NOT NULL,
+  created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
+  KEY idx_desk (desk_id, id),
   KEY idx_desk_state (desk_id, state),
   CONSTRAINT fk_wake_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT,
   CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
@@ -566,22 +571,32 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','any','coalesced','wake_coalesce'),
   ('wake','any','sitting','wake_sit'),
   ('wake','any','skipped','wake_skip'),
+  ('wake','error','taken','wake_deliver'),
   ('wake','fail','retry_armed','wake_retry'),
   ('wake','idle','push_pending','wake_queue'),
-  ('wake','lease_live','expire','wake_expire'),
-  ('wake','lease_live','idle','wake_done');
+  ('wake','lease_live','expire','wake_expire');
 INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('wake','lease_live','idle','wake_done'),
   ('wake','lease_live','idle','wake_sitting'),
   ('wake','lease_live','idle','wake_stale'),
   ('wake','lease_live','trail','wake_trail'),
   ('wake','left','ring','wake_ring'),
+  ('wake','missed','taken','wake_deliver'),
+  ('wake','none','queued','wake_queue'),
   ('wake','none','unread_owed','wake_owed'),
   ('wake','push_pending','drained','wake_deliver'),
   ('wake','push_pending','lease_live','wake_fail'),
   ('wake','push_pending','lease_live','wake_sent'),
+  ('wake','queued','error','wake_fail'),
+  ('wake','queued','missed','wake_owed'),
+  ('wake','queued','sent','wake_sent'),
+  ('wake','queued','taken','wake_deliver'),
   ('wake','retry_armed','drained','wake_drain'),
   ('wake','retry_armed','idle','wake_drain'),
-  ('wake','sitting','left','wake_leave'),
+  ('wake','sent','missed','wake_owed'),
+  ('wake','sent','taken','wake_deliver'),
+  ('wake','sitting','left','wake_leave');
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
   ('wake','unread_owed','lease_live','wake_fail'),
   ('wake','unread_owed','lease_live','wake_sent'),
   ('wake','unread_owed','lost_unread','wake_lost');
@@ -643,19 +658,6 @@ CREATE TABLE IF NOT EXISTS mill_invite_join (
   CONSTRAINT fk_invite_join_key FOREIGN KEY (key_id) REFERENCES mill_invite (key_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- Queue of async pushes waiting for a mill sync. The row is deleted when handed back.
--- kind=expired is the one line for rows the 7-day delete dropped (BETA, owner rule: main was 30 days). It does not age out.
-CREATE TABLE IF NOT EXISTS push_queue (
-  id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  desk_id  BIGINT UNSIGNED NOT NULL,
-  kind     ENUM('hint','mail','receipt','expired') NOT NULL,
-  payload  JSON NOT NULL,
-  outcome  ENUM('sent','missed','error') NOT NULL,
-  created  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (id),
-  KEY idx_desk (desk_id, id),
-  CONSTRAINT fk_push_queue_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 DROP TRIGGER IF EXISTS activity_del_watchers;
 DROP TRIGGER IF EXISTS todo_no_delete_in_tree;

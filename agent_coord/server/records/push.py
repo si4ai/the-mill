@@ -91,7 +91,7 @@ def note_drop(cn, desk: str, frame: dict) -> str:
     try:
         # SQL in a name so pack_security does not treat JSON column `payload` + %s as injection.
         find_same = (
-            "SELECT id, outcome, payload FROM push_queue WHERE desk_id = %s AND kind = %s "
+            "SELECT id, state, payload FROM wake WHERE desk_id = %s AND cause = %s "
             "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = %s "
             "ORDER BY id"
         )
@@ -107,7 +107,7 @@ def note_drop(cn, desk: str, frame: dict) -> str:
             return "leave"
         if kind != "hint":
             find_drop = (
-                "SELECT id FROM push_queue WHERE desk_id = %s AND kind = 'hint' "
+                "SELECT id FROM wake WHERE desk_id = %s AND cause = 'hint' "
                 "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = %s "
                 "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.dropped')) AS UNSIGNED) = 1 "
                 "LIMIT 1"
@@ -160,24 +160,25 @@ def note_route_exit(cn, desk: str, frame: dict) -> str:
 
 
 def expire(cn) -> dict[str, Any]:
-    """Drop queue rows past 30 days for every desk. One expired line per desk keeps the counts."""
+    """Roll up untaken wake rows past 7 days for every desk. One expired line per desk keeps the counts."""
     rows = call(cn, "mill_push_expire", [])
     row = rows[0] if rows else {}
     return {"deleted": int(row.get("deleted") or 0), "cut": str(row.get("cut") or "")}
 
 
 class Held(list):
-    """Sync items read without deleting their rows. ids are the push_queue rows behind
-    them; ack(cn, ids) deletes those rows once the frame that carries them is sent (#831)."""
+    """Sync items read without deleting their rows. ids are the wake rows behind
+    them; ack(cn, ids) marks those rows taken once the frame that carries them is sent (#831)."""
 
     ids: tuple = ()
 
 
 # #831: the same rows mill_push_take hands out, read without deleting them.
 _PEEK_SQL = (
-    "SELECT p.id, p.kind, p.payload, p.outcome, p.created FROM push_queue p"
+    "SELECT p.id, p.cause AS kind, p.payload, p.state AS outcome, p.created FROM wake p"
     " WHERE p.desk_id = MILL_NAME_GET('desk', %s)"
-    " AND (p.kind = 'expired' OR p.created >= CURRENT_TIMESTAMP(6) - INTERVAL 30 DAY)"
+    " AND p.state <> 'taken'"
+    " AND (p.cause = 'expired' OR p.created >= CURRENT_TIMESTAMP(6) - INTERVAL 7 DAY)"
     " ORDER BY p.id"
 )
 
@@ -272,9 +273,9 @@ def fold_hints(items: list[dict]) -> list[dict]:
 
 # #832: the newest hint or letter this desk has not had live (receipts never ring).
 _WAITING_SQL = (
-    "SELECT p.id, p.kind, p.payload FROM push_queue p"
+    "SELECT p.id, p.cause AS kind, p.payload FROM wake p"
     " WHERE p.desk_id = MILL_NAME_GET('desk', %s)"
-    " AND p.outcome IN ('missed', 'error') AND p.kind IN ('hint', 'mail')"
+    " AND p.state IN ('missed', 'error') AND p.cause IN ('hint', 'mail') AND p.state <> 'taken'"
     " ORDER BY p.id DESC LIMIT 1"
 )
 
@@ -321,7 +322,7 @@ def pending(cn, desk: str) -> int:
     cur = cn.cursor()
     try:
         count_rows = (
-            "SELECT COUNT(*) FROM push_queue p JOIN name d ON d.id = p.desk_id"
+            "SELECT COUNT(*) FROM wake p JOIN name d ON d.id = p.desk_id"
             " WHERE d.type = 'desk' AND d.name = %s"
         )
         cur.execute(count_rows, (str(desk or "").strip(),))
@@ -339,8 +340,8 @@ def pending_addressed(cn, desk: str) -> bool:
     cur = cn.cursor()
     try:
         any_addressed = (
-            "SELECT 1 FROM push_queue p JOIN name d ON d.id = p.desk_id"
-            " WHERE d.type = 'desk' AND d.name = %s AND p.kind <> 'expired' AND p.outcome <> 'sent'"
+            "SELECT 1 FROM wake p JOIN name d ON d.id = p.desk_id"
+            " WHERE d.type = 'desk' AND d.name = %s AND p.cause <> 'expired' AND p.state NOT IN ('sent', 'taken')"
             " AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.wake_reason')), 'addressed') = 'addressed'"
             " LIMIT 1"
         )

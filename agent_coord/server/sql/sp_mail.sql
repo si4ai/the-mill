@@ -358,8 +358,11 @@ BEGIN
   IF v_sender IS NOT NULL THEN
     CALL mill_tree_detach('mail', p_id);
   END IF;
-  DELETE FROM push_queue
-   WHERE kind IN ('mail', 'receipt')
+  -- card 1022: mark matching wakes taken (no delete)
+  UPDATE wake
+     SET state = 'taken'
+   WHERE cause IN ('mail', 'receipt')
+     AND state <> 'taken'
      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = p_id;
   DELETE FROM mail WHERE id = p_id;  -- mail_to cascades; mail_no_delete_in_tree still guards
   SET v_gone = ROW_COUNT();

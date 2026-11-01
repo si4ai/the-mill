@@ -372,7 +372,7 @@ CREATE PROCEDURE cmd_push_put_back(
   IN p_payload JSON
 )
 BEGIN
-  UPDATE push_queue SET outcome = 'missed', payload = p_payload WHERE id = p_push AND outcome = 'sent';
+  UPDATE wake SET state = 'missed', payload = p_payload WHERE id = p_push AND type = 'wake' AND state = 'sent';
   SELECT ROW_COUNT() AS marked;
 END //
 
@@ -382,7 +382,7 @@ CREATE PROCEDURE cmd_push_mark(
   IN p_outcome VARCHAR(8)
 )
 BEGIN
-  UPDATE push_queue SET outcome = p_outcome WHERE id = p_push AND outcome = 'missed';
+  UPDATE wake SET state = p_outcome WHERE id = p_push AND type = 'wake' AND state = 'missed';
   SELECT ROW_COUNT() AS marked;
 END //
 
@@ -392,9 +392,11 @@ CREATE PROCEDURE cmd_push_sent(
   IN p_ids  JSON
 )
 BEGIN
-  DELETE p FROM push_queue p
+  -- card 1022: hand-back marks taken; rows stay
+  UPDATE wake p
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = p.id
-   WHERE p.desk_id = p_desk;
+     SET p.state = 'taken'
+   WHERE p.desk_id = p_desk AND p.type = 'wake' AND p.state <> 'taken';
   SELECT ROW_COUNT() AS sent;
 END //
 

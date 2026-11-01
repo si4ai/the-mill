@@ -192,9 +192,18 @@ def _apply_stmt(cur, stmt: str) -> None:
     MySQL DDL often auto-commits, so a multi-statement apply can leave columns
     applied while agent_schema_meta.version stays behind - re-run must not 1060.
     """
+    def _run(sql: str) -> None:
+        cur.execute(sql)
+        # PREPARE/EXECUTE of SELECT 1 and similar leave a result set; drain it.
+        while True:
+            if getattr(cur, "with_rows", False):
+                cur.fetchall()
+            if not hasattr(cur, "nextset") or not cur.nextset():
+                break
+
     m = _ALTER_TABLE.match(stmt.strip())
     if not m:
-        cur.execute(stmt)
+        _run(stmt)
         return
     table = _ident(m.group(1))
     clause_blob = m.group(2).strip()
@@ -205,7 +214,7 @@ def _apply_stmt(cur, stmt: str) -> None:
     cols = list(_ADD_COLUMN.finditer(clause_blob))
     keys = list(_ADD_KEY.finditer(clause_blob))
     if not cols and not keys:
-        cur.execute(stmt)
+        _run(stmt)
         return
 
     new_clauses: list[str] = []
@@ -505,7 +514,7 @@ _FK_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
     ("hold", "fk_hold_res", "resource_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_roster", "roster_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_desk", "desk_id", "name", "id", "RESTRICT"),
-    ("push_queue", "fk_push_queue_desk", "desk_id", "name", "id", "RESTRICT"),
+    ("wake", "fk_wake_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
 )
 
 
@@ -577,7 +586,7 @@ def _ensure_mail_sp(cn) -> list[str]:
 
 
 def _ensure_push_expired(cn) -> list[str]:
-    """Widen push_queue.kind with expired and refresh mill_push_put, mill_push_take, mill_push_expire."""
+    """Refresh mill_push_* after kind/cause shape; no-op when push_queue already folded into wake."""
     applied: list[str] = []
     cur = cn.cursor()
     try:
@@ -844,7 +853,18 @@ def _ensure_mail_to_asked(cn) -> list[str]:
             " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mail_to' AND COLUMN_NAME = 'asked'"
         )
         if str((cur.fetchone() or ("NO",))[0]) == "YES":
-            if _table_exists(cur, "push_queue"):
+            if _table_exists(cur, "wake"):
+                cur.execute(
+                    "UPDATE mail_to mt JOIN ("
+                    " SELECT DISTINCT p.desk_id,"
+                    " CAST(JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.id')) AS UNSIGNED) AS mail_id"
+                    " FROM wake p"
+                    " WHERE p.cause = 'mail'"
+                    " AND JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.wake_reason')) = 'room'"
+                    ") r ON r.desk_id = mt.desk_id AND r.mail_id = mt.id"
+                    " SET mt.asked = 0 WHERE mt.type = 'mail' AND mt.asked IS NULL"
+                )
+            elif _table_exists(cur, "push_queue"):
                 cur.execute(
                     "UPDATE mail_to mt JOIN ("
                     " SELECT DISTINCT p.desk_id,"
@@ -1219,7 +1239,7 @@ _REFUSE_080: dict[str, str] = {
     "desk_hold": "hold.desk_id holds a name that is not a desk",
     "desk_score_point": "score_point.desk_id holds a name that is not a desk",
     "desk_human_desk": "human_desk.desk_id holds a name that is not a desk",
-    "desk_push_queue": "push_queue.desk_id holds a name that is not a desk",
+    "desk_wake": "wake.desk_id holds a name that is not a desk",
     "desk_watcher": "watcher.desk_id holds a label, tree or res name",
     "kind_member": "member.name_id holds a name that is not a roster",
     "kind_activity": "activity.roster_id holds a name that is not a roster",
@@ -1611,10 +1631,19 @@ def _ensure_act_rename(cn) -> list[str]:
 
 
 def transition_1022_needed(cn) -> bool:
-    """True when wake/transition/System from card 1022 are not yet on the book."""
+    """True when wake/transition/System from card 1022 are not yet on the book,
+    or push_queue still exists (fold into wake), or wake lacks payload."""
     cur = cn.cursor()
     try:
+        if _table_exists(cur, "push_queue"):
+            return True
         if not _table_exists(cur, "transition") or not _table_exists(cur, "wake"):
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wake' AND COLUMN_NAME = 'payload'"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
             return True
         cur.execute(
             "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
@@ -1650,7 +1679,7 @@ def transition_1022_needed(cn) -> bool:
 
 
 def apply_transition_1022(cn) -> list[str]:
-    """card 1022: wake activity, transition table, System desk id 0. Idempotent."""
+    """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
         return []
     applied: list[str] = []
@@ -1672,20 +1701,23 @@ def apply_transition_1022(cn) -> list[str]:
                     "ALTER TABLE transition MODIFY desk_id BIGINT UNSIGNED NOT NULL DEFAULT 0"
                 )
                 applied.append("transition.desk_id_not_null")
-        if _table_exists(cur, "wake"):
-            cur.execute(
-                "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS"
-                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wake'"
-                " AND COLUMN_NAME = 'desk_id'"
-            )
-            row = cur.fetchone()
-            if row and str(row[0] or "") not in ("0", "0.0"):
-                cur.execute(
-                    "ALTER TABLE wake MODIFY desk_id BIGINT UNSIGNED NOT NULL DEFAULT 0"
-                )
-                applied.append("wake.desk_id_default_0")
         for stmt in split_script((sql_dir() / TRANSITION_1022).read_text(encoding="utf-8-sig")):
             _apply_stmt(cur, stmt)
+            if cur.with_rows:
+                cur.fetchall()
+        # Fold push_queue rows into activity+wake, then drop push_queue.
+        if _table_exists(cur, "push_queue"):
+            cur.execute(
+                "INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act) "
+                "SELECT 'wake', pq.id, pq.created, pq.created, 0, 1, 'ring' FROM push_queue pq"
+            )
+            cur.execute(
+                "INSERT IGNORE INTO wake (id, type, desk_id, cause, state, payload, created) "
+                "SELECT pq.id, 'wake', pq.desk_id, pq.kind, pq.outcome, pq.payload, pq.created "
+                "FROM push_queue pq"
+            )
+            cur.execute("DROP TABLE push_queue")
+            applied.append("fold_push_queue_into_wake")
         applied.append(TRANSITION_1022)
         cn.commit()
     except Exception:

@@ -273,7 +273,7 @@ MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher",
                "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
                "mill_invite", "mill_invite_join", "push_queue")
 CARD_1022_TABLES = ("wake", "transition", "transition_edge")
-FRESH_TABLES = MAIN_TABLES + CARD_1022_TABLES
+FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES
 
 def _apply_1022_after_080(cn) -> None:
     """Tip schema = 0.8.0 + card 1022. Kill/resume tests run apply_080 only; finish with 1022."""

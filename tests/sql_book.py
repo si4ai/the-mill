@@ -39,7 +39,6 @@ DATA_TABLES = (
     "human_member",
     "human_desk",
     "human",
-    "push_queue",
     "transition_edge",
     "transition",
     "wake",
