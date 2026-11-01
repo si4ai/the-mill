@@ -85,8 +85,12 @@ def _call(cn, name: str, args: list) -> None:
     cur.close()
 
 
-def _wait_until_lock_wait(admin, *, timeout: float = 5.0) -> None:
-    """Block until some InnoDB trx is in LOCK WAIT (the waiter is stuck on our holder)."""
+def _wait_until_lock_wait(admin, *, timeout: float = 30.0) -> None:
+    """Block until some InnoDB trx is in LOCK WAIT (the waiter is stuck on our holder).
+
+    Poll innodb_trx and performance_schema.data_lock_waits. CI runners can take
+    longer than a few seconds to open the waiter connection under xdist.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         cur = admin.cursor()
@@ -95,10 +99,16 @@ def _wait_until_lock_wait(admin, *, timeout: float = 5.0) -> None:
             "WHERE trx_state = 'LOCK WAIT'"
         )
         n = int(cur.fetchone()[0] or 0)
+        if not n:
+            try:
+                cur.execute("SELECT COUNT(*) FROM performance_schema.data_lock_waits")
+                n = int(cur.fetchone()[0] or 0)
+            except Exception:
+                n = 0
         cur.close()
         if n:
             return
-        time.sleep(0.01)
+        time.sleep(0.02)
     raise AssertionError("waiter never entered LOCK WAIT")
 
 
@@ -108,12 +118,15 @@ def test_lock_wait_inside_a_procedure_is_counted_once(book) -> None:
     Hold the row, run bump on another connection in a thread, wait until InnoDB
     shows LOCK WAIT, then commit. Assert lock_ms > 0 and lock_ms <= wall - no
     absolute millisecond floor that flakes when a Timer fires early on a busy
-    runner (release/0.8.3 pytest_sql).
+    runner (release/0.8.3 pytest_sql). Always release the holder so a missed
+    LOCK WAIT cannot leave DROP DATABASE hanging for the rest of the module.
     """
     holder = _connect(database=DB)
     hc = holder.cursor()
     holder.start_transaction()
-    hc.execute("UPDATE t SET v = v WHERE id = 1")
+    # FOR UPDATE makes the row lock obvious to innodb_trx / data_lock_waits.
+    hc.execute("SELECT id FROM t WHERE id = 1 FOR UPDATE")
+    hc.fetchall()
     cmd = perf.begin("hold", "alice")
     done = threading.Event()
     box: dict = {}
@@ -132,11 +145,22 @@ def test_lock_wait_inside_a_procedure_is_counted_once(book) -> None:
         done.set()
 
     threading.Thread(target=run, daemon=True).start()
-    _wait_until_lock_wait(book)
-    time.sleep(0.05)  # accumulate a clear nonzero lock sample after block is confirmed
-    holder.commit()
-    holder.close()
-    assert done.wait(10.0), "waiter thread did not finish"
+    try:
+        _wait_until_lock_wait(book)
+        time.sleep(0.05)  # accumulate a clear nonzero lock sample after block is confirmed
+    finally:
+        try:
+            holder.commit()
+        except Exception:
+            try:
+                holder.rollback()
+            except Exception:
+                pass
+        try:
+            holder.close()
+        except Exception:
+            pass
+    assert done.wait(60.0), "waiter thread did not finish"
     assert "err" not in box, box.get("err")
     f = perf.fields(cmd)
     lock_ms = float(f["lock_ms"])
