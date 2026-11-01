@@ -61,10 +61,12 @@ view `view.mjs`).
 - Concurrent lease interleaving and Hub races are out of scope (SPIN).
 - `GuardRetryOnUnread` is the proposed card 1005 fix (SPIN `RETRY_UNREAD=1`); current code keeps it FALSE.
 
+- Text anchors cannot catch a guard that keeps its text but changes a value or adds a path after it. Named bounds: C1 drain returning False instead of True, C4/C5 an unconditional `return "none"` after the unread guards, C6 `_arm_retry(url, None, ...)`. pytest covers the return values; SPIN covers retry arming.
 
-## anchor rule (card 1014)
+## anchor rule (cards 1014, D4/D5)
 
-each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line, plus its first effect line. the first line must be code: a comment, import, log call, message or SIGNAL line, raise, bare `try:` or block keyword is refused, and a marker must hold at least one code line. matches are counted with comments blanked out, so a commented-out guard (line or block comment) no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, and for SQL a block comment; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, message-only and commented shapes. `STATECHART_CMD` overrides host path discovery.
+
 ## Tokens
 
 Recorded at hand-off in the PR body and in `TOKENS.txt` (build only; runs are

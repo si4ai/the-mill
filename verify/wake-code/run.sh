@@ -71,6 +71,7 @@ note_sync() {
 }
 
 run_anchors() {
+  python3 "$HERE/check_anchors.py" --selftest || return 1
   python3 "$HERE/check_anchors.py" --root "$ROOT" || return 1
   local id rc=0
   while IFS= read -r id; do

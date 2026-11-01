@@ -44,6 +44,13 @@
       "lines": "788-791"
     },
     {
+      "id": "stale-return",
+      "path": "agent_coord/server/wake.py",
+      "marker": "if stale:\n        _bc_log_safe(f\"webhook desk={d} wake=done stale=yes note={'yes' if text else 'no'}\")\n        return \"stale\"",
+      "property": "a stale done (not the current lease) returns stale and changes nothing",
+      "lines": "799-801"
+    },
+    {
       "id": "ring-unread",
       "path": "agent_coord/server/push.py",
       "marker": "unread = unread_mail_frames(cn, desk, limit=1)\n        if not unread:",
