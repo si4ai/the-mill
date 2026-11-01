@@ -106,11 +106,9 @@ def test_ps1_invoke_onedesk_returns_only_int_shape():
     assert m, "Invoke-OneDesk function not found"
     returns = re.findall(r"^\s*return\s+(.+)$", m.group(0), flags=re.M)
     assert returns, "expected return statements in Invoke-OneDesk"
-    # 0/1 for refuse paths; $childExit (WaitForExit) propagates the child code (card 950).
-    allowed = {"0", "1", "$childExit", "[int]$proc.ExitCode", "$proc.ExitCode"}
     for r in returns:
         token = r.strip().rstrip(";").split()[0]
-        assert token in allowed, f"Invoke-OneDesk return must be 0/1 or child exit, got: {r!r}"
+        assert token in ("0", "1"), f"Invoke-OneDesk must return only 0 or 1, got: {r!r}"
 
 
 def test_ps1_format_win_arg_present_and_documents_rules():
