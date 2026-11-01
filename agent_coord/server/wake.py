@@ -969,13 +969,26 @@ def _ok_gen(desk: str) -> int:
 
 
 def _queue_drained(desk: str) -> bool:
-    """True when this desk's push queue is empty: it connected and took the rows."""
+    """True when this desk's push queue is empty and no unread mailbox mail remains.
+
+    Card 1005: a short connect can drain push rows without opening the letter.
+    Retry must keep going while unread mail alone still needs a wake.
+    """
     cn = None
     try:
         from agent_coord.server.records import push as rec_push
 
         cn = _book()
-        return rec_push.pending(cn, desk) <= 0
+        if rec_push.pending(cn, desk) > 0:
+            return False
+        try:
+            from agent_coord.server.push import unread_mail_frames
+
+            if unread_mail_frames(cn, desk, limit=1):
+                return False
+        except Exception:
+            pass
+        return True
     except Exception:
         return False
     finally:
@@ -1167,7 +1180,16 @@ def post_desk(
     _fail_run(cn, desk, status, err, host)
     from agent_coord.server.poke_key import FIELD
 
-    if pending > 0 and _retryable(status) and str((body or {}).get(FIELD) or "").strip():
+    # Card 1005: arm retry when push is empty but mailbox unread remains
+    # (short connect drained push without opening the letter).
+    has_unread = False
+    try:
+        from agent_coord.server.push import unread_mail_frames
+
+        has_unread = bool(unread_mail_frames(cn, desk, limit=1))
+    except Exception:
+        has_unread = False
+    if (pending > 0 or has_unread) and _retryable(status) and str((body or {}).get(FIELD) or "").strip():
         _arm_retry(
             url, body, key=key, desk=desk, hint_id=hint_id, frame=frame,
             status=status, err=err, note=note, tag=tag,

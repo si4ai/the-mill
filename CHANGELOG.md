@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1005 / F-unread-wake-retry: failed wake for unread-only mail arms retry (push drained)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)
 - card 943: per-desk GitHub apps (needs human app create/install)
