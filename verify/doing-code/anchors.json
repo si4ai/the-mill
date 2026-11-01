@@ -39,7 +39,7 @@
     {
       "id": "derived-end",
       "path": "agent_coord/server/sql/sp_doing.sql",
-      "marker": "WHERE f.desk_id = p_desk AND f.act IN ('ship', 'done', 'drop', 'finish')\n       AND f.on_type = p_on_type AND f.on_id = p_on_id",
+      "marker": "    SELECT MIN(f.created) INTO v_at\n      FROM doing f\n     WHERE f.desk_id = p_desk AND f.act IN ('ship', 'done', 'drop', 'finish')\n       AND f.on_type = p_on_type AND f.on_id = p_on_id",
       "property": "DoingEndsOnShip / mill_doing_end",
       "lines": "51-52"
     },
@@ -60,7 +60,7 @@
     {
       "id": "put-item-gone",
       "path": "agent_coord/server/sql/sp_doing.sql",
-      "marker": "OR NOT EXISTS (SELECT 1 FROM activity WHERE type = p_on_type AND id = p_on_id AND deleted IS NULL) THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: the item is gone';",
+      "marker": "  IF IFNULL(p_on_type, '') NOT IN ('mail', 'todo', 'hold', 'score') OR p_on_id IS NULL\n     OR NOT EXISTS (SELECT 1 FROM activity WHERE type = p_on_type AND id = p_on_id AND deleted IS NULL) THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: the item is gone';",
       "property": "put refuses a focus on a gone item",
       "lines": "107-108"
     },
