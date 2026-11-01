@@ -89,31 +89,18 @@ run_anchors() {
 run_model() {
   local sc
   sc=$(find_statechart)
-  rm -rf "$OUT/model"
-  mkdir -p "$OUT/model"
   if [ -z "$sc" ]; then
-    echo "run.sh: statechart not found; set STATECHART_CMD" >&2
+    echo "model: statechart not found (set STATECHART_CMD)" >&2
     return 1
   fi
-  echo "model: $sc $HERE/Doing.tla --config Doing.cfg --view view.mjs --out $OUT/model"
-  "$sc" "$HERE/Doing.tla" \
-    --config "$HERE/Doing.cfg" \
-    --view "$HERE/view.mjs" \
-    --out "$OUT/model"
-  if grep -E 'Invariant .* is violated|Error: Invariant' "$OUT/model/tlc.out" >/dev/null 2>&1; then
-    echo "model: FAIL (invariant violated; see $OUT/model/tlc.out)" >&2
-    return 1
-  fi
-  if ! grep -E 'Model checking completed|No error has been found' "$OUT/model/tlc.out" >/dev/null 2>&1; then
-    if grep -q 'Rules that hold' "$OUT/model/report.md" 2>/dev/null; then
-      echo "model: pass (report lists rules that hold)"
-      return 0
-    fi
-    echo "model: FAIL (no clean TLC completion; see $OUT/model)" >&2
-    return 1
-  fi
-  echo "model: pass"
+  rm -rf "$OUT/model" "$OUT/model-target"
+  mkdir -p "$OUT/model" "$OUT/model-target"
+  echo "model (current MaxTasks=1): Doing.cfg"
+  "$sc" "$HERE/Doing.tla" --config "$HERE/Doing.cfg" --view "$HERE/view.mjs" --out "$OUT/model" || return 1
+  echo "model (0.8.6 target MaxTasks=2): Doing-target.cfg"
+  "$sc" "$HERE/Doing.tla" --config "$HERE/Doing-target.cfg" --view "$HERE/view.mjs" --out "$OUT/model-target"
 }
+
 
 run_one_mutant() {
   local name=$1

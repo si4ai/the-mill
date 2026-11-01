@@ -1,5 +1,7 @@
 # Doing focus, waiting, and end vs the 0.8.5 code (card 925)
 
+**0.8.6 target, per builder:** doing comes only from tw (970); a desk may run several tw tasks at once (`MaxTasks=2`, `Doing-target.cfg`); `GuardSupersede=FALSE` drops D6. Current ce115f8 stays `MaxTasks=1` + `GuardSupersede=TRUE` (`Doing.cfg`). 1017/1018 are per task. `verify/spin/doing.pml` on main still models the 0.8.0 single `seat.doing_id` lock-order story; this package carries the concurrent-tw target.
+
 The mill is middleware; the CLI is its API. This check prioritises liveness and
 recovery: a doing entry always ends on ship/done/drop, a stale doing from a
 crashed desk clears only via reset/retire (known), `--waiting-on` cannot form a

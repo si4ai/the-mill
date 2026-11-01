@@ -1,3 +1,4 @@
 Card 925 doing-slice build tokens (auditor, this PR only; runs are token-free)
 SYNC: ce115f8
 Conservative estimate from one auditor session: see PR body (~build tokens).
+concurrent-tw target model update (~this turn)
