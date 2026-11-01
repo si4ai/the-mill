@@ -44,10 +44,13 @@ Run: `verify/mail-code/run.sh`. Read results with `/statechart` on `Mail.tla`.
 - Roster expansion and room trees are out of scope (empty-recipient is the recovery case).
 - Concurrent open interleaving is out of scope (SPIN). Notice-cut display is out of scope (pytest).
 
+- `send-receipt-zero` anchors the CLI send default only. Forcing receipt=1 at the `rec_mail.insert` or `mill_mail_to_put` call site is a named bound of the text check (C1/C2); pytest_sql covers the stored receipt.
+- Dropping `IFNULL` on `v_receipt` (C3) and the NULL default are not modelled; pytest_sql covers them.
 
-## anchor rule (card 1014)
+## anchor rule (cards 1014, D4/D5)
 
-each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line, plus its first effect line. the first line must be code: a comment, import, log call, message or SIGNAL line, raise, bare `try:` or block keyword is refused, and a marker must hold at least one code line. matches are counted with comments blanked out, so a commented-out guard (line or block comment) no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, and for SQL a block comment; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, message-only and commented shapes. `STATECHART_CMD` overrides host path discovery.
+
 ## Tokens
 
 Recorded at hand-off in the PR body and in `TOKENS.txt` (build only; runs are
