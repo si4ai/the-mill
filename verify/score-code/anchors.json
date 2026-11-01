@@ -1,6 +1,13 @@
 {
-  "sync_note": "Card 1014 + letter 4283: guard and its effects, caller-observed fields and publish paths. expected_count default 1. kind absent: region must not hold the forbid patterns.",
+  "sync_note": "Card 1014 + letter 4283: guard and its effects, caller-observed fields and publish paths. expected_count default 1. kind absent: region must not hold the forbid patterns. Letter 4292: ws_miss chain counter to Wall anchored end to end; hold_blocked_ms no-reassign.",
   "anchors": [
+    {
+      "id": "host-kpis-ws-miss",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "HOST_KPIS = (\n    KPI_API_N,\n    KPI_API_MS,\n    KPI_API_BYTES,\n    KPI_FLOOR_N,\n    KPI_FLOOR_MS,\n    KPI_FLOOR_BYTES,\n    KPI_WS_PUSH,\n    KPI_WS_MISS,\n    KPI_ERR_N,\n)",
+      "property": "caller-observed: ws_miss is one of the HOST_KPIS the tick publishes",
+      "lines": "36-46"
+    },
     {
       "id": "ws-miss-regex",
       "path": "agent_coord/server/score_tick.py",
@@ -22,11 +29,14 @@
       "start": "            out[KPI_WS_MISS] += 1\n",
       "end": "    return out\n",
       "forbid": [
-        "KPI_WS_MISS\\]\\s*=(?!=)",
-        "del\\s+out\\[KPI_WS_MISS\\]"
+        "KPI_WS_MISS\\]\\s*(?:[-*/%&|^@]|//|\\*\\*|<<|>>)?=(?!=)",
+        "del\\s+out\\b",
+        "\\bout\\s*(?:\\|)?=(?!=)",
+        "\\bout\\s*\\.\\s*(?:update|pop|clear|setdefault|popitem)\\s*\\(",
+        "KPI_WS_MISS\\s*:"
       ],
       "inject": "    out[KPI_WS_MISS] = 0",
-      "property": "WsMissNotDropped: nothing resets the miss count before return",
+      "property": "WsMissNotDropped: nothing resets, rebinds, pops or overwrites the miss count before return (=, -=, *=, /=, update, pop, clear, del)",
       "lines": "465-472"
     },
     {
@@ -44,6 +54,13 @@
       "lines": "478"
     },
     {
+      "id": "measure-host-call",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    host = _measure_host(dest, since)",
+      "property": "caller-observed: measure() takes the host counts (incl. ws_miss) from _measure_host over the window",
+      "lines": "501"
+    },
+    {
       "id": "measure-hold-call",
       "path": "agent_coord/server/score_tick.py",
       "marker": "        hold_blocked_ms = measure_hold_blocked(perf_text, since)",
@@ -51,11 +68,34 @@
       "lines": "517"
     },
     {
+      "id": "hold-blocked-no-reassign",
+      "kind": "absent",
+      "path": "agent_coord/server/score_tick.py",
+      "start": "        hold_blocked_ms = measure_hold_blocked(perf_text, since)\n",
+      "end": "        KPI_HOLD_BLOCKED_MS: hold_blocked_ms,",
+      "forbid": [
+        "\\bhold_blocked_ms\\s*(?:[-+*/%&|^@]|//|\\*\\*|<<|>>|:)?=(?!=)(?!\\s*measure_hold_blocked\\(perf_text, since\\))",
+        "\\bhold_blocked_ms\\s*,[^\\n=]*=(?!=)",
+        ",\\s*hold_blocked_ms\\s*=(?!=)",
+        "del\\s+hold_blocked_ms\\b"
+      ],
+      "inject": "        hold_blocked_ms = 0",
+      "property": "HoldBlockedNotDropped: nothing reassigns hold_blocked_ms between the sum and the returned field",
+      "lines": "517-530"
+    },
+    {
       "id": "measure-hold-field",
       "path": "agent_coord/server/score_tick.py",
       "marker": "        KPI_HOLD_BLOCKED_MS: hold_blocked_ms,",
       "property": "caller-observed: measure() returns the summed hold_blocked_ms",
       "lines": "530"
+    },
+    {
+      "id": "measure-host-spread",
+      "path": "agent_coord/server/score_tick.py",
+      "marker": "    return {\n        KPI_TICKS: ticks,\n        KPI_IDLE: idle,\n        KPI_DROP: drops,\n        **host,",
+      "property": "caller-observed: measure() returns the host counts (incl. ws_miss) via **host",
+      "lines": "520-524"
     },
     {
       "id": "window-fields",
@@ -74,9 +114,9 @@
     {
       "id": "publish-host-kpis",
       "path": "agent_coord/server/score_tick.py",
-      "marker": "            val = str(int(counts.get(kpi) or 0))\n            rows = rec_score.admin_upsert(cn, kpi, val, tgt, HOST_NOTES.get(kpi, \"mill-host\")[:200])",
-      "property": "caller-observed: HOST_KPIS (incl. ws_miss) publish the measured count (known EmptyShowsMissing: missing becomes 0)",
-      "lines": "670-671"
+      "marker": "        for kpi in HOST_KPIS:\n            tgt = TARGET_MS if kpi.endswith(\"_ms\") else (\"0\" if kpi in (KPI_WS_MISS, KPI_ERR_N) else \"\")\n            val = str(int(counts.get(kpi) or 0))\n            rows = rec_score.admin_upsert(cn, kpi, val, tgt, HOST_NOTES.get(kpi, \"mill-host\")[:200])",
+      "property": "caller-observed: each HOST_KPI (incl. ws_miss, target 0) publishes the measured count with its target (known EmptyShowsMissing: missing becomes 0)",
+      "lines": "668-671"
     },
     {
       "id": "publish-book-or-zero",
@@ -121,11 +161,25 @@
       "lines": "135"
     },
     {
+      "id": "wall-missing-reason",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "        if row[\"missing\"]:\n            reasons.append(f\"{row['missing']} missing Last\")",
+      "property": "caller-observed: a missing Last is named in the desk's reasons (display only)",
+      "lines": "139-140"
+    },
+    {
       "id": "kpi-miss-target",
       "path": "agent_coord/web/wall_logic/score.py",
       "marker": "    T = str(\"\" if target is None else target).strip()\n    if not T:\n        return False",
       "property": "informational empty target is not a miss (target read from input, not forced)",
       "lines": "46-48"
+    },
+    {
+      "id": "kpi-miss-zero-target",
+      "path": "agent_coord/web/wall_logic/score.py",
+      "marker": "    if tn == 0:\n        return ln != 0\n    return ln < tn",
+      "property": "caller-observed: a target-0 KPI (ws_miss) is red on any nonzero Last",
+      "lines": "52-54"
     },
     {
       "id": "shape-truncate",
@@ -148,11 +202,13 @@
       "start": "CREATE PROCEDURE mill_score_point_add(",
       "end": "  IF p_value IS NULL THEN",
       "forbid": [
-        "SET\\s+p_value\\s*=",
-        "(IFNULL|COALESCE)\\s*\\(\\s*p_value"
+        "SET\\s+p_value\\s*:?=",
+        ",\\s*p_value\\s*:?=",
+        "\\bINTO\\s+[^;]*\\bp_value\\b",
+        "(IFNULL|COALESCE|NULLIF|IF)\\s*\\(\\s*p_value"
       ],
       "inject": "  SET p_value = IFNULL(p_value, 0);",
-      "property": "NULL value refused: nothing coerces p_value before the guard",
+      "property": "NULL value refused: nothing coerces or rewrites p_value before the guard (SET =, SET :=, SELECT ... INTO, IFNULL/COALESCE)",
       "lines": "169-194"
     },
     {

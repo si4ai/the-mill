@@ -22,12 +22,12 @@ keeps the Python/SQL *markers* those assume, plus caller-observed fields
 ## orthogonality
 
 - `WsMissNotDropped` / `GuardCountWsMiss`: `score_tick._measure_host` increments
-  `mill-wall.ws_miss` on fanout miss (`score_tick.py:53` regex, `:458-466` in-window filter and count, `:465-472` no reset before return, `:670-671` host publish). SPIN score.pml
+  `mill-wall.ws_miss` on fanout miss. The chain from counter to Wall is anchored end to end: `score_tick.py:36-46` ws_miss in HOST_KPIS, `:53` regex, `:458-466` in-window filter and count, `:465-472` no reset, rebind, pop, update or compound assign before return, `:501` measure() calls `_measure_host`, `:520-524` measure() returns `**host`, `:668-671` host publish with target 0, and `wall_logic/score.py:52-54` a target-0 KPI is red on any nonzero Last. SPIN score.pml
   has no wake/miss KPI; wake-code covers lease races, not the score publish.
   Pytest score_tick covers parsing; this check keeps the count effect the
   Wall SCORE Last reads.
 - `HoldBlockedNotDropped` / `GuardCountHoldBlocked`: `measure_hold_blocked`
-  sums `hold.blocked` ms (`score_tick.py:293-308`, window filter through return; `measure` calls it at `:517` and returns it at `:530`). Hold-code covers mutex
+  sums `hold.blocked` ms (`score_tick.py:293-308`, window filter through return; `measure` calls it at `:517`, nothing reassigns it before `:530` (absent anchor), and returns it at `:530`). Hold-code covers mutex
   correctness; this check keeps the score-side sum so stuck-hold time is not
   dropped before publish.
 - Stale doing / wake waste: not a separate score KPI today; wake wrong/retry
@@ -41,9 +41,9 @@ keeps the Python/SQL *markers* those assume, plus caller-observed fields
   no `truncated` flag (`score_series.py:159-161`); the SQL points limit is anchored at `sp_score.sql:398`. measure returns `window_s`
   (anchored); the series truncate is silent. Filed as a finding.
 - Caller-observed wall: empty Last -> missing (`wall_logic/score.py:122-123`);
-  empty target is not a miss (`:46-48`); a missing Last or stale publish makes the desk hot (`:135`); `shape` passes `gap` through unchanged (`score_series.py:153`); `number` refuses blank, words, nan and inf (`score_series.py:52-58`). Covered by pytest `test_score_rules`;
+  empty target is not a miss (`:46-48`); a target-0 KPI is red on any nonzero Last (`:52-54`); a missing Last or stale publish makes the desk hot (`:135`) and is named in its reasons (`:139-140`, display only); `shape` passes `gap` through unchanged (`score_series.py:153`); `number` refuses blank, words, nan and inf (`score_series.py:52-58`). Covered by pytest `test_score_rules`;
   this check keeps those markers.
-- `value-must-number`: SQL refuses NULL point values (`sp_score.sql:194-196`), and nothing coerces `p_value` before that guard (`:169-194`, absent anchor).
+- `value-must-number`: SQL refuses NULL point values (`sp_score.sql:194-196`), and nothing coerces or rewrites `p_value` before that guard (`:169-194`, absent anchor: `SET =`, `SET :=`, `SELECT ... INTO`, `IFNULL`/`COALESCE`).
   SPIN S1 assumes a numeric write; this check keeps the refuse.
 
 Dropped as duplicates: S1-S6 concurrent lifecycle (SPIN), trend/gap unit tests
@@ -76,7 +76,7 @@ Run: `verify/score-code/run.sh`. Read results with `/statechart` on `Score.tla`.
 
 ## anchor rule (cards 1014, D4/D5)
 
-each marker starts on the real guard (or definition) line and runs through the effects its property names (window filter, count or sum, return, caller-observed field). the first line must be a guard or effect statement (branch, loop, return, def, assignment, SQL statement, or a dict entry whose value is not a bare string): a comment, import, log call, message or SIGNAL line, raise, docstring, note string, bare `try:` or block keyword is refused, and a def marker also needs a guard or effect line after it. matches are counted with comments and Python triple-quoted strings blanked out, so a guard that is commented out (line or block) or wrapped in a string no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, a triple-quoted wrap for Python and a block comment for SQL; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, import+name, message-only, note-string, def+docstring and commented or stringed-out shapes. `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line and runs through the effects its property names (window filter, count or sum, return, caller-observed field). the first line must be a guard or effect statement (branch, loop, return, def, assignment, SQL statement, or a dict entry whose value is not a bare string): a comment, import, log call, message or SIGNAL line, raise, docstring, note string, bare `try:` or block keyword is refused, and a def marker also needs a guard or effect line after it. matches are counted with comments, Python triple-quoted strings and SQL string literals blanked out, so a guard that is commented out (line or block), wrapped in a triple-quoted Python string or wrapped in a SQL string no longer counts. Bound: a Python one-line string is not blanked (real code lines hold them), so a single-line marker wrapped in a one-line Python string still counts, and a first-line constant string assignment passes the first-line rule; both are shared-checker limits, not claimed here. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, a triple-quoted wrap for Python and a block comment for SQL; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, import+name, message-only, note-string, def+docstring and commented or stringed-out shapes. `STATECHART_CMD` overrides host path discovery.
 
 ## Tokens
 
