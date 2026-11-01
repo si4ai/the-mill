@@ -1976,7 +1976,16 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
             if _who and not read_session_token(_who).strip():
                 # #281: no seat here. One line for a roster or an unknown name alike;
                 # no server lookup, so the refusal never tells which names exist.
-                print(seatless_connect_line(_who), file=sys.stderr, flush=True)
+                line = seatless_connect_line(_who)
+                print(line, file=sys.stderr, flush=True)
+                # Card 742: sibling commands in this shell should name the seat error,
+                # not only "no sitting mill connect".
+                try:
+                    from agent_coord.client.ws import write_connect_fail
+
+                    write_connect_fail(_who, line)
+                except Exception:
+                    pass
                 return 2
             if not project:
                 # 0.7.x: no roster named = the Office roster; a named roster overrides it.
