@@ -140,7 +140,7 @@ def test_probe_delete_hints_state_deleted(cn) -> None:
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT payload FROM push_queue WHERE desk_id=%s AND kind='hint' ORDER BY id DESC",
+            "SELECT payload FROM wake WHERE desk_id=%s AND cause='hint' ORDER BY id DESC",
             (desk_id,),
         )
         blobs = [r[0] for r in cur.fetchall()]
@@ -177,7 +177,7 @@ def _deleted_hints(cn, typ: str, rid: int) -> int:
 
     cur = cn.cursor()
     try:
-        cur.execute("SELECT payload FROM push_queue WHERE kind='hint'")
+        cur.execute("SELECT payload FROM wake WHERE cause='hint'")
         blobs = [r[0] for r in cur.fetchall()]
     finally:
         cur.close()

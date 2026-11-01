@@ -243,7 +243,7 @@ def test_redactor_knows_the_routine_key_family() -> None:
 # --- coalescing and the sync -------------------------------------------------
 
 class _Queue:
-    """In-memory push_queue: put appends, take returns and clears (mill_push_take)."""
+    """In-memory wake: put appends, take returns and clears (mill_push_take)."""
 
     def __init__(self):
         self.rows: list[dict] = []
@@ -251,8 +251,8 @@ class _Queue:
     def install(self, monkeypatch):
         from agent_coord.server.records import push as rec_push
 
-        def put(cn, desk, kind, payload, outcome):
-            self.rows.append(dict(payload, kind=kind, outcome=outcome, _desk=desk))
+        def put(cn, desk, cause, payload, outcome):
+            self.rows.append(dict(payload, kind=cause, outcome=outcome, _desk=desk))
             return []
 
         def take(cn, desk):

@@ -288,7 +288,7 @@ def test_app_user_cannot_run_raw_sql(cn):
     ran = []
     try:
         c = app.cursor()
-        for sql in ("SELECT 1 FROM todo LIMIT 1", "DELETE FROM push_queue WHERE id = 0", "CREATE TEMPORARY TABLE t867 (i INT)"):
+        for sql in ("SELECT 1 FROM todo LIMIT 1", "DELETE FROM wake WHERE id = 0", "CREATE TEMPORARY TABLE t867 (i INT)"):
             try:
                 c.execute(sql)
                 if c.with_rows:

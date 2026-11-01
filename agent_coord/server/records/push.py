@@ -92,6 +92,7 @@ def note_drop(cn, desk: str, frame: dict) -> str:
         # SQL in a name so pack_security does not treat JSON column `payload` + %s as injection.
         find_same = (
             "SELECT id, state, payload FROM wake WHERE desk_id = %s AND cause = %s "
+            "AND state <> 'taken' "
             "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = %s "
             "ORDER BY id"
         )
@@ -108,6 +109,7 @@ def note_drop(cn, desk: str, frame: dict) -> str:
         if kind != "hint":
             find_drop = (
                 "SELECT id FROM wake WHERE desk_id = %s AND cause = 'hint' "
+                "AND state <> 'taken' "
                 "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = %s "
                 "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.dropped')) AS UNSIGNED) = 1 "
                 "LIMIT 1"

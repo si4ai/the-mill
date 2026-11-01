@@ -302,7 +302,7 @@ def test_over_long_doing_is_refused_and_nothing_stored(w):
 
 def _counts(w) -> dict:
     return {t: scalar_done(w.cn, f"SELECT COUNT(*) FROM {t}")
-            for t in ("mail", "mail_to", "tree", "activity", "push_queue", "doing", "todo", "watcher")}
+            for t in ("mail", "mail_to", "tree", "activity", "wake", "doing", "todo", "watcher")}
 
 
 def _spy_fanout(monkeypatch) -> list:

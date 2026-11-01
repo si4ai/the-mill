@@ -367,9 +367,11 @@ def test_ids_rows_and_transforms(main_book):
     after = dump(main_book)
     cn = main_book
 
-    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name"}  # name: System id 0 (1022)
+    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue"}  # name: System id 0; push_queue folded (1022)
     for t in sorted(untouched):
         assert after[t] == before[t], t
+    assert "push_queue" not in after and "push_queue" in before  # fold into wake
+    assert "wake" in {r[0] for r in _q(cn, "SHOW TABLES")}
 
     # seat: every desk has a seat; old rows unchanged; the unseated desks got a token-NULL row.
     old_seats = {r["desk_id"]: r for r in _rows_as_dicts(before, "seat")}
@@ -402,9 +404,17 @@ def test_ids_rows_and_transforms(main_book):
     assert set(new_w) == want
 
     # activity and score: a desk_id that is not a desk becomes NULL (the office); every other field kept.
+    # card 1022: push_queue rows fold into activity type=wake (desk_id=0 System) + wake table.
     desk_ids = {r["id"] for r in _rows_as_dicts(after, "name") if r["type"] == "desk"}
+    pq_n = len(_rows_as_dicts(before, "push_queue"))
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
+        if t == "activity":
+            wake_after = [r for r in a if r["type"] == "wake"]
+            a = [r for r in a if r["type"] != "wake"]
+            assert len(wake_after) == pq_n
+            assert all(r["desk_id"] == 0 for r in wake_after)
+            assert _one(cn, "SELECT COUNT(*) FROM activity WHERE type = 'wake' AND act <> 'ring'") == 0
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -458,6 +468,8 @@ def test_ids_rows_and_transforms(main_book):
             want = "hold" if _one(cn, "SELECT desk_id FROM hold WHERE id = %s", (i,)) else "drop"
         elif t == "mail":
             want = "send"
+        elif t == "wake":
+            want = "ring"
         else:
             want = "score"
         assert act == want, (t, i, act)
