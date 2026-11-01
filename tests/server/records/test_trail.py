@@ -2,7 +2,6 @@
 """mill trail on a throwaway DB: finding -> tries -> dead end / solved (agent-ux findings)."""
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -12,53 +11,16 @@ pytestmark = pytest.mark.sql
 from agent_coord.helpers.errors import CoordError
 from agent_coord.helpers.trail_text import render
 from agent_coord.server.api.mill import rpc
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_records_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 class _Book:
     def __init__(self, cn):
         self._cn = cn
 
-
 @pytest.fixture(autouse=True)
 def _no_live_ws(monkeypatch):
     monkeypatch.setattr("agent_coord.server.api.mill.rpc._require_live_ws", lambda owner: None)
-
 
 def _branch(cn):
     """Room root, a finding reply, try A (dead end, done), try B (solved, shipped) with a deeper try."""
@@ -104,7 +66,6 @@ def _branch(cn):
     rpc._h_pass(book, {"need": b_need}, "unit", "tester")
     return {"book": book, "room": room, "rid": rid, "fid": fid, "a": a_id, "b": b_id, "deep": int(deep["id"])}
 
-
 def test_trail_from_finding_shows_branch(cn) -> None:
     br = _branch(cn)
     out = rpc._h_trail(br["book"], {"node": f"mail:{br['fid']}"}, "unit", "tester")
@@ -127,7 +88,6 @@ def test_trail_from_finding_shows_branch(cn) -> None:
     assert "1 dead end(s), 1 solved" in text
     assert "\n  todo " in text and "\n    todo " in text
 
-
 def test_trail_from_room_root_and_todo(cn) -> None:
     br = _branch(cn)
     root = rpc._h_trail(br["book"], {"node": f"mail:{br['rid']}"}, "unit", "asker")
@@ -139,7 +99,6 @@ def test_trail_from_room_root_and_todo(cn) -> None:
         ("todo", br["deep"], 1),
     ]
 
-
 def test_trail_mail_reads_without_cast(cn) -> None:
     # #672 S-3: every desk in the office trails any mail.
     br = _branch(cn)
@@ -147,14 +106,12 @@ def test_trail_mail_reads_without_cast(cn) -> None:
     assert out["nodes"][0]["id"] == br["fid"]
     assert all(n["state"] != "hidden" for n in out["nodes"])
 
-
 def test_trail_bad_and_missing_ids(cn) -> None:
     book = _Book(cn)
     with pytest.raises(CoordError):
         rpc._h_trail(book, {"node": "abc"}, "unit", "asker")
     with pytest.raises(CoordError):
         rpc._h_trail(book, {"node": "todo:99999999"}, "unit", "asker")
-
 
 def test_trail_off_tree_todo(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("asker", "desk"))
@@ -164,7 +121,6 @@ def test_trail_off_tree_todo(cn) -> None:
     assert out["tree"] == ""
     assert out["on_tree"] is False
     assert [n["id"] for n in out["nodes"]] == [int(t["id"])]
-
 
 def test_trail_reply_opened_room_header(cn) -> None:
     """Validator 0.6.26: a reply-opened room (hidden tree) is still on a tree."""
@@ -178,7 +134,6 @@ def test_trail_reply_opened_room_header(cn) -> None:
     assert out["tree"] == "" and out["on_tree"] is True
     head = render(out).splitlines()[0]
     assert "not on a tree" not in head and "unnamed tree" in head
-
 
 def test_todo_done_visible_over_rpc(cn) -> None:
     """agent-ux 1215 against real SQL: done cards readable with --done / --status done."""

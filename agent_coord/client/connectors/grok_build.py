@@ -65,17 +65,17 @@ def _prompt(hint: dict[str, Any]) -> str:
     )
 
 
-def poke(hint: dict[str, Any]) -> None:
+def poke(hint: dict[str, Any]) -> bool:
+    """True when a chat-wake path ran; False when only a stamp remains (card 985)."""
     if skip_ping(hint):
-        return
+        return False
     if spawn_hint(hint):
-        return
+        return True
     url = (os.environ.get("AGENT_COORD_BOT_WAKE_URL") or "").strip()
     if url:
         from agent_coord.client.connectors import grok_bot
 
-        grok_bot.poke(hint)
-        return
+        return bool(grok_bot.poke(hint))
     sid = grok_session_id(hint)
     grok = shutil.which("grok")
     if grok and sid:
@@ -86,7 +86,7 @@ def poke(hint: dict[str, Any]) -> None:
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        return
+        return True
     from agent_coord.client.connectors import grok_bot
 
-    grok_bot.poke(hint)
+    return bool(grok_bot.poke(hint))

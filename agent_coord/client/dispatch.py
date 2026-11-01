@@ -121,7 +121,9 @@ def dispatch_hint(desk: str, msg: dict[str, Any], *, replay: bool = False) -> st
     desk is already awake.
 
     work: a redirector handled the frame. The vendor does not run.
-    wake: every redirector returned next. Vendor poke.
+    wake: every redirector returned next. Vendor poke rang a chat-wake path.
+    sit-exit: vendor poke could not ring a chat (stamp-only); plain connect
+    should exit like connect-wait so a foreground chat wakes (card 985).
     suppress: an empty route value stopped the chain.
     skip: PING, a DOING with no route (chart: ignore, no vendor poke),
     a repeated idempotency key, or this desk's HINT filter file (want) said no.
@@ -160,8 +162,12 @@ def dispatch_hint(desk: str, msg: dict[str, Any], *, replay: bool = False) -> st
     from agent_coord.client.vendor import session_vendor
 
     vendor = session_vendor() or "grok-build"
+    # Stamp wake before poke (existing freeze/ordering contract), then correct
+    # to sit-exit when the poke could not ring a chat (card 985).
     _stamp_dispatch("wake", frame, vendor)
-    poke(vendor, frame)
+    rang = poke(vendor, frame)
+    if rang is False:
+        return finish("sit-exit", vendor)
     return "wake"
 
 

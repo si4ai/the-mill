@@ -1,55 +1,16 @@
 """Card 879 / F218: mill delete trashes; restore undoes; purge hard-deletes trashed rows only."""
 from __future__ import annotations
 
-import os
-
 import mysql.connector
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.helpers.errors import CoordError
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs, scalar_done
 from tests.server.records.conftest import admin_desk
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_delete_879")
-
-
-def _cn():
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    # Drop pooled connections that may still point at another database.
-    import agent_coord.server.records.db as db
-
-    db._POOL = None
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _seat(cn, name: str) -> str:
     """Seated desk (sp_name_* and purge auth expect a live seat)."""
@@ -59,14 +20,12 @@ def _seat(cn, name: str) -> str:
     rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
     return name
 
-
 def _trashed(cn, kind: str, name: str):
     return scalar_done(
         cn,
         "SELECT trashed IS NOT NULL FROM name WHERE type=%s AND name=%s",
         (kind, name),
     )
-
 
 def test_delete_trashes_roster_and_hides_from_get(cn) -> None:
     d = _seat(cn, "d879a")
@@ -76,7 +35,6 @@ def test_delete_trashes_roster_and_hides_from_get(cn) -> None:
     assert out["op"] == "deleted" and out["id"] == rid
     assert _trashed(cn, "roster", "r879-empty") in (1, True)
     assert rec_name.get(cn, "r879-empty", "roster") is None
-
 
 def test_restore_clears_trash(cn) -> None:
     admin = admin_desk(cn)
@@ -88,14 +46,12 @@ def test_restore_clears_trash(cn) -> None:
     assert rec_name.get(cn, "l879-rest", "label") == lid
     assert _trashed(cn, "label", "l879-rest") in (0, False, None)
 
-
 def test_purge_refuses_live_not_trashed(cn) -> None:
     admin = admin_desk(cn)
     rec_name.get_or_insert(cn, "l879-live", "label")
     with pytest.raises(CoordError, match="trashed|delete first"):
         rec_name.purge_trashed(cn, "l879-live", "label", by=admin)
     assert rec_name.get(cn, "l879-live", "label") is not None
-
 
 def test_purge_hard_deletes_trashed_unreferenced(cn) -> None:
     admin = admin_desk(cn)
@@ -105,7 +61,6 @@ def test_purge_hard_deletes_trashed_unreferenced(cn) -> None:
     assert out["op"] == "purged" and out["id"] == tid
     row = scalar_done(cn, "SELECT COUNT(*) FROM name WHERE type='tree' AND name='t879-purge'")
     assert int(row or 0) == 0
-
 
 def test_purge_refuses_referenced_trashed_roster(cn) -> None:
     admin = admin_desk(cn)
@@ -119,14 +74,12 @@ def test_purge_refuses_referenced_trashed_roster(cn) -> None:
         rec_name.purge_trashed(cn, "r879-card", "roster", by=admin)
     assert scalar_done(cn, "SELECT id FROM name WHERE type='roster' AND name='r879-card'") == rid
 
-
 def test_office_and_admin_never_purge(cn) -> None:
     admin = admin_desk(cn)
     with pytest.raises(CoordError, match="Office and Admin"):
         rec_name.trash(cn, "Office", "roster", by=admin)
     with pytest.raises(CoordError, match="Office and Admin|desk|retire"):
         rec_name.purge_trashed(cn, "Office", "roster", by=admin)
-
 
 def test_desk_type_refused_for_delete_restore_purge(cn) -> None:
     admin = admin_desk(cn)
@@ -137,7 +90,6 @@ def test_desk_type_refused_for_delete_restore_purge(cn) -> None:
         rec_name.restore_trashed(cn, "d879desk", "desk", by=admin)
     with pytest.raises(CoordError, match="retire"):
         rec_name.purge_trashed(cn, "d879desk", "desk", by=admin)
-
 
 def test_raw_delete_refused_without_session_flag(cn) -> None:
     """name_no_delete still blocks a bare DELETE even for a roster row."""
@@ -152,7 +104,6 @@ def test_raw_delete_refused_without_session_flag(cn) -> None:
     except Exception:
         pass
     assert rec_name.get(cn, "r879-raw", "roster") == rid
-
 
 def test_session_flag_still_refuses_desk_hard_delete(cn) -> None:
     admin = admin_desk(cn)
@@ -169,7 +120,6 @@ def test_session_flag_still_refuses_desk_hard_delete(cn) -> None:
         cn.rollback()
     except Exception:
         pass
-
 
 def test_human_member_blocks_purge(cn) -> None:
     """Purge must count human_member as a reference (Validator major on #256)."""
@@ -196,7 +146,6 @@ def test_human_member_blocks_purge(cn) -> None:
     with pytest.raises(CoordError, match="human|referenced|retire"):
         rec_name.purge_trashed(cn, "r879-hm", "roster", by=admin)
 
-
 def test_delete_restore_purge_write_timeline_acts(cn) -> None:
     admin = admin_desk(cn)
     rec_name.get_or_insert(cn, "l879-act", "label")
@@ -215,7 +164,6 @@ def test_delete_restore_purge_write_timeline_acts(cn) -> None:
     assert "restore" in acts
     assert "purge" in acts
 
-
 def test_purge_label_refuses_non_admin(cn) -> None:
     """Card 931 follow-up: purge of label/tree is Admin only (cli-desk.md)."""
     d = _seat(cn, "d879-noadmin")
@@ -225,7 +173,6 @@ def test_purge_label_refuses_non_admin(cn) -> None:
         rec_name.purge_trashed(cn, "l879-noadmin", "label", by=d)
     assert scalar_done(cn, "SELECT id FROM name WHERE type='label' AND name='l879-noadmin'") == lid
 
-
 def test_purge_tree_refuses_non_admin(cn) -> None:
     d = _seat(cn, "d879-tree-na")
     tid = rec_name.get_or_insert(cn, "t879-noadmin", "tree")
@@ -233,7 +180,6 @@ def test_purge_tree_refuses_non_admin(cn) -> None:
     with pytest.raises(CoordError, match="Admin"):
         rec_name.purge_trashed(cn, "t879-noadmin", "tree", by=d)
     assert scalar_done(cn, "SELECT id FROM name WHERE type='tree' AND name='t879-noadmin'") == tid
-
 
 def test_restore_roster_refuses_non_sole_non_admin(cn) -> None:
     """Restore of a roster matches delete: sole remaining member or Admin."""
@@ -249,7 +195,6 @@ def test_restore_roster_refuses_non_sole_non_admin(cn) -> None:
         rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by="d879-outsider")
     out = rec_name.restore_trashed(cn, "r879-rest-gate", "roster", by=admin)
     assert out["op"] == "restored" and out["id"] == rid
-
 
 def test_delete_roster_refuses_non_sole_non_admin(cn) -> None:
     """Card 938: trash of a roster matches restore - sole remaining member or Admin.
@@ -271,7 +216,6 @@ def test_delete_roster_refuses_non_sole_non_admin(cn) -> None:
     out = rec_name.trash(cn, "r879-del-gate", "roster", by=admin)
     assert out["op"] == "deleted" and out["id"] == rid
     assert _trashed(cn, "roster", "r879-del-gate") in (1, True)
-
 
 def test_delete_roster_sole_member_may_trash(cn) -> None:
     """Sole remaining member may trash; empty roster still needs Admin."""

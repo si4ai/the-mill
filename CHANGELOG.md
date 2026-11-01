@@ -11,6 +11,19 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.5 (2026-11-01)
+
+- card 975 / F-rooms-digest: `mill rooms --digest` zero-token room summary (tags=[] hook for 976)
+- card 892 / F-reset-clears-wake-lease: reset seat and retire desk clear the wake lease
+- card 889 / F-wake-done-while-connected: wake-done while connected does not trailing-wake
+- card 826 / F-webhook-wake-dropped: lock webhook wake coverage and uncover listing
+- card 985 / F-sit-connect-swallows-mail: plain connect exits when poke cannot wake chat
+- card 342 / F-connect-active-tmp-race: unique temp name for concurrent active file writes
+- card 742 / F-refusal-hides-connect-error: surface connect failure on the next command in the shell
+- card 986 / F-sql-tests-schema-once: sql tests one tip schema per worker; truncate data between modules
+
+## Last changes
+
 0.8.4 (2026-11-01)
 
 - card 959 / F-precheck: `tools/precheck.sh` cheap Pass checks + CI job
@@ -20,8 +33,6 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 973: grok-bot guide restores cold-desk leave line after barker move
 - card 979 / F-rooms-live-ws: mill rooms works on live /ws
 - card 974 / F-leave-retire: desk self-retire on live /ws; remove roster without `--yes` exits 1
-
-## Last changes
 
 0.8.3 (2026-10-31)
 

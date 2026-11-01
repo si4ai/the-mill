@@ -5,52 +5,16 @@ card off every plan (children move up); mill FKs to name and payload FKs to acti
 name_no_delete refuses a hard name delete."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import apply, connect, hold, join as here, label, score, todo
+from agent_coord.server.records import hold, join as here, label, score, todo
 from agent_coord.server.records import tree as rec_tree
 from agent_coord.server.records import watcher
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_soft_delete_stack_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _exec(cn, sql: str, args=()) -> None:
     cur = cn.cursor()
@@ -59,7 +23,6 @@ def _exec(cn, sql: str, args=()) -> None:
         cn.commit()
     finally:
         cur.close()
-
 
 def _rule(cn, table: str, name: str) -> str:
     return str(
@@ -71,19 +34,15 @@ def _rule(cn, table: str, name: str) -> str:
         )
     ).upper()
 
-
 def _desk_id(cn, desk: str) -> int:
     return int(scalar(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (desk,)))
 
-
 # ---- #95 score keep + score_evidence RESTRICT ----
-
 
 def test_score_evidence_fk_restrict(cn) -> None:
     assert _rule(cn, "score_evidence", "fk_score_evidence_score") in ("RESTRICT", "NO ACTION")
     # #216: payloads have no FK to activity (activity is the timeline, not a parent).
     assert _rule(cn, "score", "fk_score_activity") == "NONE"
-
 
 def test_score_delete_keeps_card_and_evidence(cn) -> None:
     seed_names(cn, ("sk_proj", "roster"), ("sk_desk", "desk"))
@@ -110,7 +69,6 @@ def test_score_delete_keeps_card_and_evidence(cn) -> None:
     score.delete(cn, sid, "sk_desk")
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) == stamp
 
-
 def test_score_hard_delete_blocked_by_evidence(cn) -> None:
     seed_names(cn, ("sk2_proj", "roster"), ("sk2_desk", "desk"))
     sid = int(score.upsert(cn, "sk2_proj", "sk2_desk", "kpi_hard", "1", "", "")[0]["id"])
@@ -124,7 +82,6 @@ def test_score_hard_delete_blocked_by_evidence(cn) -> None:
         _exec(cn, "DELETE FROM score WHERE id=%s", (sid,))
     assert scalar(cn, "SELECT id FROM score WHERE id=%s", (sid,)) == sid
     assert scalar(cn, "SELECT COUNT(*) FROM score_evidence WHERE score_id=%s", (sid,)) == 1
-
 
 def test_score_delete_detaches_from_plan(cn) -> None:
     """mill_score_delete takes the card off every plan (children move up), then stamps."""
@@ -146,9 +103,7 @@ def test_score_delete_detaches_from_plan(cn) -> None:
         (kid,),
     ) == "1:2"
 
-
 # ---- F2 score upsert revive (not via mill_activity_put) ----
-
 
 def test_score_upsert_revives_soft_deleted(cn) -> None:
     seed_names(cn, ("srv_proj", "roster"), ("srv_desk", "desk"))
@@ -185,9 +140,7 @@ def test_score_upsert_revives_soft_deleted(cn) -> None:
     )
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is not None
 
-
 # ---- #97 watcher clear + labels stay + hold release-only ----
-
 
 def test_todo_score_soft_delete_clears_watchers_keeps_labels(cn) -> None:
     seed_names(cn, ("sw_proj", "roster"), ("sw_desk", "desk"), ("sw_other", "desk"), ("sw_tag", "label"))
@@ -206,7 +159,6 @@ def test_todo_score_soft_delete_clears_watchers_keeps_labels(cn) -> None:
         assert scalar(cn, "SELECT COUNT(*) FROM watcher WHERE type=%s AND id=%s", (typ, nid)) == 0
         assert scalar(cn, "SELECT deleted FROM activity WHERE type=%s AND id=%s", (typ, nid)) is not None
         assert scalar(cn, "SELECT COUNT(*) FROM label WHERE type=%s AND id=%s", (typ, nid)) == 1
-
 
 def test_todo_delete_failure_rolls_back_detach_and_watchers(cn) -> None:
     """A failed stamp rolls the whole delete back: plan rows, watchers, and the card stay."""
@@ -236,7 +188,6 @@ def test_todo_delete_failure_rolls_back_detach_and_watchers(cn) -> None:
     assert scalar(cn, "SELECT id FROM todo WHERE id=%s", (tid,)) is None
     assert scalar(cn, "SELECT COUNT(*) FROM tree WHERE type='todo' AND id=%s", (tid,)) == 0
 
-
 def test_hold_delete_always_refused_release_still_works(cn) -> None:
     seed_names(cn, ("sh_proj", "roster"), ("sh_desk", "desk"), ("sh_tag", "label"))
     hid = int(hold.upsert(cn, "sh_proj", "sh_desk", "sh_res")[0]["id"])
@@ -251,7 +202,6 @@ def test_hold_delete_always_refused_release_still_works(cn) -> None:
     assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is None
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='hold' AND id=%s", (hid,)) is None
     assert scalar(cn, "SELECT COUNT(*) FROM label WHERE type='hold' AND id=%s", (hid,)) == 1
-
 
 def test_trigger_set(cn) -> None:
     cur = cn.cursor()
@@ -268,9 +218,7 @@ def test_trigger_set(cn) -> None:
     for t in ("todo_no_delete_in_tree", "mail_no_delete_in_tree", "doing_no_delete_in_tree", "score_no_delete_in_tree"):
         assert t in names
 
-
 # ---- #96 join RESTRICT + reset is a disconnect stamp ----
-
 
 def test_join_desk_fk_restrict(cn) -> None:
     assert _rule(cn, "seat", "fk_seat_desk") in ("RESTRICT", "NO ACTION")  # #818: was join
@@ -278,7 +226,6 @@ def test_join_desk_fk_restrict(cn) -> None:
     assert _rule(cn, "doing", "fk_join_activity") == "NONE"  # #216
     # F1: activity desk RESTRICT so name delete cannot cascade through activity to join
     assert _rule(cn, "activity", "fk_activity_desk") in ("RESTRICT", "NO ACTION")
-
 
 def test_join_reset_stamps_disconnect_keeps_row(cn) -> None:
     seed_names(cn, ("sj_proj", "roster"), ("sj_desk", "desk"))
@@ -296,7 +243,6 @@ def test_join_reset_stamps_disconnect_keeps_row(cn) -> None:
     assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
     assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
 
-
 def test_name_delete_with_seat_refused(cn) -> None:
     seed_names(cn, ("sjr_proj", "roster"), ("sjr_desk", "desk"))
     jid = int(here.upsert(cn, "sjr_proj", "sjr_desk", "", "e" * 64, "")[0]["id"])
@@ -306,7 +252,6 @@ def test_name_delete_with_seat_refused(cn) -> None:
     assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
     assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
 
-
 def test_name_hard_delete_refused_even_unreferenced(cn) -> None:
     seed_names(cn, ("snd_lonely", "label"))
     nid = int(scalar(cn, "SELECT id FROM name WHERE type='label' AND name='snd_lonely'"))
@@ -314,7 +259,6 @@ def test_name_hard_delete_refused_even_unreferenced(cn) -> None:
         _exec(cn, "DELETE FROM name WHERE id=%s", (nid,))
     assert "retire only" in str(ei.value)
     assert scalar(cn, "SELECT id FROM name WHERE id=%s", (nid,)) == nid
-
 
 def test_mill_fks_to_name_are_restrict(cn) -> None:
     cur = cn.cursor()
@@ -341,9 +285,7 @@ def test_mill_fks_to_name_are_restrict(cn) -> None:
     assert by["fk_score_evidence_score"][2] in ("RESTRICT", "NO ACTION")
     assert "fk_human_desk_desk" in by and "fk_human_member_name" in by
 
-
 # ---- migrate ensure flips FK rules on an existing book ----
-
 
 def test_ensure_fk_rules_flips_cascade(cn) -> None:
     from agent_coord.install.migrate import _ensure_fk_rules

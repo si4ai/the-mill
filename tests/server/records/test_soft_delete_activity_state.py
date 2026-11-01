@@ -1,50 +1,14 @@
 """Soft-delete activity (#89) + mill_activity_select state (#90)."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import activity, apply, connect, mail, score, todo, tree as rec_tree
+from agent_coord.server.records import activity, mail, score, todo, tree as rec_tree
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_soft_delete_state_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def test_activity_has_deleted_column(cn) -> None:
     assert (
@@ -56,7 +20,6 @@ def test_activity_has_deleted_column(cn) -> None:
         )
         == "deleted"
     )
-
 
 def test_mail_soft_delete_and_select_state(cn) -> None:
     seed_names(cn, ("sd_proj", "roster"), ("sd_desk", "desk"), ("sd_reader", "desk"))
@@ -77,7 +40,6 @@ def test_mail_soft_delete_and_select_state(cn) -> None:
     hit2 = next(r for r in rows2 if int(r["id"]) == mid and r["type"] == "mail")
     assert hit2.get("state") == "deleted"
 
-
 def test_todo_score_soft_delete_state_deleted(cn) -> None:
     """#91: deleted state widens to every activity type (not only mail)."""
     seed_names(cn, ("sd_ts", "roster"), ("sd_ts_d", "desk"))
@@ -94,7 +56,6 @@ def test_todo_score_soft_delete_state_deleted(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='todo' AND id=%s", (tid,)) is not None
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is not None
 
-
 def test_live_todo_state_null(cn) -> None:
     seed_names(cn, ("sd_lv", "roster"), ("sd_lv_d", "desk"))
     tid = int(todo.insert(cn, "sd_lv", "sd_lv_d", "open", "live card")[0]["id"])
@@ -102,7 +63,6 @@ def test_live_todo_state_null(cn) -> None:
     rows = activity.select(cn, desk_id=int(desk_id), limit=50)
     trow = next(r for r in rows if int(r["id"]) == tid and r["type"] == "todo")
     assert trow.get("state") is None
-
 
 def test_between_rows_carry_state(cn) -> None:
     """#91: mill_between returns state per row; mail joined only for mail rows."""
@@ -137,7 +97,6 @@ def test_between_rows_carry_state(cn) -> None:
     live = [r for r in rows if r["type"] == "mail" and int(r["id"]) == live_mid]
     assert [r["other"] for r in live] == ["bw_b"]
 
-
 def test_build_events_carry_state(cn) -> None:
     from agent_coord.server.records import floor
 
@@ -147,7 +106,6 @@ def test_build_events_carry_state(cn) -> None:
     evs = floor.build_events(cn, [], None)
     hit = next(e for e in evs if e["type"] == "todo" and int(e["id"]) == tid)
     assert hit["state"] == "deleted"
-
 
 def test_cheap_detail_state_on_book(cn) -> None:
     """#93: watcher hint default detail carries state from mill_activity_select."""
@@ -163,7 +121,6 @@ def test_cheap_detail_state_on_book(cn) -> None:
     todo.delete(cn, tid, "cd_d")
     assert json.loads(push._cheap_detail(cn, "todo", tid, []))["state"] == "deleted"
 
-
 def _plan_rows(cn, plan: str) -> list[tuple]:
     cur = cn.cursor()
     try:
@@ -175,7 +132,6 @@ def _plan_rows(cn, plan: str) -> list[tuple]:
         return [tuple(r) for r in cur.fetchall()]
     finally:
         cur.close()
-
 
 def test_todo_delete_detaches_from_every_plan(cn) -> None:
     """mill_todo_delete takes the card off every plan (mill_tree_remove: children move up)."""
@@ -204,7 +160,6 @@ def test_todo_delete_detaches_from_every_plan(cn) -> None:
     assert _plan_rows(cn, "nd_plan") == [("todo", root, 1, 4), ("todo", kid, 2, 3)]
     assert _plan_rows(cn, "nd_plan2") == []
 
-
 def test_mail_delete_detaches_from_every_plan(cn) -> None:
     seed_names(cn, ("nd_m", "roster"), ("nd_md", "desk"), ("nd_mr", "desk"))
     mid = int(mail.insert(cn, "nd_m", "nd_md", "nd_mr", "in-tree-mail")[0]["id"])
@@ -216,7 +171,6 @@ def test_mail_delete_detaches_from_every_plan(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='mail' AND id=%s", (mid,)) is not None
     assert scalar(cn, "SELECT COUNT(*) FROM tree WHERE type='mail' AND id=%s", (mid,)) == 0
     assert _plan_rows(cn, "nd_mail_plan") == [("mail", kid, 1, 2)]
-
 
 def test_no_delete_in_tree_triggers_exist(cn) -> None:
     rows = []

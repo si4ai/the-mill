@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import activity, hold, join as here, mail, name, opened, score, todo
 from agent_coord.server.records import tree as rec_tree
 from tests.server.records.conftest import seed_names
+from agent_coord.server.records import member as rec_member
 
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_records_test")
+@pytest.fixture(scope="module", autouse=True)
+def _seed_unit_book(cn):
+    """Desks/roster this module's short tests assume (was private wipe cn seed)."""
+    seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"), ("builder", "roster"), ("stack", "desk"))
+    rec_member.put(cn, "unit", "a")
+    rec_member.put(cn, "unit", "b")
+    yield
 
 
 def _presence_row(cn, typ: str, nid: int) -> dict | None:
@@ -26,44 +28,12 @@ def _presence_row(cn, typ: str, nid: int) -> dict | None:
             return r
     return None
 
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
-
 def test_name_get_or_insert_idempotent(cn) -> None:
     a = name.get_or_insert(cn, "unit", "roster")
     b = name.get_or_insert(cn, "unit", "roster")
     assert a == b
     assert name.get(cn, "unit", "roster") == a
     assert any(r["type"] == "roster" and r["name"] == "unit" for r in name.select(cn))
-
 
 def test_mail_crud_dests_list_and_presence_n(cn) -> None:
     from agent_coord.server.records import member as rec_member
@@ -90,7 +60,6 @@ def test_mail_crud_dests_list_and_presence_n(cn) -> None:
     assert mail.get(cn, mid) == []
     assert _presence_row(cn, "mail", mid) is not None
 
-
 def test_opened_n_and_unread(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
     ins = mail.insert(cn, "unit", "a", "b", "private")
@@ -104,7 +73,6 @@ def test_opened_n_and_unread(cn) -> None:
     assert opened.read_ids(cn, [mid], "b") == {mid}
     mail.delete(cn, mid, "a")
     assert opened.read_ids(cn, [mid], "b") == set()
-
 
 def test_todo_kanban_status_select(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("a", "desk"))
@@ -121,7 +89,6 @@ def test_todo_kanban_status_select(cn) -> None:
     assert todo.get(cn, tid) == []
     assert _presence_row(cn, "todo", tid) is not None
 
-
 def test_doing_appends_a_row_per_entry(cn) -> None:
     """#818: each doing is its own row; a pipe in the text is just text."""
     from agent_coord.server.records.db import rows_done
@@ -136,7 +103,6 @@ def test_doing_appends_a_row_per_entry(cn) -> None:
     )
     # #818 PR B: the join placeholder writes no doing text.
     assert [r["text"] for r in rows if r["text"]] == ["a | b"]
-
 
 def test_hold_unique(cn) -> None:
     from agent_coord.server.records.db import scalar
@@ -163,7 +129,6 @@ def test_hold_unique(cn) -> None:
     assert int(taken[0]["ok"]) == 1
     assert int(taken[0]["id"]) == hid
 
-
 def test_hold_drop_res_prefix(cn) -> None:
     from agent_coord.server.records.db import scalar
 
@@ -178,7 +143,6 @@ def test_hold_drop_res_prefix(cn) -> None:
     assert row["desk_id"] is None
     assert scalar(cn, "SELECT resource_id FROM hold WHERE id=%s", (int(hit["id"]),)) is not None
 
-
 def test_score_upsert_value(cn) -> None:
     from agent_coord.server.records.db import scalar
 
@@ -191,7 +155,6 @@ def test_score_upsert_value(cn) -> None:
     # #95 score keep: the card stays (evidence RESTRICT); activity carries the soft-delete stamp.
     assert scalar(cn, "SELECT id FROM score WHERE id=%s", (kid,)) == kid
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (kid,)) is not None
-
 
 def test_floor_office_kpis(cn) -> None:
     from agent_coord.server.records.floor import floor as rec_floor
@@ -208,12 +171,10 @@ def test_floor_office_kpis(cn) -> None:
     assert hit, d.get("kpis")
     assert hit[0].get("value") == "7"
 
-
 def test_mail_insert_is_an_activity_row(cn) -> None:
     mail.insert(cn, "unit", "a", "unit", "wire", dst_kind="roster")
     sess = activity.select(cn, limit=20)
     assert any(r.get("type") == "mail" for r in sess)
-
 
 def test_delete_mail_keeps_activity(cn) -> None:
     mid = int(mail.insert(cn, "unit", "a", "unit", "gone", dst_kind="roster")[0]["id"])
@@ -221,12 +182,10 @@ def test_delete_mail_keeps_activity(cn) -> None:
     assert mail.get(cn, mid) == []
     assert _presence_row(cn, "mail", mid) is not None
 
-
 def test_mail_list_is_call_not_insert(cn) -> None:
     mail.insert(cn, "unit", "a", "unit", "listed", dst_kind="roster")
     rows = mail.list_project(cn, "unit")
     assert rows and any(r.get("body") == "listed" for r in rows)
-
 
 def test_tree_create_add_prune(cn) -> None:
     rec_tree.delete(cn, "unit-celko")
@@ -250,7 +209,6 @@ def test_tree_create_add_prune(cn) -> None:
     rec_tree.delete(cn, "unit-celko")
     todo.delete(cn, rid, "a")
     todo.delete(cn, tid, "a")
-
 
 def test_tree_add_grandchild_with_right_sibling(cn) -> None:
     """#57 idx_rgt: UNIQUE(name_id,rgt) collides if rgt shift is not DESC."""
@@ -277,7 +235,6 @@ def test_tree_add_grandchild_with_right_sibling(cn) -> None:
     todo.delete(cn, bid, "a")
     todo.delete(cn, gid, "a")
 
-
 def test_tree_remove_keeps_children(cn) -> None:
     rec_tree.delete(cn, "unit-promote")
     root_row = todo.insert(cn, "unit", "a", "open", '{"slug":"root"}')
@@ -298,7 +255,6 @@ def test_tree_remove_keeps_children(cn) -> None:
     todo.delete(cn, rid, "a")
     todo.delete(cn, mid_id, "a")
     todo.delete(cn, leaf_id, "a")
-
 
 def test_tree_auto_and_named_plans(cn) -> None:
     rec_tree.delete(cn, "PROJECT_A_PLAN")
@@ -322,7 +278,6 @@ def test_tree_auto_and_named_plans(cn) -> None:
     rec_tree.delete(cn, "PROJECT_B_PLAN")
     todo.delete(cn, pid, "a")
     todo.delete(cn, cid, "a")
-
 
 def test_touch_bumps_the_seat_and_writes_no_entry(cn) -> None:
     """#635 / #818: a command that writes nothing else bumps the seat; no doing row."""

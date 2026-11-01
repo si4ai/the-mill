@@ -2,50 +2,14 @@
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import push as rec_push
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_hint_drop_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _rows(cn, desk_id: int) -> list[dict]:
     cur = cn.cursor(dictionary=True)
@@ -64,7 +28,6 @@ def _rows(cn, desk_id: int) -> list[dict]:
         return out
     finally:
         cur.close()
-
 
 def test_waiting_row_is_left_alone(cn) -> None:
     desk = seed_names(cn, ("hint-drop-wait", "desk"))[0]
@@ -89,7 +52,6 @@ def test_waiting_row_is_left_alone(cn) -> None:
     assert rows[0]["payload"]["detail"] == "keep-me"
     assert "dropped" not in rows[0]["payload"]
     assert "idem" not in rows[0]["payload"]
-
 
 def test_sent_row_is_put_back(cn) -> None:
     desk = seed_names(cn, ("hint-drop-sent", "desk"))[0]
@@ -119,7 +81,6 @@ def test_sent_row_is_put_back(cn) -> None:
     assert rows[0]["payload"]["idem"] == "hint:todo:7:hint-drop-sent"
     assert "dropped" not in rows[0]["payload"]
 
-
 def test_missing_row_writes_one_drop_line(cn) -> None:
     desk = seed_names(cn, ("hint-drop-gone", "desk"))[0]
     frame = {
@@ -142,7 +103,6 @@ def test_missing_row_writes_one_drop_line(cn) -> None:
     assert rows[0]["payload"]["idem"] == "hint:todo:9:hint-drop-gone"
     assert "detail" not in rows[0]["payload"]
     assert "not-on-the-line" not in json.dumps(rows[0]["payload"])
-
 
 def test_mail_row_still_waiting_is_left(cn) -> None:
     desk = seed_names(cn, ("hint-drop-mail", "desk"))[0]

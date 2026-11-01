@@ -1,54 +1,17 @@
 """W3 mail delivery. Dest desks are mail_to rows. Mail does not plant watchers."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import seed_names
 
-from tests.sql_isolate import throwaway_db
 from tests.server.records.conftest import admin_desk
-
-TEST_DB = throwaway_db("mill_records_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _mail_to(cn, mid: int) -> set[int]:
     cur = cn.cursor()
@@ -56,7 +19,6 @@ def _mail_to(cn, mid: int) -> set[int]:
     ids = {int(r[0]) for r in cur.fetchall()}
     cur.close()
     return ids
-
 
 def test_mail_select_src_is_sender_not_dest(cn) -> None:
     """mill_mail_select: desk_id is sender; dst_id is dest. t.desk_id must not overwrite m.desk_id."""
@@ -70,7 +32,6 @@ def test_mail_select_src_is_sender_not_dest(cn) -> None:
     assert int(rec["desk_id"]) == a
     assert int(rec["dst_id"]) == b
     assert int(rec["desk_id"]) != int(rec["dst_id"])
-
 
 def test_mail_select_card_roster_only(cn) -> None:
     """Inbox roster is mail.roster_id; no fallback to activity.roster_id."""
@@ -97,7 +58,6 @@ def test_mail_select_card_roster_only(cn) -> None:
     assert rec["roster"] == "Office"
     assert rec["sender_roster"] == "Office"
 
-
 def test_mail_get_card_roster_only(cn) -> None:
     """mill_mail_get roster is mail.roster_id; no fallback to activity.roster_id."""
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
@@ -121,7 +81,6 @@ def test_mail_get_card_roster_only(cn) -> None:
     assert rows and int(rows[0]["roster_id"]) == office
     assert rows[0]["roster"] == "Office"
     assert rows[0]["sender_roster"] == "Office"
-
 
 def test_w3_role_expands_to_member_desks(cn) -> None:
     """mill send dest=ROLE_: snapshot member desks onto mail_to, not the ROLE_ name."""

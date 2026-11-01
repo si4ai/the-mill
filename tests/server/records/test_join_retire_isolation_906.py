@@ -25,6 +25,13 @@ from tests.server.records.conftest import admin_desk, seed_names
 
 pytestmark = pytest.mark.sql
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_tip_routines_after_trust(cn):
+    """set_trust rewrites b_trust; put tip routines back for the shared book."""
+    yield
+    from tests import sql_book
+    sql_book.restore_tip_routines(cn)
+
 ROSTER = "jri906"
 ADMIN = "jri906-adm"
 DESK = "jri906-d"

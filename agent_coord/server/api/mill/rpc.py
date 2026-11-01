@@ -745,10 +745,12 @@ def _item(typ: Any, nid: Any) -> str | None:
 
 def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str, Any]:
     from agent_coord.lib.observe import heartbeat_flags
+    from agent_coord.server.push import desk_sitting
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
-    alive, stale = heartbeat_flags(hb)
+    # Card 985: a live /ws counts as alive even when seat.updated is old.
+    alive, stale = heartbeat_flags(hb, sitting=desk_sitting(who))
     text = str(r.get("text") or "")
     on = _item(r.get("on_type"), r.get("on_id"))
     ended = r.get("ended_at") is not None
@@ -1334,6 +1336,7 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
 def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import name as rec_name
     from agent_coord.server.admin import catalog as admin_cat
+    from agent_coord.server import wake
 
     if str(body.get("name_type") or "").strip().lower() == "todo":
         return _each_need(body.get("need"), lambda n: _todo_retire_one(c, n, project, owner, back=False))
@@ -1347,6 +1350,10 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         if slug_guess:
             freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_guess, held=True) or []) if r.get("id")]
         rows = admin_cat.retire(c._cn, owner or "", body)
+        # #892: retire desk ends the wake lease (no trailing POST).
+        kind = str(body.get("name_type") or "").strip().lower()
+        if slug_guess and kind in ("", "desk"):
+            wake.gate_clear(slug_guess)
         _poke_freed_holds(c, freed, owner=owner)
     else:
         slug_s = _stored(raw)
@@ -1354,6 +1361,8 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
             raise CoordError("mill retire: hash owns this desk only")
         freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_s, held=True) or []) if r.get("id")]
         rows = rec_name.retire(c._cn, slug_s, "desk", by=slug_s, by_hash=_seat_hash(c, project, owner))
+        # #892: self-retire desk ends the wake lease.
+        wake.gate_clear(slug_s)
         _poke_freed_holds(c, freed, owner=owner)
     return rows
 
@@ -1437,6 +1446,7 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.records import hold as rec_hold
     from agent_coord.server.records import join as rec_join
     from agent_coord.server.admin.guard import require_admin
+    from agent_coord.server import wake
 
     require_admin(c._cn, owner or "")
     if body.get("dead") or body.get("prune_dead"):
@@ -1445,8 +1455,11 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if not who:
         raise CoordError("reset: desk required (or --dead to count seats with no token_hash)")
     # Card 881: capture hold ids before release so watchers get a drop-shaped hint.
-    freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=_stored(who), held=True) or []) if r.get("id")]
-    rows = rec_join.reset(c._cn, _stored(project), _stored(who))
+    desk = _stored(who)
+    freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=desk, held=True) or []) if r.get("id")]
+    rows = rec_join.reset(c._cn, _stored(project), desk)
+    # #892: drop the in-memory wake lease so the next holder is not coalesced.
+    wake.gate_clear(desk)
     _poke_freed_holds(c, freed, owner=owner)
     return {"ok": True, "reset": rows}
 
@@ -3938,6 +3951,9 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     includes hex plans. --sort recency|size|depth|breadth|created|starter
     (default recency); --asc flips the order. Sort is SQL ORDER BY.
     breadth = distinct member desks (senders U recipients).
+    --digest (card 975): one short block per room (name, opener, letter and
+    member counts, first/last dates, root first line, tags=[]); one SQL query,
+    no per-room members walk. Works on live /ws (card 979).
     """
     from agent_coord.server.admin.guard import require_admin
     from agent_coord.server.records import tree as rec_tree
@@ -3950,14 +3966,20 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         require_admin(c._cn, owner or "")
     sort = str(body.get("sort") or "recency").strip() or "recency"
     asc = bool(body.get("asc"))
+    digest = bool(body.get("digest"))
     rows = rec_tree.list_mail_rooms(
-        c._cn, sort=sort, asc=asc, include_hidden=include_hidden
+        c._cn,
+        sort=sort,
+        asc=asc,
+        include_hidden=include_hidden,
+        digest=digest,
     )
     return {
         "rooms": rows,
         "sort": sort,
         "asc": asc,
         "all": include_hidden,
+        "digest": digest,
         "count": len(rows),
     }
 

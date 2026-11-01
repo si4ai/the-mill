@@ -2,41 +2,14 @@
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import activity, apply, connect, mail, todo
+from agent_coord.server.records import activity, mail, todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_activity_get_test")
-
-
-@pytest.fixture(scope="module")
-def cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
-    yield c
-    c.close()
-
 
 def test_old_activity_found_past_newest_40(cn):
     from agent_coord.server import push
@@ -50,7 +23,6 @@ def test_old_activity_found_past_newest_40(cn):
     assert d["when"], "an activity older than the newest 40 still has its when"
     assert d["state"] is None
 
-
 def test_states_match_select(cn):
     seed_names(cn, ("ag_p2", "roster"), ("ag_s", "desk"), ("ag_r", "desk"))
     mid = int(mail.insert(cn, "ag_p2", "ag_s", "ag_r", "hi")[0]["id"])
@@ -62,14 +34,12 @@ def test_states_match_select(cn):
     assert activity.get(cn, "todo", tid)["state"] == "deleted"
     assert activity.get(cn, "mail", mid)["state"] == "deleted"
 
-
 def test_absent_and_wrong_type(cn):
     seed_names(cn, ("ag_p3", "roster"), ("ag_x", "desk"))
     tid = int(todo.insert(cn, "ag_p3", "ag_x", "open", "c")[0]["id"])
     assert activity.get(cn, "todo", 99999999) is None
     assert activity.get(cn, "hold", tid) is None  # same id, other type: no row
     assert activity.get(cn, "", 0) is None
-
 
 def test_lookup_is_a_primary_key_read(cn):
     seed_names(cn, ("ag_p4", "roster"), ("ag_e", "desk"))

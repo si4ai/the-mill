@@ -1,50 +1,14 @@
 """Roster SP punch (source-docs mail 308 / todos 82-88): letter columns are SoR."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import apply, connect, mail, score, todo
+from agent_coord.server.records import mail, score, todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_affil_sp_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _call_dict(cn, sql: str, params=()):
     cur = cn.cursor(dictionary=True)
@@ -55,7 +19,6 @@ def _call_dict(cn, sql: str, params=()):
     cur.close()
     return rows
 
-
 def test_mail_insert_writes_letter_roster(cn) -> None:
     seed_names(cn, ("affil_proj", "roster"), ("affil_desk", "desk"), ("affil_reader", "desk"))
     mid = int(mail.insert(cn, "affil_proj", "affil_desk", "affil_reader", "letter")[0]["id"])
@@ -64,7 +27,6 @@ def test_mail_insert_writes_letter_roster(cn) -> None:
     proj = scalar(cn, "SELECT id FROM name WHERE type = 'roster' AND name='affil_proj'")
     assert m_aff == proj
     assert a_aff == proj
-
 
 def test_mail_update_delete_read_letter_roster(cn) -> None:
     seed_names(cn, ("affil_upd", "roster"), ("affil_upd_d", "desk"), ("affil_upd_r", "desk"))
@@ -91,7 +53,6 @@ def test_mail_update_delete_read_letter_roster(cn) -> None:
         == m_aff
     )
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='mail' AND id=%s", (mid,)) is not None
-
 
 def test_mail_list_filters_letter_only(cn) -> None:
     seed_names(
@@ -131,7 +92,6 @@ def test_mail_list_filters_letter_only(cn) -> None:
     assert mid in ids2
     assert orphan not in ids2
 
-
 def test_todo_score_delete_read_card(cn) -> None:
     seed_names(cn, ("affil_del", "roster"), ("affil_del_d", "desk"))
     tid = int(todo.insert(cn, "affil_del", "affil_del_d", "open", "card")[0]["id"])
@@ -165,7 +125,6 @@ def test_todo_score_delete_read_card(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is not None
     assert t_aff is not None and s_aff is not None
 
-
 def test_floor_fp_mail_letter_only(cn) -> None:
     seed_names(cn, ("affil_fp", "roster"), ("affil_fp_d", "desk"), ("affil_fp_r", "desk"))
     mid = int(mail.insert(cn, "affil_fp", "affil_fp_d", "affil_fp_r", "fp")[0]["id"])
@@ -197,7 +156,6 @@ def test_floor_fp_mail_letter_only(cn) -> None:
     cur.close()
     row2 = _call_dict(cn, "CALL mill_floor_fp('project', %s, 'mail')", ("affil_fp",))[0]
     assert row2["fp"] == fp1
-
 
 def test_role_filter_fallback(cn) -> None:
     seed_names(cn, ("Engineer", "roster"), ("affil_role_d", "desk"))

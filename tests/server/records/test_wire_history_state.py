@@ -6,14 +6,12 @@ which has no state column. stamp_event_state adds the mill_activity_select state
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import floor as rec_floor
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import mail as rec_mail
@@ -21,41 +19,8 @@ from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_wire_history_state_test")
 LAN = "203.0.113.92"
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 @pytest.fixture(scope="module")
 def seeded(cn):
@@ -83,10 +48,8 @@ def seeded(cn):
         ("todo", gone_tid): "deleted",
     }
 
-
 def _by(events):
     return {(str(e.get("type") or e.get("kind")), int(e["id"])): e for e in events}
-
 
 def _check(events, want):
     by = _by(events)
@@ -95,20 +58,17 @@ def _check(events, want):
         assert "state" in by[k], by[k]
         assert by[k]["state"] == st, (k, by[k])
 
-
 @pytest.mark.parametrize("kind,ident", [("lan", LAN), ("role", "ws_role")])
 def test_floor_scope_events_carry_state(cn, seeded, kind, ident) -> None:
     view = rec_floor.floor_scope(cn, kind, ident, parts=["events"])
     _check(view["events"], seeded)
     assert all("state" in e for e in view["events"])
 
-
 def test_scope_state_falls_back_per_desk(cn, seeded, monkeypatch) -> None:
     """A scoped row older than the office-wide read still gets its state."""
     monkeypatch.setattr(rec_floor, "LIST_PAGE_MAX", 1)
     view = rec_floor.floor_scope(cn, "lan", LAN, parts=["events"])
     _check(view["events"], seeded)
-
 
 def _client(cn, monkeypatch):
     from fastapi.testclient import TestClient
@@ -133,7 +93,6 @@ def _client(cn, monkeypatch):
     root = Path(__file__).resolve().parents[3]
     return TestClient(make_asgi_app(parse_roots(cwd=root), api_only=True))
 
-
 @pytest.mark.parametrize(
     "query", [f"lan={LAN}&limit=50", "role=ws_role&limit=50", "project=ws_proj&limit=50"]
 )
@@ -142,7 +101,6 @@ def test_api_v1_events_payload_has_state(cn, seeded, monkeypatch, query) -> None
     r = client.get(f"/api/v1/events?{query}")
     assert r.status_code == 200, r.text
     _check(r.json()["events"], seeded)
-
 
 def test_api_activity_daily_is_evidence_and_between_has_state(cn, seeded, monkeypatch) -> None:
     """window=daily is the day chart (score_evidence: no type/updated/state per item).

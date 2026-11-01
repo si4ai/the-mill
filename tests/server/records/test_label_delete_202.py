@@ -1,52 +1,15 @@
 """#202: mill_label_delete refuses an unknown name and reports zero rows as not removed."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.install import migrate
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import label as rec_label
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_label_del_202")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _count(cn, type_s: str, nid: int) -> int:
     cur = cn.cursor()
@@ -54,7 +17,6 @@ def _count(cn, type_s: str, nid: int) -> int:
     n = int(cur.fetchone()[0])
     cur.close()
     return n
-
 
 def _body(cn, name: str) -> str:
     cur = cn.cursor()
@@ -66,7 +28,6 @@ def _body(cn, name: str) -> str:
     row = cur.fetchone()
     cur.close()
     return str(row[0] or "") if row else ""
-
 
 def test_unknown_name_refuses_and_zero_rows_are_not_removed(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("kept", "label"), ("rule:cards", "label"), ("other", "label"))
@@ -98,7 +59,6 @@ def test_unknown_name_refuses_and_zero_rows_are_not_removed(cn) -> None:
     with pytest.raises(Exception, match=r"label: no such name"):
         rec_label.delete(cn, "todo", tid, "other")
     assert _count(cn, "todo", tid) == 1
-
 
 def test_ensure_refreshes_label_delete(cn) -> None:
     cur = cn.cursor()

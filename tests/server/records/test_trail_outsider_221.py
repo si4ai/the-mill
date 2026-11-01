@@ -1,63 +1,35 @@
 """#221 then #672 (S-3): an outsider trails any mail; reading never joins it."""
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
 
 pytestmark = pytest.mark.sql
 
+from tests import sql_book
+
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
-from agent_coord.server.records import apply, connect
-from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_trail_221")
-
 
 class _Book:
     def __init__(self, cn):
         self._cn = cn
 
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
 @pytest.fixture(scope="module")
 def cn():
     try:
-        c = _cn()
+        c = sql_book.connect_shared(reset=True)
     except Exception as e:
         pytest.skip(f"mysql mill records: {e}")
     seed_names(c, ("unit", "roster"), ("asker", "desk"), ("tester", "desk"), ("outsider", "desk"))
     yield c
     c.close()
 
-
 @pytest.fixture(autouse=True)
 def _no_live_ws(monkeypatch):
     monkeypatch.setattr("agent_coord.server.api.mill.rpc._require_live_ws", lambda owner: None)
-
 
 def _room(cn):
     book = _Book(cn)
@@ -84,7 +56,6 @@ def _room(cn):
     )
     return book, rid, fid, int(card["id"])
 
-
 def test_outsider_trails_a_room_mail(cn) -> None:
     book, rid, fid, card = _room(cn)
     out = rpc._h_trail(book, {"node": f"mail:{fid}"}, "unit", "outsider")
@@ -96,7 +67,6 @@ def test_outsider_trails_a_room_mail(cn) -> None:
 
     assert "outsider" not in rec_mail.room_participants(cn, rid)
 
-
 def test_outsider_trails_a_direct_letter(cn) -> None:
     # #672 S-3: a direct (off-tree) letter is readable too; nothing is private.
     book = _Book(cn)
@@ -104,7 +74,6 @@ def test_outsider_trails_a_direct_letter(cn) -> None:
     mid = int(sent["id"])
     out = rpc._h_trail(book, {"node": f"mail:{mid}"}, "unit", "outsider")
     assert out["nodes"][0]["title"] == "plain"
-
 
 def test_participant_mail_trail_still_reads(cn) -> None:
     book, rid, fid, card = _room(cn)
@@ -115,12 +84,10 @@ def test_participant_mail_trail_still_reads(cn) -> None:
     root = rpc._h_trail(book, {"node": f"mail:{rid}"}, "unit", "asker")
     assert ("mail", rid) in [(n["kind"], n["id"]) for n in root["nodes"]]
 
-
 def test_outsider_todo_trail_still_reads(cn) -> None:
     book, _rid, _fid, card = _room(cn)
     out = rpc._h_trail(book, {"node": f"todo:{card}"}, "unit", "outsider")
     assert [(n["kind"], n["id"]) for n in out["nodes"]][0] == ("todo", card)
-
 
 def test_hold_id_is_not_a_trail_target(cn) -> None:
     book = _Book(cn)

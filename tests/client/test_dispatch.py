@@ -85,6 +85,7 @@ def test_no_route_wakes(tmp_path, monkeypatch) -> None:
 
     def fake_poke(vendor, hint):
         calls.append((vendor, hint))
+        return True
 
     monkeypatch.setattr("agent_coord.client.connectors.poke", fake_poke)
     monkeypatch.setattr(
@@ -140,3 +141,18 @@ def test_oversized_frame_does_not_spawn(tmp_path, monkeypatch) -> None:
             "builder",
             {"type": "mail", "id": 1, "hint": "MAIL", "route": "mail:MAIL", "detail": "x" * 80},
         )
+
+
+def test_no_route_sit_exit_when_poke_false(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
+    monkeypatch.setenv("AGENT_COORD_VENDOR", "grok-build")
+
+    def fake_poke(vendor, hint):
+        return False
+
+    monkeypatch.setattr("agent_coord.client.connectors.poke", fake_poke)
+    kind = dispatch_hint(
+        "builder",
+        {"type": "mail", "id": 3, "hint": "MAIL", "detail": "src"},
+    )
+    assert kind == "sit-exit"
