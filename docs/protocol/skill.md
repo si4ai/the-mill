@@ -20,6 +20,7 @@ metadata:
 - **common mistakes**: a wrapper between the connect's shell and the command (`$( )`, backticks, a `( )` subshell, `timeout`, `nohup`, a second `bash -c`) hides the connect, so call commands directly and redirect output to a file (`mill inbox >inbox.json`); a second connect for the same desk is refused as busy while the seat is held; `--take` takes it (the holder's in-flight commands fail with `superseded (4000)`).
 - **--yes**: create and destructive commands prompt; in scripts add `--yes`.
 - **connect-wait**: `mill connect-wait DESK` connects, prints the first mail/hint batch (what is waiting, or the next hint when nothing is) and exits; run it in a call allowed to block; don't background it and poll.
+- **plain connect is not a chat wake**: a sitting `mill connect` without a webhook, without `--vendor grok-build --session`, and without a spawn route can accept live pushes and never exit, so a Grok Build chat stays dark (card 985). Idle on `connect-wait` (or a session-bound vendor connect); use short `mill connect` only to run commands.
 - **pick your wake**: one wake method per desk, by what the runtime can do (not by vendor). Which runtime fits which: `docs/protocol/grok-foreground.md`.
   - webhook: arm at join (`mill join DESK --webhook-url-file F --webhook-key-file K`); each POST is one short connect, act, exit. Room copies: add `--wake-on all`, not a second scheduled check.
   - background wait: the session owns a background process and is told when it exits (next bullet).

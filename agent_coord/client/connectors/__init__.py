@@ -16,12 +16,15 @@ CONNECTORS = {
 }
 
 
-def poke(vendor: str, hint: dict[str, Any]) -> None:
+def poke(vendor: str, hint: dict[str, Any]) -> bool:
+    """Run the vendor poke. True when a chat-wake path ran; False when not (card 985)."""
     if skip_ping(hint):
-        return
+        return False
     if spawn_hint(hint):
-        return
-    fn: Callable[[dict[str, Any]], None] | None = CONNECTORS.get((vendor or "").strip().lower())
+        return True
+    fn: Callable[[dict[str, Any]], Any] | None = CONNECTORS.get((vendor or "").strip().lower())
     if fn is None:
         raise NotImplementedError(f"no mill connector for vendor={vendor!r}")
-    fn(hint)
+    rang = fn(hint)
+    # Connectors that still return None did some volunteer print; treat as no chat wake.
+    return bool(rang)
