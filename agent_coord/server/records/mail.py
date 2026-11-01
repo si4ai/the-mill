@@ -523,13 +523,48 @@ def room_tree_id(cn, mail_id: int) -> int | None:
 MAIL_BODY_LIST_MAX = 256
 
 
-def lean_body(text: str | None, n: int = MAIL_BODY_LIST_MAX) -> tuple[str, bool]:
-    """Truncate letter body for list/poll. Returns (body, truncated)."""
+def lean_body(
+    text: str | None,
+    n: int = MAIL_BODY_LIST_MAX,
+    *,
+    mail_id: int | None = None,
+) -> tuple[str, bool]:
+    """Truncate letter body for list/poll. Returns (body, truncated).
+
+    When cut, the body ends with a visible ASCII tail (card 902). The tail
+    counts inside the cap. mail_id fills the mill mail-thread tip when known.
+    """
     body = text if isinstance(text, str) else ("" if text is None else str(text))
     limit = int(n) if n and int(n) > 0 else MAIL_BODY_LIST_MAX
     if len(body) <= limit:
         return body, False
-    return body[:limit], True
+    mid = int(mail_id or 0)
+    rem = len(body)
+    prefix = 0
+    tail = ""
+    for _ in range(12):
+        if mid:
+            tail = f"... [cut: {rem} more chars, mill mail-thread {mid}]"
+        else:
+            tail = f"... [cut: {rem} more chars]"
+        prefix = max(0, limit - len(tail))
+        rem2 = len(body) - prefix
+        if rem2 == rem and prefix + len(tail) <= limit:
+            break
+        rem = rem2
+    else:
+        if mid:
+            tail = f"... [cut: {rem} more chars, mill mail-thread {mid}]"
+        else:
+            tail = f"... [cut: {rem} more chars]"
+        prefix = max(0, limit - len(tail))
+        rem = len(body) - prefix
+        if mid:
+            tail = f"... [cut: {rem} more chars, mill mail-thread {mid}]"
+        else:
+            tail = f"... [cut: {rem} more chars]"
+        prefix = max(0, limit - len(tail))
+    return body[:prefix] + tail, True
 
 
 def _to_desk(t) -> str:
@@ -575,8 +610,9 @@ def public_mail(
 
     body = row.get("body") or ""
     trunc = False
+    body_chars = len(body) if isinstance(body, str) else len(str(body or ""))
     if lean:
-        body, trunc = lean_body(body, lean_n)
+        body, trunc = lean_body(body, lean_n, mail_id=mid)
 
     out: dict = {
         "id": mid,
@@ -590,6 +626,8 @@ def public_mail(
     }
     if trunc:
         out["body_trunc"] = True
+        out["body_chars"] = body_chars
+        out["read"] = f"mill mail-thread {mid}"
     if crumbs:
         for k in ("tree", "root_id", "root_type", "parent_id", "parent_type"):
             if k in crumbs and crumbs[k] is not None and crumbs[k] != "":
