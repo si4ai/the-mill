@@ -111,7 +111,13 @@ def mill_http_call(body: dict[str, Any]) -> Any:
     if not command:
         raise CoordError("mill command required")
     owner = str(body.get("owner") or "")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    from agent_coord.install.packver import package_version
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Mill-Client": package_version(),
+    }
     from agent_coord.client.offices import read_office_invite
 
     saved_invite = read_office_invite()

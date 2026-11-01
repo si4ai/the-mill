@@ -2337,7 +2337,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
 
                         fwd = (self.headers.get("x-forwarded-for") or "").strip()
                         mark_host(data, peer, forwarded=bool(fwd))
-                        row = dispatch(c, data, token=token)
+                        client_mill = " ".join(str(self.headers.get("X-Mill-Client") or "").split())[:64]
+                        row = dispatch(c, data, token=token, client_mill=client_mill)
                         acting = str(getattr(c, "acting_desk", "") or "")
                         if command == "join" and isinstance(row, dict):
                             from agent_coord.server.records import join as rec_join

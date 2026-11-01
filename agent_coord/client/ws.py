@@ -925,7 +925,15 @@ def own_bridge_call(desk: str, body: dict[str, Any], *, timeout_s: float = 35.0)
     command = str(body.get("verb") or "")
     args = {k: v for k, v in dict(body).items() if k not in ("verb", "cmd", "owner", "token")}
     req_id = str(uuid.uuid4())
-    req = {"id": req_id, "verb": command, "args": args, "secret": ep["secret"]}
+    from agent_coord.install.packver import package_version
+
+    req = {
+        "id": req_id,
+        "verb": command,
+        "args": args,
+        "secret": ep["secret"],
+        "mill": package_version(),
+    }
     raw_req = (json.dumps(req, default=str) + "\n").encode("utf-8")
     buf = b""
     with socket.create_connection((str(ep["host"]), int(ep["port"])), timeout=10.0) as sock:
@@ -1157,6 +1165,9 @@ async def _sit_session(
                                 reply = stashed
                             else:
                                 wire = {"id": req_id, "verb": command, "args": with_connect_roster(command, args)}
+                                client_mill = " ".join(str(req.get("mill") or "").split())[:64]
+                                if client_mill:
+                                    wire["mill"] = client_mill
                                 wait_q: asyncio.Queue = asyncio.Queue(maxsize=1)
 
                                 async def _submit(
@@ -1687,11 +1698,14 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
         if not who:
             raise CoordError(SESSION_WS_BRIDGE_REQUIRED)
 
+        from agent_coord.install.packver import package_version
+
         req = {
             "id": req_id,
             "verb": command,
             "args": args,
             "secret": ep["secret"],
+            "mill": package_version(),
         }
         host = str(ep["host"])
         port = int(ep["port"])

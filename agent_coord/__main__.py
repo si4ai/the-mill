@@ -60,6 +60,20 @@ class MillArgumentParser(argparse.ArgumentParser):
         self._command = next((w for w in words if not str(w).startswith("-")), "")
         return super().parse_known_args(args, namespace)
 
+    def parse_args(self, args=None, namespace=None):
+        # A subparser returns flags it does not know, and the top parser then
+        # reports them with the top-level usage (card 736). Name the subcommand.
+        ns, unknown = self.parse_known_args(args, namespace)
+        if unknown:
+            message = "unrecognized arguments: %s" % " ".join(str(u) for u in unknown)
+            cmd = str(getattr(ns, "cmd", "") or "")
+            if cmd in _BODY_COMMANDS and BODY_FILE_FIX not in message:
+                message = message + "; " + BODY_FILE_FIX
+            if cmd:
+                _leaf_parser(self, ns).error(message)
+            self.error(message)
+        return ns
+
     def error(self, message: str) -> None:
         if "--seat" in message and "expected one argument" in message:
             message = message + "; if the value starts with '-', use --seat=VALUE"
@@ -68,7 +82,58 @@ class MillArgumentParser(argparse.ArgumentParser):
         ):
             # #638: one line that names the fix, not just the missing flag.
             message = message + "; " + BODY_FILE_FIX
+        if message.startswith("argument COMMAND:") and "invalid choice:" in message:
+            self.exit(2, _unknown_command_line(self, message))
+        see = _see_help(self)
+        if see and "unrecognized arguments" in message and see not in message:
+            message = message + "\n" + see
         super().error(message)
+
+
+def _see_help(parser: argparse.ArgumentParser) -> str:
+    """The help command for this parser: `see: mill help todo`."""
+    parts = str(getattr(parser, "prog", "") or "").split()
+    if len(parts) >= 2 and parts[0] == "mill":
+        return "see: mill help %s" % parts[1]
+    return ""
+
+
+def _unknown_command_line(parser: argparse.ArgumentParser, message: str) -> str:
+    """One line for a bad top-level command. No list of every command (card 736)."""
+    import difflib
+    import re
+
+    found = re.search(r"invalid choice: '([^']*)'", message)
+    bad = found.group(1) if found else ""
+    names: list[str] = []
+    for act in parser._actions:
+        if isinstance(act, argparse._SubParsersAction):
+            names.extend(act.choices.keys())
+    close = difflib.get_close_matches(bad, names, n=1, cutoff=0.6)
+    if close:
+        return (
+            "unknown command '%s'; did you mean %s? (mill help lists every command)\n"
+            % (bad, close[0])
+        )
+    return "unknown command '%s' (mill help lists every command)\n" % bad
+
+
+def _leaf_parser(parser: argparse.ArgumentParser, ns: argparse.Namespace):
+    """the subparser the namespace selected, walking each command level."""
+    seen: set[int] = set()
+    while id(parser) not in seen:
+        seen.add(id(parser))
+        nxt = None
+        for act in parser._actions:
+            if isinstance(act, argparse._SubParsersAction):
+                name = getattr(ns, act.dest, None)
+                if name in act.choices:
+                    nxt = act.choices[name]
+                    break
+        if nxt is None:
+            return parser
+        parser = nxt
+    return parser
 
 
 def _attach_office_help(parser: argparse.ArgumentParser) -> None:
@@ -399,7 +464,14 @@ def main(argv: list[str] | None = None) -> int:
     commands = [a for a in raw if not a.startswith("-")]
     if commands and commands[0] in ("leftover", "leftover-done"):
         print(
-            '{"ok": false, "error": "unknown mill command. Idle is mill connect + HINT."}',
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "unknown command %s; mill help lists every command" % commands[0]
+                    ),
+                }
+            ),
             flush=True,
         )
         return 2
@@ -1169,7 +1241,8 @@ def _build_parser() -> MillArgumentParser:
 
     def _todo_create_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("project")
-        p.add_argument("need")
+        # roster/need as one word is split later; a bare roster names the two-word form (card 736).
+        p.add_argument("need", nargs="?", default="")
         dg = p.add_mutually_exclusive_group()
         dg.add_argument("--detail", default="", help="card text, 1..4096 characters")
         dg.add_argument(
