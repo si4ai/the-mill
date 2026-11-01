@@ -14,6 +14,13 @@
 #   window - one interactive grok process per desk (fallback).
 # Writes only under each desk's work_dir parent (session.json) and export_dir.
 # Never deletes sessions.
+# Window mode waits for the child (WaitForExit) and propagates its exit code so
+# the shared console is released cleanly (card 950).
+# -Stub (or env MILL_DESK_START_STUB=1) launches a trivial child on the same
+# ProcessStartInfo path instead of grok: prints one line, sleeps
+# -StubSleepSeconds (env MILL_DESK_START_STUB_SLEEP, default 3), exits with
+# -StubExitCode (env MILL_DESK_START_STUB_EXIT, default 0). No grok, no seat,
+# no credential, no session.json write. For debugging open/close only.
 # defaults.context_restart_tokens (default 190000): printed in the plan; the
 # desk asks for a fresh desk-start near that count (never resume, never compact).
 # lessons_byte_cap is enforced by desk_start_plan.select_lessons; this script
@@ -27,10 +34,34 @@ param(
   [Parameter(Mandatory = $true)]
   [string[]]$Desk,
 
-  [switch]$DryRun
+  [switch]$DryRun,
+
+  # Stub / dry child on the window-mode ProcessStartInfo path (card 950).
+  # No grok, no Credential Manager, no session.json. Env MILL_DESK_START_STUB=1
+  # also enables; MILL_DESK_START_STUB_SLEEP / MILL_DESK_START_STUB_EXIT override.
+  [switch]$Stub,
+
+  [int]$StubSleepSeconds = 3,
+
+  [int]$StubExitCode = 0
 )
 
 $ErrorActionPreference = "Stop"
+
+# Env overrides for stub (switch still wins when passed).
+if (-not $Stub -and $env:MILL_DESK_START_STUB -and $env:MILL_DESK_START_STUB -notin @("0", "false", "False", "")) {
+  $Stub = $true
+}
+if ($env:MILL_DESK_START_STUB_SLEEP -and $env:MILL_DESK_START_STUB_SLEEP -match '^[0-9]+$') {
+  $StubSleepSeconds = [int]$env:MILL_DESK_START_STUB_SLEEP
+}
+if ($env:MILL_DESK_START_STUB_EXIT -and $env:MILL_DESK_START_STUB_EXIT -match '^-?[0-9]+$') {
+  $StubExitCode = [int]$env:MILL_DESK_START_STUB_EXIT
+}
+if ($StubSleepSeconds -lt 0) { throw "desk-start: -StubSleepSeconds must be >= 0" }
+if ($StubExitCode -lt 0 -or $StubExitCode -gt 255) {
+  throw "desk-start: -StubExitCode must be 0..255"
+}
 
 function New-SessionUuid { return [guid]::NewGuid().ToString() }
 
@@ -226,7 +257,7 @@ function Get-FirstMessage($desk, $cfg) {
   return $text
 }
 
-function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
+function Invoke-OneDesk($desk, $cfg, [bool]$dry, [bool]$stub, [int]$stubSleep, [int]$stubExit) {
   $name = [string]$desk.name
   $target = [string]$desk.credential_target
   $work = [string]$desk.work_dir
@@ -234,7 +265,7 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
   $deskRoot = Split-Path -Parent $work
   $sessionPath = Join-Path $deskRoot "session.json"
 
-  if (-not $dry) {
+  if (-not $dry -and -not $stub) {
     if (-not (Test-CredPresent $target)) {
       Write-Host "desk-start: credential (Credential Manager target $target) missing"
       return 1
@@ -304,6 +335,9 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
     would_launch     = $true
     launched         = $false
     session_record   = $sessionPath
+    stub             = [bool]$stub
+    stub_sleep_seconds = [int]$stubSleep
+    stub_exit_code   = [int]$stubExit
   }
   $launchMode = ([string]$plan.launch_mode).ToLowerInvariant()
   if (-not $launchMode) { $launchMode = 'dashboard' }
@@ -322,18 +356,20 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
     return 0
   }
 
-  $grok = Get-Command grok -ErrorAction SilentlyContinue
-  if (-not $grok) {
-    Write-Host "desk-start: grok not on PATH"
+  if ($launchMode -eq 'dashboard' -and -not $stub) {
+    Write-Host "desk-start: launch_mode=dashboard attach recipe is UNVERIFIED; refuse live launch until runbook step 0 probe passes. Use -DryRun, -Stub, or set office.launch_mode to window."
     return 1
   }
 
-  if ($launchMode -eq 'dashboard') {
-    Write-Host "desk-start: launch_mode=dashboard attach recipe is UNVERIFIED; refuse live launch until runbook step 0 probe passes. Use -DryRun or set office.launch_mode to window."
-    return 1
+  if (-not $stub) {
+    $grok = Get-Command grok -ErrorAction SilentlyContinue
+    if (-not $grok) {
+      Write-Host "desk-start: grok not on PATH"
+      return 1
+    }
   }
 
-  if ($exportArgv.Count -gt 0) {
+  if (-not $stub -and $exportArgv.Count -gt 0) {
     try {
       & $grok.Source export $priorId $exportPath
     } catch {
@@ -347,19 +383,41 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
   }
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName = $grok.Source
   $psi.UseShellExecute = $false
   $psi.WorkingDirectory = $work
-  # netfx / ps 5.1: set arguments (one string) with join-winargv.
-  # skip leading grok (filename); quote the rest (commandlinetoargvw via format-winarg).
-  $argTail = @()
-  for ($i = 1; $i -lt $argv.Count; $i++) { $argTail += [string]$argv[$i] }
-  $psi.Arguments = Join-WinArgv $argTail
   # netfx: environmentvariables (stringdictionary), not the core environment map.
+  # Clear PYTHONPATH for both grok and stub so a parent venv cannot leak in.
   if ($psi.EnvironmentVariables.ContainsKey("PYTHONPATH")) {
     $psi.EnvironmentVariables.Remove("PYTHONPATH")
   }
   $psi.EnvironmentVariables["PYTHONPATH"] = ""
+
+  if ($stub) {
+    # Same ProcessStartInfo window-mode path as grok, but a trivial child.
+    # powershell.exe -NoProfile so no profile / no model tokens.
+    $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path -LiteralPath $psExe)) {
+      $cmd = Get-Command powershell.exe -ErrorAction SilentlyContinue
+      if (-not $cmd) {
+        Write-Host "desk-start: stub needs powershell.exe on PATH"
+        return 1
+      }
+      $psExe = $cmd.Source
+    }
+    $stubMsg = "desk-start stub: sleeping $stubSleep then exit $stubExit"
+    # Single -Command string; Join-WinArgv quotes it for CommandLineToArgvW.
+    $stubCmd = "Write-Host '$stubMsg'; Start-Sleep -Seconds $stubSleep; exit $stubExit"
+    $psi.FileName = $psExe
+    $psi.Arguments = Join-WinArgv @("-NoProfile", "-NonInteractive", "-Command", $stubCmd)
+    Write-Host "desk-start: stub mode (no grok); sleeping ${stubSleep}s then exit $stubExit"
+  } else {
+    $psi.FileName = $grok.Source
+    # netfx / ps 5.1: set arguments (one string) with join-winargv.
+    # skip leading grok (filename); quote the rest (commandlinetoargvw via format-winarg).
+    $argTail = @()
+    for ($i = 1; $i -lt $argv.Count; $i++) { $argTail += [string]$argv[$i] }
+    $psi.Arguments = Join-WinArgv $argTail
+  }
 
   $proc = [System.Diagnostics.Process]::Start($psi)
   if (-not $proc) {
@@ -367,18 +425,28 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry) {
     return 1
   }
 
-  # Write session.json only under the desk folder (parent of work_dir).
-  @{
-    desk        = $name
-    session_id  = $sessionId
-    started     = (Get-Date).ToString("o")
-    pid         = $proc.Id
-    launch      = "positional-prompt"
-    help_source = "workstation grok --help (grok 1.0.70 stable)"
-  } | ConvertTo-Json | Out-File -Encoding utf8 -LiteralPath $sessionPath
+  if (-not $stub) {
+    # Write session.json only under the desk folder (parent of work_dir).
+    @{
+      desk        = $name
+      session_id  = $sessionId
+      started     = (Get-Date).ToString("o")
+      pid         = $proc.Id
+      launch      = "positional-prompt"
+      help_source = "workstation grok --help (grok 1.0.70 stable)"
+    } | ConvertTo-Json | Out-File -Encoding utf8 -LiteralPath $sessionPath
+    Write-Host "desk-start: launched grok pid $($proc.Id) session $sessionId for $name (fresh; never resume); waiting for exit"
+  } else {
+    Write-Host "desk-start: launched stub pid $($proc.Id) for $name; waiting for exit"
+  }
 
-  Write-Host "desk-start: launched grok pid $($proc.Id) session $sessionId for $name (fresh; never resume)"
-  return 0
+  # Window mode: wait so the child owns the console until it exits, then
+  # propagate the exit code and release the console (card 950).
+  $proc.WaitForExit()
+  $childExit = 0
+  try { $childExit = [int]$proc.ExitCode } catch { $childExit = 1 }
+  Write-Host "desk-start: child exited $childExit for $name"
+  return $childExit
 }
 
 # --- main ---
@@ -387,7 +455,7 @@ Assert-Config $cfg
 $chosen = Resolve-Desks $cfg $Desk
 $code = 0
 foreach ($d in $chosen) {
-  $rc = [int](Invoke-OneDesk $d $cfg ([bool]$DryRun))
+  $rc = [int](Invoke-OneDesk $d $cfg ([bool]$DryRun) ([bool]$Stub) ([int]$StubSleepSeconds) ([int]$StubExitCode))
   if ($rc -ne 0) { $code = $rc }
 }
 exit $code

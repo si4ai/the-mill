@@ -9,6 +9,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 902: visible cut tail on mail HINT and lean bodies; addressed wakes carry whole letter
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 943: per-desk GitHub apps (needs human app create/install)
+- card 950 / F229: desk-start window WaitForExit + `-Stub` open/close debug path
 
 ## New changes
 

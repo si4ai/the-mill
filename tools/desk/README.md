@@ -56,7 +56,32 @@ macOS live coverage is tracked on card 933.
 ```
 
 Flags: `-Config <path>` (required), `-Desk <name>` (repeatable, or `all`),
-`-DryRun`.
+`-DryRun`, `-Stub` (trivial child instead of grok; see Stub mode below),
+`-StubSleepSeconds <n>` (default 3), `-StubExitCode <0..255>` (default 0).
+
+## Window mode exit (card 950)
+
+In `launch_mode=window`, the script starts the child with `UseShellExecute=false`
+(shared console), then **`WaitForExit`** and exits with the child's exit code.
+Returning before the child exits left the console hung after a clean grok quit.
+
+## Stub mode (debug open/close without grok)
+
+`-Stub` (or env `MILL_DESK_START_STUB=1`) launches a trivial `powershell.exe
+-NoProfile` child on the **same** ProcessStartInfo path: it prints one line,
+sleeps (`-StubSleepSeconds` / `MILL_DESK_START_STUB_SLEEP`, default 3), and
+exits (`-StubExitCode` / `MILL_DESK_START_STUB_EXIT`, default 0). No grok, no
+Credential Manager check, no `session.json` write, no model tokens. Use this to
+confirm launch + wait + exit-code propagation without seating a desk.
+
+```powershell
+# One-line open/close check (replace Desk name with any entry in your config)
+powershell -NoProfile -File .\desk-start.ps1 -Config $env:USERPROFILE\.config\mill-desk\desks.json -Desk example-desk -Stub -StubSleepSeconds 3 -StubExitCode 7; if ($LASTEXITCODE -eq 7) { 'stub ok' } else { "stub failed: $LASTEXITCODE" }
+```
+
+Correct output includes `desk-start: stub mode (no grok)`, a `desk-start stub:
+sleeping 3 then exit 7` line from the child, `desk-start: child exited 7`, then
+the prompt returns with exit code 7 (`stub ok`). The console must not hang.
 
 ## What it launches
 
