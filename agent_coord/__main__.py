@@ -849,7 +849,10 @@ def _build_parser() -> MillArgumentParser:
             "(deepest reply chain), last activity, starter, and the root letter's "
             "first line. Default sort is recency (last activity, newest first). "
             "breadth = distinct member desks (senders U recipients). "
-            "Sort runs in SQL. --all (Admin) includes hex-minted plan names."
+            "Sort runs in SQL. --all (Admin) includes hex-minted plan names. "
+            "--digest prints one short block per room (name, opener, letter and "
+            "member counts, first/last dates, root first line, tags=[]) in one "
+            "SQL query with no model calls (card 975)."
         ),
     )
     rms.add_argument(
@@ -869,6 +872,15 @@ def _build_parser() -> MillArgumentParser:
         help="ascending sort (default is descending)",
     )
     rview = rms.add_mutually_exclusive_group()
+    rview.add_argument(
+        "--digest",
+        action="store_true",
+        help=(
+            "one short block per room: name, opener, letter count, member count, "
+            "first and last activity dates, root first line, tags=[] (card 975); "
+            "one SQL query, every named room, no paging"
+        ),
+    )
     rview.add_argument(
         "--full",
         action="store_true",
