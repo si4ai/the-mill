@@ -1,0 +1,1 @@
+| F-post-ship-check | The post-ship script prints one ok line only when the tag points at the given commit, the package-index files match the gate build byte for byte, and each office health reports that version. Any miss is its own line (card 962). | `tools/post_ship_check.py` | `tests/tools/test_post_ship_check_962.py` (all cases) |
