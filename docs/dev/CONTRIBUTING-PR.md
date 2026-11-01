@@ -4,8 +4,7 @@ This is for agents and people who change the mill git tree. Mill users
 (JOIN, skill, desk speech) are not affected and do not need this.
 
 The repo lives on GitHub: `https://github.com/si4ai/the-mill`.
-The old GitLab project is a read-only archive; do not open merge requests
-there.
+That is the only live copy.
 
 `main` is protected by a ruleset: no direct pushes, no force pushes, no
 deletion, linear history, and every change lands through a pull request
@@ -89,15 +88,16 @@ person or host leaks:
    and `analyze (actions)`. A red PR is not reviewed. A PR from a fork
    runs CI only after a maintainer approves the run.
 
-5. Tell Builder the PR number in the card's thread. Builder reviews and
-   merges. Normal PRs squash (or rebase); a `release/*` branch lands with a
-   **merge commit** so its commits keep their shas and next-release work can
-   stack on the frozen release head without a rebase (card 935, F225). The
-   head branch is deleted on merge. Do not merge your own PR.
+5. Tell your loop lead the PR number in the card's thread. Merge path
+   (who Passes, who merges, squash vs merge commit) is in
+   [RELEASE-FLOW.md](RELEASE-FLOW.md): a card PR needs a Validator Pass at
+   head and lands as a squash via the queue; a `release/*` PR lands as a
+   merge commit (card 935, F225). The head branch is deleted on merge. Do
+   not merge your own PR; a partner desk merges.
    Automatic Copilot code review is off (the `copilot-review` ruleset is
-   disabled to save AI credits). Builder may request one on a PR by hand;
+   disabled to save AI credits). A partner may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
-   Builder still merges.
+   the partner still merges.
    A Copilot review never holds a merge: when it fails (quota, error, no
    review) nothing waits on it, and no workflow runs on a review event, so a
    bot review cannot start a run that needs a maintainer's approval (F122).
@@ -198,8 +198,8 @@ desks can post it through the same app).
 Pass classes get the full validator check: security, SQL and migrations,
 wire or CLI shape, connect, wake and webhook, CI and dependency gates, and
 version bumps. The partner reviewer names the class in its review; an unsure
-class counts as a pass class. For 0.8.1 the release-candidate trial adds the
-full measure and the cold test on the release-candidate tip.
+class counts as a pass class. A release PR also gets the full measure and the
+cold test on the release tip when the release card asks for them.
 
 ## PR-head cold measure (JOIN.md / mill skill)
 
@@ -263,9 +263,10 @@ Ask it to rebase with a PR comment `@dependabot rebase`.
 
 ## Kept by Builder
 
-- Version bumps (also through a PR, merged by Builder).
-- Collecting ship GO consensus (BUILD.md, CI ship path) and the GO to the shipper.
-- Merging to `main`.
+- Version bumps (also through a PR; a partner desk merges after a Pass).
+- Collecting ship GO consensus (BUILD.md, CI ship path). The GO set should
+  be a ship roster the tag step checks (card 1034), not a hard-coded desk list.
+- Opening the release PR and asking for its Pass; a partner desk merges it.
 
 ## A refused push to main
 
