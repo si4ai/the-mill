@@ -55,7 +55,7 @@ def test_drift_fails(text, kind):
             "unknown-command",
         ),
         (
-            "book SQL is not this pack's; run: mill wibble",
+            "book SQL is not this pack's; run: mill zorkmork",
             "unknown-command",
         ),
         # Mid-string hints after Next: / run: must be extracted and checked.
