@@ -6,6 +6,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 - card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.9; DDL needs office human review before code
 - card 1005 / F-unread-wake-retry: failed wake for unread-only mail arms retry (push drained)
+- card 1011 / F-insert-deadlock-retry: concurrent insert deadlock retries twice (attempt < 2; seed 181202869)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)
 - card 943: per-desk GitHub apps (needs human app create/install)
