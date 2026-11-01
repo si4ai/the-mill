@@ -27,7 +27,7 @@ from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 
 from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_records_test")
+TEST_DB = throwaway_db("mill_connect_self_join")
 TOKEN = "self-join-token"
 
 

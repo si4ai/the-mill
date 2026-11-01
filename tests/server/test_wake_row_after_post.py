@@ -44,7 +44,7 @@ from tests.sql_isolate import throwaway_db
 pytestmark = pytest.mark.sql
 
 # The process pool follows AGENT_COORD_DATABASE; share the name the other sql suites use.
-TEST_DB = throwaway_db("mill_records_test")
+TEST_DB = throwaway_db("mill_wake_row_post")
 ROSTER, D1, D2 = "fx-wake", "fx-wake-d1", "fx-wake-d2"
 TOK = {D1: "fx-seat-token-d1-0123456789", D2: "fx-seat-token-d2-0123456789"}
 

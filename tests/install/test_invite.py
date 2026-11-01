@@ -14,7 +14,7 @@ from agent_coord.server.records import apply, connect
 from agent_coord.server.records import join as here
 from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_records_test")
+TEST_DB = throwaway_db("mill_invite_install")
 
 
 @pytest.fixture
