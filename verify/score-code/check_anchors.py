@@ -10,7 +10,8 @@ every way listed below and expects each broken copy to fail (this proves the
 property can fail):
   - remove: the marker is deleted
   - comment: every line of the marker is commented out in place
-             (Python "# "; SQL "-- " per line, and a "/* ... */" block)
+             (Python "# " per line and a triple-quoted wrap; SQL "-- " per
+             line and a "/* ... */" block)
   - absent anchors: a forbidden line is inserted into the region
 
 Rules (cards 1014 and the Validator's D4/D5/comment findings):
@@ -19,8 +20,12 @@ Rules (cards 1014 and the Validator's D4/D5/comment findings):
     `try:` or block keyword
   - the marker as a whole must hold at least one code line besides imports,
     logs and messages, so log-only and try+import markers are refused
-  - matches are counted on the file with comments blanked out, so a guard
-    that has been commented out (line or block comment) no longer counts
+  - the first line must be a guard or effect statement (branch, loop, return,
+    def, assignment, SQL statement, or a dict entry whose value is not a bare
+    string); a def marker also needs a guard or effect line after it
+  - matches are counted on the file with comments and Python triple-quoted
+    strings blanked out, so a guard that has been commented or stringed out
+    no longer counts
   - the marker must match expected_count times (default 1)
   - kind "absent" anchors name a region (start and end markers) and regexes
     that must not appear in it with comments blanked out (for "this path
@@ -45,6 +50,16 @@ ANCHORS = HERE / "anchors.json"
 
 LOG_RE = re.compile(r"^(?:await\s+)?(?:[\w.]+\.)?(?:\w*log\w*|print|warn\w*)\s*\(", re.I)
 MESSAGE_RE = re.compile(r"MESSAGE_TEXT|^SIGNAL\b|^RESIGNAL\b|^raise\b", re.I)
+# A guard or effect line: a branch, loop, return, definition, assignment,
+# SQL statement, or a dict entry whose value is an expression (not a bare
+# string literal). Anything else (a note string, a bare call) is refused.
+EFFECT_RE = re.compile(
+    r"^(?:if|elif|while|for|return|def|with|IF|ELSEIF|WHILE|REPEAT|SET|UPDATE|INSERT|DELETE|SELECT|CALL|LEAVE|RETURN|CASE)\b"
+    r"|^[\w.]+(?:\[[^\]]*\])*\s*(?:[-+*/|&]?=)(?!=)"
+)
+DICT_ENTRY_RE = re.compile(r"""^(?:"[^"]*"|'[^']*'|[\w.]+)\s*:\s*(.+?),?$""")
+STRING_ONLY_RE = re.compile(r"""^[rbfu]*(?:"[^"]*"|'[^']*')\s*(?:\[[^\]]*\])?$""", re.I)
+DOCSTRING_RE = re.compile(r'^[rbu]*("""|\'\'\')')
 BLOCK_RE = re.compile(
     r"^(?:try:|finally:|else:|except\b.*:|pass|BEGIN|END\b.*|DO|THEN|\)|\}|\]|;)$",
     re.I,
@@ -61,7 +76,12 @@ def lang_of(path: str) -> str:
 
 
 def mask_comments(text: str, lang: str) -> str:
-    """Blank out comment characters (keep length and newlines); strings are kept."""
+    """Blank out comments, and Python triple-quoted strings (keep length and newlines).
+
+    Single-line strings are kept, so markers on real code that holds a string
+    still match. A guard wrapped in a triple-quoted string or a block comment
+    is blanked and no longer counts.
+    """
     out = list(text)
     i, n = 0, len(text)
     quotes = ("'", '"', "`") if lang == "sql" else ("'", '"')
@@ -70,7 +90,11 @@ def mask_comments(text: str, lang: str) -> str:
         if lang == "py" and text.startswith(('"""', "'''"), i):
             q = text[i : i + 3]
             j = text.find(q, i + 3)
-            i = n if j < 0 else j + 3
+            j = n if j < 0 else j + 3
+            for k in range(i, j):
+                if out[k] != "\n":
+                    out[k] = " "
+            i = j
             continue
         if c in quotes:
             j = i + 1
@@ -116,7 +140,14 @@ def classify(line: str) -> str:
         return "message"
     if BLOCK_RE.match(s):
         return "block"
-    return "code"
+    if DOCSTRING_RE.match(s):
+        return "docstring"
+    if EFFECT_RE.match(s):
+        return "code"
+    m = DICT_ENTRY_RE.match(s)
+    if m and not STRING_ONLY_RE.match(m.group(1).strip()):
+        return "code"
+    return "other"
 
 
 def validate_marker(a: dict) -> tuple[bool, str]:
@@ -135,6 +166,8 @@ def validate_marker(a: dict) -> tuple[bool, str]:
         return False, f"marker's first line is a {first} line, not a guard: {lines[0].strip()!r}"
     if not any(classify(ln) == "code" for ln in lines):
         return False, "marker holds no code line"
+    if lines[0].strip().startswith("def ") and not any(classify(ln) == "code" for ln in lines[1:]):
+        return False, "marker is a def (and docstring) with no guard or effect line"
     return True, "ok"
 
 
@@ -181,7 +214,10 @@ def check_one(root: Path, a: dict) -> tuple[bool, str]:
 def comment_out(marker: str, lang: str) -> list[tuple[str, str]]:
     lines = marker.split("\n")
     if lang == "py":
-        return [("comment-line", "\n".join("# " + ln for ln in lines))]
+        return [
+            ("comment-line", "\n".join("# " + ln for ln in lines)),
+            ("string-wrap", '"""\n' + marker + '\n"""'),
+        ]
     return [
         ("comment-line", "\n".join("-- " + ln for ln in lines)),
         ("comment-block", "/* " + marker + " */"),
@@ -243,6 +279,10 @@ SELFTEST = [
     ("SET MESSAGE_TEXT = 'x';", "x.sql", "message only"),
     ("# if stale:\n        return 1", "x.py", "comment"),
     ("-- IF x THEN\n  SET y = 1;", "x.sql", "comment"),
+    ('    KPI_WS_MISS: "Hub fanout miss; target 0",', "x.py", "note string"),
+    ("            _log(row)", "x.py", "log call"),
+    ('def f(x):\n    """doc."""', "x.py", "def + docstring only"),
+    ("from a import (  # noqa\n    B as C,", "x.py", "import + name"),
 ]
 
 
@@ -258,6 +298,7 @@ def selftest() -> int:
         ("# if x:\n#     return 1\n", "py", "py line comment"),
         ("/* IF x THEN\n  SET y = 1; */", "sql", "sql block comment"),
         ("-- IF x THEN\n--   SET y = 1;", "sql", "sql line comment"),
+        ('"""\nif x:\n    return 1\n"""\n', "py", "py triple-quoted string"),
     ):
         m = "if x:\n    return 1" if lang == "py" else "IF x THEN\n  SET y = 1;"
         if count_live(text, m, lang) != 0:

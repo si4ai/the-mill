@@ -22,28 +22,28 @@ keeps the Python/SQL *markers* those assume, plus caller-observed fields
 ## orthogonality
 
 - `WsMissNotDropped` / `GuardCountWsMiss`: `score_tick._measure_host` increments
-  `mill-wall.ws_miss` on fanout miss (`score_tick.py:464-465`). SPIN score.pml
+  `mill-wall.ws_miss` on fanout miss (`score_tick.py:53` regex, `:458-466` in-window filter and count, `:465-472` no reset before return, `:670-671` host publish). SPIN score.pml
   has no wake/miss KPI; wake-code covers lease races, not the score publish.
   Pytest score_tick covers parsing; this check keeps the count effect the
   Wall SCORE Last reads.
 - `HoldBlockedNotDropped` / `GuardCountHoldBlocked`: `measure_hold_blocked`
-  sums `hold.blocked` ms (`score_tick.py:293-304`). Hold-code covers mutex
+  sums `hold.blocked` ms (`score_tick.py:293-308`, window filter through return; `measure` calls it at `:517` and returns it at `:530`). Hold-code covers mutex
   correctness; this check keeps the score-side sum so stuck-hold time is not
   dropped before publish.
 - Stale doing / wake waste: not a separate score KPI today; wake wrong/retry
   p50 and doing cards 1017/1018 stay with those slices. This package does not
   invent a stale-doing counter.
 - `EmptyShowsMissing` (known): `_p50` returns 0 on empty and publish uses
-  `counts.get(kpi) or 0` (`score_tick.py:204-206`, book publish). Wall
+  `counts.get(kpi) or 0` (`score_tick.py:204-206`, host publish `:670-671`, BOOK_PERF opt-in publish `:719-720`). Wall
   `missing Last` and `score_series.gap`/`number` correctly treat blank as
   missing/None; the tick path still writes a numeric 0. Filed as a finding.
 - `TruncationLabelled` (known): `score_series.shape` slices `pts[:limit]` with
-  no `truncated` flag (`score_series.py:159-160`). measure returns `window_s`
+  no `truncated` flag (`score_series.py:159-161`); the SQL points limit is anchored at `sp_score.sql:398`. measure returns `window_s`
   (anchored); the series truncate is silent. Filed as a finding.
 - Caller-observed wall: empty Last -> missing (`wall_logic/score.py:122-123`);
-  empty target is not a miss (`:47-48`). Covered by pytest `test_score_rules`;
+  empty target is not a miss (`:46-48`); a missing Last or stale publish makes the desk hot (`:135`); `shape` passes `gap` through unchanged (`score_series.py:153`); `number` refuses blank, words, nan and inf (`score_series.py:52-58`). Covered by pytest `test_score_rules`;
   this check keeps those markers.
-- `value-must-number`: SQL refuses NULL point values (`sp_score.sql:194-195`).
+- `value-must-number`: SQL refuses NULL point values (`sp_score.sql:194-196`), and nothing coerces `p_value` before that guard (`:169-194`, absent anchor).
   SPIN S1 assumes a numeric write; this check keeps the refuse.
 
 Dropped as duplicates: S1-S6 concurrent lifecycle (SPIN), trend/gap unit tests
@@ -62,12 +62,21 @@ Run: `verify/score-code/run.sh`. Read results with `/statechart` on `Score.tla`.
 ## bounds and assumptions
 
 - One office score stream, at most 6 steps; no concurrent tick writers (SPIN).
+- Hold is modelled as blocked events, not an ms sum. The model proves a
+  blocked event is not dropped; the ms arithmetic (sum, window, rounding) is
+  held by the `hold-blocked-sum` anchor only, not by TLC.
+- The model's invariants are close to true by construction (one writer, the
+  guard is the step's precondition); the two model mutants show the guard is
+  what holds them, and the anchors tie the guard to the code.
+- Not claimed: `shape` reads a NULL point value as 0 (`score_series.py:128`).
+  `mill_score_point_add` refuses NULL, so this is reachable only through rows
+  written another way; noted next to card 1019, not a separate known model.
 - Stale-doing score KPI absent in product; not modelled beyond the known note.
 - Auth / roster gates out of scope.
 
 ## anchor rule (cards 1014, D4/D5)
 
-each marker starts on the real guard (or definition) line, plus its first effect line. the first line must be code: a comment, import, log call, message or SIGNAL line, raise, bare `try:` or block keyword is refused, and a marker must hold at least one code line. matches are counted with comments blanked out, so a commented-out guard (line or block comment) no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, and for SQL a block comment; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, message-only and commented shapes. `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line and runs through the effects its property names (window filter, count or sum, return, caller-observed field). the first line must be a guard or effect statement (branch, loop, return, def, assignment, SQL statement, or a dict entry whose value is not a bare string): a comment, import, log call, message or SIGNAL line, raise, docstring, note string, bare `try:` or block keyword is refused, and a def marker also needs a guard or effect line after it. matches are counted with comments and Python triple-quoted strings blanked out, so a guard that is commented out (line or block) or wrapped in a string no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, a triple-quoted wrap for Python and a block comment for SQL; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, import+name, message-only, note-string, def+docstring and commented or stringed-out shapes. `STATECHART_CMD` overrides host path discovery.
 
 ## Tokens
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Card 925 (doing slice): verify score liveness-truth KPIs guards against
+# Card 925 (score slice): verify score liveness-truth KPI guards against
 # the 0.8.5 code at SYNC. Token-free, on demand, out of CI. Read TLC results with
 # the pstack /statechart skill (do not copy its flags here; they change).
 #
@@ -7,7 +7,7 @@
 #   verify/score-code/run.sh anchors      # code anchors only
 #   verify/score-code/run.sh model        # TLC on Score.cfg (via statechart)
 #   verify/score-code/run.sh mutants      # each mutant cfg must violate
-#   verify/score-code/run.sh mutant NAME  # one mutant (e.g. no_take_free)
+#   verify/score-code/run.sh mutant NAME  # one mutant (e.g. no_ws_miss)
 #   verify/score-code/run.sh known        # empty-as-zero and silent-truncation findings still reproduce;
 #                                        # proposed fix cfgs still pass
 #
