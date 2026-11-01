@@ -60,49 +60,49 @@
     {
       "id": "unread-frames-def",
       "path": "agent_coord/server/push.py",
-      "marker": "def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:",
+      "marker": "def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:\n    \"\"\"#949: newest unread mailbox letters as sync/wake frames (opened IS NULL).\n\n    Soft-fails to [] so connect and wake keep working if the inbox read fails.\n    A short connect that drained the push queue without opening the letter still\n    sees these on the next connect-wait, and wake-done / leave can ring again.\n    \"\"\"\n    try:\n        from agent_coord.server.records import mail as rec_mail\n\n        rows = rec_mail.inbox(cn, desk, all_mail=False, limit=max(1, int(limit or 20)))",
       "property": "TrailingFallsBackToUnread / RingFallsBackToUnread",
       "lines": "751"
     },
     {
       "id": "desk-sitting-def",
       "path": "agent_coord/server/push.py",
-      "marker": "def desk_sitting(desk: str) -> bool:",
+      "marker": "def desk_sitting(desk: str) -> bool:\n    \"\"\"True when Hub has at least one live /ws socket for this desk seat.\"\"\"\n    keys = _desk_room_keys(desk)\n    if not keys:",
       "property": "SittingDoneSendsNoTrailing",
       "lines": "354"
     },
     {
       "id": "queue-drained-def",
       "path": "agent_coord/server/wake.py",
-      "marker": "def _queue_drained(desk: str) -> bool:",
+      "marker": "def _queue_drained(desk: str) -> bool:\n    \"\"\"True when this desk's push queue is empty: it connected and took the rows.\"\"\"\n    cn = None\n    try:\n        from agent_coord.server.records import push as rec_push\n\n        cn = _book()\n        return rec_push.pending(cn, desk) <= 0",
       "property": "DrainStopsWhenPushEmpty",
       "lines": "971"
     },
     {
       "id": "arm-retry-def",
       "path": "agent_coord/server/wake.py",
-      "marker": "def _arm_retry(",
+      "marker": "def _arm_retry(\n    url: str,\n    body: dict[str, Any],\n    *,\n    key: str | None,\n    desk: str,\n    hint_id: int | None,\n    frame: dict[str, Any],\n    status: int | None,\n    err: str,\n    note: str | None,\n    tag: str,\n) -> None:\n    \"\"\"Schedule the next POST off the caller. One line when the budget runs out.\"\"\"\n    state: dict[str, Any] = {\n        \"attempts\": 0,",
       "property": "retry chain off the request (card 827)",
       "lines": "989"
     },
     {
       "id": "trailing-def",
       "path": "agent_coord/server/wake.py",
-      "marker": "def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:",
+      "marker": "def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:\n    \"\"\"The one trailing POST for a lease's held-back items (F144). none when the\n    run's own connect syncs already took every waiting row and no unread mail\n    remains (#949). A short connect that drained the push queue without opening\n    the letter still gets one trailing wake for the unread mailbox.\"\"\"\n    from agent_coord.server.poke_key import FIELD, letter_key\n    from agent_coord.server.records import push as rec_push\n\n    waiting = rec_push.pending(cn, desk)",
       "property": "TrailingFallsBackToUnread",
       "lines": "695"
     },
     {
       "id": "lease-done-def",
       "path": "agent_coord/server/wake.py",
-      "marker": "def lease_done(cn, desk: str, note: str = \"\", lease: str = \"\") -> str:",
+      "marker": "def lease_done(cn, desk: str, note: str = \"\", lease: str = \"\") -> str:\n    \"\"\"mill wake-done (F144): the woken run is finished. Ends this desk's lease; when\n    items were held back and still wait, sends exactly one trailing wake with\n    pending_count and the note. sent | error | none | stale | sitting. A second\n    done is a no-op. sitting (#889): the desk still has a live /ws, so no trailing\n    POST; the connect or ring-on-leave covers the rows.\n\n    lease (F144b, card 888): the wake.lease token the run was woken with. A token\n    that is not the current lease's is a stale done (a run that outlived its\n    lease): it keeps its note for the next wake, unless a newer one waits, and\n    ends nothing. No token (an older client) ends the current lease.\"\"\"\n    import time\n\n    d = str(desk or \"\").strip()",
       "property": "lease_done (F144 / #322)",
       "lines": "770"
     },
     {
       "id": "ring-waiting-def",
       "path": "agent_coord/server/push.py",
-      "marker": "def ring_waiting(cn, desk: str, why: str) -> str:",
+      "marker": "def ring_waiting(cn, desk: str, why: str) -> str:\n    \"\"\"#832: wake an armed desk that is not sitting and has rows it never got live.\n\n    Runs when its last socket leaves and when a live frame found no socket. The POST\n    names the newest waiting hint or letter; post_desk's window, wake_on and checks\n    apply as for any other wake. sitting | none | post_desk's result.\n    \"\"\"\n    from agent_coord.server.mill_json import stamp_mill\n    from agent_coord.server.poke_key import FIELD, hint_key, letter_key\n    from agent_coord.server.records import push as rec_push\n    from agent_coord.server.wake import ADDRESSED, ROOM, post_desk\n\n    if any(k in HUB.rooms for k in _desk_room_keys(desk)):",
       "property": "RingFallsBackToUnread",
       "lines": "251"
     }
