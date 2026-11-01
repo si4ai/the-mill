@@ -14,13 +14,16 @@
 #   window - one interactive grok process per desk (fallback).
 # Writes only under each desk's work_dir parent (session.json) and export_dir.
 # Never deletes sessions.
-# Window mode waits for the child (WaitForExit) and propagates its exit code so
-# the shared console is released cleanly (card 950).
-# -Stub (or env MILL_DESK_START_STUB=1) launches a trivial child on the same
-# ProcessStartInfo path instead of grok: prints one line, sleeps
-# -StubSleepSeconds (env MILL_DESK_START_STUB_SLEEP, default 3), exits with
-# -StubExitCode (env MILL_DESK_START_STUB_EXIT, default 0). No grok, no seat,
-# no credential, no session.json write. For debugging open/close only.
+# Window mode runs the child with the call operator (&) so PowerShell yields
+# the console to the child, waits, and propagates $LASTEXITCODE (card 950).
+# Process.Start + WaitForExit keeps the parent attached to the same console;
+# a TUI (grok) then draws nothing. See the Windows console creation docs.
+# -Stub / -StubTui (env MILL_DESK_START_STUB=1, MILL_DESK_START_STUB_TUI=1)
+# launch a no-grok child on that same call-operator path. Sleep stub prints,
+# sleeps (-StubSleepSeconds / MILL_DESK_START_STUB_SLEEP), exits
+# (-StubExitCode / MILL_DESK_START_STUB_EXIT). -StubTui runs
+# desk-start-tui-standin.ps1 (VT draw + key read). No grok, no seat, no
+# credential, no session.json write.
 # defaults.context_restart_tokens (default 190000): printed in the plan; the
 # desk asks for a fresh desk-start near that count (never resume, never compact).
 # lessons_byte_cap is enforced by desk_start_plan.select_lessons; this script
@@ -36,10 +39,13 @@ param(
 
   [switch]$DryRun,
 
-  # Stub / dry child on the window-mode ProcessStartInfo path (card 950).
+  # Stub / dry child on the window-mode call-operator path (card 950).
   # No grok, no Credential Manager, no session.json. Env MILL_DESK_START_STUB=1
   # also enables; MILL_DESK_START_STUB_SLEEP / MILL_DESK_START_STUB_EXIT override.
+  # -StubTui (env MILL_DESK_START_STUB_TUI=1) runs desk-start-tui-standin.ps1.
   [switch]$Stub,
+
+  [switch]$StubTui,
 
   [int]$StubSleepSeconds = 3,
 
@@ -52,6 +58,10 @@ $ErrorActionPreference = "Stop"
 if (-not $Stub -and $env:MILL_DESK_START_STUB -and $env:MILL_DESK_START_STUB -notin @("0", "false", "False", "")) {
   $Stub = $true
 }
+if (-not $StubTui -and $env:MILL_DESK_START_STUB_TUI -and $env:MILL_DESK_START_STUB_TUI -notin @("0", "false", "False", "")) {
+  $StubTui = $true
+}
+if ($StubTui) { $Stub = $true }
 if ($env:MILL_DESK_START_STUB_SLEEP -and $env:MILL_DESK_START_STUB_SLEEP -match '^[0-9]+$') {
   $StubSleepSeconds = [int]$env:MILL_DESK_START_STUB_SLEEP
 }
@@ -257,7 +267,7 @@ function Get-FirstMessage($desk, $cfg) {
   return $text
 }
 
-function Invoke-OneDesk($desk, $cfg, [bool]$dry, [bool]$stub, [int]$stubSleep, [int]$stubExit) {
+function Invoke-OneDesk($desk, $cfg, [bool]$dry, [bool]$stub, [bool]$stubTui, [int]$stubSleep, [int]$stubExit) {
   $name = [string]$desk.name
   $target = [string]$desk.credential_target
   $work = [string]$desk.work_dir
@@ -336,8 +346,10 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry, [bool]$stub, [int]$stubSleep, [
     launched         = $false
     session_record   = $sessionPath
     stub             = [bool]$stub
+    stub_tui         = [bool]$stubTui
     stub_sleep_seconds = [int]$stubSleep
     stub_exit_code   = [int]$stubExit
+    launch_via       = "call-operator"
   }
   $launchMode = ([string]$plan.launch_mode).ToLowerInvariant()
   if (-not $launchMode) { $launchMode = 'dashboard' }
@@ -382,69 +394,73 @@ function Invoke-OneDesk($desk, $cfg, [bool]$dry, [bool]$stub, [int]$stubSleep, [
     return 1
   }
 
-  $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.UseShellExecute = $false
-  $psi.WorkingDirectory = $work
-  # netfx: environmentvariables (stringdictionary), not the core environment map.
-  # Clear PYTHONPATH for both grok and stub so a parent venv cannot leak in.
-  if ($psi.EnvironmentVariables.ContainsKey("PYTHONPATH")) {
-    $psi.EnvironmentVariables.Remove("PYTHONPATH")
-  }
-  $psi.EnvironmentVariables["PYTHONPATH"] = ""
-
-  if ($stub) {
-    # Same ProcessStartInfo window-mode path as grok, but a trivial child.
-    # powershell.exe -NoProfile so no profile / no model tokens.
-    $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-    if (-not (Test-Path -LiteralPath $psExe)) {
-      $cmd = Get-Command powershell.exe -ErrorAction SilentlyContinue
-      if (-not $cmd) {
-        Write-Host "desk-start: stub needs powershell.exe on PATH"
-        return 1
-      }
-      $psExe = $cmd.Source
-    }
-    $stubMsg = "desk-start stub: sleeping $stubSleep then exit $stubExit"
-    # Single -Command string; Join-WinArgv quotes it for CommandLineToArgvW.
-    $stubCmd = "Write-Host '$stubMsg'; Start-Sleep -Seconds $stubSleep; exit $stubExit"
-    $psi.FileName = $psExe
-    $psi.Arguments = Join-WinArgv @("-NoProfile", "-NonInteractive", "-Command", $stubCmd)
-    Write-Host "desk-start: stub mode (no grok); sleeping ${stubSleep}s then exit $stubExit"
-  } else {
-    $psi.FileName = $grok.Source
-    # netfx / ps 5.1: set arguments (one string) with join-winargv.
-    # skip leading grok (filename); quote the rest (commandlinetoargvw via format-winarg).
-    $argTail = @()
-    for ($i = 1; $i -lt $argv.Count; $i++) { $argTail += [string]$argv[$i] }
-    $psi.Arguments = Join-WinArgv $argTail
-  }
-
-  $proc = [System.Diagnostics.Process]::Start($psi)
-  if (-not $proc) {
-    Write-Host "desk-start: launch failed for $name"
-    return 1
-  }
-
-  if (-not $stub) {
-    # Write session.json only under the desk folder (parent of work_dir).
-    @{
-      desk        = $name
-      session_id  = $sessionId
-      started     = (Get-Date).ToString("o")
-      pid         = $proc.Id
-      launch      = "positional-prompt"
-      help_source = "workstation grok --help (grok 1.0.70 stable)"
-    } | ConvertTo-Json | Out-File -Encoding utf8 -LiteralPath $sessionPath
-    Write-Host "desk-start: launched grok pid $($proc.Id) session $sessionId for $name (fresh; never resume); waiting for exit"
-  } else {
-    Write-Host "desk-start: launched stub pid $($proc.Id) for $name; waiting for exit"
-  }
-
-  # Window mode: wait so the child owns the console until it exits, then
-  # propagate the exit code and release the console (card 950).
-  $proc.WaitForExit()
+  # Call operator (&): PowerShell yields the console to the child, waits, and
+  # sets $LASTEXITCODE. Process.Start(UseShellExecute=false)+WaitForExit keeps
+  # the parent attached to the same console; a TUI then draws nothing (card 950
+  # human 2026-11-01). the Windows console creation docs: two processes on one
+  # console have no guarantee which receives input. Do not use Process.Start
+  # here; do not use Start-Process -Wait (extra window) for window mode.
+  $oldPythonPath = $env:PYTHONPATH
+  $env:PYTHONPATH = ""
   $childExit = 0
-  try { $childExit = [int]$proc.ExitCode } catch { $childExit = 1 }
+  $pushOk = $false
+  try {
+    Push-Location -LiteralPath $work
+    $pushOk = $true
+
+    if ($stub) {
+      $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+      if (-not (Test-Path -LiteralPath $psExe)) {
+        $cmd = Get-Command powershell.exe -ErrorAction SilentlyContinue
+        if (-not $cmd) {
+          Write-Host "desk-start: stub needs powershell.exe on PATH"
+          return 1
+        }
+        $psExe = $cmd.Source
+      }
+      if ($stubTui) {
+        $standin = Join-Path $PSScriptRoot "desk-start-tui-standin.ps1"
+        if (-not (Test-Path -LiteralPath $standin)) {
+          Write-Host "desk-start: stub tui stand-in missing: $standin"
+          return 1
+        }
+        Write-Host "desk-start: stub-tui mode (no grok); stand-in draws then waits for a key; exit $stubExit"
+        & $psExe -NoProfile -File $standin -ExitCode $stubExit
+        $childExit = [int]$LASTEXITCODE
+      } else {
+        $stubMsg = "desk-start stub: sleeping $stubSleep then exit $stubExit"
+        $stubCmd = "Write-Host '$stubMsg'; Start-Sleep -Seconds $stubSleep; exit $stubExit"
+        Write-Host "desk-start: stub mode (no grok); sleeping ${stubSleep}s then exit $stubExit"
+        & $psExe -NoProfile -NonInteractive -Command $stubCmd
+        $childExit = [int]$LASTEXITCODE
+      }
+    } else {
+      # skip leading grok (filename); splat the rest (PS 5.1 native, no ArgumentList).
+      $argTail = @()
+      for ($i = 1; $i -lt $argv.Count; $i++) { $argTail += [string]$argv[$i] }
+      # session.json before the blocking call so a crash mid-session still records the id.
+      @{
+        desk        = $name
+        session_id  = $sessionId
+        started     = (Get-Date).ToString("o")
+        pid         = $PID
+        launch      = "positional-prompt"
+        launch_via  = "call-operator"
+        help_source = "workstation grok --help (grok 1.0.70 stable)"
+      } | ConvertTo-Json | Out-File -Encoding utf8 -LiteralPath $sessionPath
+      Write-Host "desk-start: launching grok session $sessionId for $name (fresh; never resume; call operator)"
+      & $grok.Source @argTail
+      $childExit = [int]$LASTEXITCODE
+    }
+  } finally {
+    if ($pushOk) { Pop-Location }
+    if ($null -ne $oldPythonPath -and $oldPythonPath -ne "") {
+      $env:PYTHONPATH = $oldPythonPath
+    } else {
+      Remove-Item Env:\PYTHONPATH -ErrorAction SilentlyContinue
+    }
+  }
+
   Write-Host "desk-start: child exited $childExit for $name"
   return $childExit
 }
@@ -455,7 +471,7 @@ Assert-Config $cfg
 $chosen = Resolve-Desks $cfg $Desk
 $code = 0
 foreach ($d in $chosen) {
-  $rc = [int](Invoke-OneDesk $d $cfg ([bool]$DryRun) ([bool]$Stub) ([int]$StubSleepSeconds) ([int]$StubExitCode))
+  $rc = [int](Invoke-OneDesk $d $cfg ([bool]$DryRun) ([bool]$Stub) ([bool]$StubTui) ([int]$StubSleepSeconds) ([int]$StubExitCode))
   if ($rc -ne 0) { $code = $rc }
 }
 exit $code

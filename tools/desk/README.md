@@ -56,32 +56,52 @@ macOS live coverage is tracked on card 933.
 ```
 
 Flags: `-Config <path>` (required), `-Desk <name>` (repeatable, or `all`),
-`-DryRun`, `-Stub` (trivial child instead of grok; see Stub mode below),
+`-DryRun`, `-Stub` (sleep child instead of grok), `-StubTui` (TUI stand-in),
 `-StubSleepSeconds <n>` (default 3), `-StubExitCode <0..255>` (default 0).
 
-## Window mode exit (card 950)
+## Window mode exit and console yield (card 950)
 
-In `launch_mode=window`, the script starts the child with `UseShellExecute=false`
-(shared console), then **`WaitForExit`** and exits with the child's exit code.
-Returning before the child exits left the console hung after a clean grok quit.
+In `launch_mode=window`, the script runs the child with the PowerShell **call
+operator** (`& $exe @args`): one window, PowerShell yields the console, waits,
+and exits with `$LASTEXITCODE`.
+
+Do **not** use `Process.Start(UseShellExecute=false)` + `WaitForExit` here.
+That keeps the parent attached to the same console; a TUI (grok) stays alive
+but draws nothing (the Windows console creation docs: two processes on one
+console have no guarantee which receives input). Returning without waiting
+used to let grok draw, but left the console hung after a clean quit.
+
+With several desks, window mode launches them one after another (each call
+waits for the previous child).
 
 ## Stub mode (debug open/close without grok)
 
 `-Stub` (or env `MILL_DESK_START_STUB=1`) launches a trivial `powershell.exe
--NoProfile` child on the **same** ProcessStartInfo path: it prints one line,
-sleeps (`-StubSleepSeconds` / `MILL_DESK_START_STUB_SLEEP`, default 3), and
-exits (`-StubExitCode` / `MILL_DESK_START_STUB_EXIT`, default 0). No grok, no
-Credential Manager check, no `session.json` write, no model tokens. Use this to
-confirm launch + wait + exit-code propagation without seating a desk.
+-NoProfile` child on the **same call-operator path**: prints one line, sleeps
+(`-StubSleepSeconds` / `MILL_DESK_START_STUB_SLEEP`, default 3), exits
+(`-StubExitCode` / `MILL_DESK_START_STUB_EXIT`, default 0).
+
+`-StubTui` (or `MILL_DESK_START_STUB_TUI=1`) runs `desk-start-tui-standin.ps1`
+instead: checks that stdin/stdout are a console, draws a VT alternate-screen
+frame, waits for a key, exits with `-StubExitCode`. (Linux twin:
+`desk_start_tui_standin.py`.)
+
+No grok, no Credential Manager check, no `session.json` write, no model tokens.
 
 ```powershell
-# One-line open/close check (replace Desk name with any entry in your config)
+# Sleep stub (open/close + exit code)
 powershell -NoProfile -File .\desk-start.ps1 -Config $env:USERPROFILE\.config\mill-desk\desks.json -Desk example-desk -Stub -StubSleepSeconds 3 -StubExitCode 7; if ($LASTEXITCODE -eq 7) { 'stub ok' } else { "stub failed: $LASTEXITCODE" }
+
+# TUI stand-in (must draw a frame; press any key to exit 7)
+powershell -NoProfile -File .\desk-start.ps1 -Config $env:USERPROFILE\.config\mill-desk\desks.json -Desk example-desk -StubTui -StubExitCode 7; if ($LASTEXITCODE -eq 7) { 'stub-tui ok' } else { "stub-tui failed: $LASTEXITCODE" }
 ```
 
-Correct output includes `desk-start: stub mode (no grok)`, a `desk-start stub:
-sleeping 3 then exit 7` line from the child, `desk-start: child exited 7`, then
-the prompt returns with exit code 7 (`stub ok`). The console must not hang.
+Sleep stub: `stub mode (no grok)`, child `desk-start stub: sleeping 3 then exit 7`,
+`child exited 7`, prompt returns (`stub ok`).
+
+Stub-tui: `stub-tui mode`, stand-in reports `interactive=True`, draws the
+frame, key restores the screen, `child exited 7` (`stub-tui ok`). If the frame
+never appears, the launch path is still wrong.
 
 ## What it launches
 
