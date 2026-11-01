@@ -1612,8 +1612,11 @@ def _h_send(
 
     # A roster To that holds the sender: mail its other members and say so (#274).
     # mail_to has no roster column, so the member desks are the same rows the roster gives.
+    # Card 963: M4 keeps member rows after a desk retires; skip those desks so the
+    # send does not fail closed on MILL_NAME_GET (same idea as reply-all #918).
     notes: list[str] = []
     via_roster: set[str] = set()
+    skipped: list[str] = []
     if src:
         from agent_coord.server.records import member as rec_member
 
@@ -1623,12 +1626,31 @@ def _h_send(
             if dst_kind != CONST_ROSTER:
                 expanded.append((dst_kind, to))
                 continue
-            members = [
+            raw_members = [
                 _stored(str(r.get("desk") or ""))
                 for r in (rec_member.select(c._cn, to, "", CONST_ROSTER) or [])
                 if str(r.get("desk_type") or CONST_DESK) == CONST_DESK
             ]
-            members = [m for m in members if m]
+            raw_members = [m for m in raw_members if m]
+            members: list[str] = []
+            skipped_here: list[str] = []
+            for m in raw_members:
+                if rec_name.get(c._cn, m, CONST_DESK) is not None:
+                    members.append(m)
+                else:
+                    skipped_here.append(m)
+            for m in skipped_here:
+                if m not in skipped:
+                    skipped.append(m)
+            if skipped_here:
+                notes.append(
+                    f"skipped retired: {', '.join(skipped_here)}"
+                )
+            if not members and skipped_here:
+                raise CoordError(
+                    f"send: every member of roster {to} is retired "
+                    f"({', '.join(skipped_here)}); nothing to deliver"
+                )
             if src not in members:
                 # Always say where the sender stands on a roster send (ux12).
                 notes.append(f"sender: not a member of roster {to}; it went to its {len(members)} member(s)")
@@ -1733,6 +1755,8 @@ def _h_send(
         rec["warnings"] = warnings
     if notes:
         rec["note"] = "; ".join(notes)
+    if skipped:
+        rec["skipped"] = skipped
     try:
         from agent_coord.server.mail_push import push_mail
 

@@ -27,9 +27,11 @@ BEGIN
   SET v_to = MILL_NAME_PUT(p_to_type, p_to);
   SELECT type INTO v_type FROM name WHERE id = v_to;
   IF v_type = 'roster' THEN
+    -- Card 963: skip retired desks still on the member table (M4 keeps those rows).
     INSERT IGNORE INTO mail_to (type, id, desk_id, receipt)
     SELECT 'mail', p_id, m.desk_id, IFNULL(p_receipt, 0)
       FROM member m
+      JOIN name d ON d.id = m.desk_id AND d.deleted IS NULL
      WHERE m.name_id = v_to;
   ELSE
     INSERT IGNORE INTO mail_to (type, id, desk_id, receipt)
