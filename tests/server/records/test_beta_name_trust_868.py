@@ -8,7 +8,8 @@ from __future__ import annotations
 import mysql.connector
 import pytest
 
-pytestmark = pytest.mark.sql
+# fresh_schema: beta name/trust procedures on a beta book
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 H = {d: (c * 64)[:64] for d, c in (("adm", "a"), ("ann", "b"), ("bob", "c"), ("cat", "d"), ("dan", "e"),
                                    ("eve", "f"), ("fay", "0"))}

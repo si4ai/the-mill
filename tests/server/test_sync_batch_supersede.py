@@ -34,14 +34,11 @@ from agent_coord.server.push import HUB
 from agent_coord.server.records import apply, connect
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
-from agent_coord.server.records.db import conn_kwargs
-from tests.sql_isolate import throwaway_db
+from tests import sql_book
 
 pytestmark = pytest.mark.sql
 
-# Own schema: a live Wall holds seats open; sharing mill_records_test with other
-# suites under xdist -n2 lets a peer wipe wipe=True mid-test (ws auth bad token).
-TEST_DB = throwaway_db("mill_sync_batch_831")
+# Shared tip book per worker (card 986); no peer wipe mid-suite.
 ROSTER, D1, D2 = "fx-wake", "fx-wake-d1", "fx-wake-d2"
 TOK = {D1: "fx-seat-token-d1-0123456789", D2: "fx-seat-token-d2-0123456789"}
 
@@ -50,25 +47,15 @@ TOK = {D1: "fx-seat-token-d1-0123456789", D2: "fx-seat-token-d2-0123456789"}
 
 @pytest.fixture
 def book(monkeypatch):
-    import mysql.connector
+    """Shared tip book (card 986): no per-module wipe; reset data then seed desks."""
+    from tests import sql_book
 
-    kw = conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
     try:
-        admin = mysql.connector.connect(**kw)
+        db = sql_book.ensure_shared_schema()
     except Exception as e:  # pragma: no cover - no MySQL here
         pytest.skip(f"mysql: {e}")
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    monkeypatch.setenv("AGENT_COORD_DATABASE", TEST_DB)
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
+    monkeypatch.setenv("AGENT_COORD_DATABASE", db)
+    c = sql_book.connect_shared(reset=True)
     for n, k in ((ROSTER, "roster"), (D1, "desk"), (D2, "desk")):
         rec_name.get_or_insert(c, n, k)
     for d in (D1, D2):
@@ -79,6 +66,7 @@ def book(monkeypatch):
     monkeypatch.setattr(wake, "_TRAIL", {})
     yield c
     c.close()
+
 
 
 @pytest.fixture
@@ -106,7 +94,7 @@ def wall(book):
 
 def queued(desk: str) -> list[int]:
     """Mail ids in push_queue for desk, read on a connection of its own."""
-    c = connect(TEST_DB)
+    c = connect(sql_book.shared_db_name())
     try:
         cur = c.cursor()
         cur.execute(

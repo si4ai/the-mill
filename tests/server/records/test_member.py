@@ -4,53 +4,16 @@ Use cases: docs/protocol/usecases.md Members chart.
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from tests.server.records.conftest import seed_names
 
-from tests.sql_isolate import throwaway_db
 from tests.server.records.conftest import admin_desk
-
-TEST_DB = throwaway_db("mill_records_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def test_m1_office_join_never_leave(cn) -> None:
     """M1: mill join writes Office. cannot mill member-remove Office."""
@@ -61,7 +24,6 @@ def test_m1_office_join_never_leave(cn) -> None:
     assert 1 in nids
     with pytest.raises(Exception, match="Office"):
         rec_member.delete(cn, "Office", "alice")
-
 
 def test_m2_add_self_creates_missing_group(cn) -> None:
     """M2: member-add creates a missing project and seats the desk."""
@@ -81,7 +43,6 @@ def test_m2_add_self_creates_missing_group(cn) -> None:
     assert row[1] == "east-coast"
     assert int(row[2]) >= 1
 
-
 def test_m3_remove_self_not_office(cn) -> None:
     """M3: mill member-remove this desk from a group. Office stays."""
     seed_names(cn, ("bob", "desk"))
@@ -93,7 +54,6 @@ def test_m3_remove_self_not_office(cn) -> None:
     assert not any(int(r.get("desk_id") or 0) == rec_name.get(cn, "bob", "desk") for r in west)
     with pytest.raises(Exception, match="Office"):
         rec_member.delete(cn, "Office", "bob")
-
 
 def test_m4_retire_keeps_member_rows_reclaim_warns(cn) -> None:
     """M4: mill retire name; member rows stay. mill reclaim returns members count."""

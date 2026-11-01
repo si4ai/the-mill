@@ -7,18 +7,18 @@ failed with 1265. ensure must bring those callers to tip with the watcher SPs.
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
-from agent_coord.install import migrate
-from agent_coord.server.records import apply, connect
-from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from tests.sql_isolate import throwaway_db
+@pytest.fixture(scope="module", autouse=True)
+def _restore_tip_routines_after(cn):
+    """Stale-SP plants must not leave the shared book without tip routines."""
+    yield
+    from tests import sql_book
+    sql_book.restore_tip_routines(cn)
 
-TEST_DB = throwaway_db("mill_ensure_sp_refresh_test")
+from agent_coord.install import migrate
 
 # Old-shape callers: one statement each, so no DELIMITER is needed.
 _STALE = {
@@ -27,37 +27,6 @@ _STALE = {
     "mill_member_delete": "CREATE PROCEDURE mill_member_delete() CALL mill_watcher_delete('name', 1, 1)",
 }
 
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
-
 def _exec(cn, sql: str) -> None:
     cur = cn.cursor()
     try:
@@ -65,7 +34,6 @@ def _exec(cn, sql: str) -> None:
         cn.commit()
     finally:
         cur.close()
-
 
 def _body(cn, name: str) -> str:
     cur = cn.cursor()
@@ -82,7 +50,6 @@ def _body(cn, name: str) -> str:
     assert row is not None, name
     return str(row[0] or "")
 
-
 def _watcher_type_enum(cn, proc: str) -> str:
     cur = cn.cursor()
     try:
@@ -98,24 +65,20 @@ def _watcher_type_enum(cn, proc: str) -> str:
     assert row is not None, proc
     return str(row[0]).lower()
 
-
 def _name_watcher_calls(body: str) -> bool:
     low = body.lower().replace(" ", "")
     return "mill_watcher_put('name'" in low or "mill_watcher_delete('name'" in low
-
 
 def _plant_stale(cn) -> None:
     for name, create in _STALE.items():
         _exec(cn, f"DROP PROCEDURE IF EXISTS {name}")
         _exec(cn, create)
 
-
 def test_tip_watcher_enum_has_no_name(cn) -> None:
     for proc in ("mill_watcher_put", "mill_watcher_delete"):
         enum = _watcher_type_enum(cn, proc)
         assert "'doing'" in enum and "'join'" not in enum
         assert "'name'" not in enum, proc
-
 
 def test_stale_join_upsert_fails_against_tip_watcher(cn) -> None:
     """The live failure: the old caller hits the tip ENUM (1265 under strict mode)."""
@@ -131,7 +94,6 @@ def test_stale_join_upsert_fails_against_tip_watcher(cn) -> None:
         cur.close()
     assert ei.value.errno == 1265
 
-
 def test_ensure_refreshes_name_watcher_callers(cn) -> None:
     _plant_stale(cn)
     for name in _STALE:
@@ -145,7 +107,6 @@ def test_ensure_refreshes_name_watcher_callers(cn) -> None:
     assert "mill_watcher_put('doing'" in up
     for f in ("sp_name.sql", "sp_member.sql", "sp_join.sql"):
         assert f in out["applied"], out["applied"]
-
 
 def test_ensure_refreshes_every_sp_name_member_join_procedure(cn) -> None:
     """Each procedure in the three files is dropped + re-created from tip."""
@@ -168,7 +129,6 @@ def test_ensure_refreshes_every_sp_name_member_join_procedure(cn) -> None:
     migrate.ensure(cn)
     for n in names:
         assert _body(cn, n), n
-
 
 def test_ensure_refreshes_hold_upsert_rehold(cn) -> None:
     """#194: an existing book that only runs ensure gets the same-holder refresh branch."""

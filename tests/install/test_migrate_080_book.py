@@ -15,7 +15,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-pytestmark = pytest.mark.sql
+# fresh_schema: applies migrate_080 / main->tip schema path on dedicated books
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 PROBLEM_ROSTER_WATCHERS = 5
 

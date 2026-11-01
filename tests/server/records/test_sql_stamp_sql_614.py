@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from agent_coord.install import migrate
-from agent_coord.server.records import apply
+from tests import sql_book
 from agent_coord.server.records.db import rows_done, scalar_done
 
 pytestmark = pytest.mark.sql
@@ -68,7 +68,7 @@ def test_h_sql_state_flags_a_missing_or_changed_routine(cn):
     sql_state is not ok while a shipped routine is missing or the routines
     differ from the fingerprint the last finished ensure stamped.
     """
-    apply(cn, wipe=True)
+    sql_book.restore_tip_routines(cn)
     migrate.ensure(cn)
     assert migrate.sql_state(cn)["ok"] is True
     _x(cn, "DROP FUNCTION IF EXISTS MILL_SCORE_DOC_ADD")
@@ -90,7 +90,7 @@ def test_i_a_book_whose_routines_name_a_missing_definer_converges(cn):
     there; calling the stamp then fails with 1449. ensure must read that as
     unstamped and reload, not crash before the reload. F117 definer rule.
     """
-    apply(cn, wipe=True)
+    sql_book.restore_tip_routines(cn)
     migrate.ensure(cn)
     gone = "`gone_818`@`localhost`"
     redefined = 0

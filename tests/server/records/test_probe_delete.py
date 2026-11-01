@@ -7,6 +7,8 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from tests import sql_book
+
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import activity, apply, connect, floor, score, todo
@@ -15,40 +17,17 @@ from agent_coord.server.records.db import scalar
 from tests.server.records.conftest import seed_names
 from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_probe_delete_test")
 FIX = "t-0a1b2c3d"
 FIX2 = "t-0a1b2c3e"
-
 
 class _Book:
     def __init__(self, cn):
         self._cn = cn
 
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
 @pytest.fixture(scope="module")
 def cn():
     try:
-        c = _cn()
+        c = sql_book.connect_shared(reset=True)
     except Exception as e:
         pytest.skip(f"mysql mill records: {e}")
     seed_names(
@@ -62,27 +41,21 @@ def cn():
     yield c
     c.close()
 
-
 def _probe(cn, owner: str, typ: str, rid) -> dict:
     return rpc.HANDLERS["probe-delete"](_Book(cn), {"type": typ, "id": rid}, "the-mill", owner)
 
-
 def _card(cn, project: str, desk: str, need: str) -> int:
     return int(todo.insert(cn, project, desk, "open", todo.pack({"slug": need}))[0]["id"])
-
 
 def _card_0630(cn, project: str, desk: str, need: str) -> int:
     """A card as the 0.6.30 delete saw it (0.8.0: no todo_event table; doing holds history)."""
     return _card(cn, project, desk, need)
 
-
 def _score(cn, project: str, desk: str, kpi: str) -> int:
     return int(score.upsert(cn, project, desk, kpi, "1", "", "")[0]["id"])
 
-
 def _gone(cn, typ: str, rid: int):
     return scalar(cn, "SELECT deleted FROM activity WHERE type=%s AND id=%s", (typ, rid))
-
 
 def test_own_fixture_rows_go_deleted_everywhere(cn) -> None:
     tid = _card(cn, FIX, "pd_me", "pd-card")
@@ -113,7 +86,6 @@ def test_own_fixture_rows_go_deleted_everywhere(cn) -> None:
     assert estates.get(("todo", tid)) == "deleted"
     assert estates.get(("score", sid)) == "deleted"
 
-
 def test_real_project_rows_refused_and_untouched(cn) -> None:
     tid = _card(cn, "pd_real", "pd_me", "pd-real-card")
     sid = _score(cn, "pd_real", "pd_me", "pd_real_kpi")
@@ -123,7 +95,6 @@ def test_real_project_rows_refused_and_untouched(cn) -> None:
         assert _gone(cn, typ, rid) is None
     assert scalar(cn, "SELECT id FROM todo WHERE id=%s", (tid,)) == tid
 
-
 def test_other_desk_fixture_rows_refused_and_untouched(cn) -> None:
     tid = _card(cn, FIX2, "pd_other", "pd-other-card")
     sid = _score(cn, FIX2, "pd_other", "pd_other_kpi")
@@ -131,7 +102,6 @@ def test_other_desk_fixture_rows_refused_and_untouched(cn) -> None:
         with pytest.raises(CoordError, match="not made by this desk"):
             _probe(cn, "pd_me", typ, rid)
         assert _gone(cn, typ, rid) is None
-
 
 def test_todo_delete_restamps_when_activity_row_is_removed(cn) -> None:
     """#185: if the card delete also drops the activity row, the stamp is put back."""
@@ -158,7 +128,6 @@ def test_todo_delete_restamps_when_activity_row_is_removed(cn) -> None:
             cn.commit()
         finally:
             cur.close()
-
 
 def test_probe_delete_hints_state_deleted(cn) -> None:
     """#185: a probe-delete hint detail carries state deleted for the watcher."""
@@ -191,7 +160,6 @@ def test_probe_delete_hints_state_deleted(cn) -> None:
             found = True
     assert found
 
-
 def test_second_delete_and_missing_rows_refused(cn) -> None:
     tid = _card(cn, FIX, "pd_me", "pd-twice")
     sid = _score(cn, FIX, "pd_me", "pd_twice_kpi")
@@ -203,7 +171,6 @@ def test_second_delete_and_missing_rows_refused(cn) -> None:
         _probe(cn, "pd_me", "score", sid)
     with pytest.raises(CoordError, match="no such todo"):
         _probe(cn, "pd_me", "todo", 987654321)
-
 
 def _deleted_hints(cn, typ: str, rid: int) -> int:
     import json
@@ -231,7 +198,6 @@ def _deleted_hints(cn, typ: str, rid: int) -> int:
             n += 1
     return n
 
-
 def _assert_deleted(cn, typ: str, rid: int) -> None:
     """state=deleted in the three reads, and exactly one deleted hint."""
     from agent_coord.server.records.db import call
@@ -252,7 +218,6 @@ def _assert_deleted(cn, typ: str, rid: int) -> None:
     assert estates.get((typ, rid)) == "deleted"
     assert _deleted_hints(cn, typ, rid) == 1
 
-
 def _drop_activity(cn, tid: int) -> None:
     cur = cn.cursor()
     try:
@@ -263,7 +228,6 @@ def _drop_activity(cn, tid: int) -> None:
     finally:
         cur.close()
 
-
 def test_todo_with_no_activity_row_is_stamped(cn) -> None:
     """#185: a card whose activity row is already gone still ends state=deleted."""
     tid = _card(cn, FIX, "pd_me", "pd-no-activity")
@@ -272,7 +236,6 @@ def test_todo_with_no_activity_row_is_stamped(cn) -> None:
     out = _probe(cn, "pd_me", "todo", tid)
     assert out["state"] == "deleted" and out["deleted"]
     _assert_deleted(cn, "todo", tid)
-
 
 def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
     """#185: activity's key is (type, id), so claim, note, and pass keep one row (no n column)."""
@@ -288,7 +251,6 @@ def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
     assert out["state"] == "deleted"
     _assert_deleted(cn, "todo", tid)
     assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='todo' AND id=%s", (tid,)) == 1
-
 
 def test_second_delete_keeps_the_first_stamp_and_one_hint(cn) -> None:
     """#185: a second delete does not move the stamp and does not emit another hint."""
@@ -308,7 +270,6 @@ def test_second_delete_keeps_the_first_stamp_and_one_hint(cn) -> None:
     assert again == first
     assert _deleted_hints(cn, "todo", tid) == 1
 
-
 def test_delete_while_hold_and_watcher_point_at_it(cn) -> None:
     """#185: a watcher on the card and a hold in the project do not block the stamp."""
     from agent_coord.server.records import hold
@@ -322,7 +283,6 @@ def test_delete_while_hold_and_watcher_point_at_it(cn) -> None:
     assert scalar(cn, "SELECT COUNT(*) FROM watcher WHERE type='todo' AND id=%s", (tid,)) == 0
     assert scalar(cn, "SELECT id FROM hold WHERE id=%s", (hid,)) == hid
     _assert_deleted(cn, "todo", tid)
-
 
 def test_delete_on_a_tree_keeps_the_parent(cn) -> None:
     """#185: the parent card and its tree row stay; the deleted card is gone and stamped."""
@@ -343,7 +303,6 @@ def test_delete_on_a_tree_keeps_the_parent(cn) -> None:
     assert scalar(cn, "SELECT COUNT(*) FROM tree WHERE type='todo' AND id=%s", (kid,)) == 1
     _assert_deleted(cn, "todo", tid)
 
-
 def test_score_delete_next_to_todo_delete(cn) -> None:
     """#185: a score delete and a todo delete in one project both end state=deleted."""
     tid = _card(cn, FIX, "pd_me", "pd-beside")
@@ -353,7 +312,6 @@ def test_score_delete_next_to_todo_delete(cn) -> None:
     assert out_t["state"] == "deleted" and out_s["state"] == "deleted"
     _assert_deleted(cn, "todo", tid)
     _assert_deleted(cn, "score", sid)
-
 
 def test_detail_column_counts_characters(cn) -> None:
     """#188/#292: VARCHAR and the 4096 cap count characters. 500 e-acute is 1000 bytes."""
@@ -372,7 +330,6 @@ def test_detail_column_counts_characters(cn) -> None:
     assert todo.find(cn, FIX, "pd-mb-over") is None
     empty = rpc._h_open(_Book(cn), {"need": "pd-empty", "detail": ""}, FIX, "pd_me")
     assert empty["detail"] == ""
-
 
 def test_probe_tool_run_exits_0(cn, capsys) -> None:
     """#185: tools/probe_deleted_rows.py run exits 0 when both rows stamp deleted."""
@@ -397,7 +354,6 @@ def test_probe_tool_run_exits_0(cn, capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True
     assert out["trail_state"] == "deleted"
-
 
 # Installed on the live office as 0.6.30 (f7a7058). Comments omitted; the statements match.
 _OLD_0630_DELETE = """
@@ -430,7 +386,6 @@ BEGIN
 END
 """
 
-
 def _install_proc(cn, create_sql: str) -> None:
     from agent_coord.install.migrate import split_script
 
@@ -447,7 +402,6 @@ def _install_proc(cn, create_sql: str) -> None:
     finally:
         cur.close()
 
-
 def _proc_from_source() -> str:
     from pathlib import Path
 
@@ -457,7 +411,6 @@ def _proc_from_source() -> str:
     start = text.index(mark)
     end = text.index("\nEND //", start)
     return text[start:end] + "\nEND"
-
 
 def _open_db(name: str):
     import mysql.connector
@@ -483,7 +436,6 @@ def _open_db(name: str):
         os.environ["AGENT_COORD_DATABASE"] = prev
     return cn
 
-
 @pytest.fixture(scope="module")
 def aws_cn():
     """Throwaway copy. Not the live cloud or lan book."""
@@ -494,7 +446,6 @@ def aws_cn():
     seed_names(c, ("pd_real", "roster"), (FIX, "roster"), ("pd_me", "desk"))
     yield c
     c.close()
-
 
 def test_aws_0630_procedure_replay_explains_unchanged(aws_cn) -> None:
     """#185: why the live office probe-delete returned state unchanged.
@@ -570,7 +521,6 @@ def test_aws_0630_procedure_replay_explains_unchanged(aws_cn) -> None:
             cn.commit()
         finally:
             cur.close()
-
 
 @pytest.mark.parametrize(
     "body",

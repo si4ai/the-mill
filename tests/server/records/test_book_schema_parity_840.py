@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.sql
+# fresh_schema: builds three books (fresh/upgrade/drift) and diffs tip shapes
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 from agent_coord.install import migrate
 from agent_coord.server.records import connect

@@ -6,7 +6,6 @@ Supersedes the #205 activity-first allocator (Office lock + information_schema p
 """
 from __future__ import annotations
 
-import os
 import threading
 from pathlib import Path
 
@@ -14,15 +13,14 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from tests import sql_book
+
 from agent_coord.install import migrate
-from agent_coord.server.records import apply
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from tests.server.records.conftest import seed_names
-from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_insert_216")
 SQL = Path("agent_coord/server/sql")
 PAYLOAD_FKS = (
     ("mail", "fk_mail_activity"),
@@ -34,51 +32,27 @@ PAYLOAD_FKS = (
 )
 KEPT_FKS = (("label", "fk_label_activity"), ("tree", "fk_tree_activity"))
 
-
 def _direct():
-    """A direct connection to TEST_DB (not the shared pool, which may point at another suite's DB)."""
+    """A direct connection to the shared tip DB (not the process pool, which may point at another suite's DB)."""
     import mysql.connector
 
     kw = dict(_conn_kwargs())
-    kw["database"] = TEST_DB
+    kw["database"] = sql_book.shared_db_name()
     return mysql.connector.connect(**kw)
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = _direct()
-    apply(cn, wipe=True)
-    return cn
-
 
 @pytest.fixture(scope="module")
 def cn():
     try:
-        c = _cn()
+        c = sql_book.connect_shared(reset=True)
     except Exception as e:
         pytest.skip(f"mysql mill records: {e}")
     seed_names(c, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
     yield c
     c.close()
 
-
 def _proc(path: Path, name: str) -> str:
     text = path.read_text(encoding="utf-8")
     return text.split("CREATE PROCEDURE " + name + "(", 1)[1].split("CREATE PROCEDURE", 1)[0]
-
 
 def _n(cn, sql: str, args: tuple = ()) -> int:
     cur = cn.cursor()
@@ -87,13 +61,11 @@ def _n(cn, sql: str, args: tuple = ()) -> int:
     cur.close()
     return int(row[0]) if row and row[0] is not None else 0
 
-
 def _exec(cn, sql: str, args: tuple = ()) -> None:
     cur = cn.cursor()
     cur.execute(sql, args)
     cn.commit()
     cur.close()
-
 
 def _fk(cn, table: str, name: str) -> bool:
     return _n(
@@ -103,9 +75,7 @@ def _fk(cn, table: str, name: str) -> bool:
         (table, name),
     ) == 1
 
-
 # ---- source shape ----
-
 
 def test_insert_sources_are_payload_first() -> None:
     for path, name, table in (
@@ -122,13 +92,11 @@ def test_insert_sources_are_payload_first() -> None:
         assert ins < lid < put, name
         assert f"INSERT INTO {table} (id," not in body
 
-
 def test_no_writer_turns_fk_checks_off() -> None:
     for name in ("sp_mail.sql", "sp_todo.sql", "sp_join.sql", "sp_hold.sql", "sp_score.sql", "tables.sql"):
         assert "FOREIGN_KEY_CHECKS" not in (SQL / name).read_text(encoding="utf-8"), name
     tick = Path("agent_coord/server/score_tick.py").read_text(encoding="utf-8")
     assert "FOREIGN_KEY_CHECKS" not in tick
-
 
 def test_touched_sp_files_are_fully_refreshed() -> None:
     for name in ("sp_mail.sql", "sp_todo.sql", "sp_join.sql", "sp_hold.sql", "sp_score.sql"):
@@ -137,9 +105,7 @@ def test_touched_sp_files_are_fully_refreshed() -> None:
     for _t, name in PAYLOAD_FKS:
         assert name not in rules, name
 
-
 # ---- fresh book ----
-
 
 def test_fresh_book_has_no_payload_fks(cn) -> None:
     for table, name in PAYLOAD_FKS:
@@ -155,9 +121,7 @@ def test_fresh_book_has_no_payload_fks(cn) -> None:
         " WHERE s.kpi IN ('mill-wall.ticks','mill-desk.idle_verbs','mill-desk.hint_drop')",
     ) == 3
 
-
 # ---- inserts ----
-
 
 def test_mail_and_todo_ids_come_from_the_table(cn) -> None:
     one = int(rec_mail.insert(cn, "unit", "a", "b", "first")[0]["id"])
@@ -172,7 +136,6 @@ def test_mail_and_todo_ids_come_from_the_table(cn) -> None:
     assert _n(cn, "SELECT COUNT(*) FROM activity WHERE type='todo' AND id=%s", (card,)) == 1
     assert _n(cn, "SELECT @@FOREIGN_KEY_CHECKS") == 1
 
-
 def test_deleted_id_is_not_reused(cn) -> None:
     card = int(rec_todo.insert(cn, "unit", "a", "open", "gone soon")[0]["id"])
     _exec(cn, "DELETE FROM watcher WHERE type='todo' AND id=%s", (card,))
@@ -182,7 +145,6 @@ def test_deleted_id_is_not_reused(cn) -> None:
     nxt = int(rec_todo.insert(cn, "unit", "a", "open", "after")[0]["id"])
     assert nxt > card
 
-
 def _act_fail_trigger(cn, kind: str) -> None:
     _exec(cn, "DROP TRIGGER IF EXISTS t216_act_fail")
     _exec(
@@ -191,7 +153,6 @@ def _act_fail_trigger(cn, kind: str) -> None:
         f"BEGIN IF NEW.type = '{kind}' THEN "
         "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced activity failure'; END IF; END",
     )
-
 
 def test_failed_activity_put_rolls_back_mail(cn) -> None:
     letters = _n(cn, "SELECT COUNT(*) FROM mail")
@@ -206,7 +167,6 @@ def test_failed_activity_put_rolls_back_mail(cn) -> None:
     assert _n(cn, "SELECT COUNT(*) FROM mail_to") == tos
     assert _n(cn, "SELECT COUNT(*) FROM mail m LEFT JOIN activity a ON a.type='mail' AND a.id=m.id WHERE a.id IS NULL") == 0
     assert _n(cn, "SELECT @@FOREIGN_KEY_CHECKS") == 1
-
 
 def test_failed_activity_put_rolls_back_todo_and_attached(cn) -> None:
     root = int(rec_mail.insert(cn, "unit", "a", "b", "root")[0]["id"])
@@ -223,7 +183,6 @@ def test_failed_activity_put_rolls_back_todo_and_attached(cn) -> None:
     assert _n(cn, "SELECT COUNT(*) FROM todo") == cards
     assert _n(cn, "SELECT COUNT(*) FROM tree") == trees
     assert _n(cn, "SELECT COUNT(*) FROM todo t LEFT JOIN activity a ON a.type='todo' AND a.id=t.id WHERE a.id IS NULL") == 0
-
 
 def test_failed_tree_place_rolls_back_attached_card(cn) -> None:
     root = int(rec_mail.insert(cn, "unit", "a", "b", "root2")[0]["id"])
@@ -244,7 +203,6 @@ def test_failed_tree_place_rolls_back_attached_card(cn) -> None:
     assert _n(cn, "SELECT COUNT(*) FROM todo") == cards
     assert _n(cn, "SELECT COUNT(*) FROM activity WHERE type='todo'") == acts
 
-
 def test_attached_places_its_own_id_on_the_tree(cn) -> None:
     root = int(rec_mail.insert(cn, "unit", "a", "b", "plan root")[0]["id"])
     # a mail and a todo may share a number; the tree row must be the todo's (type, id)
@@ -263,7 +221,6 @@ def test_attached_places_its_own_id_on_the_tree(cn) -> None:
     rgt = _n(cn, "SELECT rgt FROM tree WHERE type='mail' AND id=%s", (root,))
     assert lft < _n(cn, "SELECT lft FROM tree WHERE type='todo' AND id=%s", (c2,)) < rgt
 
-
 def _is_deadlock(exc: BaseException) -> bool:
     """InnoDB 1213 under parallel CI load (xdist + this test's own threads)."""
     errno = getattr(exc, "errno", None)
@@ -271,7 +228,6 @@ def _is_deadlock(exc: BaseException) -> bool:
         return True
     args = getattr(exc, "args", ())
     return bool(args and args[0] == 1213)
-
 
 def test_concurrent_inserts_get_distinct_ids_without_office_lock(cn) -> None:
     # Hold the Office row the #205 allocator used to lock. Inserts must not wait on it.
@@ -333,9 +289,7 @@ def test_concurrent_inserts_get_distinct_ids_without_office_lock(cn) -> None:
         assert _n(cn, f"SELECT COUNT(*) FROM activity WHERE type='{kind}' AND id IN ({marks})") == 20
         assert _n(cn, f"SELECT COUNT(*) FROM {kind} WHERE id IN ({marks})") == 20
 
-
 # ---- existing book ----
-
 
 def test_existing_book_with_payload_fks_migrates(cn) -> None:
     # Build the pre-#216 shape: payload FKs present and an old insert procedure.

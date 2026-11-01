@@ -3,53 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
 
 import pytest
 
-from agent_coord.server.records import apply, connect
+from agent_coord.server.records import connect
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.score_system import KEEP_BYTES, KEEP_DAYS, SPILL, _note, _wall, note_command, wall_route
 from tests.server.records.conftest import seed_names
 
 pytestmark = pytest.mark.sql
 
-from tests.sql_isolate import throwaway_db
+from tests import sql_book
 
-TEST_DB = throwaway_db("mill_records_test")
 DESK = "score_sys"
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _loads(value):
     if isinstance(value, dict):
@@ -57,7 +24,6 @@ def _loads(value):
     if isinstance(value, (bytes, bytearray)):
         value = value.decode()
     return json.loads(value)
-
 
 def _doc(cn, stamp: str) -> tuple[dict, str, str] | None:
     cur = cn.cursor()
@@ -76,14 +42,12 @@ def _doc(cn, stamp: str) -> tuple[dict, str, str] | None:
         return None
     return _loads(row[0]), str(row[1]), str(row[2] or "")
 
-
 def test_note_command_swallows_a_missing_book() -> None:
     class Closed:
         def cursor(self):
             raise RuntimeError("PROCEDURE mill_score_event does not exist")
 
     note_command("a", "todo", req_b=4, resp_b=6, ms=3, cn=Closed())
-
 
 def test_hour_resets_day_keeps_and_bytes_follow_the_command(cn) -> None:
     assert KEEP_DAYS == 30
@@ -161,7 +125,6 @@ def test_hour_resets_day_keeps_and_bytes_follow_the_command(cn) -> None:
     assert _doc(cn, "1970-01-01 08:00:00")[0]["session"]["n"] == 1
     assert _doc(cn, "2026-10-02 00:00:00")[0]["bytes"]["mail"] == mail_before
 
-
 def test_spill_keeps_the_document_and_is_logged(cn, monkeypatch) -> None:
     seed_names(cn, ("score_sys", "desk"))
     when = datetime(2026, 10, 1, 9, 0, 0)
@@ -202,7 +165,6 @@ def test_spill_keeps_the_document_and_is_logged(cn, monkeypatch) -> None:
     assert logged[0][1]["verb"] == "doing"
     assert "doing" not in _doc(cn, "2026-10-01 00:00:00")[0]
 
-
 def test_span_reads_each_desk_once(cn) -> None:
     from agent_coord.server.records.activity import span
     from agent_coord.server.records.db import call
@@ -237,7 +199,6 @@ def test_span_reads_each_desk_once(cn) -> None:
 
     mins = span(cn, "role", "span", "min")
     assert any(r.get("type") == "score" for r in mins)
-
 
 def test_between_reads_recent_rows_for_the_scope_desks(cn) -> None:
     from agent_coord.server.records.activity import between_rows
@@ -302,14 +263,12 @@ def test_between_reads_recent_rows_for_the_scope_desks(cn) -> None:
     assert lan_rows
     assert {r["owner"] for r in lan_rows} == {"between_a"}
 
-
 def test_wall_route_collapses_to_the_api() -> None:
     assert wall_route("/api/floor?project=the-mill") == "/api/floor"
     assert wall_route("/api/v1/mail/42") == "/api/v1/mail"
     assert wall_route("/api/admin/invites") == "/api/admin/invites"
     assert wall_route("/api/mill/send") == ""
     assert wall_route("/") == ""
-
 
 def test_wall_routes_share_one_office_score(cn) -> None:
     when = datetime(2026, 10, 2, 15, 1, 0)
@@ -350,12 +309,11 @@ def test_wall_routes_share_one_office_score(cn) -> None:
     assert row[1] == "3"
     assert act_rows[0][0] in ("score", "create")
 
-
 def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:
     """A fetchone that leaves rows must not park a pooled thread on activity."""
     import mysql.connector
 
-    other = connect(TEST_DB)
+    other = connect(sql_book.shared_db_name())
     sid = None
     close_err = None
     try:
@@ -373,7 +331,7 @@ def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:
             close_err = exc
 
     kw = _conn_kwargs()
-    kw["database"] = TEST_DB
+    kw["database"] = sql_book.shared_db_name()
     admin = mysql.connector.connect(**kw)
     try:
         chk = admin.cursor()
@@ -387,7 +345,7 @@ def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:
                     WHERE th.PROCESSLIST_ID = %s
                       AND ml.OBJECT_SCHEMA = %s
                       AND ml.OBJECT_NAME = 'activity'""",
-                (sid, TEST_DB),
+                (sid, sql_book.shared_db_name()),
             )
             locks = list(chk.fetchall())
             if locks:
@@ -404,7 +362,7 @@ def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:
         held = []
         try:
             for _ in range(_POOL_SIZE - 1):
-                held.append(connect(TEST_DB))
+                held.append(connect(sql_book.shared_db_name()))
             for held_cn in held:
                 held_cur = held_cn.cursor()
                 held_cur.execute("SELECT 1")
