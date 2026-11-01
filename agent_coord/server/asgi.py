@@ -56,6 +56,27 @@ def _note_connect(c: Any, want: str) -> None:
         _log.warning("ws connect activity err=%s", err)
 
 
+def touch_sitting_desks(desks: list[str]) -> None:
+    """Bump seat.updated for each desk that still holds /ws (card 985).
+
+    Hub PING alone does not write the book, so a plain connect with no RPC
+    looked stale after HEARTBEAT_STALE_S even while the socket was up.
+    """
+    from agent_coord.server.book import Book
+    from agent_coord.server.records import join as rec_join
+
+    for desk in desks or []:
+        who = str(desk or "").strip()
+        if not who:
+            continue
+        try:
+            with Book() as c:
+                rec_join.touch(c._cn, "", who)
+        except Exception as e:
+            err = type(e).__name__
+            _log.warning("ws sit touch err desk=%s err=%s", who[:64], err)
+
+
 def latency_snapshot() -> dict[str, float | int]:
     """Cheap mill-wall timing for unit/benchmark. Not a Wall API."""
     xs = sorted(_samples)
@@ -631,6 +652,14 @@ def make_asgi_app(
             except Exception as e:
                 err = type(e).__name__  # the class only; no exception text reaches the log
                 _log.warning("ws connect activity err=%s", err)
+        # Card 985: every successful sit bumps seat.updated so the hub shows alive
+        # immediately (PING refresh continues while the socket stays up).
+        try:
+            from agent_coord.helpers.ident import desk_name as _desk_name_touch
+
+            touch_sitting_desks([_desk_name_touch(desk)])
+        except Exception:
+            pass
         try:
             from agent_coord.helpers.ident import desk_name
             from agent_coord.server.book import Book
@@ -704,9 +733,19 @@ def make_asgi_app(
             while True:
                 try:
                     await asyncio.sleep(20)
-                    for desk in list(HUB.rooms):
+                    rooms = list(HUB.rooms)
+                    for desk in rooms:
                         try:
                             HUB.notify(desk, {"type": "heartbeat", "id": 0, "hint": "PING"})
+                        except Exception:
+                            pass
+                    # Card 985: keep seat.updated fresh while /ws is up so connected
+                    # shows alive without requiring an RPC heartbeat from the desk.
+                    if rooms:
+                        try:
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, touch_sitting_desks, rooms
+                            )
                         except Exception:
                             pass
                 except asyncio.CancelledError:

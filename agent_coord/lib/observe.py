@@ -256,8 +256,19 @@ def decay_s() -> int:
 HEARTBEAT_STALE_S = 15 * 60
 
 
-def heartbeat_flags(updated: Any, *, now: datetime | None = None) -> tuple[bool, bool]:
-    """(alive, stale) from join.updated. A missing time is stale."""
+def heartbeat_flags(
+    updated: Any,
+    *,
+    now: datetime | None = None,
+    sitting: bool = False,
+) -> tuple[bool, bool]:
+    """(alive, stale) from join.updated. A missing time is stale.
+
+    sitting=True: the desk has a live /ws right now, so it stays alive even when
+    seat.updated is old (card 985; plain connect used to look stale while up).
+    """
+    if sitting:
+        return True, False
     if now is None:
         now = datetime.now()
     if now.tzinfo is not None:
