@@ -62,10 +62,13 @@ Run: `verify/doing-code/run.sh`. Read results with `/statechart` on `Doing.tla`.
   anchor (SPIN D01).
 - Auth / roster gates out of scope beyond live-token.
 - Cycle detect and stale auto-clear are model-only proposed fixes (known/).
+- Model bounds: `OneFocusInsertPerPut` and `DoingEndsOnShip` hold by construction of the model (no step can break them), so they record intent, not a check; `DoingEndsOnShip` has no mutant. The code side is carried by the `one-insert`, `put-no-raw-insert`, `derived-end` and `finish-writes-nothing` anchors.
+- Crash sets live=FALSE in the model, but in code the seat token survives a crash, so a restarted desk can focus again on the same token. The stale-doing finding (card 1018) still stands.
+- Not anchored, named bounds: seat lock order across procedures, cleared act='clear' on empty text, insert id monotone, and mill_doing_move's lock and evidence cap. SPIN D01-D08 and pytest cover them.
 
-## anchor rule (card 1014)
+## anchor rule (cards 1014, D4/D5)
 
-each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line, plus its first effect line. the first line must be code: a comment, import, log call, message or SIGNAL line, raise, bare `try:` or block keyword is refused, and a marker must hold at least one code line. matches are counted with comments blanked out, so a commented-out guard (line or block comment) no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, and for SQL a block comment; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, message-only and commented shapes. `STATECHART_CMD` overrides host path discovery.
 
 ## Tokens
 
