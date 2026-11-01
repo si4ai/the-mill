@@ -23,7 +23,10 @@ OUT="${OUT:-$(mktemp -d)}"; mkdir -p "$OUT"
 DEPTH=300000
 
 # The commit at which the wake and hold models were last confirmed to describe the
-# code: PR #322's head (0.8.4 main plus card 889). Main differs only by #322.
+# code: PR #322's head (0.8.4 main plus card 889). Main at 0.8.5 differs in
+# covered files by rpc.py (cards 974/979, and #892: reset and retire call
+# gate_clear, not modelled yet), asgi.py (#985 seat touch, not wake code) and a
+# push.py comment.
 SYNC=c1c1d87
 COVERED="agent_coord/server/wake.py agent_coord/server/push.py agent_coord/server/asgi.py
 agent_coord/server/records/push.py agent_coord/server/sql/sp_push.sql
@@ -93,6 +96,7 @@ M02|wake|-DN=2 -DATOMIC_EMIT=1 -DRETRIES=2 -DMAXFAIL=2 -DMUT_827_NOGEN|live|viol
 M04|wake|-DN=2 -DPUTFIRST=1 -DRING_ON_LEAVE=1 -DMAXFAIL=0 -DMUT_SENT_EARLY|live|violated|mutation of fix 832: mark sent at hand-off, no ring when no socket took it
 W26|wake|-DN=2 -DMAXFAIL=0 -DSITTING_DONE=0|ltl:no_dup_done|violated|pre-#322 (main 0.8.4): wake-done inside the connect POSTs its trailing wake to the sitting desk
 W27|wake|-DN=2 -DMAXFAIL=0|ltl:no_dup_done|pass|#322 (card 889): wake-done while sitting ends the lease and sends no trailing POST
+M24|wake|-DN=2 -DMAXFAIL=0 -DMUT_SIT_NOGUARD|ltl:no_dup_done|violated|mutation of #322: no sitting guard, wake-done POSTs its trailing wake to the sitting desk (keeps W27 from being vacuous)
 W28|wake|-DN=2 -DMAXFAIL=0|handled|pass|#297 + #322: every item delivered and every letter opened, a run may leave letters unread once
 W29|wake|-DN=2 -DMAXFAIL=0 -DSITTING_DONE=0|handled|pass|#297 before #322: also delivered (the extra trailing POST costs a wake, not an item)
 W30|wake|-DN=2 -DMAXFAIL=1 -DATOMIC_EMIT=1|handled|violated|FINDING: a failed wake for unread mail alone is never retried (retry reads only the push queue)

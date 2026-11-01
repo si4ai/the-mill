@@ -21,9 +21,9 @@ in which the steps of the model can interleave, inside the stated bounds.
 Run: `verify/spin/run.sh` (about sixteen minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
 compiler). One check with its trail: `verify/spin/run.sh W07`.
 
-Last full run: 101 checks, every one matching its expectation (46 `pass`, 55
-`violated` as expected: findings, mutants and reachability goals), exit 0, in
-984 s, with `SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
+Last full run: 102 checks, every one matching its expectation (46 `pass`, 56
+`violated` as expected: findings, mutants and reachability goals), in about
+15 minutes, with `SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
 `SYNC_080` = 8a80dc1, 2026-11-01. The wake checks now store states compressed
 (`-DCOLLAPSE`), as the 0.8.0 checks do.
 
@@ -46,7 +46,7 @@ Wake path, one desk, two or three items:
 | Both fixes keep one wake per window and add no invalid end state | proved (W20) |
 | Card 827 retry as coded in #300: one POST per wake, then a chain of retries with the same body (same idem key, same lease, no new window), armed only while push rows wait; it stops when the push queue drains or any later wake of the desk succeeds. The model bounds the chain at 2 retries (the code makes 12 to 64 in about an hour) | proved when at most 2 POSTs in a row fail (W12, W16); violated at 3 (W13, the model's bound, not a finding) and for a receiver down forever (W17); an old chain that runs out must not cancel a newer one (M02) |
 | Every item delivered and every letter opened, when a run may leave letters unread (#297, card 949: sync merges unread mail; trailing and ring-on-leave ring on unread mail alone) | proved with a perfect receiver (W28, and W29 before #322); fails on a mutation that ignores unread mail once its push row drained (M23); **violated** when the one wake for unread mail alone fails (W30, finding 11); proved with a retry that also counts unread mail (W31, proposed) |
-| `mill wake-done` inside the run's own connect sends no trailing POST to the sitting desk (#322, card 889) | proved (W27); **violated** before #322, main 0.8.4 (W26): the trailing wake goes out while the run still sits |
+| `mill wake-done` inside the run's own connect sends no trailing POST to the sitting desk (#322, card 889) | proved (W27); fails on a mutation that drops the #322 sitting guard (M24), so W27 is not vacuous; **violated** before #322, main 0.8.4 (W26): the trailing wake goes out while the run still sits |
 
 Holds, two or three desks each needing two locks in a cycle:
 

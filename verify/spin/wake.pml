@@ -86,6 +86,8 @@
  *                defaults to LEASE, so LEASE=0 is the model as it was before 886
  *   ONE_RUN      1 = also assert "no new POST while the last lease is held"
  *                (the storm the lease fixes); on by default with LEASE
+ *   MUT_SIT_NOGUARD mutation of #322: drop the sitting guard, so wake-done sends
+ *                the trailing POST even while the run's own connect sits (must fail)
  *   MUT_DONE_ANY mutation of the lease: wake-done never sends the trailing POST
  *                (must fail delivery)
  *   HOLD1        1 = card 887 / F144a: post_desk checks for a live lease and records
@@ -563,9 +565,14 @@ inline wake_done(ep, own, ok, took, t, tk, s) {
   };
 #ifndef MUT_DONE_ANY
   if
-#if SITTING_DONE
+#if SITTING_DONE && !defined(MUT_SIT_NOGUARD)
   :: atomic { t && SITTING -> skip }                            /* #322: wake=sitting, no POST */
-  :: atomic { t && !SITTING && WAITING -> skip }; post_desk(ok, took, tk)   /* _send_trailing */
+  :: atomic { t && !SITTING && WAITING -> if :: seat[s] -> dup_done = true :: else -> skip fi };
+     post_desk(ok, took, tk)                                    /* _send_trailing */
+#elif SITTING_DONE
+  /* MUT_SIT_NOGUARD: the #322 sitting guard removed, trailing POST whenever t && WAITING */
+  :: atomic { t && WAITING -> if :: seat[s] -> dup_done = true :: else -> skip fi };
+     post_desk(ok, took, tk)
 #else
   :: atomic { t && WAITING -> if :: seat[s] -> dup_done = true :: else -> skip fi };
      post_desk(ok, took, tk)                                    /* _send_trailing */
