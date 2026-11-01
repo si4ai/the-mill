@@ -10,6 +10,16 @@ from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records import activity, hold, join as here, mail, name, opened, score, todo
 from agent_coord.server.records import tree as rec_tree
 from tests.server.records.conftest import seed_names
+from agent_coord.server.records import member as rec_member
+
+@pytest.fixture(scope="module", autouse=True)
+def _seed_unit_book(cn):
+    """Desks/roster this module's short tests assume (was private wipe cn seed)."""
+    seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"), ("builder", "roster"), ("stack", "desk"))
+    rec_member.put(cn, "unit", "a")
+    rec_member.put(cn, "unit", "b")
+    yield
+
 
 def _presence_row(cn, typ: str, nid: int) -> dict | None:
     rows = activity.select(cn, limit=200)

@@ -474,7 +474,8 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
     if not tests:
         return findings
     run = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=no", *tests],
+        # Skip @pytest.mark.sql: this job has no MySQL (pytest_sql covers those).
+        [sys.executable, "-m", "pytest", "-q", "--tb=no", "-m", "not sql", *tests],
         cwd=root,
         capture_output=True,
         text=True,
