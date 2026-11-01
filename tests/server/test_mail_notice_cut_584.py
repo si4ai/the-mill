@@ -31,10 +31,12 @@ def test_the_cap_keeps_typical_letters_whole():
 def test_a_cut_body_says_so_and_names_the_read():
     body = "x" * (BODY_CAP + 77)
     item = compact_mail(_letter(body), DESTS, "d1")
-    assert item["body"] == body[:BODY_CAP]
     assert item["body_trunc"] is True
     assert item["body_chars"] == BODY_CAP + 77
     assert item["read"] == "mill mail-thread 2085"
+    assert len(item["body"]) <= BODY_CAP
+    assert "... [cut:" in item["body"]
+    assert item["body"].endswith("mill mail-thread 2085]")
 
 
 def test_exactly_the_cap_is_whole():
@@ -54,5 +56,7 @@ def test_the_stored_sync_row_is_the_marked_item(monkeypatch):
     monkeypatch.setattr(mail_push.rec_mail, "letter_row", lambda cn, mid: _letter("z" * (BODY_CAP + 5)))
     monkeypatch.setattr(mail_push.rec_mail, "to_list", lambda cn, mid: DESTS)
     monkeypatch.setattr("agent_coord.server.push.emit", lambda cn, desk, kind, payload, **kw: seen.append(payload))
-    mail_push.push_mail(None, 2085)
+    # room member => BODY_CAP preview with visible tail (card 902)
+    mail_push.push_mail(None, 2085, room_only={"d1"})
     assert seen and seen[0]["body_trunc"] is True and seen[0]["read"] == "mill mail-thread 2085"
+    assert "... [cut:" in seen[0]["body"]

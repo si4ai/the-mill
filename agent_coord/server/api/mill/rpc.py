@@ -1240,9 +1240,22 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
 
 def _seat_hash(c: Book, project: str, owner: str | None) -> str | None:
     """The acting desk's own seat token hash (0.8.0): sp_name_rename / sp_name_retire let a
-    desk act on itself only with it. None when this request carried no bearer token."""
-    tok = (getattr(c, "_tokens", None) or {}).get((project, _stored(owner or "")))
-    return token_hash(tok) if tok else None
+    desk act on itself only with it.
+
+    HTTP dispatch stores the bearer on c._tokens. Live /ws (dispatch_ws) does not:
+    the desk is already seated on the socket. Fall back to the seat row's stored
+    hash so self-retire/rename still pass the SP's v_self check (card 974).
+    """
+    who = _stored(owner or "")
+    tok = (getattr(c, "_tokens", None) or {}).get((project, who))
+    if tok:
+        return token_hash(tok)
+    if not who:
+        return None
+    from agent_coord.server.records import join as rec_join
+
+    stored = rec_join.token_hash_for_desk(c._cn, who)
+    return stored or None
 
 
 def _h_rename(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -3929,7 +3942,9 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.admin.guard import require_admin
     from agent_coord.server.records import tree as rec_tree
 
-    _require_live_ws(owner)
+    # HTTP desk-acting cut lives in dispatch() only. Do not call
+    # _require_live_ws here: that helper always raises, and dispatch_ws
+    # would refuse mill rooms on a live connect (card 979).
     include_hidden = bool(body.get("all"))
     if include_hidden:
         require_admin(c._cn, owner or "")
