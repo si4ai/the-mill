@@ -1521,6 +1521,12 @@ def _undelivered(item: Any) -> bool:
     return not (isinstance(item, dict) and str(item.get("outcome") or "") == "sent")
 
 
+def _push_queued(item: Any) -> bool:
+    """True when the item came from push_queue (has time). Card 949 mailbox
+    resurfacing omits time so connect-wait can tell it apart (card 1030)."""
+    return isinstance(item, dict) and item.get("time") not in (None, "")
+
+
 def wait_one_hint(
     desk: str,
     token: str,
@@ -1531,6 +1537,7 @@ def wait_one_hint(
     hold_empty_sync: bool = False,
     parent_pid: int | None = None,
     refuse: bool = False,
+    skip_first_sync: bool = False,
 ) -> dict[str, Any]:
     """Block on /ws until one work frame, then return.
 
@@ -1546,6 +1553,12 @@ def wait_one_hint(
     connect-wait and mill-hold pass true: an empty list keeps the socket
     until the next hint or a non-empty list (card #278). A list whose items
     were all sent live already counts as empty (card #328).
+
+    skip_first_sync (card 1030 / connect-wait): on the first kind=sync, end the
+    wait only for undelivered push_queue items (they carry time). Card 949
+    mailbox resurfacing omits time and does not end it; outcome sent never
+    does. Later syncs and live HINTs behave as usual. mill-hold leaves this
+    false (a non-empty first sync still ends that wait).
     """
     try:
         import websockets
@@ -1587,14 +1600,17 @@ def wait_one_hint(
                 for kind in (skip_kinds or ())
                 if str(kind).strip()
             }
-            print(
-                json.dumps(
-                    {"backchannel": "ws", "mode": mode, "url": sit_url, "desk": who},
-                    default=str,
-                ),
-                flush=True,
-            )
+            # Card 1030: connect-wait keeps stdout to one final result line.
+            if not skip_first_sync:
+                print(
+                    json.dumps(
+                        {"backchannel": "ws", "mode": mode, "url": sit_url, "desk": who},
+                        default=str,
+                    ),
+                    flush=True,
+                )
             _bc_log(f"ws {mode} sit desk={who} url={sit_url}")
+            first_sync_seen = False
             deadline = None
             if timeout_s is not None and float(timeout_s) > 0:
                 deadline = asyncio.get_event_loop().time() + float(timeout_s)
@@ -1632,6 +1648,15 @@ def wait_one_hint(
                 if kind == "sync":
                     items = msg.get("sync")
                     queued = items if isinstance(items, list) else []
+                    # Card 1030: on the first sync, only genuine push_queue work
+                    # (undelivered + time) ends the wait. Mailbox-only resurfacing
+                    # from card 949 has no time and must not; hold for a live HINT.
+                    if skip_first_sync and not first_sync_seen:
+                        first_sync_seen = True
+                        if not any(
+                            _undelivered(it) and _push_queued(it) for it in queued
+                        ):
+                            continue
                     # Whole list is the queue. Do not drop a missed DOING inside it.
                     # An item a sitting connect of this desk already got (outcome
                     # sent) does not end the wait; an undelivered one does (#328).
