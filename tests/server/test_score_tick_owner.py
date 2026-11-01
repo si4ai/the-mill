@@ -22,7 +22,10 @@ def test_office_kpis_use_admin_upsert_desk_kpis_use_desk():
         "agent_coord.server.records.score.upsert",
         side_effect=lambda _c, roster, desk, kpi, *a: desk_calls.append((roster, desk, kpi)) or [{"id": 2}],
     ), patch("agent_coord.server.records.db.call", return_value=[]):
-        out = st.publish({st.KPI_TICKS: 1, "desks": {"d1": {st.KPI_TICKS: 1}}})
+        counts = {st.KPI_TICKS: 1, st.KPI_IDLE: 0, st.KPI_DROP: 0, "desks": {"d1": {st.KPI_TICKS: 1, st.KPI_IDLE: 0, st.KPI_DROP: 0}}}
+        for k in st.HOST_KPIS:
+            counts[k] = 0
+        out = st.publish(counts)
     assert out["ok"] is True and "fallback" not in out
     assert set(st.DESK_KPIS) | set(st.HOST_KPIS) <= set(admin_calls)
     assert desk_calls and all(desk == "d1" and roster == st.ROSTER for roster, desk, _ in desk_calls)
@@ -60,7 +63,7 @@ def test_fallback_failure_does_not_commit():
     cn = MagicMock()
     cn.cursor.return_value = cur
     with pytest.raises(RuntimeError, match="book down"):
-        st._publish_sql(cn, {})
+        st._publish_sql(cn, {st.KPI_TICKS: 1, st.KPI_IDLE: 0, st.KPI_DROP: 0})
     assert not cn.commit.called
 
 

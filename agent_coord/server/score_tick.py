@@ -202,16 +202,16 @@ def count_perf(text: str, since: datetime) -> tuple[int, int]:
     return ticks, idle
 
 
-def _p95(values: list[float]) -> int:
+def _p95(values: list[float]) -> int | None:
     if not values:
-        return 0
+        return None
     xs = sorted(values)
     i = min(len(xs) - 1, max(0, int(round(0.95 * (len(xs) - 1)))))
     return int(round(xs[i]))
 
-def _p50(values: list[float]) -> int:
+def _p50(values: list[float]) -> int | None:
     if not values:
-        return 0
+        return None
     xs = sorted(values)
     i = min(len(xs) - 1, max(0, int(round(0.50 * (len(xs) - 1)))))
     return int(round(xs[i]))
@@ -230,8 +230,8 @@ _MAIL_HIT_OP = re.compile(r"\bop=mail\.hit\b")
 _WASTED_WAKE_DONE_OP = re.compile(r"\bop=wake\.done\b")
 
 
-def measure_wake_first(text: str, since: datetime) -> tuple[int, int]:
-    """p50 ms + p50 rpc from wake.first_ok stamps in window. (0,0) if none."""
+def measure_wake_first(text: str, since: datetime) -> tuple[int | None, int | None]:
+    """p50 wake.first_ok ms + rpc from stamps in window. (None, None) if none."""
     ms_vals: list[float] = []
     rpc_vals: list[float] = []
     for line in (text or "").splitlines():
@@ -255,8 +255,8 @@ def measure_wake_first(text: str, since: datetime) -> tuple[int, int]:
     return _p50(ms_vals), _p50(rpc_vals)
 
 
-def measure_wrong_retry(text: str, since: datetime) -> tuple[int, int]:
-    """p50 wrong= + p50 retry= from wake.first_ok stamps in window. (0,0) if none."""
+def measure_wrong_retry(text: str, since: datetime) -> tuple[int | None, int | None]:
+    """p50 wrong= + p50 retry= from wake.first_ok stamps in window. (None,None) if none."""
     wrong_vals: list[float] = []
     retry_vals: list[float] = []
     for line in (text or "").splitlines():
@@ -280,8 +280,8 @@ def measure_wrong_retry(text: str, since: datetime) -> tuple[int, int]:
     return _p50(wrong_vals), _p50(retry_vals)
 
 
-def measure_commands_to_done(text: str, since: datetime) -> int:
-    """p50 verbs= from card.verbs_to_done stamps in window. 0 if none."""
+def measure_commands_to_done(text: str, since: datetime) -> int | None:
+    """p50 verbs= from card.verbs_to_done stamps in window. None if none."""
     vals: list[float] = []
     for line in (text or "").splitlines():
         ts = _parse_ts(line)
@@ -388,7 +388,7 @@ def measure_mail_sor(text: str, since: datetime) -> tuple[int, int]:
                 pass
     return hits, reasks
 
-def p95_ops(text: str, since: datetime, prefixes: tuple[str, ...]) -> int:
+def p95_ops(text: str, since: datetime, prefixes: tuple[str, ...]) -> int | None:
     """p95 ms= for mill-perf lines whose op= starts with one of prefixes."""
     vals: list[float] = []
     for line in (text or "").splitlines():
@@ -470,7 +470,7 @@ def _measure_desks(dest: Path, since: datetime) -> dict[str, dict[str, int]]:
 
 def _measure_host(dest: Path, since: datetime) -> dict[str, int]:
     """Office mill-host X from dest logs. Wall SCORE Last."""
-    out = {k: 0 for k in HOST_KPIS}
+    out = {k: (None if k.endswith("_ms") else 0) for k in HOST_KPIS}
     from agent_coord.server.log_rotate import read_log_text
 
     api_text = read_log_text(dest, "mill-api.log")
@@ -706,12 +706,20 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
                 "sit FIFO overflow: mill-perf op=ws.recv drop=1 in window; target 0",
             ),
         ):
-            val = str(int(counts.get(kpi) or 0))
+            if kpi not in counts or counts.get(kpi) is None:
+                out.setdefault("omitted", []).append(kpi)
+                continue
+            raw = counts[kpi]
+            val = str(int(raw))
             rows = rec_score.admin_upsert(cn, kpi, val, TARGET, note[:200])
             out["rows"].append({"kpi": kpi, "value": val, "target": TARGET, "sql": rows})
         for kpi in HOST_KPIS:
+            if kpi not in counts or counts.get(kpi) is None:
+                out.setdefault("omitted", []).append(kpi)
+                continue
+            raw = counts[kpi]
             tgt = TARGET_MS if kpi.endswith("_ms") else ("0" if kpi in (KPI_WS_MISS, KPI_ERR_N) else "")
-            val = str(int(counts.get(kpi) or 0))
+            val = str(int(raw))
             rows = rec_score.admin_upsert(cn, kpi, val, tgt, HOST_NOTES.get(kpi, "mill-host")[:200])
             out["rows"].append({"kpi": kpi, "value": val, "target": tgt, "sql": rows})
         by_desk = counts.get("desks") or {}
@@ -725,7 +733,10 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
                 if not isinstance(kv, dict):
                     continue
                 for kpi in DESK_KPIS:
-                    val = str(int(kv.get(kpi) or 0))
+                    if kpi not in kv or kv.get(kpi) is None:
+                        out.setdefault("omitted", []).append(f"{who}:{kpi}")
+                        continue
+                    val = str(int(kv[kpi]))
                     try:
                         rows = rec_score.upsert(
                             cn, office_name(cn), who, kpi, val, TARGET, notes[kpi][:200]
@@ -790,7 +801,9 @@ def _publish_sql(cn, counts: dict[str, Any]) -> None:
     cur = cn.cursor()
     try:
         for kpi in (KPI_TICKS, KPI_IDLE, KPI_DROP):
-            val = str(int(counts.get(kpi) or 0))
+            if kpi not in counts or counts.get(kpi) is None:
+                continue
+            val = str(int(counts[kpi]))
             cur.execute(
                 "UPDATE score SET value=%s, target=%s, updated=CURRENT_TIMESTAMP(6) "
                 "WHERE kpi=%s AND roster_id=1 AND desk_id IS NULL",
