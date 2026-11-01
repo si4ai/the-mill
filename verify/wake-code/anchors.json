@@ -1,0 +1,103 @@
+{
+  "sync_note": "Anchors couple the wake code-step model to the real files. Each marker is the guard line plus its first effect line (card 1014). Line numbers are hints; the check matches the marker string and expected_count.",
+  "anchors": [
+    {
+      "id": "retry-arm-pending",
+      "path": "agent_coord/server/wake.py",
+      "marker": "if pending > 0 and _retryable(status) and str((body or {}).get(FIELD) or \"\").strip():\n        _arm_retry(",
+      "property": "RetryArmRequiresPushPending / NeverArmedWithoutPush / GuardRetryPushOnly",
+      "lines": "1170-1172"
+    },
+    {
+      "id": "queue-drained-stop",
+      "path": "agent_coord/server/wake.py",
+      "marker": "if _queue_drained(desk):\n            state[\"alive\"] = False",
+      "property": "DrainStopsWhenPushEmpty / GuardDrainStopsRetry",
+      "lines": "1018-1019"
+    },
+    {
+      "id": "trailing-unread",
+      "path": "agent_coord/server/wake.py",
+      "marker": "unread = unread_mail_frames(cn, desk)\n    except Exception:\n        unread = []\n    if not unread:",
+      "property": "TrailingFallsBackToUnread / GuardTrailingUnread",
+      "lines": "712-715"
+    },
+    {
+      "id": "sitting-check",
+      "path": "agent_coord/server/wake.py",
+      "marker": "sitting = desk_sitting(d)\n    except Exception:\n        sitting = False\n    if sitting:",
+      "property": "SittingDoneSendsNoTrailing / GuardSittingNoTrail",
+      "lines": "813-816"
+    },
+    {
+      "id": "sitting-return",
+      "path": "agent_coord/server/wake.py",
+      "marker": "if sitting:\n        _bc_log_safe(f\"webhook desk={d} wake=done sitting=yes held={held} reason=no-trailing\")\n        return \"sitting\"",
+      "property": "SittingDoneSendsNoTrailing / GuardSittingNoTrail",
+      "lines": "816-818"
+    },
+    {
+      "id": "stale-token",
+      "path": "agent_coord/server/wake.py",
+      "marker": "if token and token != _EPOCH.get(d):\n            if text and d not in _NOTE:\n                _NOTE[d] = text\n            stale = True",
+      "property": "StaleTokenEndsNothing / GuardStaleToken",
+      "lines": "788-791"
+    },
+    {
+      "id": "ring-unread",
+      "path": "agent_coord/server/push.py",
+      "marker": "unread = unread_mail_frames(cn, desk, limit=1)\n        if not unread:",
+      "property": "RingFallsBackToUnread / GuardRingUnread",
+      "lines": "270-271"
+    },
+    {
+      "id": "unread-frames-def",
+      "path": "agent_coord/server/push.py",
+      "marker": "def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:",
+      "property": "TrailingFallsBackToUnread / RingFallsBackToUnread",
+      "lines": "751"
+    },
+    {
+      "id": "desk-sitting-def",
+      "path": "agent_coord/server/push.py",
+      "marker": "def desk_sitting(desk: str) -> bool:",
+      "property": "SittingDoneSendsNoTrailing",
+      "lines": "354"
+    },
+    {
+      "id": "queue-drained-def",
+      "path": "agent_coord/server/wake.py",
+      "marker": "def _queue_drained(desk: str) -> bool:",
+      "property": "DrainStopsWhenPushEmpty",
+      "lines": "971"
+    },
+    {
+      "id": "arm-retry-def",
+      "path": "agent_coord/server/wake.py",
+      "marker": "def _arm_retry(",
+      "property": "retry chain off the request (card 827)",
+      "lines": "989"
+    },
+    {
+      "id": "trailing-def",
+      "path": "agent_coord/server/wake.py",
+      "marker": "def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:",
+      "property": "TrailingFallsBackToUnread",
+      "lines": "695"
+    },
+    {
+      "id": "lease-done-def",
+      "path": "agent_coord/server/wake.py",
+      "marker": "def lease_done(cn, desk: str, note: str = \"\", lease: str = \"\") -> str:",
+      "property": "lease_done (F144 / #322)",
+      "lines": "770"
+    },
+    {
+      "id": "ring-waiting-def",
+      "path": "agent_coord/server/push.py",
+      "marker": "def ring_waiting(cn, desk: str, why: str) -> str:",
+      "property": "RingFallsBackToUnread",
+      "lines": "251"
+    }
+  ]
+}
