@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 979 / F-rooms-live-ws: mill rooms works on live /ws (drop _require_live_ws from _h_rooms)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 943: per-desk GitHub apps (needs human app create/install)
 

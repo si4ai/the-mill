@@ -3929,7 +3929,9 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.admin.guard import require_admin
     from agent_coord.server.records import tree as rec_tree
 
-    _require_live_ws(owner)
+    # HTTP desk-acting cut lives in dispatch() only. Do not call
+    # _require_live_ws here: that helper always raises, and dispatch_ws
+    # would refuse mill rooms on a live connect (card 979).
     include_hidden = bool(body.get("all"))
     if include_hidden:
         require_admin(c._cn, owner or "")
