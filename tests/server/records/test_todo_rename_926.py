@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 
 import mysql.connector
 import pytest
@@ -10,46 +9,10 @@ import pytest
 pytestmark = pytest.mark.sql
 
 from agent_coord.helpers.errors import CoordError
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs, call, scalar_done
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_todo_rename_926")
-
-
-def _cn():
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    import agent_coord.server.records.db as db
-
-    db._POOL = None
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _seat(cn, name: str) -> str:
     from agent_coord.client.tokens import token_hash
@@ -58,7 +21,6 @@ def _seat(cn, name: str) -> str:
     rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
     return name
 
-
 def _mk_card(cn, roster: str, asker: str, need: str, detail: str = "d") -> int:
     rec_name.get_or_insert(cn, roster, "roster")
     rec_member.put(cn, roster, asker)
@@ -66,7 +28,6 @@ def _mk_card(cn, roster: str, asker: str, need: str, detail: str = "d") -> int:
         cn, roster, asker, "open", json.dumps({"slug": need, "detail": detail})
     )
     return int(rows[0]["id"])
-
 
 def test_rename_updates_slug_keeps_id_and_old_resolves(cn) -> None:
     asker = _seat(cn, "d926a")
@@ -83,7 +44,6 @@ def test_rename_updates_slug_keeps_id_and_old_resolves(cn) -> None:
     assert fields["need_id"] == "new-need-a"
     assert "old-need-a" in fields["aliases"]
 
-
 def test_create_refuses_old_need(cn) -> None:
     asker = _seat(cn, "d926b")
     tid = _mk_card(cn, "r926b", asker, "old-need-b")
@@ -91,7 +51,6 @@ def test_create_refuses_old_need(cn) -> None:
     # create path uses find(); a hit means refuse
     assert rec_todo.find(cn, "r926b", "old-need-b") is not None
     assert int(rec_todo.find(cn, "r926b", "old-need-b")["id"]) == tid
-
 
 def test_one_timeline_row_with_old_new_who_why(cn) -> None:
     asker = _seat(cn, "d926c")
@@ -130,7 +89,6 @@ def test_one_timeline_row_with_old_new_who_why(cn) -> None:
     )
     assert act == "rename"
 
-
 def test_second_rename_keeps_prior_aliases(cn) -> None:
     asker = _seat(cn, "d926d")
     tid = _mk_card(cn, "r926d", asker, "need-v1")
@@ -145,7 +103,6 @@ def test_second_rename_keeps_prior_aliases(cn) -> None:
     assert fields["was"] == "need-v2"
     assert "need-v1" in fields["aliases"]
 
-
 def test_was_on_unpack(cn) -> None:
     asker = _seat(cn, "d926e")
     tid = _mk_card(cn, "r926e", asker, "old-need-e")
@@ -153,7 +110,6 @@ def test_was_on_unpack(cn) -> None:
     hit = rec_todo.find(cn, "r926e", "new-need-e")
     fields = rec_todo.unpack(hit["body"], tid)
     assert fields["was"] == "old-need-e"
-
 
 def test_rename_onto_taken_need_refused(cn) -> None:
     asker = _seat(cn, "d926f")

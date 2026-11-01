@@ -70,7 +70,8 @@ def _rows(cn, sql, args=()):
         cur.close()
 
 
-pytestmark = pytest.mark.sql
+# fresh_schema: asserts invariants on a beta book schema
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 
 def test_no_name_string_outside_name(book):

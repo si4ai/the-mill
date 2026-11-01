@@ -4,54 +4,17 @@ Use cases: USECASES.md Watchers chart.
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records import watcher as rec_w
 from tests.server.records.conftest import seed_names
 
-from tests.sql_isolate import throwaway_db
 from tests.server.records.conftest import admin_desk
-
-TEST_DB = throwaway_db("mill_records_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def _types(cn) -> set[str]:
     cur = cn.cursor()
@@ -61,15 +24,12 @@ def _types(cn) -> set[str]:
     finally:
         cur.close()
 
-
 def _members(cn, slot: str, kind: str = "") -> set[int]:
     return {int(r["desk_id"]) for r in rec_member.select(cn, slot, kind=kind)}
-
 
 def _reject_name(cn, nid: int) -> None:
     with pytest.raises(Exception):
         rec_w.select(cn, "name", int(nid))
-
 
 def test_w2_join_does_not_watch_the_name(cn) -> None:
     """Join and leave a project change membership only. No name watcher."""
@@ -91,7 +51,6 @@ def test_w2_join_does_not_watch_the_name(cn) -> None:
     assert "name" not in _types(cn)
     _reject_name(cn, gid)
 
-
 def test_w2_office_join_does_not_watch_the_name(cn) -> None:
     """Office membership does not plant a name watcher."""
     seed_names(cn, ("carol", "desk"))
@@ -100,7 +59,6 @@ def test_w2_office_join_does_not_watch_the_name(cn) -> None:
     assert carol in _members(cn, "Office")
     assert "name" not in _types(cn)
     _reject_name(cn, 1)
-
 
 def test_w1_rename_keeps_the_name_id(cn) -> None:
     """Rename keeps the name id. It does not create a name watcher."""
@@ -114,7 +72,6 @@ def test_w1_rename_keeps_the_name_id(cn) -> None:
     assert dave in _members(cn, "renamed")
     assert "name" not in _types(cn)
     _reject_name(cn, gid)
-
 
 def test_w4_todo_roster_members_watch(cn) -> None:
     """Todo watches the acting desk. Another project member is not a watcher."""
@@ -132,7 +89,6 @@ def test_w4_todo_roster_members_watch(cn) -> None:
     assert alice in desks
     assert eve not in desks
 
-
 def test_w8_score_roster_members_watch(cn) -> None:
     """Score watches the acting desk. Another project member is not a watcher."""
     seed_names(cn, ("alice", "desk"), ("eve", "desk"))
@@ -149,7 +105,6 @@ def test_w8_score_roster_members_watch(cn) -> None:
     desks = {int(r["desk_id"]) for r in rec_w.select(cn, "score", sid)}
     assert alice in desks
     assert eve not in desks
-
 
 def test_w2_role_join_does_not_watch_the_name(cn) -> None:
     """Role membership is a member row, not a watcher on that name id."""

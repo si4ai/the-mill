@@ -2,8 +2,6 @@
 """Backchannel sequence: write -> activity+watchers -> WS hint -> catch-up."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
@@ -11,37 +9,9 @@ from fastapi.testclient import TestClient
 
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.lib.observe import parse_roots
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import activity, join as here, mail, todo, watcher as watchers
 from agent_coord.server.asgi import make_asgi_app
 from agent_coord.server.push import HUB, fanout
-
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_backchannel_ws")
-
-
-@pytest.fixture
-def cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
-    yield c
-    c.close()
-
 
 def test_sequence_write_watchers_ws_hint_catchup(cn) -> None:
     """Mail lands on mail_to and on an activity row. It does not plant a watcher."""
@@ -65,7 +35,6 @@ def test_sequence_write_watchers_ws_hint_catchup(cn) -> None:
     cur.close()
     assert any(r.get("type") == "mail" for r in activity.select(cn, limit=20))
 
-
 def test_todo_open_watchers_fanout(cn) -> None:
     """W4: mill open fills watchers; fanout TODO is the same path as MAIL."""
     p = "seq"
@@ -76,7 +45,6 @@ def test_todo_open_watchers_fanout(cn) -> None:
     watched = watchers.select(cn, "todo", tid)
     assert watched, watched
     fanout(cn, "todo", tid, "TODO")
-
 
 def test_sequence_hub_broadcast_matches_mods_hint() -> None:
     """Wire hop: Hub sends the same tiny JSON the mods sequence drew."""
@@ -111,7 +79,6 @@ def test_sequence_hub_broadcast_matches_mods_hint() -> None:
 
     asyncio.run(go())
 
-
 def test_polling_desk_mail_is_an_activity_row(cn) -> None:
     p = "seq"
     desk = "poller"
@@ -126,7 +93,6 @@ def test_polling_desk_mail_is_an_activity_row(cn) -> None:
     rows = mail.insert(cn, p, desk, desk, "self")
     assert rows and int(rows[0]["id"])
     assert any(r.get("type") == "mail" for r in activity.select(cn, limit=20))
-
 
 def test_fanout_pokes_connected_desk_even_if_polling() -> None:
     """A desk sitting on /ws gets the poke even when seat.delivery_mode is still polling."""

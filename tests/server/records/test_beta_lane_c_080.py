@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.sql
+# fresh_schema: runs lane C against a beta book, not tip
+pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
 from agent_coord.server.records import score as rec_score
 from agent_coord.server.records import watcher as rec_watcher

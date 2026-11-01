@@ -6,7 +6,6 @@ names the upgrade: not a 500, and nothing is written (no watcher, no doing row).
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -19,38 +18,11 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.lib.observe import parse_roots
 from agent_coord.server.asgi import make_asgi_app
 from agent_coord.server.push import HUB
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import join as here
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs, scalar
 
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_old_client_818")
 TOKEN = "old-client-818-token"
 UPGRADE = "pip install -U the-mill"
-
-
-@pytest.fixture
-def cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    c = connect(TEST_DB)
-    apply(c, wipe=True)
-    yield c
-    c.close()
-
 
 def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr("agent_coord.server.admin.door.mode", lambda: "path")
@@ -58,13 +30,11 @@ def _client(monkeypatch) -> TestClient:
     root = Path(__file__).resolve().parents[2]
     return TestClient(make_asgi_app(parse_roots(cwd=root), api_only=True))
 
-
 def _counts(cn) -> tuple[int, int]:
     return (
         int(scalar(cn, "SELECT COUNT(*) FROM watcher") or 0),
         int(scalar(cn, "SELECT COUNT(*) FROM doing") or 0),
     )
-
 
 # What a 0.7.15 client sends for `mill watch join ID`, `mill add join:ID`,
 # `mill unwatch join ID`, and a label or a move on a join row.
@@ -75,7 +45,6 @@ OLD_BODIES = [
     ("label-remove", {"type": "join", "label": "x"}),
     ("move", {"type": "join", "type_b": "join"}),
 ]
-
 
 @pytest.mark.parametrize("command,extra", OLD_BODIES)
 def test_old_client_join_type_over_http_is_refused_with_upgrade(cn, monkeypatch, command, extra) -> None:

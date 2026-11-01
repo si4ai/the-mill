@@ -1,52 +1,14 @@
 """Floor part fingerprints: miss -> full + fp; hit -> empty + same fp."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records.db import call, conn_kwargs as _conn_kwargs, scalar
-from agent_coord.server.records import apply, connect
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records.floor import floor, floor_scope, parse_floor_fps
 from tests.server.records.conftest import seed_names
-
-from tests.sql_isolate import throwaway_db
-
-TEST_DB = throwaway_db("mill_floor_fp_test")
-
-
-def _cn():
-    import mysql.connector
-
-    kw = _conn_kwargs()
-    kw.pop("database", None)
-    kw["autocommit"] = True
-    admin = mysql.connector.connect(**kw)
-    cur = admin.cursor()
-    cur.execute(
-        f"CREATE DATABASE IF NOT EXISTS `{TEST_DB}` "
-        "DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_0900_ai_ci"
-    )
-    cur.close()
-    admin.close()
-    os.environ["AGENT_COORD_DATABASE"] = TEST_DB
-    cn = connect(TEST_DB)
-    apply(cn, wipe=True)
-    return cn
-
-
-@pytest.fixture(scope="module")
-def cn():
-    try:
-        c = _cn()
-    except Exception as e:
-        pytest.skip(f"mysql mill records: {e}")
-    yield c
-    c.close()
-
 
 def test_parse_floor_fps_wire_and_aliases() -> None:
     got = parse_floor_fps(
@@ -62,7 +24,6 @@ def test_parse_floor_fps_wire_and_aliases() -> None:
         "todos": "0123456789abcdef",
     }
 
-
 def test_mill_fp_function(cn) -> None:
     a = scalar(cn, "SELECT mill_fp(%s)", ("hello",))
     b = scalar(cn, "SELECT mill_fp(%s)", ("hello",))
@@ -71,7 +32,6 @@ def test_mill_fp_function(cn) -> None:
     assert len(a) == 16
     assert a != c
     assert scalar(cn, "SELECT mill_fp(%s)", (None,)) == scalar(cn, "SELECT mill_fp(%s)", ("",))
-
 
 def test_floor_project_mail_trees_fp_hit_miss(cn, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_trust", lambda: "limited")
@@ -124,7 +84,6 @@ def test_floor_project_mail_trees_fp_hit_miss(cn, monkeypatch) -> None:
     assert hit2["mailbox"] == []
     assert hit2["fp"]["mail"] == miss["fp"]["mail"]
 
-
 def test_floor_scope_lan_mail_fp(cn, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_trust", lambda: "limited")
     seed_names(cn, ("fpdemo", "roster"), ("lanfp", "desk"))
@@ -154,7 +113,6 @@ def test_floor_scope_lan_mail_fp(cn, monkeypatch) -> None:
     assert hit["fp"]["mail"] == mail_fp
     assert hit["fp"]["trees"] == trees_fp
 
-
 def test_floor_scope_role_mail_and_agents(cn, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.config.mill_trust", lambda: "limited")
     seed_names(cn, ("fprole", "roster"), ("rolefp", "desk"), ("fprole", "roster"))
@@ -167,7 +125,6 @@ def test_floor_scope_role_mail_and_agents(cn, monkeypatch) -> None:
     cold = floor_scope(cn, "role", "fprole", parts=["mail", "agents"])
     assert any("role letter" in str(m.get("body") or "") for m in cold["mailbox"])
     assert any(str(a.get("owner") or "") == "rolefp" for a in cold["agents"])
-
 
 def test_mill_floor_fp_direct(cn) -> None:
     seed_names(cn, ("fpdirect", "roster"), ("x", "desk"), ("y", "desk"))
