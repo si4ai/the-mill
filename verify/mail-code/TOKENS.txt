@@ -1,0 +1,10 @@
+Card 925 mail-slice build tokens (auditor, this PR only; runs are token-free)
+
+Approximate: 40000 tokens (band 30000-50000).
+Conservative estimate from one auditor session:
+  - inventory SPIN mail.pml, pytest mail suite, activity-states M1-M9
+  - read rpc/sp_mail/sp_opened guards at ce115f8
+  - write Mail.tla + anchors + mutants + SKILL + run.sh
+  - prove model and mutants; open PR
+
+Update this file when the model or anchors are revised (maintenance tokens).
