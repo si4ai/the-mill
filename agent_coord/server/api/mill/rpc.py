@@ -3362,6 +3362,23 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 return ops.score_view_for_name(name)
             if name in (
+                "release.release_n",
+                "release.consensus_to_gos_ms",
+                "release.gos_to_tag_ms",
+                "release.tag_to_pypi_ms",
+                "release.pypi_to_live_ms",
+                "release.consensus_to_live_ms",
+                "release-n",
+                "release-consensus-to-gos",
+                "release-gos-to-tag",
+                "release-tag-to-pypi",
+                "release-pypi-to-live",
+                "release-consensus-to-live",
+            ):
+                from agent_coord.server import release_activity as ra
+
+                return ra.score_view_for_name(name)
+            if name in (
                 "connect.startup_ms",
                 "connect.session_ms",
                 "connect.drop_n",
@@ -3474,6 +3491,27 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 one = dict(one)
                 one.update(ops.score_view_for_name(name))
+            except Exception:
+                pass
+        if name in (
+                "release.release_n",
+                "release.consensus_to_gos_ms",
+                "release.gos_to_tag_ms",
+                "release.tag_to_pypi_ms",
+                "release.pypi_to_live_ms",
+                "release.consensus_to_live_ms",
+                "release-n",
+                "release-consensus-to-gos",
+                "release-gos-to-tag",
+                "release-tag-to-pypi",
+                "release-pypi-to-live",
+                "release-consensus-to-live",
+            ):
+            try:
+                from agent_coord.server import release_activity as ra
+
+                one = dict(one)
+                one.update(ra.score_view_for_name(name))
             except Exception:
                 pass
         if name in (
