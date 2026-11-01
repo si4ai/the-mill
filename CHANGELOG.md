@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 982 / F-open-cards-queue-score: todo FEATURE transitions (T1-T12) + mill score open/claimed ages and open->claimed->shipped->done median+worst (fixtures excluded; empty omitted; no DDL)
 - card 981 / F-hold-activity-score: hold FEATURE transitions (H1-H9) + mill score wait/held median+worst, contention, force-taken, expired (empty omitted; no DDL)
 - card 980 / F-mail-activity-score: mail feature transitions + score views (send-to-wake / wake-to-answer / re-rings / never-answered; empty omitted)
 - card 1021 / F-score-read-only: desk score VALUE/define/retire refused (message names mill score read verb); server tick writes; note limit on point_add
