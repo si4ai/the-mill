@@ -23,11 +23,14 @@ Contributors append to the log during every optimization loop.
    rows examined far above rows sent. If the planner picks a bad plan, change
    the query shape (for example a derived table that drives from the index)
    rather than wrapping it in more code.
-7. Measure before and after on a throwaway copy of the book, with the same
-   data and at least 20 runs, and diff the command output so the result stays
-   identical. Drop any trial index when the test ends. This is a timing
-   measurement; the SQL A/B in [HOST.md](../install/HOST.md#stored-procedures)
-   gates the live apply, not the writing (CI `pytest_sql` covers that).
+7. Timing numbers have two jobs. A verdict on a timing claim needs at least
+   3 runs, reporting the median, the spread, and the named limiter. A
+   checked-in baseline is built from 20 runs on a throwaway copy of the book
+   with the same data; it informs, and it is not a pass/fail gate unless a
+   card makes it one. Diff the command output so the result stays identical,
+   and drop any trial index when the test ends. The SQL A/B in
+   [HOST.md](../install/HOST.md#stored-procedures) gates the live apply, not
+   the writing (CI `pytest_sql` covers that).
 
 ## Examples log
 
@@ -60,7 +63,7 @@ Entry format:
 - Fix: one tree read per request; EXISTS for participant and admin checks;
   visibility from (mail id, sender id, recipient id) without names or bodies;
   bodies only for the returned ids
-- Status: fixed in 0.7.4 (!78). One tree read per request, participant and admin
+- Status: fixed in 0.7.4. One tree read per request, participant and admin
   checks as EXISTS, names-only cast. Measured on the copy, client median, 719-letter
   room: room read 200 -> 48 ms, outsider refusal 32 -> 8.5 ms, admin read 137 -> 31 ms
 
@@ -75,7 +78,7 @@ Entry format:
   `SELECT ... FROM (SELECT id, receipt FROM mail_to WHERE type='mail' AND
   desk_id=? AND opened IS NULL ORDER BY id DESC LIMIT ?) t JOIN mail m ...`.
   A flat join let the planner start from mail and cost 3.1 ms
-- Status: fixed in 0.7.4 (!79). mill_mail_inbox pages unread from
+- Status: fixed in 0.7.4. mill_mail_inbox pages unread from
   `idx_desk_unread (desk_id, opened, id)`; `--all` keeps its newest-100 order and
   unread keeps oldest-first (the audit's `--all` note was wrong; unchanged). 0.7.17 (card 846): unread is newest-first too, a backward scan of the same index.
   Measured on the copy, client median: desk with nothing unread 15.4 -> 1.2 ms,
@@ -92,7 +95,7 @@ Entry format:
   After: 1.5 ms with `status <> 'done'` (existing index), 0.5 ms for an id peek, one call
 - Fix: SP parameters for hide-done, id, need and find text, fixture rosters
   excluded in SQL; `--all` is one call with an empty roster
-- Status: fixed in 0.7.4 (!81) for done and id: mill_todo_page drops done cards and
+- Status: fixed in 0.7.4 for done and id: mill_todo_page drops done cards and
   reads one card in SQL; `--all` sends every roster in one call (up to 200 rosters
   per call). The client reads only that `{cards}` answer: the per-roster loop for
   an older wall was removed in 0.7.5. Need-name and find text still match in
@@ -105,7 +108,7 @@ Entry format:
 - Rows: up to 70 seats with recent-activity JSON -> 1 timestamp per recipient
 - Before: 2.9 to 3.4 ms. After: under 0.05 ms
 - Fix: `SELECT desk_id, updated FROM join WHERE desk_id IN (...)`
-- Status: fixed in 0.7.4 (!82). One seat read by desk id for the whole dest list
+- Status: fixed in 0.7.4. One seat read by desk id for the whole dest list
   (member join when a project is named). Measured on the copy, client median:
   send to one desk 4.4 -> 1.1 ms, desk outside the project 5.4 -> 1.4 ms; a
   24-desk reply-all 10.8 -> 9.6 ms (now the per-desk name lookups)
@@ -118,7 +121,7 @@ Entry format:
 - Rows: 18 -> 0 to 2 (one desk, one resource, or held rows only)
 - Before: 0.32 ms plus label subqueries. After: 0.03 to 0.05 ms
 - Fix: `WHERE h.desk_id = ?`, `WHERE h.resource_id = ?`, `WHERE h.desk_id IS NOT NULL`
-- Status: fixed in 0.7.4 (!82). hold own, peek, drop, the held list and floor holds
+- Status: fixed in 0.7.4. hold own, peek, drop, the held list and floor holds
   read by WHERE; exact name compare kept. At 18 rows: 0.8-1.1 -> 0.5-0.7 ms client.
   With 2,018 hold rows: own and peek 10-15 -> about 0.9 ms
 
@@ -130,7 +133,7 @@ Entry format:
 - Before: 0.19 ms plus about 4 ms client. After: 0.028 ms
 - Fix: `SELECT 1 FROM name WHERE type='roster' AND name=? AND deleted IS NULL`;
   list rosters only to build the refusal text
-- Status: fixed in 0.7.4 (!82) for the rpc checks: one idx_type lookup on the
+- Status: fixed in 0.7.4 for the rpc checks: one idx_type lookup on the
   happy path, rosters-only list for the refusal and `project`. Project check
   1.3 -> 0.3 ms, `project` command 2.2 -> 0.7 ms. The floor id-to-name maps still
   load the catalog (open)
@@ -145,7 +148,7 @@ Entry format:
 - Fix: `SELECT ... FROM activity WHERE type=? AND id=?`. An index on
   `activity(updated)` was tried and not used by the planner; activity is the
   hottest write table, so no index
-- Status: fixed in 0.7.4 (!75). mill_activity_get, a const primary-key read:
+- Status: fixed in 0.7.4. mill_activity_get, a const primary-key read:
   1.27 -> 0.24 ms server, 1.67 -> 0.50 ms client; finds the 293 of 300 sampled
   activities the newest-40 scan missed
 
@@ -173,7 +176,7 @@ Entry format:
 - Before: 84 ms. After: one tree read 0.86 ms plus a stack walk in code
 - Fix: read the room once ordered by lft and derive root and parent per node;
   no index makes the range join linear
-- Status: partly fixed in 0.7.4 (!78): mail-thread derives crumbs from its one
+- Status: partly fixed in 0.7.4: mail-thread derives crumbs from its one
   tree read. Inbox and other batch callers still use the join
 
 ### 11. Push requeue filters JSON on every queued row
@@ -211,7 +214,7 @@ Entry format:
   only the caller's rows
 - Fix: `mill_push_expire` drops rows past 30 days for every desk; the Wall runs
   it at start and every 12 hours (regression row F17)
-- Status: fixed in 0.7.4 (!74)
+- Status: fixed in 0.7.4
 
 ### 15. Command reply waited on the score write; callproc cost extra round trips
 - Pattern: 3, 4
@@ -224,7 +227,7 @@ Entry format:
 - Fix: park the score on the 1 s flusher and write batches on one connection;
   `call()` issues one CALL statement (no procedure has OUT parameters)
   (regression row F24)
-- Status: fixed in 0.7.4 (!84)
+- Status: fixed in 0.7.4
 
 ### 16. The office host ran the book on the pure-Python driver
 - Pattern: driver, not SQL

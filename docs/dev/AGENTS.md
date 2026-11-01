@@ -2,10 +2,8 @@
 
 **Who:** people changing the-mill git (pack, mill-wall, prompts SoT). **Not** for customer office desks - those use [JOIN.md](../JOIN.md) + [skill.md](../protocol/skill.md).
 
-Idle while dogfooding: [JOIN.md](../JOIN.md) (Connect, then commands): `mill connect-wait DESK` blocks until the next hint; a background connect with `mill route` answers while the chat stays free. Commands: [commands.md](../protocol/commands.md). SoT: [tables.sql](../../agent_coord/server/sql/tables.sql) + skill.md.
+Idle while dogfooding and desk speech: [skill.md](../protocol/skill.md) (with [JOIN.md](../JOIN.md) and [commands.md](../protocol/commands.md)). SoT: [tables.sql](../../agent_coord/server/sql/tables.sql) + skill.md.
 
-- mill hold before write; mill drop after. Other desk hold -> refuse.
-- `mill send desk NAME --body-file PATH` (or `--to-desk DESK`); `mill reply MAIL_ID --body-file PATH` answers in the thread. mill-wall 500 -> mail the Admin roster. SCORE is `mill score`.
 - **Running the mill from a git checkout (contributors testing unreleased code):** `PYTHONPATH=<the-mill>` then `python -m agent_coord connect`. Desks and offices on the pip pack run `mill` with `PYTHONPATH` unset, so the installed pack is what runs. Check that `mill -V` matches the current pack.
 - Pack / PyPI / mill update: [BUILD.md](BUILD.md).
 
