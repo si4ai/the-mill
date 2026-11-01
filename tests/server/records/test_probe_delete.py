@@ -347,6 +347,11 @@ def test_probe_tool_run_exits_0(cn, capsys) -> None:
     def call(body):
         command = body["verb"]
         project = str(body.get("project") or FIX)
+        # Card 1021: desk score VALUE is refused; seed fixture points via records.
+        if command == "score" and body.get("value") is not None and str(body.get("value")).strip() != "":
+            rows = score.point_add(cn, project, "pd_me", str(body.get("name") or body.get("kpi")), float(body["value"]))
+            cn.commit()
+            return {"ok": True, "result": rows[0] if rows else {}}
         result = rpc.HANDLERS[command](_Book(cn), body, project, "pd_me")
         return {"ok": True, "result": result}
 
