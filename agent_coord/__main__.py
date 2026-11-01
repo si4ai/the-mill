@@ -1840,7 +1840,7 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
                 try:
                     path = rm_route(owner, key)
                 except KeyError:
-                    _print_err({"ok": False, "error": f"no route {key!r}", "desk": owner})
+                    _print_err({"ok": False, "error": f"no route {key!r}; list routes: mill route list", "desk": owner})
                     return 1
                 _print({"ok": True, "desk": owner, "removed": key, "path": str(path)})
                 return 0

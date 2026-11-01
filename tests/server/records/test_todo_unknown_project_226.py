@@ -19,7 +19,8 @@ class _Book:
 def test_unknown_project_is_refused(cn) -> None:
     with pytest.raises(CoordError) as ei:
         rpc._h_todo(_Book(cn), {}, "f18-no-such-project", "f18-desk")
-    assert "unknown project" in str(ei.value)
+    assert "unknown roster" in str(ei.value)
+    assert "mill member" in str(ei.value)
     assert "f18-no-such-project" in str(ei.value)
 
 

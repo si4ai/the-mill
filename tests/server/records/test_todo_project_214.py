@@ -26,7 +26,7 @@ def test_create_todo_requires_an_existing_project(cn) -> None:
     assert int(made["id"]) > 0
     assert rec_todo.find(cn, "unit", "stays") is not None
 
-    with pytest.raises(CoordError, match="no project nosuch"):
+    with pytest.raises(CoordError, match="no roster nosuch"):
         rpc._h_open(book, {"need": "lost"}, "nosuch", "a")
     assert rec_name.get(cn, "nosuch", "roster") is None
     assert rec_todo.find(cn, "nosuch", "lost") is None

@@ -310,9 +310,9 @@ def test_mail_thread_help_names_branch_and_room(capsys):
     "cmd,extra,match",
     [
         ("create", {"project": "", "need": "n"}, "project required"),
-        ("create", {"project": "p" * 65, "need": "n"}, "no such project"),
+        ("create", {"project": "p" * 65, "need": "n"}, "no such roster"),
         ("create", {"project": "p", "need": "n", "doing": "d" * 513}, "--doing must be"),
-        ("todo", {"project": "p" * 65}, "no such project"),
+        ("todo", {"project": "p" * 65}, "no such roster"),
     ],
 )
 def test_todo_project_and_doing_guard_243(monkeypatch, tmp_path, cmd, extra, match):

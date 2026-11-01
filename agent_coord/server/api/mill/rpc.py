@@ -67,6 +67,13 @@ def _project_alias(cn, project: str) -> str:
     return project
 
 
+def _next(text: str, step: str) -> str:
+    """Card 735: a not-found line names the command that lists the valid names."""
+    from agent_coord.helpers.next_cmd import with_next
+
+    return with_next(text, step)
+
+
 def _require_live_project(cn, project: str, command: str) -> str:
     """Refuse an unknown, retired, or empty project before any write (#237)."""
     from agent_coord.helpers.projects import project_refusal
@@ -598,7 +605,7 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
 
         known = rec_name.get(c._cn, who_proj, CONST_ROSTER) is not None
         if not known:
-            raise CoordError("todo: unknown project %s" % who_proj)
+            raise CoordError(_next("todo: unknown roster %s" % who_proj, "list them: mill member"))
     if not id_hit:
         rows = _visible(rows)
     for r in rows:
@@ -632,10 +639,10 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             hint = _todo_miss_hint(c, project, number, with_done, want_st, show_fix)
             if not hint:
                 hint = _deleted_hint(c, number)
-            raise CoordError("todo: no card %s in %s%s" % (number, project, hint))
+            raise CoordError(_next("todo: no card %s in %s%s" % (number, project, hint), "find it: mill todo --all --find %s" % number))
         if number is not None:
-            raise CoordError("todo: no card %s in %s" % (number, project))
-        raise CoordError("todo: no card %s in %s" % (raw_need, project))
+            raise CoordError(_next("todo: no card %s in %s" % (number, project), "find it: mill todo --all --find %s" % number))
+        raise CoordError(_next("todo: no card %s in %s" % (raw_need, project), "find it: mill todo --all --find %s" % raw_need))
     if _truthy(body.get("mine")) and not raw_need:
         out = _mine_cards(out, owner)
     return out
@@ -1268,7 +1275,7 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
         raise CoordError("rename: mill rename todo ROSTER OLD NEW [--why TEXT]")
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     who = _stored(owner or "")
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
@@ -1372,7 +1379,7 @@ def _todo_retire_one(c: Book, raw_need: str, project: str, owner: str | None, *,
     if hit is None:
         if back and rec_todo.find(c._cn, project, need) is not None:
             raise CoordError(f"{word} todo: {need} is not retired")
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     who = _stored(owner or "")
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
@@ -1861,7 +1868,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if not parent_letter:
         parent_rows = rec_mail.get(c._cn, mail_id)
         if not parent_rows:
-            raise CoordError(f"reply: no such mail {mail_id}")
+            raise CoordError(_next(f"reply: no such mail {mail_id}", f"mill trail mail:{mail_id}"))
         parent_letter = parent_rows[0]
 
     # #672 S-3: nothing is private between desks in an office, so any seated desk
@@ -2171,7 +2178,7 @@ def _h_mail_thread(c: Book, body: dict[str, Any], project: str, owner: str | Non
     mid, by_name = _mail_thread_resolve(c, body)
     rows = rec_mail.get(c._cn, mid)
     if not rows:
-        raise CoordError(f"mail-thread: no such mail {mid}")
+        raise CoordError(_next(f"mail-thread: no such mail {mid}", f"mill trail mail:{mid}"))
 
     after_raw = body.get("after", body.get("after_id", 0))
     if after_raw is None or after_raw == "":
@@ -2318,7 +2325,7 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     desk = _stored(str(body.get("desk") or body.get("dst") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     _card_moves(c, hit, "assign", project, need)
     current = _desk_slug(c._cn, hit, "volunteer", "assigned")
     if current and current != "-":
@@ -2421,7 +2428,7 @@ def _card_hit(c: Book, project: str, need: str) -> dict[str, Any]:
 
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     return hit
 
 
@@ -2534,7 +2541,7 @@ def _require_project(cn, project: str) -> None:
         if root is not None and str(root.get("type") or "") == CONST_MAIL:
             kind = "room"
         raise CoordError("todo: %s is a %s, not a roster" % (who, kind))
-    raise CoordError("todo: no project %s" % who)
+    raise CoordError(_next("todo: no roster %s" % who, "list them: mill member"))
 
 
 def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -2562,7 +2569,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     else:
         st = rec_todo.normalize_status(str(raw_status), default="")
         if st not in ("parked", "open"):
-            raise CoordError("status must be parked or open")
+            raise CoordError(_next("status must be parked or open", "use --status parked or --status open"))
     body_s = json.dumps({"slug": need, "detail": detail})
     if len(body_s) > rec_todo.BODY_MAX:
         # #292: a long detail is refused, never cut to its tail.
@@ -2618,7 +2625,7 @@ def _h_unpark(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if not hit:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     tid = int(hit["id"])
     parent_t = str(body.get("parent_type") or body.get("type_a") or "").strip().lower()
     parent_id = int(body.get("parent_id") or body.get("id_a") or 0)
@@ -2787,7 +2794,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     if "done_when" in body:
         return _done_when(c, int(hit["id"]), project, need, body.get("done_when"), owner)
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
@@ -2980,7 +2987,7 @@ def _hold_list(c: Book, project: str) -> Any:
 
     who = _stored(project)
     if not who or rec_name.get(c._cn, who, CONST_ROSTER) is None:
-        raise CoordError("hold: unknown project %s" % (who or "(empty)"))
+        raise CoordError(_next("hold: unknown roster %s" % (who or "(empty)"), "list them: mill member"))
     holds = []
     for rec in rec_hold.find(c._cn, held=True) or []:
         desk = _stored(str(rec.get("desk") or ""))
@@ -3466,7 +3473,7 @@ def _add_remove(c: Book, body: dict[str, Any], owner: str | None) -> Any:
 
     if scalar(c._cn, "SELECT 1 FROM watcher WHERE type = %s AND id = %s AND desk_id = %s",
               (typ, nid, who_id)) is None:
-        raise CoordError(f"remove: {who} is not watching {typ}:{nid}")
+        raise CoordError(_next(f"remove: {who} is not watching {typ}:{nid}", f"see watchers: mill trail {typ}:{nid}"))
     rec_w.delete(c._cn, typ, nid, who_id)
     out["removed"] = 1
     return out
@@ -3600,7 +3607,8 @@ def _trail_target(c: Book, body: dict[str, Any]) -> tuple[str, int]:
 
     if kind:
         if not _exists(kind):
-            raise CoordError(f"trail: no such {kind} {nid}")
+            step = "mill inbox" if kind == "mail" else "mill todo --all --find %s" % nid
+            raise CoordError(_next(f"trail: no such {kind} {nid}", step))
         return kind, nid
     is_mail, is_todo = _exists("mail"), _exists("todo")
     if is_mail and is_todo:
@@ -3609,7 +3617,7 @@ def _trail_target(c: Book, body: dict[str, Any]) -> tuple[str, int]:
         return "mail", nid
     if is_todo:
         return "todo", nid
-    raise CoordError(f"trail: no mail or todo {nid}")
+    raise CoordError(_next(f"trail: no mail or todo {nid}", "mill inbox"))
 
 
 def _label_created(value: Any) -> str:
@@ -3828,7 +3836,7 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     who = _stored(owner)
     for mid in ids:
         if not rec_mail.get(c._cn, mid):
-            raise CoordError("mark: no such mail %s" % mid)
+            raise CoordError(_next("mark: no such mail %s" % mid, "mill trail mail:%s" % mid))
         dests = rec_mail.to_list(c._cn, mid)
         if who not in {_stored(row.get("desk") or "") for row in dests}:
             raise CoordError("mark: mail %s is not in this desk's mailbox" % mid)
