@@ -5,8 +5,10 @@ Complements F90 (docs). Walks agent_coord/**/*.py and extracts:
   - every backticked `mill ...` in a string or docstring
   - every string (or line of a multi-line string) that starts with `mill` and
     names a command (real, retired, or unknown) with at least one `--flag`
-    (a taught argv), or the short `mill <cmd>:` stderr shape agents copy
+    (a taught argv), the short `mill <cmd>:` stderr shape agents copy, or a
+    bare unknown verb `mill <cmd>` (exactly two tokens) or a short retired verb
   - mid-string hints after `Next:` or `run:` that name a `mill ...` form
+    (including bare unknown verbs)
 
 Each form is checked with the same parser rules as tools/check_doc_commands.py.
 A line can opt out with the marker `code-commands: skip` on that line or the
@@ -74,6 +76,10 @@ def _is_taught_line(form: str, commands: dict) -> bool:
         return True
     # Bare `mill leftover` / short retired title still teach a gone name.
     if cmd in cdc.GONE_COMMANDS and len(form.split()) <= 4:
+        return True
+    # Bare unknown verb only: exactly `mill <verb>` (line-start or after
+    # Next: / run:). Longer lines stay prose ("mill command required").
+    if cmd not in commands and len(form.split()) == 2:
         return True
     return False
 

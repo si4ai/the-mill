@@ -39,11 +39,12 @@ def _pool():
     schema the pool was first built for. Throwaway sql suites under xdist flip
     the env per file; Book() / bare ``connect()`` must follow that name or ws
     auth looks at an empty book (4401 bad token).
+
+    Match-and-return stays under ``_POOL_LOCK``: an unlocked hit can return a
+    pool rebuilt for another database after a concurrent env flip
+    (F-pool-follows-database).
     """
     global _POOL, _POOL_DB, _POOL_SEQ
-    want = str(conn_kwargs().get("database") or "")
-    if _POOL is not None and _POOL_DB == want:
-        return _POOL
     with _POOL_LOCK:
         want = str(conn_kwargs().get("database") or "")
         if _POOL is not None and _POOL_DB == want:

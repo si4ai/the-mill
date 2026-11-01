@@ -48,6 +48,16 @@ def test_drift_fails(text, kind):
         # Unknown command at the start of a line (not only known/gone names).
         ("mill roster NAME NAME --yes", "unknown-command"),
         ("mill spend --source grok --tokens N", "unknown-command"),
+        # Bare unknown verbs (no --flags): line-start and after Next: / run:.
+        ("mill plumrot", "unknown-command"),
+        (
+            "join failed: bad CA. Next: mill snorfle",
+            "unknown-command",
+        ),
+        (
+            "book SQL is not this pack's; run: mill wibble",
+            "unknown-command",
+        ),
         # Mid-string hints after Next: / run: must be extracted and checked.
         (
             "join failed: bad CA. Next: mill roster NAME NAME --yes",
