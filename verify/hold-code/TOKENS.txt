@@ -1,0 +1,11 @@
+Card 925 hold-slice build tokens (auditor, this PR only; runs are token-free)
+
+Approximate: 48000 tokens (band 40000-55000).
+Exact provider count was not available to the auditor turn; this is a
+conservative estimate from the work done in one auditor session:
+  - inventory SPIN holds.pml H01-H13, pytest hold suite, and CI (orthogonality)
+  - read sp_hold.sql / hold.py guards at ce115f8 and the wake/mail verify packages
+  - write Hold.tla + anchors + mutants + known/no_ttl + SKILL + run.sh
+  - prove model, mutants and known finding
+
+Update this file when the model or anchors are revised (maintenance tokens).

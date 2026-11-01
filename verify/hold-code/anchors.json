@@ -1,0 +1,180 @@
+{
+  "sync_note": "Each marker is the real guard line plus its first effect line (card 1014 / letter 4252). expected_count defaults to 1. Auth anchors are presence-only. Caller-observed result rows (op/ok/reason) are anchored, not only guards (letter 4267). Take path effects + caller-observed ok/desk_id + drop() + release-desk UPDATE (letter 4290).",
+  "anchors": [
+    {
+      "id": "upsert-for-update",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT id, desk_id INTO v_id, v_held\n    FROM hold\n   WHERE resource_id = v_res\n   FOR UPDATE;",
+      "property": "AtMostOneHolder / seat-then-hold FOR UPDATE on resource row",
+      "lines": "56-59"
+    },
+    {
+      "id": "take-when-null",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    UPDATE hold\n       SET desk_id = v_desk, updated = v_ts\n     WHERE id = v_id AND desk_id IS NULL;\n    SET v_n = ROW_COUNT();",
+      "property": "TakeFromFreeOrRefresh / GuardTakeWhenFree (UPDATE only when free)",
+      "lines": "72-75"
+    },
+    {
+      "id": "take-refuse",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    SET v_ok = 0;\n  END IF;\n  IF @mill_req_tx IS NULL THEN COMMIT; END IF;",
+      "property": "AtMostOneHolder / refuse when another holds (code twin of no_take_free)",
+      "lines": "99-101"
+    },
+    {
+      "id": "take-insert",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    INSERT INTO hold (updated, desk_id, resource_id)\n    VALUES (v_ts, v_desk, v_res);",
+      "property": "take path: create hold row owned by actor (desk_id=v_desk)",
+      "lines": "61-62"
+    },
+    {
+      "id": "take-when-null-ok",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    IF v_n = 1 THEN\n      SET v_held = v_desk;",
+      "property": "take path: ROW_COUNT success sets holder (C4 twin)",
+      "lines": "76-77"
+    },
+    {
+      "id": "take-lost-race",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "      SET v_ok = 0;\n      SELECT desk_id INTO v_held FROM hold WHERE id = v_id;",
+      "property": "take path: lost race reports not-ok and current holder",
+      "lines": "85-86"
+    },
+    {
+      "id": "take-result",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT v_id AS id, v_ts AS updated, v_res AS resource_id,\n         IF(v_ok = 1, v_desk, v_held) AS desk_id, v_ok AS ok,",
+      "property": "caller-observed take result: desk_id and ok",
+      "lines": "103-104"
+    },
+    {
+      "id": "same-holder-refresh",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "ELSEIF v_held = v_desk THEN\n    -- Same holder again refreshes the row (#194). It does not stack a second lock and writes no move row.\n    -- Card 853: bump updated for #194, but report since as the take time (activity.updated),\n    -- so a second hold keeps since and sets refreshed true.\n    SELECT a.updated INTO v_since FROM activity a WHERE a.type = 'hold' AND a.id = v_id;",
+      "property": "same holder refreshes (#194)",
+      "lines": "88-92"
+    },
+    {
+      "id": "own-drop-owner",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "SET desk_id = NULL, updated = v_ts\n   WHERE id = p_id AND desk_id = v_desk;",
+      "property": "OnlyOwnerDropReleases / DropFreesRow / GuardOwnDropOnly / GuardDropClears",
+      "lines": "136-137"
+    },
+    {
+      "id": "release-desk",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  UPDATE hold SET desk_id = NULL, updated = p_ts WHERE desk_id = p_desk;\n  SET p_n = ROW_COUNT();",
+      "property": "reset/retire frees desk holds (card 842): UPDATE clears desk_id",
+      "lines": "170-171"
+    },
+    {
+      "id": "release-other",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "CREATE PROCEDURE mill_hold_release_other(",
+      "property": "Admin/stale drop of another's hold (card 931 / F223)",
+      "lines": "180"
+    },
+    {
+      "id": "expect-resolve",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "SET v_expect = MILL_NAME_GET('desk', p_expect);\n  IF v_expect IS NULL THEN",
+      "property": "expect desk resolved before release-other (blocks B5c class)",
+      "lines": "207-208"
+    },
+    {
+      "id": "already-free",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "IF v_holder IS NULL THEN\n    -- Freed between the Python read and this call: not held, so not 'kept'.\n    SET v_gone = 0;\n    SET v_reason = 'already free';",
+      "property": "AlreadyFreeHonest / GuardAlreadyFree",
+      "lines": "218-221"
+    },
+    {
+      "id": "holder-changed",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "ELSEIF v_holder <> v_expect THEN\n    -- Holder changed since the Python check: refuse (do not drop the new holder).\n    SET v_gone = 0;\n    SET v_reason = 'holder changed';",
+      "property": "ExpectGuardHolds",
+      "lines": "225-228"
+    },
+    {
+      "id": "expect-guard",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "SET desk_id = NULL, updated = v_ts\n     WHERE id = p_id AND desk_id = v_expect;",
+      "property": "ExpectGuardHolds / DropFreesRow / GuardExpectHolder / GuardDropClears",
+      "lines": "231-232"
+    },
+    {
+      "id": "delete-gone-rowcount",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SET v_gone = ROW_COUNT();\n  IF v_gone = 1 THEN",
+      "property": "caller-observed: mill_hold_delete v_gone from ROW_COUNT (C5)",
+      "lines": "138-139"
+    },
+    {
+      "id": "delete-result-ok",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;",
+      "property": "caller-observed: mill_hold_delete result op/ok (C7); hold.py reads ok",
+      "lines": "146"
+    },
+    {
+      "id": "release-gone-rowcount",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    SET v_gone = ROW_COUNT();\n    IF v_gone = 1 THEN",
+      "property": "caller-observed: mill_hold_release_other v_gone from ROW_COUNT",
+      "lines": "233-234"
+    },
+    {
+      "id": "release-result-ok",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "         IF(v_gone = 1, 'released', IF(v_reason = '' OR v_reason = 'kept', 'kept', v_reason)) AS op,\n         IF(v_gone = 1, 1, 0) AS ok,\n         v_holder AS was_holder, v_reason AS reason;",
+      "property": "caller-observed: mill_hold_release_other op/ok/reason (C9); hold.py reads ok+reason",
+      "lines": "245-247"
+    },
+    {
+      "id": "drop-ok-own",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "            ok = bool(released) and int((released[0] or {}).get(\"ok\") or 0) == 1\n            if ok:",
+      "property": "caller-observed: drop() reads SP ok for own delete",
+      "lines": "265-266"
+    },
+    {
+      "id": "drop-ok-other",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "        ok = bool(released) and int((released[0] or {}).get(\"ok\") or 0) == 1\n        if ok:",
+      "property": "caller-observed: drop() reads SP ok for release_other",
+      "lines": "297-298"
+    },
+    {
+      "id": "drop-reason",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "            \"reason\": sp_reason or \"release refused\",",
+      "property": "caller-observed: drop() returns SP reason to caller",
+      "lines": "326"
+    },
+    {
+      "id": "holder-for-update-null",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT desk_id INTO v_holder FROM hold WHERE id = p_id FOR UPDATE;\n  IF v_holder IS NULL THEN",
+      "property": "release-other FOR UPDATE read then already-free gate (B5c)",
+      "lines": "217-218"
+    },
+    {
+      "id": "may-drop-other",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "if is_role_admin(cn, actor):\n        return True, \"\"",
+      "property": "Admin may drop other (F223); auth out of scope beyond presence",
+      "lines": "204-205"
+    },
+    {
+      "id": "stale-days",
+      "path": "agent_coord/server/records/hold.py",
+      "marker": "need = hold_stale_days()\n    if age is None or age < float(need):",
+      "property": "stale bound presence; auth out of scope beyond presence (B8 info-only)",
+      "lines": "217-218"
+    }
+  ]
+}
