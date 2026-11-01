@@ -1188,6 +1188,15 @@ def post_desk(
             wasted_wake.mark_lease(desk, trigger=tag_name)
         except Exception:
             pass
+        try:
+            if str(frame.get("kind") or "") == "mail" and hint_id is not None:
+                from agent_coord.server import mail_activity as ma
+
+                did = ma.desk_id_for(cn, desk) or 0
+                ma.emit_delivered(cn, mail_id=int(hint_id), desk_id=int(did))
+                ma.emit_woken(cn, mail_id=int(hint_id), desk_id=int(did))
+        except Exception:
+            pass
         return "sent"
     why = f"status={status}" if status is not None else f"err={err or 'Exception'}"
     if status is not None and err:

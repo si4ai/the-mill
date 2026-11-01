@@ -1801,6 +1801,22 @@ def _h_send(
             mill_admin_alert(c._cn, f"mail fanout: {e}", command="send")
         except Exception:
             pass
+    try:
+        from agent_coord.server import mail_activity as ma
+        from agent_coord.server.records import name as rec_name
+
+        sid = ma.desk_id_for(c._cn, src) or 0
+        rids = []
+        for dr in dest_rows or []:
+            dn = str(dr.get("desk") or dr.get("name") or dr.get("to") or "").strip()
+            if not dn:
+                continue
+            did = ma.desk_id_for(c._cn, dn)
+            if did:
+                rids.append(did)
+        ma.emit_send(c._cn, mail_id=int(mid), sender_desk_id=int(sid), recipient_desk_ids=rids)
+    except Exception:
+        pass
     return rec
 
 
@@ -2036,6 +2052,13 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         from agent_coord.server.records import opened as rec_opened
 
         rec_opened.insert(c._cn, int(mail_id), self_bare)
+        try:
+            from agent_coord.server import mail_activity as ma
+
+            did = ma.desk_id_for(c._cn, self_bare) or 0
+            ma.emit_answered(c._cn, mail_id=int(mail_id), desk_id=int(did))
+        except Exception:
+            pass
     if isinstance(rec, dict):
         rec["replied_to"] = mail_id
         if skipped:
@@ -3137,6 +3160,21 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if name:
         got = ss.shape(rec_score.points(c._cn, roster, name, max(limit, ss.TREND_POINTS)), limit)
         if not got:
+            # Card 980: mail activity views are derived from transition rows; no point series required.
+            if name in (
+                "mail.send_to_wake_ms",
+                "mail.wake_to_answer_ms",
+                "mail.re_rings_n",
+                "mail.never_answered_n",
+                "send-to-wake",
+                "wake-to-answer",
+                "re-rings",
+                "never-answered",
+            ):
+                from agent_coord.server import mail_activity as ma
+
+                did = ma.desk_id_for(c._cn, owner)
+                return ma.score_view_for_name(c._cn, name, desk_id=did)
             raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
@@ -3147,6 +3185,24 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 one = dict(one)
                 one.update(wasted_wake.score_view(owner if "office" not in name else None))
+            except Exception:
+                pass
+        if name in (
+            "mail.send_to_wake_ms",
+            "mail.wake_to_answer_ms",
+            "mail.re_rings_n",
+            "mail.never_answered_n",
+            "send-to-wake",
+            "wake-to-answer",
+            "re-rings",
+            "never-answered",
+        ):
+            try:
+                from agent_coord.server import mail_activity as ma
+
+                one = dict(one)
+                did = ma.desk_id_for(c._cn, owner)
+                one.update(ma.score_view_for_name(c._cn, name, desk_id=did))
             except Exception:
                 pass
         return one
@@ -3838,6 +3894,14 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             raise CoordError("mark: mail %s is not in this desk's mailbox" % mid)
     for mid in ids:
         rec_opened.insert(c._cn, mid, who)
+    try:
+        from agent_coord.server import mail_activity as ma
+
+        did = ma.desk_id_for(c._cn, who) or 0
+        for mid in ids:
+            ma.emit_mark(c._cn, mail_id=int(mid), desk_id=int(did))
+    except Exception:
+        pass
     return {"ok": True, "state": "handled", "ids": ids}
 
 
