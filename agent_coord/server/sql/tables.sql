@@ -8,7 +8,7 @@
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
--- id 1 = Office. id 2 = Admin. Never retire.
+-- id 0 = System (desk). id 1 = Office. id 2 = Admin. Ids 0-99 reserved for built-ins (AUTO_INCREMENT=100). Never retire.
 -- activity PK (type, id). Payload type uses this same ENUM list. Ids are per type (each payload table's AUTO_INCREMENT).
 -- activity is the timeline, not a parent: no payload (mail, todo, doing, hold, score) has an FK to it.
 -- A writer inserts the payload, takes LAST_INSERT_ID(), then writes the activity row in the same transaction.
@@ -40,9 +40,10 @@
 --   rename   a plain UPDATE of name.name; related records follow through the id. Admin at either trust; a desk
 --            may rename itself when its seat hash matches. No hold on a renamed-away name, for any type (names
 --            are agents', not humans'): the old string is free for a new mint at once.
---   seeds    Office (id 1) and Admin (id 2) are never retired or reclaimed; Admin is never renamed in any case- or
---            accent-insensitive spelling; Office may be renamed by Admin, everything follows id 1, and no other
---            roster is renamed onto Office. Guards read ids 1 and 2, never the strings.
+--   seeds    System (id 0, type desk) is the mill itself for automatic transitions; Office (id 1) and Admin
+--            (id 2) are never retired or reclaimed; Admin is never renamed in any case- or accent-insensitive
+--            spelling; Office may be renamed by Admin, everything follows id 1, and no other roster is renamed
+--            onto Office. Guards read ids 0, 1 and 2, never the strings.
 --   retire   deletion is hard to do: Admin only, soft (name.deleted); name_no_delete refuses DELETE (as on main).
 --            UNIQUE (type, name) stays held while retired, so reuse is an Admin reclaim that restores the same id,
 --            refused while a live seat is that desk or a member of that name. Retiring a desk clears its seat token
@@ -72,11 +73,18 @@ CREATE TABLE IF NOT EXISTS name (
   PRIMARY KEY (id),
   UNIQUE KEY idx_type (type, name),
   UNIQUE KEY idx_id_type (id, type)   -- 0.8.0: target of the kind-checked name FKs; UNIQUE only because MySQL 8.4 requires it (id is already the PK)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci AUTO_INCREMENT=100;
 
+-- card 1022: ids 0-99 reserved for built-ins (System 0, Office 1, Admin 2, ...).
 INSERT IGNORE INTO name (id, type, name) VALUES
   (1, 'roster', 'Office'),
   (2, 'roster', 'Admin');
+
+-- card 1022: System desk id 0 (mill-driven transitions). NO_AUTO_VALUE_ON_ZERO for this insert only.
+SET @mill_1022_old_mode := @@SESSION.sql_mode;
+SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO');
+INSERT IGNORE INTO name (id, type, name) VALUES (0, 'desk', 'System');
+SET SESSION sql_mode = @mill_1022_old_mode;
 
 -- 0.8.0 (kind tables): seat is the desk kind. seat.desk_id = name.id (UNIQUE idx_desk); every desk column FKs to
 -- seat (desk_id), not to name. Placed before the tables that reference it (main has it after todo).
@@ -110,6 +118,10 @@ CREATE TABLE IF NOT EXISTS seat (
   CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- card 1022: System seat (no token, never connects) so desk FKs hold for desk_id 0.
+INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on)
+  VALUES (0, NULL, 'polling', 'addressed');
+
 -- N-N roster membership. name_id is a roster. Self add/remove.
 -- Office: never leave. Admin: the host desk is on it.
 CREATE TABLE IF NOT EXISTS member (
@@ -125,7 +137,7 @@ CREATE TABLE IF NOT EXISTS member (
 
 -- Activity, then the rows that share its (type, id).
 CREATE TABLE IF NOT EXISTS activity (
-  type        ENUM('mail','todo','doing','hold','score') NOT NULL,
+  type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   id          BIGINT UNSIGNED       NOT NULL,
   created     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -423,6 +435,44 @@ WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop'
 
 -- One human. They hold the bearer. The host stores only the hash.
 -- directory_sub is the directory or IAM subject, when that door is on.
+-- card 1022: wake as an activity (one row per wake fired at a desk).
+CREATE TABLE IF NOT EXISTS wake (
+  id          BIGINT UNSIGNED NOT NULL,          -- = activity.id where type='wake'
+  type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL DEFAULT 'wake',
+  desk_id     BIGINT UNSIGNED NOT NULL DEFAULT 0,  -- desk being woken; 0 = System (default desk)
+  cause       ENUM('mail','hint','receipt','room','retry','test') NOT NULL,
+  cause_type  ENUM('mail','todo','doing','hold','score') NULL,   -- what rang it
+  cause_id    BIGINT UNSIGNED NULL,
+  route       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,  -- matched route key, e.g. mail:MAIL
+  state       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'queued',
+  PRIMARY KEY (id),
+  KEY idx_desk_state (desk_id, state),
+  CONSTRAINT fk_wake_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT,
+  CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- card 1022: one row per state change of one activity. desk_id DEFAULT 0 = System (the default desk).
+CREATE TABLE IF NOT EXISTS transition (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  at            DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),   -- always UTC (card 1008)
+  activity_type ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
+  activity_id   BIGINT UNSIGNED NOT NULL,
+  from_state    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+  to_state      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reason        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  desk_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,  -- who acted; 0 = System (default desk); never NULL
+  role          ENUM('sender','recipient','actor','holder','waiter','office','other') NOT NULL DEFAULT 'actor',
+  join_key      VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  meta          JSON NULL,                     -- small and capped; no text, names or hosts
+  PRIMARY KEY (id),
+  KEY idx_type_id_at   (activity_type, activity_id, at),
+  KEY idx_desk_type_at (desk_id, activity_type, at),
+  KEY idx_join         (join_key, at),
+  KEY idx_type_to_at   (activity_type, to_state, at),
+  CONSTRAINT fk_transition_activity FOREIGN KEY (activity_type, activity_id) REFERENCES activity (type, id) ON DELETE RESTRICT,
+  CONSTRAINT fk_transition_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS human (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   bearer_hash    CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,

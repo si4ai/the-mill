@@ -1077,6 +1077,7 @@ def _ensure_label_ord(cn) -> list[str]:
 
 ROSTER_070 = "migrate_070_roster.sql"
 DOING_818 = "migrate_818_doing.sql"
+TRANSITION_1022 = "migrate_1022_transition.sql"
 
 
 def roster_070_needed(cn) -> bool:
@@ -1608,6 +1609,93 @@ def _ensure_act_rename(cn) -> list[str]:
     return applied
 
 
+
+def transition_1022_needed(cn) -> bool:
+    """True when wake/transition/System from card 1022 are not yet on the book."""
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition") or not _table_exists(cur, "wake"):
+            return True
+        cur.execute(
+            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'activity' AND COLUMN_NAME = 'type'"
+        )
+        row = cur.fetchone()
+        ctype = row[0] if row else ""
+        if isinstance(ctype, (bytes, bytearray)):
+            ctype = ctype.decode("utf-8")
+        if "'wake'" not in str(ctype or ""):
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM name WHERE id = 0 AND type = 'desk' AND name = 'System'"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM seat WHERE desk_id = 0"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
+            return True
+        # desk_id on transition must be NOT NULL DEFAULT 0 (owner 2026-11-01)
+        cur.execute(
+            "SELECT IS_NULLABLE, COLUMN_DEFAULT FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'transition' AND COLUMN_NAME = 'desk_id'"
+        )
+        row = cur.fetchone()
+        if row and (str(row[0]).upper() == "YES" or str(row[1] or "") not in ("0", "0.0")):
+            return True
+        return False
+    finally:
+        cur.close()
+
+
+def apply_transition_1022(cn) -> list[str]:
+    """card 1022: wake activity, transition table, System desk id 0. Idempotent."""
+    if not transition_1022_needed(cn):
+        return []
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        # If transition exists with nullable desk_id, widen in place before / with migrate.
+        if _table_exists(cur, "transition"):
+            cur.execute(
+                "SELECT IS_NULLABLE FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'transition'"
+                " AND COLUMN_NAME = 'desk_id'"
+            )
+            row = cur.fetchone()
+            if row and str(row[0]).upper() == "YES":
+                cur.execute(
+                    "UPDATE transition SET desk_id = 0 WHERE desk_id IS NULL"
+                )
+                cur.execute(
+                    "ALTER TABLE transition MODIFY desk_id BIGINT UNSIGNED NOT NULL DEFAULT 0"
+                )
+                applied.append("transition.desk_id_not_null")
+        if _table_exists(cur, "wake"):
+            cur.execute(
+                "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wake'"
+                " AND COLUMN_NAME = 'desk_id'"
+            )
+            row = cur.fetchone()
+            if row and str(row[0] or "") not in ("0", "0.0"):
+                cur.execute(
+                    "ALTER TABLE wake MODIFY desk_id BIGINT UNSIGNED NOT NULL DEFAULT 0"
+                )
+                applied.append("wake.desk_id_default_0")
+        for stmt in split_script((sql_dir() / TRANSITION_1022).read_text(encoding="utf-8-sig")):
+            _apply_stmt(cur, stmt)
+        applied.append(TRANSITION_1022)
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -1670,6 +1758,11 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_score_one_name(cn))
             # 0.8.0 schema last: every step above leaves a main-shape (0.7.18) book.
             applied.extend(apply_080(cn))
+            # card 1022: wake + transition + System desk 0 (after 0.8.0 shape).
+            did_1022 = apply_transition_1022(cn)
+            applied.extend(did_1022)
+            if did_1022:
+                applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])

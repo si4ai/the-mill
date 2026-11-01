@@ -40,6 +40,8 @@ DATA_TABLES = (
     "human_desk",
     "human",
     "push_queue",
+    "transition",
+    "wake",
     "activity",
     "name",
 )
@@ -119,12 +121,22 @@ def apply_tip(cn) -> float:
 
 
 def reseed(cn) -> None:
-    """Office/Admin name rows and system score seeds from tables.sql."""
+    """System/Office/Admin name rows, System seat, and system score seeds from tables.sql."""
     cur = cn.cursor()
     try:
+        cur.execute("SET @mill_1022_old_mode := @@SESSION.sql_mode")
+        cur.execute(
+            "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO')"
+        )
         cur.execute(
             "INSERT IGNORE INTO name (id, type, name) VALUES "
-            "(1, 'roster', 'Office'), (2, 'roster', 'Admin')"
+            "(0, 'desk', 'System'), (1, 'roster', 'Office'), (2, 'roster', 'Admin')"
+        )
+        cur.execute("SET SESSION sql_mode = @mill_1022_old_mode")
+        cur.execute("ALTER TABLE name AUTO_INCREMENT = 100")
+        cur.execute(
+            "INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on) "
+            "VALUES (0, NULL, 'polling', 'addressed')"
         )
         for kpi, note in (
             (

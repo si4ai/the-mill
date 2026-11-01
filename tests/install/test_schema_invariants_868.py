@@ -28,6 +28,12 @@ SHORT_TEXT_OK = {
     ("mill_invite_join", "key_id"): "an invite key id, ascii",
     ("mill_invite_join", "party"): "desk or human, a kind",
     ("seat", "lan_ip"): "an address",
+    ("wake", "route"): "matched wake route key, ascii",
+    ("wake", "state"): "wake lifecycle state, ascii",
+    ("transition", "from_state"): "prior activity state, ascii",
+    ("transition", "to_state"): "new activity state, ascii",
+    ("transition", "reason"): "transition reason key, ascii",
+    ("transition", "join_key"): "join key tying related rows, ascii",
 }
 # Id-like columns that are not BIGINT UNSIGNED (main's id type, owner decision 2026-10-24), with the reason.
 ID_TYPE_OK = {
