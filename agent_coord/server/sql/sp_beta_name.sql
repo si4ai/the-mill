@@ -128,6 +128,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: rename (a desk renames only itself, with its own seat)';
   END IF;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: mill reclaim first'; END IF;
+  IF v_id = 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot rename System'; END IF;
   IF v_id = 2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot rename Admin'; END IF;
   IF v_type = 'roster' AND v_id <> 1 AND TRIM(p_new) COLLATE utf8mb4_0900_ai_ci = 'Office' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: Office names roster id 1';
@@ -156,6 +157,7 @@ BEGIN
   -- with target = caller, so a reset that clears the token in between refuses.
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
+  IF v_id = 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete System'; END IF;
   IF v_id = 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Office'; END IF;
   IF v_id = 2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot delete Admin'; END IF;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name already retired'; END IF;
@@ -197,7 +199,7 @@ BEGIN
   IF NOT b_is_admin(v_by) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin only: reclaim'; END IF;
   SELECT id, deleted, name INTO v_id, v_del, v_nm FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
-  IF v_id IN (1, 2) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot reclaim a seed (Office, Admin)'; END IF;
+  IF v_id IN (0, 1, 2) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'cannot reclaim a seed (System, Office, Admin)'; END IF;
   IF v_del IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name is live (not retired)'; END IF;
   IF EXISTS (SELECT 1 FROM seat WHERE token_hash IS NOT NULL AND token_hash <> ''
               AND (desk_id = v_id OR desk_id IN (SELECT desk_id FROM member WHERE name_id = v_id))) THEN

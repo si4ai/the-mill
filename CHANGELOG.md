@@ -5,6 +5,7 @@
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
 - card 1030 / F-connect-wait-startup-sync: connect-wait first sync ends on push_queue work only (not mailbox resurfacing); one final JSON line; HINT exits 0
+- card 1022 / F-transition-table: fold `push_queue` into `wake` activity + `transition`/`transition_edge`; System desk id 0; name ids 0-99 reserved; enums in code (`transition_enums.py`) / VARCHAR text in rows; hand-back marks taken (no delete) and writes a transition on take and ack; `pending` ignores taken; expire only untaken markers; `mill_transition_put`
 - card 1002 / F-wasted-wake-score: no-action wakes counted and tagged by trigger; share is wasted/all wakes (empty omitted)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)

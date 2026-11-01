@@ -22,3 +22,4 @@ sp_tree.sql
 sp_floor_scope.sql
 sp_glance.sql
 sp_beta_name.sql
+sp_transition.sql

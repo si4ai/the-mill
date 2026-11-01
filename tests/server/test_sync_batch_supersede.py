@@ -2,7 +2,7 @@
 """#831 a superseded connect must not lose the sync batch it took (spin model W05, card 830).
 
 Seen (throwaway office, real Wall on loopback, at d1c1ae5): ws_endpoint takes the
-desk's push_queue rows (connect_sync_frame -> mill_push_take deletes and commits),
+desk's wake rows (connect_sync_frame -> mill_push_take deletes and commits),
 then sends the sync frame (asgi.py 609-616). A newer plain connect of the same desk
 sits in between and kicks the old socket (4000); the old send fails ("ws sync
 fail") and the rows are gone. The new connect's sync is empty, and so is every
@@ -93,13 +93,14 @@ def wall(book):
 
 
 def queued(desk: str) -> list[int]:
-    """Mail ids in push_queue for desk, read on a connection of its own."""
+    """Mail ids in wake for desk, read on a connection of its own."""
     c = connect(sql_book.shared_db_name())
     try:
         cur = c.cursor()
         cur.execute(
-            "SELECT JSON_EXTRACT(p.payload, '$.id') FROM push_queue p JOIN name d ON d.id = p.desk_id"
-            " WHERE d.type = 'desk' AND d.name = %s AND p.kind = 'mail' ORDER BY p.id",
+            "SELECT JSON_EXTRACT(p.payload, '$.id') FROM wake p JOIN name d ON d.id = p.desk_id"
+            " WHERE d.type = 'desk' AND d.name = %s AND p.cause = 'mail'"
+            " AND p.state <> 'taken' ORDER BY p.id",
             (desk,),
         )
         out = [int(r[0]) for r in cur.fetchall()]
@@ -208,10 +209,10 @@ def test_superseded_connect_keeps_the_batch_it_never_sent(wall, monkeypatch) -> 
         await c.down()
         await d2.down()
         assert any(d.got(mid) for d in (a, b, c)), (
-            "the letter's push_queue row was deleted by connect A's sync, A was superseded "
+            "the letter's wake was taken by connect A's sync, A was superseded "
             "before its sync frame was sent, and no later sync carried it"
         )
-        assert queued(D1) == [], "a sent sync frame leaves its rows queued"
+        assert queued(D1) == [], "a sent sync frame marks its wake rows taken"
 
     try:
         asyncio.run(run())
