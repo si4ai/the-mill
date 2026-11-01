@@ -65,9 +65,9 @@ Run: `verify/score-code/run.sh`. Read results with `/statechart` on `Score.tla`.
 - Stale-doing score KPI absent in product; not modelled beyond the known note.
 - Auth / roster gates out of scope.
 
-## anchor rule (card 1014)
+## anchor rule (cards 1014, D4/D5)
 
-each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. also anchor what the caller observes (result fields / Last / gap / window_s), not just the guards (letter 4267). `STATECHART_CMD` overrides host path discovery.
+each marker starts on the real guard (or definition) line, plus its first effect line. the first line must be code: a comment, import, log call, message or SIGNAL line, raise, bare `try:` or block keyword is refused, and a marker must hold at least one code line. matches are counted with comments blanked out, so a commented-out guard (line or block comment) no longer counts. `kind: absent` anchors name a region and patterns that must not appear in it (for paths that must write nothing). every anchor has self-mutants (remove, comment out per line, and for SQL a block comment; absent anchors inject a forbidden line) and `run.sh anchors` goes red for each. `check_anchors.py --selftest` proves the rules refuse the log-only, try+import, message-only and commented shapes. `STATECHART_CMD` overrides host path discovery.
 
 ## Tokens
 
