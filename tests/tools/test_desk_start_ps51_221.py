@@ -3,9 +3,10 @@
 real dry-run on the workstation (ps 5.1.26100, grok 1.0.70, no pwsh) found:
 1) `$rc = Invoke-OneDesk ...` swallowed dry-run json (pipeline + return 0)
    so nothing printed and exit logic saw an array.
-2) `ProcessStartInfo.ArgumentList` (and `.Environment`) do not exist on
-   netfx; live launch must set `.Arguments` with commandlinetoargvw
-   quoting and clear PYTHONPATH via `EnvironmentVariables`.
+2) `ProcessStartInfo.ArgumentList` does not exist on netfx; live launch
+   uses the call operator `& $grok @argTail` (native PS 5.1 splat) and
+   clears PYTHONPATH via `$env:PYTHONPATH` for the call. Format-WinArg
+   remains as the commandlinetoargvw quoting helper.
 """
 from __future__ import annotations
 
@@ -57,16 +58,14 @@ def format_win_argv(argv: list[str]) -> str:
     return " ".join(escape_win_arg(a) for a in argv)
 
 
-def test_ps1_has_no_argumentlist_or_core_environment():
+def test_ps1_has_no_argumentlist_uses_call_operator():
+    """PS 5.1 has no ArgumentList; live launch uses call-operator splat instead of ProcessStartInfo."""
     src = _src()
     assert "$psi.ArgumentList" not in src and "ArgumentList.Add" not in src, (
-        "ProcessStartInfo.ArgumentList is .NET Core / PS7 only; use .Arguments"
+        "ProcessStartInfo.ArgumentList is .NET Core / PS7 only"
     )
-    assert not re.search(r"\$psi\.Environment\b(?!Variables)", src), (
-        "use $psi.EnvironmentVariables on .NET Framework / PS 5.1"
-    )
-    assert "$psi.Arguments" in src
-    assert "EnvironmentVariables" in src
+    assert "& $grok.Source @argTail" in src, "live launch must use call-operator splat on PS 5.1"
+    assert "[System.Diagnostics.Process]::Start" not in src
 
 
 def test_ps1_dry_run_does_not_emit_json_on_success_pipeline():
@@ -118,7 +117,9 @@ def test_ps1_format_win_arg_present_and_documents_rules():
     assert "function Format-WinArg" in src
     assert "function Join-WinArgv" in src
     assert "commandlinetoargvw" in src.lower()
-    assert "$psi.Arguments = Join-WinArgv" in src
+    assert "function Join-WinArgv" in src
+    # Live launch uses call-operator splat; Join-WinArgv remains for cmdline quoting helpers.
+    assert "& $grok.Source @argTail" in src
 
 
 def test_escape_win_arg_command_line_to_argv_w_rules():
