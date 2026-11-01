@@ -6,9 +6,10 @@ Measure only. A wake lease that ends in mill wake-done with no action command
 mark and read alone still count as waste. Trigger tags (human 2026-11-01):
 hold_release, room_or_fyi_mail, rering_handled, version_notice, other.
 
-Emits ``op=wake.done`` (wasted=0|1) on mill-perf for score_tick; also ``op=wake.wasted`` when wasted. Keeps per-desk and
-per-office counts for mill score (share + trigger breakdown). Does not change
-wake behavior (card 949 rules stay on hold).
+Emits ``op=wake.done`` (wasted=0|1) on mill-perf for score_tick; also ``op=wake.wasted`` when wasted.
+On 0.8.6 also writes a W9 feature transition (lease_live->idle / wake_done) with meta
+{wasted, trigger} only - no bodies/names/hosts. Keeps per-desk and per-office counts
+for mill score. Does not change wake behavior (card 949 rules stay on hold).
 """
 from __future__ import annotations
 
@@ -100,14 +101,15 @@ def classify_trigger(
     return "other"
 
 
-def mark_lease(desk: str, *, trigger: str = "other") -> None:
+def mark_lease(desk: str, *, trigger: str = "other", wake_id: int | None = None) -> None:
     """Start (or reset) the desk's wake-lease tracker when a wake POST goes out."""
     who = _who(desk)
     if not who:
         return
     tag = trigger if trigger in TRIGGERS else "other"
+    wid = int(wake_id or 0)
     with _lock:
-        _leases[who] = {"trigger": tag, "acted": False, "stamped": False}
+        _leases[who] = {"trigger": tag, "acted": False, "stamped": False, "wake_id": wid}
 
 
 def clear_lease(desk: str) -> None:
@@ -149,12 +151,22 @@ def _bump(store: dict[str, Any], *, wasted: bool, trigger: str) -> None:
         trig[trigger] = int(trig.get(trigger) or 0) + 1
 
 
-def finish_lease(desk: str) -> dict[str, Any] | None:
-    """End the lease on wake-done. When wasted, emit op=wake.wasted and bump counts."""
+def finish_lease(
+    desk: str,
+    *,
+    cn=None,
+    desk_id: int | None = None,
+) -> dict[str, Any] | None:
+    """End the lease on wake-done. When wasted, emit op=wake.wasted and bump counts.
+
+    When ``cn`` is given, also writes a W9 transition row (existing edge only):
+    lease_live -> idle / wake_done with meta {wasted, trigger}.
+    """
     who = _who(desk)
     if not who:
         return None
     stamp: dict[str, Any] | None = None
+    wake_id = 0
     with _lock:
         row = _leases.pop(who, None)
         if not row or row.get("stamped"):
@@ -164,6 +176,7 @@ def finish_lease(desk: str) -> dict[str, Any] | None:
         if trigger not in TRIGGERS:
             trigger = "other"
         wasted = not bool(row.get("acted"))
+        wake_id = int(row.get("wake_id") or 0)
         desk_row = _desk.setdefault(who, {"wakes": 0, "wasted": 0, "triggers": _empty_triggers()})
         _bump(desk_row, wasted=wasted, trigger=trigger)
         _bump(_office, wasted=wasted, trigger=trigger)
@@ -173,6 +186,7 @@ def finish_lease(desk: str) -> dict[str, Any] | None:
             "desk": who,
             "wakes": int(desk_row["wakes"]),
             "wasted_n": int(desk_row["wasted"]),
+            "wake_id": wake_id,
         }
     if stamp is None:
         return None
@@ -200,6 +214,50 @@ def finish_lease(desk: str) -> dict[str, Any] | None:
             )
     except Exception:
         pass
+    if cn is not None:
+        try:
+            from datetime import datetime, timezone
+
+            from agent_coord.server import transition as tr
+            from agent_coord.server.records.db import call as db_call
+            from agent_coord.server.transition_enums import ActivityType, Reason, State
+
+            did = int(desk_id or 0)
+            if did <= 0:
+                from agent_coord.server import mail_activity as ma
+
+                did = int(ma.desk_id_for(cn, who) or 0)
+            wid = int(stamp.get("wake_id") or 0) or 1
+            # Existing activity + transition tables only (no DDL). Ensure wake
+            # activity row so fk_transition_activity is satisfied.
+            db_call(
+                cn,
+                "mill_activity_put",
+                [
+                    "wake",
+                    wid,
+                    datetime.now(timezone.utc).replace(tzinfo=None),
+                    did if did > 0 else None,
+                    1,
+                    "create",
+                    None,
+                ],
+            )
+            tr.put(
+                cn,
+                activity_type=ActivityType.wake,
+                activity_id=wid,
+                from_state=State.lease_live,
+                to_state=State.idle,
+                reason=Reason.wake_done,
+                desk_id=did,
+                role="actor",
+                join_key=f"wake-lease:{did}:{wid}",
+                meta={"wasted": 1 if stamp["wasted"] else 0, "trigger": stamp["trigger"]},
+            )
+        except Exception:
+            # Instrumentation must not break wake-done.
+            pass
     return {
         "wasted": stamp["wasted"],
         "trigger": stamp["trigger"],
