@@ -1078,7 +1078,10 @@ def mill_here_over_http(args: Any) -> int:
         except Exception:
             pass
         return 1
-    print(json.dumps({"desk": who, "mode": "ws"}, default=str), flush=True)
+    foreground = bool(getattr(args, "foreground", False))
+    # Card 1030: connect-wait stdout is only the final result JSON line.
+    if not foreground:
+        print(json.dumps({"desk": who, "mode": "ws"}, default=str), flush=True)
     import threading
 
     from agent_coord.client.ws import start_ws_thread
@@ -1086,7 +1089,8 @@ def mill_here_over_http(args: Any) -> int:
     vendor = str(getattr(args, "vendor", "") or os.environ.get("AGENT_COORD_VENDOR") or "").strip()
     if vendor:
         os.environ["AGENT_COORD_VENDOR"] = vendor
-        print(json.dumps({"vendor": vendor, "desk": who}, default=str), flush=True)
+        if not foreground:
+            print(json.dumps({"vendor": vendor, "desk": who}, default=str), flush=True)
     sid = str(getattr(args, "session", "") or os.environ.get("AGENT_COORD_GROK_SESSION") or "").strip()
     if sid:
         os.environ["AGENT_COORD_GROK_SESSION"] = sid
@@ -1094,7 +1098,8 @@ def mill_here_over_http(args: Any) -> int:
             from agent_coord.client.connectors.grok_build import bind_session
 
             bind_session(who, sid)
-            print(json.dumps({"grok_session": sid, "desk": who}, default=str), flush=True)
+            if not foreground:
+                print(json.dumps({"grok_session": sid, "desk": who}, default=str), flush=True)
         except Exception:
             pass
     from agent_coord.client.ws import _shell_ppid
@@ -1102,17 +1107,16 @@ def mill_here_over_http(args: Any) -> int:
 
     parent = _shell_ppid()
     refuse = bool(getattr(args, "refuse", False))
-    if bool(getattr(args, "foreground", False)):
+    if foreground:
         # Foreground: this process waits for ONE work HINT, prints it, exits.
         # No HintBuf drain / mill route spawn. Break-out = KeyboardInterrupt.
         from agent_coord.client.ws import wait_one_hint
 
         try:
-            # An empty queue keeps the socket until the next hint, as the docs
-            # say; a non-empty queue prints and exits (card #278).
+            # First sync is startup/backlog (card 1030); hold for a live HINT.
             got = wait_one_hint(
                 who, tok, skip_ping=True, timeout_s=None, parent_pid=parent, hold_empty_sync=True,
-                refuse=refuse,
+                refuse=refuse, skip_first_sync=True,
             )
         except KeyboardInterrupt:
             print(

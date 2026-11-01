@@ -2006,11 +2006,13 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
                 project = CONST_OFFICE
                 args.project = project
             args.desk = desk
-            print(
-                "mill connect: %s on roster %s; connecting (a ready line follows)" % (desk, project),
-                file=sys.stderr,
-                flush=True,
-            )
+            # Card 1030: connect-wait has no stderr banner (PowerShell native error).
+            if not bool(getattr(args, "foreground", False)):
+                print(
+                    "mill connect: %s on roster %s; connecting (a ready line follows)" % (desk, project),
+                    file=sys.stderr,
+                    flush=True,
+                )
             return mill_here_over_http(args)
         if args.cmd == "wall-check":
             from agent_coord.client.offices import cli_office, origin_url, read_alias

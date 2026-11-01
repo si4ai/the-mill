@@ -1531,6 +1531,7 @@ def wait_one_hint(
     hold_empty_sync: bool = False,
     parent_pid: int | None = None,
     refuse: bool = False,
+    skip_first_sync: bool = False,
 ) -> dict[str, Any]:
     """Block on /ws until one work frame, then return.
 
@@ -1546,6 +1547,10 @@ def wait_one_hint(
     connect-wait and mill-hold pass true: an empty list keeps the socket
     until the next hint or a non-empty list (card #278). A list whose items
     were all sent live already counts as empty (card #328).
+
+    skip_first_sync (card 1030 / connect-wait): the first kind=sync frame is
+    never the HINT. Unread backlog on that sync is ignored so the wait holds
+    for a live frame after sit. mill-hold leaves this false.
     """
     try:
         import websockets
@@ -1587,14 +1592,17 @@ def wait_one_hint(
                 for kind in (skip_kinds or ())
                 if str(kind).strip()
             }
-            print(
-                json.dumps(
-                    {"backchannel": "ws", "mode": mode, "url": sit_url, "desk": who},
-                    default=str,
-                ),
-                flush=True,
-            )
+            # Card 1030: connect-wait keeps stdout to one final result line.
+            if not skip_first_sync:
+                print(
+                    json.dumps(
+                        {"backchannel": "ws", "mode": mode, "url": sit_url, "desk": who},
+                        default=str,
+                    ),
+                    flush=True,
+                )
             _bc_log(f"ws {mode} sit desk={who} url={sit_url}")
+            first_sync_seen = False
             deadline = None
             if timeout_s is not None and float(timeout_s) > 0:
                 deadline = asyncio.get_event_loop().time() + float(timeout_s)
@@ -1632,6 +1640,11 @@ def wait_one_hint(
                 if kind == "sync":
                     items = msg.get("sync")
                     queued = items if isinstance(items, list) else []
+                    # Card 1030: connect-wait ignores the first sync (startup /
+                    # unread backlog replay) and keeps holding for a live HINT.
+                    if skip_first_sync and not first_sync_seen:
+                        first_sync_seen = True
+                        continue
                     # Whole list is the queue. Do not drop a missed DOING inside it.
                     # An item a sitting connect of this desk already got (outcome
                     # sent) does not end the wait; an undelivered one does (#328).
