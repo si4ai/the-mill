@@ -201,8 +201,10 @@ def test_seeds_never_reclaimed(cn):
 
 
 def test_hard_delete_refused(cn):
+    # Mint a label this test owns so the DELETE hits a row (trigger fires).
+    call(cn, "sp_name_mint", "adm", "label", "h-hard-del")
     with pytest.raises(mysql.connector.Error) as ei:
-        q(cn, "DELETE FROM name WHERE type = 'label' AND name = 'h-label'")
+        q(cn, "DELETE FROM name WHERE type = 'label' AND name = 'h-hard-del'")
     assert "DELETE refused" in str(ei.value)
 
 

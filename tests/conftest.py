@@ -1,4 +1,4 @@
-"""Isolate mill_home so pytest never writes ~/.mill/session/*.token on this office."""
+"""isolate mill_home so pytest never writes ~/.mill/session/*.token on this office."""
 from __future__ import annotations
 
 import pytest
@@ -10,8 +10,8 @@ def _isolate_mill_home(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(d))
     yield d
 
-# Sql tests that hang (FOR UPDATE / MDL / wedged connector) used to eat the whole
-# pytest_sql job (~15 min). Fail the test instead (F192 hang class).
+# sql tests that hang (FOR UPDATE / MDL / wedged connector) used to eat the whole
+# pytest_sql job (~15 min). fail the test instead (F192 hang class).
 _SQL_TEST_TIMEOUT_S = 120
 
 
@@ -52,10 +52,10 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Group sql tests from markers: shared vs fresh_schema (xdist loadgroup).
+    """group sql tests from markers: shared vs fresh_schema (xdist loadgroup).
 
-    Shared modules hash across N worker groups so each worker keeps one session
-    schema. Each fresh_schema module is its own group and can run in parallel.
+    shared modules hash across N worker groups so each worker keeps one session
+    schema. each fresh_schema module is its own group and can run in parallel.
     """
     n = getattr(config.option, "numprocesses", None)
     try:
@@ -72,11 +72,11 @@ def pytest_collection_modifyitems(config, items):
         if item.get_closest_marker("fresh_schema") is not None:
             group = f"fresh:{mod}"
         else:
-            # Sticky per module so module-scoped fixtures stay on one worker.
+            # sticky per module so module-scoped fixtures stay on one worker.
             h = sum(ord(c) for c in mod) % n_workers
             group = f"sql_shared:{h}"
         item.add_marker(pytest.mark.xdist_group(group))
-        # Default mutating unless marked readonly.
+        # default mutating unless marked readonly.
         if (
             item.get_closest_marker("fresh_schema") is None
             and item.get_closest_marker("sql_readonly") is None
@@ -85,27 +85,17 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.sql_mutate)
 
 
-# Data isolation: module-scoped ``cn`` truncates once when the module opens
-# (tests/sql_book.connect_shared). Per-test truncate was removed: it ran after
+# data isolation: module-scoped ``cn`` truncates once when the module opens
+# (tests/sql_book.connect_shared). per-test truncate was removed: it ran after
 # module arrange fixtures and wiped their seeds (card 986 CI).
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Report shared vs fresh_schema counts and sql_book timings."""
+    """report shared vs fresh_schema counts and sql_book timings."""
     from tests import sql_book
 
-    tr = terminalreporter
-    items = getattr(tr.config, "_sql_group_counts", None)
-    # Recount from the reporter's stats when available.
-    passed = tr.stats.get("passed", []) + tr.stats.get("xfailed", [])
-    shared = fresh = 0
-    for rep in tr.stats.get("passed", []) + tr.stats.get("failed", []) + tr.stats.get(
-        "xfailed", []
-    ):
-        # nodeid only; markers not on reports - use stored counts if set.
-        pass
     counts = getattr(config, "_mill_sql_group_counts", None)
-    tw = tr.write_line
+    tw = terminalreporter.write_line
     tw("")
     tw("sql_book (card 986):")
     if counts:
@@ -118,8 +108,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         tw(f"  timing {k}={v:.3f}s")
 
 
+
 def pytest_sessionfinish(session, exitstatus):
-    # Stash collection counts for the terminal summary.
+    # stash collection counts for the terminal summary.
     shared = fresh = readonly = 0
     for item in getattr(session, "items", []) or []:
         if item.get_closest_marker("sql") is None:
@@ -139,7 +130,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(scope="module")
 def cn(request):
-    """Worker-shared tip book for @pytest.mark.sql modules (card 986).
+    """worker-shared tip book for @pytest.mark.sql modules (card 986).
 
     fresh_schema modules get a unique DB applied once and dropped on teardown.
     """

@@ -460,7 +460,10 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
         {
             p
             for p in diff.splitlines()
-            if p.startswith("tests/") and p.endswith(".py") and Path(root, p).is_file()
+            if p.startswith("tests/")
+            and Path(p).name.startswith("test_")
+            and p.endswith(".py")
+            and Path(root, p).is_file()
         }
     )
     # Wall surface validators need tools/wall-validators (npm ci). Precheck stays
