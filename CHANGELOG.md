@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1020 / F-score-truncation-labelled: shaped score series labels capped point windows (truncated=true / truncated_n)
 - card 1019 / F-score-empty-as-missing: empty score_tick samples omit from publish (never numeric 0); measured 0 still publishes
 - card 1045: release-branch batch is the default path (RELEASE-FLOW / CONTRIBUTING-PR); skill.md keeps no release-path line (desk skill stays generic)
 - card 1030 / F-connect-wait-startup-sync: connect-wait first sync ends on push_queue work only (not mailbox resurfacing); one final JSON line; HINT exits 0
