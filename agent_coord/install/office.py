@@ -98,7 +98,7 @@ def mill_root() -> Path:
     for share in _share_candidates():
         if (share / "docs" / "protocol" / "commands.md").is_file():
             return share
-    raise FileNotFoundError("mill docs: git docs/protocol or share/the-mill (prefix or user base)")
+    raise FileNotFoundError("docs not found: git docs/protocol or share/the-mill (prefix or user base)")
 
 
 _MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")

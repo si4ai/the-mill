@@ -75,17 +75,17 @@ def test_numeric_peek_shows_a_done_card_and_misses_keep_their_hint(cn, board):
     got = _cards(cn, {"need": str(done)}, "tq_a")
     assert [c["id"] for c in got] == [done] and got[0]["status"] == "done"
     other = board[("tq_b", 0)]
-    assert _cards(cn, {"need": str(other)}, "tq_a") == {"error": f"todo: no card {other} in tq_a"}
+    assert _cards(cn, {"need": str(other)}, "tq_a") == {"error": f"todo: no card {other} in tq_a. find it: mill todo --all --find {other}"}
     fx = board[("t-0a1b2c3d", 0)]
-    assert _cards(cn, {"need": str(fx)}, "t-0a1b2c3d") == {"error": f"todo: no card {fx} in t-0a1b2c3d; pass --fixtures"}
-    assert _cards(cn, {"need": str(done), "status": "open"}, "tq_a") == {"error": f"todo: no card {done} in tq_a; pass --done"}
+    assert _cards(cn, {"need": str(fx)}, "t-0a1b2c3d") == {"error": f"todo: no card {fx} in t-0a1b2c3d; pass --fixtures. find it: mill todo --all --find {fx}"}
+    assert _cards(cn, {"need": str(done), "status": "open"}, "tq_a") == {"error": f"todo: no card {done} in tq_a; pass --done. find it: mill todo --all --find {done}"}
 
 
 def test_board_hides_done_and_unknown_project_refuses(cn, board):
     ids = [c["id"] for c in _cards(cn, {}, "tq_a")]
     assert board[("tq_a", 2)] not in ids and board[("tq_a", 0)] in ids
     assert _cards(cn, {}, "tq_empty") == []
-    assert _cards(cn, {}, "nope") == {"error": "todo: unknown project nope"}
+    assert _cards(cn, {}, "nope") == {"error": "todo: unknown roster nope. list them: mill member"}
 
 
 def test_too_many_rosters_refused(cn, board):
@@ -98,7 +98,7 @@ def test_page_is_a_read_for_the_pane_cache():
 
 
 def test_card_zero_is_not_the_whole_board(cn, board):
-    assert _cards(cn, {"need": "0"}, "tq_a") == {"error": "todo: no card 0 in tq_a"}
-    assert _cards(cn, {"need": "000"}, "tq_a") == {"error": "todo: no card 0 in tq_a"}
+    assert _cards(cn, {"need": "0"}, "tq_a") == {"error": "todo: no card 0 in tq_a. find it: mill todo --all --find 0"}
+    assert _cards(cn, {"need": "000"}, "tq_a") == {"error": "todo: no card 0 in tq_a. find it: mill todo --all --find 0"}
     lead = board[("tq_a", 0)]
     assert [c["id"] for c in _cards(cn, {"need": "00%d" % lead}, "tq_a")] == [lead]

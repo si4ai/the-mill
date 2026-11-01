@@ -39,9 +39,10 @@ def test_unknown_retired_empty_and_valid(cn) -> None:
             with pytest.raises(CoordError) as ei:
                 fn(book, {"resource": "c237-lock"}, project, "c237-desk")
             text = str(ei.value)
-            assert text.startswith(command + ": no such project")
-            assert "projects:" in text
-            listed = text.split("projects: ", 1)[1]
+            assert text.startswith(command + ": no such roster")
+            assert "rosters:" in text
+            assert "mill member" in text
+            listed = text.split("rosters: ", 1)[1].split(". list them:", 1)[0]
             parts = [p.strip() for p in listed.split(",")]
             assert "c237" in parts
             assert "c237-gone" not in parts
@@ -64,8 +65,9 @@ def test_project_command_for_connect(cn) -> None:
         with pytest.raises(CoordError) as ei:
             rpc._h_project(book, {"project": project}, "the-mill", "d")
         text = str(ei.value)
-        assert text.startswith("connect: no such project")
-        parts = [p.strip() for p in text.split("projects: ", 1)[1].split(",")]
+        assert text.startswith("connect: no such roster")
+        assert "mill member" in text
+        parts = [p.strip() for p in text.split("rosters: ", 1)[1].split(". list them:", 1)[0].split(",")]
         assert "c237b" in parts and "c237b-gone" not in parts
     ok = rpc._h_project(book, {"project": "c237b"}, "c237b", "d")
     assert ok["ok"] is True and ok["project"] == "c237b"

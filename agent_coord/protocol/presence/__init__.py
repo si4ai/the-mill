@@ -1,4 +1,4 @@
-"""mill leftover mill drain. Session tokens live in agent_coord.client.tokens."""
+"""Presence leftover / drain helpers. Session tokens live in agent_coord.client.tokens."""
 
 from .drain import (
     EVENT_KIND as DRAIN_EVENT_KIND,

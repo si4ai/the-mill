@@ -246,6 +246,7 @@ async def _ws_handle_client_text(
         args = {}
     if not isinstance(args, dict):
         return await _fail(req_id, "ws rpc: args must be an object")
+    client_mill = " ".join(str(msg.get("mill") or "").split())[:64]
 
     who = desk_name(desk)
     if not socket_seated(who, websocket) and not socket_seated(desk, websocket):
@@ -272,7 +273,10 @@ async def _ws_handle_client_text(
         ws_forwarded = False
 
     def _dispatch(c: Any) -> Any:
-        return dispatch_ws(c, who, command, args, req_id=str(req_id), peer=ws_peer, forwarded=ws_forwarded)
+        return dispatch_ws(
+            c, who, command, args, req_id=str(req_id),
+            peer=ws_peer, forwarded=ws_forwarded, client_mill=client_mill,
+        )
 
     def _run() -> Any:
         if cmd is None:

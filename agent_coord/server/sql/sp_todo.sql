@@ -24,7 +24,7 @@ BEGIN
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_move BIGINT UNSIGNED;
-  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
     RESIGNAL;
@@ -168,6 +168,7 @@ BEGIN
   DECLARE v_peer BIGINT UNSIGNED;
   DECLARE v_ev VARCHAR(2000);
   DECLARE v_move BIGINT UNSIGNED;
+  DECLARE v_old_body VARCHAR(4096);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -185,7 +186,7 @@ BEGIN
   -- and the focus writers (seat) do, so a pass never waits on a seat while holding the card.
   SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_move = NULL;
-  SELECT roster_id, status, assigned_id INTO v_proj, v_was, v_old_vol FROM todo WHERE id = p_id FOR UPDATE;
+  SELECT roster_id, status, assigned_id, body INTO v_proj, v_was, v_old_vol, v_old_body FROM todo WHERE id = p_id FOR UPDATE;
   IF v_was IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo: no such card';
   END IF;
@@ -268,6 +269,19 @@ BEGIN
   IF v_vol IS NOT NULL THEN
     CALL mill_watcher_put('todo', p_id, v_vol);
   END IF;
+  -- Card 955: first --started on the card body fills the cards score.
+  BEGIN
+    DECLARE v_saved INT DEFAULT @mill_req_tx;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    SET @mill_req_tx = 1;
+    IF p_body IS NOT NULL
+       AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
+       AND (v_old_body IS NULL OR v_old_body = ''
+            OR JSON_EXTRACT(CAST(IFNULL(NULLIF(v_old_body, ''), '{}') AS JSON), '$.started_at') IS NULL) THEN
+      CALL mill_card_score_event(v_proj, 'started', NULL, NULL, NULL, NULL, v_ts);
+    END IF;
+    SET @mill_req_tx = v_saved;
+  END;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
 END //

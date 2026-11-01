@@ -63,7 +63,7 @@ def test_a_failed_post_logs_one_fail_line_with_the_status(logged):
         raise urllib.error.HTTPError(req.full_url, 503, "busy", {}, None)
 
     with patch("agent_coord.server.wake._open", no):
-        push.emit(MagicMock(), "away", "mail", {"id": 6255})  # carries idem: one retry, still one line
+        push.emit(MagicMock(), "away", "mail", {"id": 6255})  # retry is off this call; the fail line is still one
     assert _hooks(logged) == [f"webhook desk=away kind=mail id=6255 wake=fail status=503"]
 
 

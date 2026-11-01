@@ -301,11 +301,11 @@ STATIC_CACHE_SHORT = "public, max-age=60"
 # The board page sits behind the door: browser cache only, keyed on the session cookie.
 BOARD_CACHE = "private, max-age=60"
 
-# Sent on every response. The Wall has one inline onload handler and inline
-# style attributes, so script-src and style-src keep 'unsafe-inline' until
-# those move into files; everything else is same-origin only.
+# Sent on every response. script-src and style-src are 'self' only: the board
+# onload lives in a file, and paint styles live in classes (card 815).
+# Everything else is same-origin only.
 WALL_CSP = (
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "default-src 'self'; script-src 'self'; style-src 'self'; "
     "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
     "form-action 'self'; frame-ancestors 'none'"
 )
@@ -642,22 +642,39 @@ def origin_matches(origin: str, headers, peer: str) -> bool:
     return got == (o_host, o_port)
 
 
-def cookie_write_refusal(command: str, headers, peer: str) -> tuple[int, str]:
-    """(status, reason) when a cookie-authenticated write is refused, else (0, "").
+def _browser_write_signal(headers) -> bool:
+    """True when the write looks like a browser: session cookie, Origin, or Sec-Fetch-Site.
 
-    Only a write (any method but GET, HEAD, OPTIONS) that carries a door or
-    glance session cookie and no credential header is checked. It must be
-    application/json (a cross-origin page cannot send that without a CORS
-    preflight, which the wall never grants) and same-origin: Sec-Fetch-Site
-    same-origin, an Origin that matches the wall, or the X-Mill-Wall header.
+    A bare CLI post (open-house join on a path door) sends none of these and
+    stays open. A cross-site page always sends Origin or Sec-Fetch-Site.
     """
-    if (command or "").upper() in _SAFE_METHODS or not _has_session_cookie(headers):
+    if _has_session_cookie(headers):
+        return True
+    if (headers.get("Origin") or "").strip():
+        return True
+    if (headers.get("Sec-Fetch-Site") or "").strip():
+        return True
+    return False
+
+
+def browser_write_refusal(command: str, headers, peer: str) -> tuple[int, str]:
+    """(status, reason) when a browser write is refused, else (0, "").
+
+    A write (any method but GET, HEAD, OPTIONS) that looks like a browser
+    (door/glance session cookie, Origin, or Sec-Fetch-Site) and carries no
+    credential header must be application/json (a cross-origin page cannot
+    send that without a CORS preflight, which the wall never grants) and
+    same-origin: Sec-Fetch-Site same-origin, an Origin that matches the
+    wall, or the X-Mill-Wall header. Bearer / invite / PRIVATE-TOKEN and a
+    bare CLI post with no browser signal are unchanged (cards 749, 817).
+    """
+    if (command or "").upper() in _SAFE_METHODS or not _browser_write_signal(headers):
         return 0, ""
     if any((headers.get(h) or "").strip() for h in _CRED_HEADERS):
         return 0, ""
     ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
     if ctype != "application/json":
-        return 415, "a write with the session cookie must be Content-Type application/json"
+        return 415, "a browser write must be Content-Type application/json"
     site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
     if site in ("cross-site", "same-site"):
         return 403, "cross-origin write refused"
@@ -668,13 +685,18 @@ def cookie_write_refusal(command: str, headers, peer: str) -> tuple[int, str]:
         return (0, "") if origin_matches(origin, headers, peer) else (403, "cross-origin write refused")
     if (headers.get("X-Mill-Wall") or "").strip():
         return 0, ""
-    return 403, "a write with the session cookie needs a same-origin Origin or X-Mill-Wall"
+    return 403, "a browser write needs a same-origin Origin or X-Mill-Wall"
+
+
+def cookie_write_refusal(command: str, headers, peer: str) -> tuple[int, str]:
+    """Alias kept for card 749 callers; same rule as browser_write_refusal (card 817)."""
+    return browser_write_refusal(command, headers, peer)
 
 
 def _refuse_cookie_write(handler: BaseHTTPRequestHandler) -> bool:
-    """Answer a refused cookie-authenticated write (card 749); True when refused."""
+    """Answer a refused browser write (cards 749, 817); True when refused."""
     peer = str((getattr(handler, "client_address", None) or ("", 0))[0] or "")
-    code, why = cookie_write_refusal(getattr(handler, "command", "") or "", handler.headers, peer)
+    code, why = browser_write_refusal(getattr(handler, "command", "") or "", handler.headers, peer)
     if not code:
         return False
     handler._send(code, _json({"error": why}), "application/json; charset=utf-8")
@@ -2315,7 +2337,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
 
                         fwd = (self.headers.get("x-forwarded-for") or "").strip()
                         mark_host(data, peer, forwarded=bool(fwd))
-                        row = dispatch(c, data, token=token)
+                        client_mill = " ".join(str(self.headers.get("X-Mill-Client") or "").split())[:64]
+                        row = dispatch(c, data, token=token, client_mill=client_mill)
                         acting = str(getattr(c, "acting_desk", "") or "")
                         if command == "join" and isinstance(row, dict):
                             from agent_coord.server.records import join as rec_join

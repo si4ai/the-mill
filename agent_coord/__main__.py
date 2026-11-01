@@ -60,6 +60,20 @@ class MillArgumentParser(argparse.ArgumentParser):
         self._command = next((w for w in words if not str(w).startswith("-")), "")
         return super().parse_known_args(args, namespace)
 
+    def parse_args(self, args=None, namespace=None):
+        # A subparser returns flags it does not know, and the top parser then
+        # reports them with the top-level usage (card 736). Name the subcommand.
+        ns, unknown = self.parse_known_args(args, namespace)
+        if unknown:
+            message = "unrecognized arguments: %s" % " ".join(str(u) for u in unknown)
+            cmd = str(getattr(ns, "cmd", "") or "")
+            if cmd in _BODY_COMMANDS and BODY_FILE_FIX not in message:
+                message = message + "; " + BODY_FILE_FIX
+            if cmd:
+                _leaf_parser(self, ns).error(message)
+            self.error(message)
+        return ns
+
     def error(self, message: str) -> None:
         if "--seat" in message and "expected one argument" in message:
             message = message + "; if the value starts with '-', use --seat=VALUE"
@@ -68,7 +82,58 @@ class MillArgumentParser(argparse.ArgumentParser):
         ):
             # #638: one line that names the fix, not just the missing flag.
             message = message + "; " + BODY_FILE_FIX
+        if message.startswith("argument COMMAND:") and "invalid choice:" in message:
+            self.exit(2, _unknown_command_line(self, message))
+        see = _see_help(self)
+        if see and "unrecognized arguments" in message and see not in message:
+            message = message + "\n" + see
         super().error(message)
+
+
+def _see_help(parser: argparse.ArgumentParser) -> str:
+    """The help command for this parser: `see: mill help todo`."""
+    parts = str(getattr(parser, "prog", "") or "").split()
+    if len(parts) >= 2 and parts[0] == "mill":
+        return "see: mill help %s" % parts[1]
+    return ""
+
+
+def _unknown_command_line(parser: argparse.ArgumentParser, message: str) -> str:
+    """One line for a bad top-level command. No list of every command (card 736)."""
+    import difflib
+    import re
+
+    found = re.search(r"invalid choice: '([^']*)'", message)
+    bad = found.group(1) if found else ""
+    names: list[str] = []
+    for act in parser._actions:
+        if isinstance(act, argparse._SubParsersAction):
+            names.extend(act.choices.keys())
+    close = difflib.get_close_matches(bad, names, n=1, cutoff=0.6)
+    if close:
+        return (
+            "unknown command '%s'; did you mean %s? (mill help lists every command)\n"
+            % (bad, close[0])
+        )
+    return "unknown command '%s' (mill help lists every command)\n" % bad
+
+
+def _leaf_parser(parser: argparse.ArgumentParser, ns: argparse.Namespace):
+    """the subparser the namespace selected, walking each command level."""
+    seen: set[int] = set()
+    while id(parser) not in seen:
+        seen.add(id(parser))
+        nxt = None
+        for act in parser._actions:
+            if isinstance(act, argparse._SubParsersAction):
+                name = getattr(ns, act.dest, None)
+                if name in act.choices:
+                    nxt = act.choices[name]
+                    break
+        if nxt is None:
+            return parser
+        parser = nxt
+    return parser
 
 
 def _attach_office_help(parser: argparse.ArgumentParser) -> None:
@@ -399,7 +464,14 @@ def main(argv: list[str] | None = None) -> int:
     commands = [a for a in raw if not a.startswith("-")]
     if commands and commands[0] in ("leftover", "leftover-done"):
         print(
-            '{"ok": false, "error": "unknown mill command. Idle is mill connect + HINT."}',
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "unknown command %s; mill help lists every command" % commands[0]
+                    ),
+                }
+            ),
             flush=True,
         )
         return 2
@@ -769,6 +841,47 @@ def _build_parser() -> MillArgumentParser:
         help="short rows, page N (1 = first); the reply's page block names the next",
     )
 
+    rms = sub.add_parser(
+        "rooms",
+        help="list mail rooms (TREEs) this desk can see",
+        description=(
+            "Every named mail room: tree, members, size (letter count), depth "
+            "(deepest reply chain), last activity, starter, and the root letter's "
+            "first line. Default sort is recency (last activity, newest first). "
+            "breadth = distinct member desks (senders U recipients). "
+            "Sort runs in SQL. --all (Admin) includes hex-minted plan names."
+        ),
+    )
+    rms.add_argument(
+        "--all",
+        action="store_true",
+        help="Admin: include hex-minted (hidden) plan rooms too",
+    )
+    rms.add_argument(
+        "--sort",
+        default="recency",
+        choices=("recency", "size", "depth", "breadth", "created", "starter"),
+        help="recency (default) | size | depth | breadth | created | starter",
+    )
+    rms.add_argument(
+        "--asc",
+        action="store_true",
+        help="ascending sort (default is descending)",
+    )
+    rview = rms.add_mutually_exclusive_group()
+    rview.add_argument(
+        "--full",
+        action="store_true",
+        help="every field of every room, no paging (default: short rows, 50 a page)",
+    )
+    rview.add_argument(
+        "--page",
+        type=_page_number,
+        default=0,
+        metavar="N",
+        help="short rows, page N (1 = first); the reply's page block names the next",
+    )
+
     kp = sub.add_parser(
         "score",
         help="a number series: score ROSTER NAME VALUE records a point; score ROSTER NAME reads latest, gap, trend; "
@@ -1128,7 +1241,8 @@ def _build_parser() -> MillArgumentParser:
 
     def _todo_create_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("project")
-        p.add_argument("need")
+        # roster/need as one word is split later; a bare roster names the two-word form (card 736).
+        p.add_argument("need", nargs="?", default="")
         dg = p.add_mutually_exclusive_group()
         dg.add_argument("--detail", default="", help="card text, 1..4096 characters")
         dg.add_argument(
@@ -1780,7 +1894,7 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
             if subc == "add":
                 key = str(args.key or "").strip()
                 if not key:
-                    print("mill route add: key required", file=sys.stderr, flush=True)
+                    print("route add: key required", file=sys.stderr, flush=True)
                     return 1
                 argv = list(getattr(args, "argv", None) or [])
                 if argv and argv[0] == "--":
@@ -1799,7 +1913,7 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
                 try:
                     path = rm_route(owner, key)
                 except KeyError:
-                    _print_err({"ok": False, "error": f"no route {key!r}", "desk": owner})
+                    _print_err({"ok": False, "error": f"no route {key!r}; list routes: mill route list", "desk": owner})
                     return 1
                 _print({"ok": True, "desk": owner, "removed": key, "path": str(path)})
                 return 0

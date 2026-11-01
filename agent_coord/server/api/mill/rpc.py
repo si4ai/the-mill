@@ -67,6 +67,13 @@ def _project_alias(cn, project: str) -> str:
     return project
 
 
+def _next(text: str, step: str) -> str:
+    """Card 735: a not-found line names the command that lists the valid names."""
+    from agent_coord.helpers.next_cmd import with_next
+
+    return with_next(text, step)
+
+
 def _require_live_project(cn, project: str, command: str) -> str:
     """Refuse an unknown, retired, or empty project before any write (#237)."""
     from agent_coord.helpers.projects import project_refusal
@@ -260,7 +267,7 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
     project_raw = str(body.get("project") or "").strip()
     owner_raw = str(body.get("owner") or "").strip()
     if not project_raw or not owner_raw:
-        raise CoordError("mill here: project and owner required")
+        raise CoordError("join: project and owner required")
     project = _project_alias(getattr(c, "_cn", None), _stored(project_raw))
     owner = _stored(owner_raw)
     role_raw = str(body.get("role") or "").strip()
@@ -278,7 +285,7 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
 
         rs = _stored(role_s)
         if rec_name.get(c._cn, rs, CONST_ROSTER) is None and not mill_catalog_open(CONST_ROSTER):
-            raise CoordError("limited-trust: mill Admin mill roster NAME NAME --yes")
+            raise CoordError("limited-trust: Admin mill create roster NAME --yes")
     doing = str(body.get("doing") or "present")[:64]
     # Join posts Office as a placeholder; the seat's one roster replaces it.
     # mill connect with no roster sends Office on purpose and keeps it.
@@ -598,7 +605,7 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
 
         known = rec_name.get(c._cn, who_proj, CONST_ROSTER) is not None
         if not known:
-            raise CoordError("todo: unknown project %s" % who_proj)
+            raise CoordError(_next("todo: unknown roster %s" % who_proj, "list them: mill member"))
     if not id_hit:
         rows = _visible(rows)
     for r in rows:
@@ -632,10 +639,10 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             hint = _todo_miss_hint(c, project, number, with_done, want_st, show_fix)
             if not hint:
                 hint = _deleted_hint(c, number)
-            raise CoordError("todo: no card %s in %s%s" % (number, project, hint))
+            raise CoordError(_next("todo: no card %s in %s%s" % (number, project, hint), "find it: mill todo --all --find %s" % number))
         if number is not None:
-            raise CoordError("todo: no card %s in %s" % (number, project))
-        raise CoordError("todo: no card %s in %s" % (raw_need, project))
+            raise CoordError(_next("todo: no card %s in %s" % (number, project), "find it: mill todo --all --find %s" % number))
+        raise CoordError(_next("todo: no card %s in %s" % (raw_need, project), "find it: mill todo --all --find %s" % raw_need))
     if _truthy(body.get("mine")) and not raw_need:
         out = _mine_cards(out, owner)
     return out
@@ -1268,7 +1275,7 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
         raise CoordError("rename: mill rename todo ROSTER OLD NEW [--why TEXT]")
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     who = _stored(owner or "")
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
@@ -1372,7 +1379,7 @@ def _todo_retire_one(c: Book, raw_need: str, project: str, owner: str | None, *,
     if hit is None:
         if back and rec_todo.find(c._cn, project, need) is not None:
             raise CoordError(f"{word} todo: {need} is not retired")
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     who = _stored(owner or "")
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
@@ -1612,8 +1619,11 @@ def _h_send(
 
     # A roster To that holds the sender: mail its other members and say so (#274).
     # mail_to has no roster column, so the member desks are the same rows the roster gives.
+    # Card 963: M4 keeps member rows after a desk retires; skip those desks so the
+    # send does not fail closed on MILL_NAME_GET (same idea as reply-all #918).
     notes: list[str] = []
     via_roster: set[str] = set()
+    skipped: list[str] = []
     if src:
         from agent_coord.server.records import member as rec_member
 
@@ -1623,12 +1633,31 @@ def _h_send(
             if dst_kind != CONST_ROSTER:
                 expanded.append((dst_kind, to))
                 continue
-            members = [
+            raw_members = [
                 _stored(str(r.get("desk") or ""))
                 for r in (rec_member.select(c._cn, to, "", CONST_ROSTER) or [])
                 if str(r.get("desk_type") or CONST_DESK) == CONST_DESK
             ]
-            members = [m for m in members if m]
+            raw_members = [m for m in raw_members if m]
+            members: list[str] = []
+            skipped_here: list[str] = []
+            for m in raw_members:
+                if rec_name.get(c._cn, m, CONST_DESK) is not None:
+                    members.append(m)
+                else:
+                    skipped_here.append(m)
+            for m in skipped_here:
+                if m not in skipped:
+                    skipped.append(m)
+            if skipped_here:
+                notes.append(
+                    f"skipped retired: {', '.join(skipped_here)}"
+                )
+            if not members and skipped_here:
+                raise CoordError(
+                    f"send: every member of roster {to} is retired "
+                    f"({', '.join(skipped_here)}); nothing to deliver"
+                )
             if src not in members:
                 # Always say where the sender stands on a roster send (ux12).
                 notes.append(f"sender: not a member of roster {to}; it went to its {len(members)} member(s)")
@@ -1733,6 +1762,8 @@ def _h_send(
         rec["warnings"] = warnings
     if notes:
         rec["note"] = "; ".join(notes)
+    if skipped:
+        rec["skipped"] = skipped
     try:
         from agent_coord.server.mail_push import push_mail
 
@@ -1861,7 +1892,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     if not parent_letter:
         parent_rows = rec_mail.get(c._cn, mail_id)
         if not parent_rows:
-            raise CoordError(f"reply: no such mail {mail_id}")
+            raise CoordError(_next(f"reply: no such mail {mail_id}", f"mill trail mail:{mail_id}"))
         parent_letter = parent_rows[0]
 
     # #672 S-3: nothing is private between desks in an office, so any seated desk
@@ -2171,7 +2202,7 @@ def _h_mail_thread(c: Book, body: dict[str, Any], project: str, owner: str | Non
     mid, by_name = _mail_thread_resolve(c, body)
     rows = rec_mail.get(c._cn, mid)
     if not rows:
-        raise CoordError(f"mail-thread: no such mail {mid}")
+        raise CoordError(_next(f"mail-thread: no such mail {mid}", f"mill trail mail:{mid}"))
 
     after_raw = body.get("after", body.get("after_id", 0))
     if after_raw is None or after_raw == "":
@@ -2318,7 +2349,7 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     desk = _stored(str(body.get("desk") or body.get("dst") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     _card_moves(c, hit, "assign", project, need)
     current = _desk_slug(c._cn, hit, "volunteer", "assigned")
     if current and current != "-":
@@ -2421,7 +2452,7 @@ def _card_hit(c: Book, project: str, need: str) -> dict[str, Any]:
 
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     return hit
 
 
@@ -2534,7 +2565,7 @@ def _require_project(cn, project: str) -> None:
         if root is not None and str(root.get("type") or "") == CONST_MAIL:
             kind = "room"
         raise CoordError("todo: %s is a %s, not a roster" % (who, kind))
-    raise CoordError("todo: no project %s" % who)
+    raise CoordError(_next("todo: no roster %s" % who, "list them: mill member"))
 
 
 def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -2562,7 +2593,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     else:
         st = rec_todo.normalize_status(str(raw_status), default="")
         if st not in ("parked", "open"):
-            raise CoordError("status must be parked or open")
+            raise CoordError(_next("status must be parked or open", "use --status parked or --status open"))
     body_s = json.dumps({"slug": need, "detail": detail})
     if len(body_s) > rec_todo.BODY_MAX:
         # #292: a long detail is refused, never cut to its tail.
@@ -2587,6 +2618,14 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         raise CoordError(
             f"create todo: {project}/{need} exists (id {tid}, {status}); nothing changed; {forms}"
         )
+    retired = rec_todo.find_retired(c._cn, project, need)
+    if retired:
+        # Card 927: a retired need must not get a second card; reclaim is the path back.
+        tid = int(retired["id"])
+        raise CoordError(
+            f"create todo: {project}/{need} is retired (id {tid}); nothing changed; "
+            f"bring it back with mill reclaim todo {project} {need}"
+        )
     if parent_t and parent_id:
         # New card and its tree place commit together. A 1062 retries inside (#146).
         rows = rec_todo.insert_attached(
@@ -2610,7 +2649,7 @@ def _h_unpark(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if not hit:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     tid = int(hit["id"])
     parent_t = str(body.get("parent_type") or body.get("type_a") or "").strip().lower()
     parent_id = int(body.get("parent_id") or body.get("id_a") or 0)
@@ -2779,7 +2818,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
-        raise CoordError(f"no such need: {project}/{need}")
+        raise CoordError(_next(f"no such need: {project}/{need}", f"find it: mill todo --all --find {need}"))
     if "done_when" in body:
         return _done_when(c, int(hit["id"]), project, need, body.get("done_when"), owner)
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
@@ -2972,7 +3011,7 @@ def _hold_list(c: Book, project: str) -> Any:
 
     who = _stored(project)
     if not who or rec_name.get(c._cn, who, CONST_ROSTER) is None:
-        raise CoordError("hold: unknown project %s" % (who or "(empty)"))
+        raise CoordError(_next("hold: unknown roster %s" % (who or "(empty)"), "list them: mill member"))
     holds = []
     for rec in rec_hold.find(c._cn, held=True) or []:
         desk = _stored(str(rec.get("desk") or ""))
@@ -2993,6 +3032,51 @@ def _hold_list(c: Book, project: str) -> Any:
             }
         )
     return {"ok": True, "project": who, "holds": holds}
+
+
+
+def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) -> dict:
+    """Card 955: attach cards/day and guards from today's evidence; surface commands-used."""
+    from agent_coord.server.records import score as rec_score
+
+    out = dict(shaped)
+    try:
+        doc = rec_score.cards_day_evidence(c._cn, project) or {}
+    except Exception:
+        doc = {}
+    shipped = int(doc.get("shipped") or 0)
+    out["cards_per_day"] = shipped
+    lead_n = int(doc.get("lead_n") or 0)
+    lead_sum = int(doc.get("lead_sum") or 0)
+    eta_n = int(doc.get("eta_n") or 0)
+    eta_sum = int(doc.get("eta_sum") or 0)
+    actual_sum = int(doc.get("actual_sum") or 0)
+    out["guards"] = {
+        "median_lead_min": (lead_sum // lead_n) if lead_n else None,
+        "eta_vs_actual": {
+            "eta_avg_min": (eta_sum // eta_n) if eta_n else None,
+            "actual_avg_min": (actual_sum // eta_n) if eta_n else None,
+            "n": eta_n,
+        },
+        "doing_min": int(doc.get("doing_sum") or 0),
+        "escapes": None,
+        "size_mix": {
+            "claimed": int(doc.get("claimed") or 0),
+            "started": int(doc.get("started") or 0),
+            "passed": int(doc.get("passed") or 0),
+            "shipped": shipped,
+            "avg_eta_min": (eta_sum // eta_n) if eta_n else None,
+        },
+    }
+    try:
+        cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    except Exception:
+        cmds = None
+    if cmds is not None:
+        out["commands_used"] = cmds
+    if not out.get("unit"):
+        out["unit"] = "cards/day"
+    return out
 
 
 def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -3090,8 +3174,19 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         got = ss.shape(rec_score.points(c._cn, roster, name, max(limit, ss.TREND_POINTS)), limit)
         if not got:
             raise CoordError(f"score: no score {name} on {project}; record one with mill score {project} {name} VALUE")
-        return got[0]
-    return {"roster": project, "scores": ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)}
+        one = got[0]
+        if name == "cards":
+            one = _cards_score_view(c, one, project, owner)
+        return one
+    shaped = ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)
+    out = {"roster": project, "scores": shaped}
+    try:
+        cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
+    except Exception:
+        cmds = None
+    if cmds is not None:
+        out["commands_used"] = cmds
+    return out
 
 
 def _poke_tree(c: Book, typ: str, nid: int, *, owner: str | None = None) -> None:
@@ -3402,7 +3497,7 @@ def _add_remove(c: Book, body: dict[str, Any], owner: str | None) -> Any:
 
     if scalar(c._cn, "SELECT 1 FROM watcher WHERE type = %s AND id = %s AND desk_id = %s",
               (typ, nid, who_id)) is None:
-        raise CoordError(f"remove: {who} is not watching {typ}:{nid}")
+        raise CoordError(_next(f"remove: {who} is not watching {typ}:{nid}", f"see watchers: mill trail {typ}:{nid}"))
     rec_w.delete(c._cn, typ, nid, who_id)
     out["removed"] = 1
     return out
@@ -3536,7 +3631,8 @@ def _trail_target(c: Book, body: dict[str, Any]) -> tuple[str, int]:
 
     if kind:
         if not _exists(kind):
-            raise CoordError(f"trail: no such {kind} {nid}")
+            step = "mill inbox" if kind == "mail" else "mill todo --all --find %s" % nid
+            raise CoordError(_next(f"trail: no such {kind} {nid}", step))
         return kind, nid
     is_mail, is_todo = _exists("mail"), _exists("todo")
     if is_mail and is_todo:
@@ -3545,7 +3641,7 @@ def _trail_target(c: Book, body: dict[str, Any]) -> tuple[str, int]:
         return "mail", nid
     if is_todo:
         return "todo", nid
-    raise CoordError(f"trail: no mail or todo {nid}")
+    raise CoordError(_next(f"trail: no mail or todo {nid}", "mill inbox"))
 
 
 def _label_created(value: Any) -> str:
@@ -3764,7 +3860,7 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     who = _stored(owner)
     for mid in ids:
         if not rec_mail.get(c._cn, mid):
-            raise CoordError("mark: no such mail %s" % mid)
+            raise CoordError(_next("mark: no such mail %s" % mid, "mill trail mail:%s" % mid))
         dests = rec_mail.to_list(c._cn, mid)
         if who not in {_stored(row.get("desk") or "") for row in dests}:
             raise CoordError("mark: mail %s is not in this desk's mailbox" % mid)
@@ -3821,9 +3917,40 @@ def _h_purge(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
 
 
+
+def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill rooms: every mail TREE this desk can see (card 958).
+
+    Default: named rooms only (hex-minted plans hidden). --all: Admin only,
+    includes hex plans. --sort recency|size|depth|breadth|created|starter
+    (default recency); --asc flips the order. Sort is SQL ORDER BY.
+    breadth = distinct member desks (senders U recipients).
+    """
+    from agent_coord.server.admin.guard import require_admin
+    from agent_coord.server.records import tree as rec_tree
+
+    _require_live_ws(owner)
+    include_hidden = bool(body.get("all"))
+    if include_hidden:
+        require_admin(c._cn, owner or "")
+    sort = str(body.get("sort") or "recency").strip() or "recency"
+    asc = bool(body.get("asc"))
+    rows = rec_tree.list_mail_rooms(
+        c._cn, sort=sort, asc=asc, include_hidden=include_hidden
+    )
+    return {
+        "rooms": rows,
+        "sort": sort,
+        "asc": asc,
+        "all": include_hidden,
+        "count": len(rows),
+    }
+
+
 HANDLERS = {
     "wake-done": _h_wake_done,
     "inbox": _h_inbox,
+    "rooms": _h_rooms,
     "todo": _h_todo,
     "session": _h_session,
     "project": _h_project,
@@ -3887,7 +4014,26 @@ def _refuse_join_type(command: str, body: dict[str, Any]) -> None:
             raise CoordError(JOIN_TYPE_GONE.format(command=command or "mill"))
 
 
-def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
+def unknown_command_message(command: str, client: str = "") -> str:
+    """card 736: an unknown command names mill help.
+
+    When the caller names a client version and it differs from this wall, say so.
+    A matching version, or no client version, stays on the one help line.
+    """
+    name = " ".join(str(command or "").split()) or "(none)"
+    text = f"unknown command {name}; mill help lists every command"
+    client = " ".join(str(client or "").split())[:64]
+    if not client:
+        return text
+    from agent_coord.install.packver import package_version
+
+    wall = " ".join(str(package_version() or "").split())
+    if wall and client != wall:
+        text += f"; client {client} != wall {wall}"
+    return text
+
+
+def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str = "") -> Any:
     from agent_coord.client.outbound import WALL, canonical_command
 
     command = canonical_command(str(body.get("verb") or body.get("cmd") or ""))
@@ -3905,7 +4051,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
     owner_raw = str(body.get("owner") or "").strip()
     owner = _stored(owner_raw) if owner_raw else None
     if command not in WALL:
-        raise CoordError(f"unknown mill command {command}")
+        raise CoordError(unknown_command_message(command, client_mill))
     _refuse_join_type(command, body)
     if command not in OPEN_COMMANDS:
         from agent_coord.client.session_errors import (
@@ -3933,7 +4079,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "") -> Any:
         _require_join_authorized(c, body, token)
     fn = HANDLERS.get(command)
     if fn is None:
-        raise CoordError(f"unknown mill command {command}")
+        raise CoordError(unknown_command_message(command, client_mill))
     # #504: redact secrets at mill-wall choke point (CLI cannot bypass)
     from agent_coord.server.redact import WRITE_COMMANDS, scrub_request_body
 
@@ -4050,6 +4196,7 @@ def dispatch_ws(
     *,
     peer: str = "",
     forwarded: bool = False,
+    client_mill: str = "",
 ) -> Any:
     """Run a desk-acting command for the sitting /ws desk. Identity is desk, not body owner.
 
@@ -4063,7 +4210,7 @@ def dispatch_ws(
     if v in OPEN_COMMANDS or v == "join":
         raise CoordError("join stays HTTP only; not a /ws RPC command")
     if v not in WALL:
-        raise CoordError(f"unknown mill command {v}")
+        raise CoordError(unknown_command_message(v, client_mill))
     owner = desk_name(desk)
     if not owner:
         raise CoordError("ws rpc: desk required")
@@ -4086,7 +4233,7 @@ def dispatch_ws(
         body["project"] = project  # handlers that read the body see id 1's name too
     fn = HANDLERS.get(v)
     if fn is None:
-        raise CoordError(f"unknown mill command {v}")
+        raise CoordError(unknown_command_message(v, client_mill))
     from agent_coord.server.redact import WRITE_COMMANDS, scrub_request_body
 
     if v in WRITE_COMMANDS or canonical_command(v) in WRITE_COMMANDS:

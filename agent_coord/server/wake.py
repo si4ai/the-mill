@@ -694,16 +694,33 @@ def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: st
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
     """The one trailing POST for a lease's held-back items (F144). none when the
-    run's own connect syncs already took every waiting row (nothing to wake for)."""
+    run's own connect syncs already took every waiting row and no unread mail
+    remains (#949). A short connect that drained the push queue without opening
+    the letter still gets one trailing wake for the unread mailbox."""
+    from agent_coord.server.poke_key import FIELD, letter_key
     from agent_coord.server.records import push as rec_push
 
     waiting = rec_push.pending(cn, desk)
-    if waiting <= 0:  # the run's own syncs took every row
+    if waiting > 0:
+        return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
+                         reason=t.get("reason") or ADDRESSED, room=t.get("room"),
+                         trailing=why, pending_count=len(t.get("keys") or ()) or waiting)
+    # Push drained: still wake when mailbox letters stay unopened (#949).
+    try:
+        from agent_coord.server.push import unread_mail_frames
+
+        unread = unread_mail_frames(cn, desk)
+    except Exception:
+        unread = []
+    if not unread:
         _bc_log_safe(f"webhook desk={desk} wake=none reason=drained held={len(t.get('keys') or ())}")
         return "none"
-    return post_desk(cn, desk, t["frame"], hint_id=t.get("hint_id"),
-                     reason=t.get("reason") or ADDRESSED, room=t.get("room"),
-                     trailing=why, pending_count=len(t.get("keys") or ()) or waiting)
+    frame = dict(unread[0])
+    mid = int(frame.get("id") or 0)
+    frame[FIELD] = letter_key(mid, desk)
+    return post_desk(cn, desk, frame, hint_id=mid,
+                     reason=ADDRESSED, room=None,
+                     trailing=why, pending_count=len(unread))
 
 
 def trail(desk: str, at: float) -> str:
@@ -876,6 +893,170 @@ def _bc_log_safe(line: str) -> None:
         return
 
 
+# Card 827. A failed desk wake retries off the request that queued it. Full jitter
+# starts at 5s and doubles, never past 10 min, and the waits stop at about 1 h.
+# Every retry posts the same body, so the idempotency key and the lease stay one
+# wake, not a new window. A 4xx other than 408 or 429 does not retry. The retry
+# stops when the desk connects and the queue drains, or a newer wake for that
+# desk succeeds. The timer is process memory: a restart drops it.
+RETRY_BASE_S = 5.0
+RETRY_CAP_S = 600.0
+RETRY_BUDGET_S = 3600.0
+RETRY_MAX = 64
+
+
+def _roll() -> float:
+    import random
+
+    return random.random()
+
+
+def retry_delay(attempt: int, roll: float | None = None) -> float:
+    """Full jitter for one retry. Attempt 1 waits up to 5s, then double, never past 10 min.
+
+    roll is 0..1. Omit it to draw one. 1 waits the whole span; 0 waits nothing.
+    """
+    n = max(1, int(attempt))
+    span = min(RETRY_CAP_S, RETRY_BASE_S * (2 ** (n - 1)))
+    got = _roll() if roll is None else float(roll)
+    if got < 0.0:
+        got = 0.0
+    elif got > 1.0:
+        got = 1.0
+    return got * span
+
+
+def _retryable(status: int | None) -> bool:
+    """Timeout, connection error, 408, 429, and 5xx. Any other 4xx or a redirect is not."""
+    if status is None:
+        return True
+    code = int(status)
+    if code in (408, 429):
+        return True
+    return 500 <= code <= 599
+
+
+# Desk -> how many of its wakes have succeeded. A retry stores the value at arm
+# time and stops when a later success moves it.
+_OK_GEN: dict[str, int] = {}
+_OK_LOCK = threading.Lock()
+
+
+def _wake_ok(desk: str) -> None:
+    """A wake for this desk succeeded. Older retries stop."""
+    d = str(desk or "").strip()
+    if not d:
+        return
+    with _OK_LOCK:
+        _OK_GEN[d] = int(_OK_GEN.get(d, 0)) + 1
+
+
+def _ok_gen(desk: str) -> int:
+    with _OK_LOCK:
+        return int(_OK_GEN.get(str(desk or "").strip(), 0))
+
+
+def _queue_drained(desk: str) -> bool:
+    """True when this desk's push queue is empty: it connected and took the rows."""
+    cn = None
+    try:
+        from agent_coord.server.records import push as rec_push
+
+        cn = _book()
+        return rec_push.pending(cn, desk) <= 0
+    except Exception:
+        return False
+    finally:
+        if cn is not None:
+            try:
+                cn.close()
+            except Exception:
+                pass
+
+
+def _arm_retry(
+    url: str,
+    body: dict[str, Any],
+    *,
+    key: str | None,
+    desk: str,
+    hint_id: int | None,
+    frame: dict[str, Any],
+    status: int | None,
+    err: str,
+    note: str | None,
+    tag: str,
+) -> None:
+    """Schedule the next POST off the caller. One line when the budget runs out."""
+    state: dict[str, Any] = {
+        "attempts": 0,
+        "spent": 0.0,
+        "status": status,
+        "err": err,
+        "gen": _ok_gen(desk),
+        "alive": True,
+    }
+
+    def _stopped() -> bool:
+        if not state["alive"]:
+            return True
+        if _ok_gen(desk) != state["gen"]:
+            state["alive"] = False
+            return True
+        if _queue_drained(desk):
+            state["alive"] = False
+            return True
+        return False
+
+    def _exhaust() -> None:
+        if not state["alive"]:
+            return
+        state["alive"] = False
+        st = state["status"]
+        if st is None:
+            outcome = f"retry-exhausted attempts={state['attempts']} err={state['err'] or 'Exception'}"
+        else:
+            outcome = f"retry-exhausted attempts={state['attempts']} status={int(st)}"
+        _wake_log(desk, frame, hint_id, outcome)
+
+    def pump() -> None:
+        if not state["alive"]:
+            return
+        if state["attempts"] >= RETRY_MAX or state["spent"] >= RETRY_BUDGET_S:
+            _exhaust()
+            return
+        remain = RETRY_BUDGET_S - float(state["spent"])
+        state["attempts"] = int(state["attempts"]) + 1
+        delay = min(retry_delay(int(state["attempts"])), remain)
+
+        def once() -> None:
+            state["spent"] = float(state["spent"]) + delay
+            if _stopped():
+                return
+            st, er = _post_status(
+                url, body, timeout=WAKE_TIMEOUT_S, key=key, desk=desk, hint_id=hint_id, quiet=True,
+            )
+            state["status"], state["err"] = st, er
+            if st is not None and 200 <= st <= 299:
+                state["alive"] = False
+                _wake_ok(desk)
+                if note is not None:
+                    with _GATE_LOCK:
+                        if _NOTE.get(desk) == note:
+                            _NOTE.pop(desk, None)
+                _fail_clear(desk)
+                _wake_log(desk, frame, hint_id, f"sent status={st} reason=retry{tag}")
+                return
+            if not _retryable(st):
+                state["alive"] = False
+                return
+            pump()
+
+        _schedule(delay, once)
+
+    pump()
+
+
 def post_desk(
     cn,
     desk: str,
@@ -951,10 +1132,15 @@ def post_desk(
         note = _NOTE.get(desk)
     body = wake_body(desk, frame, pending=pending, roster=desk_roster(cn, desk), reason=reason, room=room,
                      pending_count=pending_count, last_note=note, lease=lease)
-    status, err = _fire(url, body,
-                        timeout=WAKE_TIMEOUT_S, key=key, desk=desk, hint_id=hint_id, quiet=True)
+    # One POST on this call. A retryable failure is the same wake again, later,
+    # off this request (card 827). _fire's immediate second try stays on the
+    # hook path only.
+    status, err = _post_status(
+        url, body, timeout=WAKE_TIMEOUT_S, key=key, desk=desk, hint_id=hint_id, quiet=True,
+    )
     tag = f" reason={trailing}" if trailing else (f" reason={ring}" if ring else "")
     if status is not None and 200 <= status <= 299:
+        _wake_ok(desk)
         if note is not None:
             with _GATE_LOCK:
                 if _NOTE.get(desk) == note:
@@ -967,4 +1153,11 @@ def post_desk(
         why += f' why="{err}"'
     _wake_log(desk, frame, hint_id, f"fail {why}{tag}")
     _fail_run(cn, desk, status, err, host)
+    from agent_coord.server.poke_key import FIELD
+
+    if pending > 0 and _retryable(status) and str((body or {}).get(FIELD) or "").strip():
+        _arm_retry(
+            url, body, key=key, desk=desk, hint_id=hint_id, frame=frame,
+            status=status, err=err, note=note, tag=tag,
+        )
     return "error"

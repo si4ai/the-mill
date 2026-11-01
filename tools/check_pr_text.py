@@ -10,8 +10,9 @@ slip there stays public after an edit. Commit messages and the tree are
 scanned by check_pack and precommit_hygiene; this scans the text people post
 around them, with the same check_pack rules the commit-message scan uses:
 non-documentation address, home path with a login segment, email outside
-placeholder domains, and credential shapes (#760). The Title-case name rule is left out: PR prose is full
-of ordinary capitalized words.
+placeholder domains, and credential shapes (#760). PR and issue titles and
+bodies also get the Title-case name-token rule (card 937 / F-pr-title-body-name-token); comments
+and reviews stay on the generic rules only (too noisy for name-token).
 
 The text is untrusted input. It is read from the event JSON file
 (GITHUB_EVENT_PATH) or the API, never from a shell argument or a workflow
@@ -33,9 +34,20 @@ import check_pack as cp  # noqa: E402
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
 
-def kinds(text: str) -> list[tuple[int, str]]:
+def _name_token_field(where: str) -> bool:
+    """True for PR/issue title and body; false for comments and reviews."""
+    return where.endswith(" title") or where.endswith(" body")
+
+
+def kinds(
+    text: str,
+    *,
+    name_token: bool = False,
+    vocab: set[str] | frozenset[str] | None = None,
+) -> list[tuple[int, str]]:
     """(line, kind) for every rule hit in text."""
     out: list[tuple[int, str]] = []
+    words = vocab if vocab is not None else frozenset()
     for i, ln in enumerate((text or "").splitlines(), 1):
         if cp.text_has_forbidden_address(ln):
             out.append((i, "non-documentation address"))
@@ -45,12 +57,29 @@ def kinds(text: str) -> list[tuple[int, str]]:
             out.append((i, "email outside placeholder domains"))
         for kind in cp.credential_kinds(ln):
             out.append((i, f"credential shape ({kind})"))
+        if name_token and cp.text_has_personal_name_token(ln, words):
+            out.append((i, "personal name token"))
     return out
 
 
-def scan(texts: list[tuple[str, str]]) -> list[str]:
-    """texts is [(where, text)]; returns report lines, never the text."""
-    return [f"{where}:{line}: {kind}" for where, text in texts for line, kind in kinds(text)]
+def scan(
+    texts: list[tuple[str, str]],
+    *,
+    vocab: set[str] | frozenset[str] | None = None,
+) -> list[str]:
+    """texts is [(where, text)]; returns report lines, never the text.
+
+    Title and body fields also run the commit-msg name-token rule (card 937).
+    Comments and reviews keep the generic rules only.
+    """
+    words = vocab if vocab is not None else cp.ordinary_words()
+    return [
+        f"{where}:{line}: {kind}"
+        for where, text in texts
+        for line, kind in kinds(
+            text, name_token=_name_token_field(where), vocab=words
+        )
+    ]
 
 
 def event_texts(name: str, event: dict) -> list[tuple[str, str]]:

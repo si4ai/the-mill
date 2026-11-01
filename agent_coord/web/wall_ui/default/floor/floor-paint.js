@@ -188,7 +188,7 @@
     function wallEnsureFloorMap() {
       wallBindMapDeps();
       if (typeof wallEnsureModule === "function") return wallEnsureModule("floorMap");
-      if (typeof wallLoadScript === "function") return wallLoadScript("/floor/map-paint.js?v=wow280");
+      if (typeof wallLoadScript === "function") return wallLoadScript("/floor/map-paint.js?v=wow281");
       return Promise.resolve();
     }
     function paintFloorMap(g) {
@@ -295,7 +295,7 @@
       let legend = "";
       let charts = "";
       if (byDesk) {
-        legend = `<div class="floor-tl-legend"><span><i style="background:${commandColor}"></i>commands</span></div>`;
+        legend = `<div class="floor-tl-legend"><span><i class="swatch-2"></i>commands</span></div>`;
         charts = owners.map(function (owner) {
           const values = perDesk[owner];
           let ymax = 1;
@@ -306,7 +306,7 @@
         }).join("");
       } else {
         legend = `<div class="floor-tl-legend">` + owners.map(function (o, i) {
-          return `<span><i style="background:${DESK_PALETTE[i % DESK_PALETTE.length]}"></i>${esc(o)}</span>`;
+          return `<span><i class="swatch-${i % DESK_PALETTE.length}"></i>${esc(o)}</span>`;
         }).join("") + `</div>`;
         const named = owners.map(function (owner, i) {
           return { values: perDesk[owner], color: DESK_PALETTE[i % DESK_PALETTE.length], thick: 1.6 };
@@ -382,7 +382,7 @@
       let legend = "";
       if (byDesk) {
         legend = `<div class="floor-tl-legend">` +
-          PRESENCE_SERIES.map(p => `<span><i style="background:${p[1]}"></i>${esc(p[0])}</span>`).join("") +
+          PRESENCE_SERIES.map((p, i) => `<span><i class="swatch-${i + 1}"></i>${esc(p[0])}</span>`).join("") +
           `</div>`;
         charts = owners.map(owner => {
           const series = perDesk[owner].series;
@@ -395,7 +395,7 @@
         }).join("");
       } else {
         legend = `<div class="floor-tl-legend">` + owners.map((o, i) =>
-          `<span><i style="background:${DESK_PALETTE[i % DESK_PALETTE.length]}"></i>${esc(o)}</span>`
+          `<span><i class="swatch-${i % DESK_PALETTE.length}"></i>${esc(o)}</span>`
         ).join("") + `</div>`;
         const typeRows = PRESENCE_SERIES.map(p => [p[0], p[0]]);
         charts = typeRows.map(tr => {
@@ -440,7 +440,7 @@
           `<span class="chip">tok ${esc(desk.tokens || 0)}</span>` +
           `<span class="chip">usd ${esc(desk.usd || 0)}</span>` +
           `<span class="chip">done ${esc(floorSpanLabel(g.window || floorSpan))} ${esc(desk.jobs_done || 0)}</span>` +
-          `<div style="margin-top:.35rem">desks: ${pills || esc("(none)")}</div>` +
+          `<div class="gap-top">desks: ${pills || esc("(none)")}</div>` +
           `<div class="here-doing"><div class="here-doing-now">${esc(String(desk.doing || "").trim() || "-")}</div></div>`;
         floorDetailSel = { type: "workstation", owner };
         return;
@@ -498,7 +498,7 @@
         if (!rows.length) return "";
         const shown = rows.slice(0, 8);
         const more = rows.length > shown.length ? `<div class="meta">${rows.length - shown.length} more</div>` : "";
-        return `<div style="margin-top:.45rem"><b>${esc(title)}</b><ul style="margin:.2rem 0 0 1rem;padding:0">` +
+        return `<div class="gap-top-lg"><b>${esc(title)}</b><ul class="plain-list">` +
           shown.map(line).join("") + `</ul>${more}</div>`;
       }
       const letterList = listOf("Letters", letters, function (m) {

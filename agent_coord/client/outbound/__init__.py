@@ -29,6 +29,7 @@ COMMANDS = frozenset(
         "mail-thread",
         "mark",
         "inbox",
+        "rooms",
         "hold",
         "drop",
         "attach",
@@ -120,8 +121,9 @@ _STR = (
     "at",
     "since",
     "lease",
+    "sort",
 )
-_INT = ("id", "id_a", "id_b", "rm_id", "after", "limit", "parent_id")
+_INT = ("id", "id_a", "id_b", "rm_id", "after", "limit", "parent_id", "page")
 
 
 def canonical_command(raw: str) -> str:
@@ -257,7 +259,7 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             if not p and command != "todo":
                 raise CoordError(f"{name}: project required")
             if len(p) > 64:
-                raise CoordError(f"{name}: no such project {p[:64]}")
+                raise CoordError(f"{name}: no such roster {p[:64]}. list them: mill member")
     # #326: hold with no resource is the lock list, with or without --peek.
     if command == "hold" and not str(getattr(args, "resource", "") or "").strip():
         if str(getattr(args, "doing", "") or ""):
@@ -333,6 +335,8 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body["ids"] = [part for part in str(raw_ids).replace(",", " ").split() if part]
     if hasattr(args, "all"):
         body["all"] = bool(args.all)
+    if hasattr(args, "asc"):
+        body["asc"] = bool(args.asc)
     if hasattr(args, "star"):
         body["star"] = bool(args.star)
     if command == "pass":

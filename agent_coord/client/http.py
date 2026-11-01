@@ -111,7 +111,13 @@ def mill_http_call(body: dict[str, Any]) -> Any:
     if not command:
         raise CoordError("mill command required")
     owner = str(body.get("owner") or "")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    from agent_coord.install.packver import package_version
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Mill-Client": package_version(),
+    }
     from agent_coord.client.offices import read_office_invite
 
     saved_invite = read_office_invite()
@@ -683,11 +689,12 @@ def _find_card(r: dict, needle: str, match: str) -> dict:
     return out
 
 
-def _todo_find(row: Any, text: str) -> Any:
+def _todo_find(row: Any, text: str, *, have_done: bool = False, have_all: bool = False) -> Any:
     """Keep the cards whose need, roster or detail holds text (any case).
 
     Need-name hits list first, then roster, then body-only hits; each
     card carries a short snippet instead of its whole body (ux12).
+    An empty match names only widen flags not already on the command (#649).
     """
     if not text or not isinstance(row, dict) or not isinstance(row.get("result"), list):
         return row
@@ -704,9 +711,16 @@ def _todo_find(row: Any, text: str) -> Any:
     keep = [c for _, _, c in ranked]
     out = dict(row)
     out["result"] = keep
-    out["note"] = f"{len(keep)} card(s) match {text!r}" + (
-        "" if keep else "; add --all for every roster, --done for finished cards"
-    )
+    note = f"{len(keep)} card(s) match {text!r}"
+    if not keep:
+        tips = []
+        if not have_all:
+            tips.append("--all for every roster")
+        if not have_done:
+            tips.append("--done for finished cards")
+        if tips:
+            note += "; add " + ", ".join(tips)
+    out["note"] = note
     return out
 
 
@@ -742,7 +756,11 @@ def mill_http_from_args(args: Any) -> int:
     inbox_short = mail_rows.inbox_applies(args)
     room_short = mail_rows.room_applies(args)
     note_short = mail_rows.note_applies(args)
+    from agent_coord.client import rooms_rows
+
+    rooms_short = rooms_rows.applies(args)
     mail_block: dict | None = None
+    rooms_block: dict | None = None
     # Lock: never let argv --owner rewrite session active / Bearer.
     body = body_from_args(args)
     mine = todo_rows.mine_applies(args)
@@ -756,9 +774,21 @@ def mill_http_from_args(args: Any) -> int:
         if _focus.wears(row.get("result") or [], desk):
             # #374: one label read for the rank, only when a listed card wears the desk's label.
             rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk)), desk)
-        row = todo_rows.keep_mine(row, desk, rank, str(getattr(args, "status", "") or "").strip())
+        row = todo_rows.keep_mine(
+            row,
+            desk,
+            rank,
+            str(getattr(args, "status", "") or "").strip(),
+            have_done=bool(getattr(args, "done", False)),
+            have_all=bool(getattr(args, "all", False)),
+        )
     if find:
-        row = _todo_find(row, find)
+        row = _todo_find(
+            row,
+            find,
+            have_done=bool(getattr(args, "done", False)),
+            have_all=bool(getattr(args, "all", False)),
+        )
     if short_rows and isinstance(row, dict) and row.get("ok") is True and isinstance(row.get("result"), list):
         part, page_block = todo_rows.cut(row["result"], int(getattr(args, "page", 0) or 0))
         row = dict(row, result=part)
@@ -799,6 +829,19 @@ def mill_http_from_args(args: Any) -> int:
     if note_short and isinstance(row, dict) and row.get("ok") is True:
         row = dict(row, result=mail_rows.short_note(row.get("result")))
     if (
+        rooms_short
+        and isinstance(row, dict)
+        and row.get("ok") is True
+        and isinstance(row.get("result"), dict)
+        and isinstance(row["result"].get("rooms"), list)
+    ):
+        part, rooms_block = rooms_rows.cut(
+            row["result"]["rooms"], int(getattr(args, "page", 0) or 0)
+        )
+        shaped = dict(row["result"], rooms=rooms_rows.short(part))
+        row = dict(row, result=shaped, page=rooms_block)
+        rooms_block = None
+    if (
         str(getattr(args, "cmd", "") or "") == "trail"
         and not bool(getattr(args, "as_json", False))
         and not bool(getattr(args, "raw", False))
@@ -808,11 +851,16 @@ def mill_http_from_args(args: Any) -> int:
     ):
         from agent_coord.helpers.trail_text import render
 
+        from agent_coord.client.older import attach_older_once
+
+        noted = attach_older_once(row)
+        if noted.get("older"):
+            print(noted["older"], file=sys.stderr, flush=True)
         print(render(row["result"]), flush=True)
         return 0
     cmd_now = str(getattr(args, "cmd", "") or "")
     if (
-        cmd_now in ("todo", "inbox", "hold")
+        cmd_now in ("todo", "inbox", "hold", "rooms")
         and not bool(getattr(args, "raw", False))
         and isinstance(row, dict)
         and row.get("ok") is True
@@ -837,6 +885,10 @@ def mill_http_from_args(args: Any) -> int:
     if mail_block is not None:
         row = dict(row, result=mail_rows.short_inbox(row["result"]))
         row["page"] = mail_block
+    if isinstance(row, dict):
+        from agent_coord.client.older import attach_older_once
+
+        row = attach_older_once(row)
     refused_hold = isinstance(row, dict) and _refused_hold(args, row)
     if refused_hold:
         row = _hold_refusal(row)
@@ -1049,6 +1101,10 @@ def mill_here_over_http(args: Any) -> int:
                 flush=True,
             )
             return 130
+        from agent_coord.client.older import attach_older_once
+
+        if isinstance(got, dict):
+            got = attach_older_once(got)
         print(json.dumps(got, default=str), flush=True)
         if got.get("ok"):
             return 0

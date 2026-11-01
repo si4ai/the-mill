@@ -287,7 +287,7 @@
         try {
           const r = await fetch("/api/admin/invites", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
             body: JSON.stringify(body),
           });
           /* Hub recycle if 404 - surface TBD; Host recycles mill-wall. */
@@ -3348,7 +3348,7 @@
           const r = await fetch("/api/v1/glance/tap", {
             method: "POST",
             credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
             body: JSON.stringify({ taps: taps, passphrase: passphrase })
           });
           let data = null;
@@ -5156,6 +5156,7 @@
         _presenceMiss = true;
       }
     }
+    /* .swatch-0 through .swatch-7 in welcome.css copy this list. Mail, todo, and hold use 1, 2, and 3. */
     const DESK_PALETTE = ["#6fbf73", "#e6b84c", "#5ec8d8", "#c17cff", "#f07178", "#9aa7b5", "#d4a574", "#7eb8f0"];
     function presenceRowsForUi(opts) {
       /* WALL_HISTORY_EVENTS_92: the History diary paints one row per activity (events,
@@ -5609,7 +5610,7 @@
         const html = bits.join("");
         const loop = bits.length >= 3 ? html + html : html;
         const dur = Math.max(18, bits.length * 5);
-        return `<div class="hero-ticker" tabindex="0" title="hover to pause"><div class="hero-ticker-track" style="animation-duration:${dur}s">${loop}</div></div>`;
+        return `<div class="hero-ticker" tabindex="0" title="hover to pause"><div class="hero-ticker-track" data-dur="${dur}">${loop}</div></div>`;
       };
       let name = cutName, doing = "", parts = [], hotBox = false;
       if (tab === "score") {
@@ -7832,6 +7833,56 @@
         if (name === "admin") wallLoadAdminInvitesLazy();
       };
     })();
+
+    /* Card 815. Typed attr() is dropped outside chromium. data-pct, data-depth,
+       and data-dur stay for the markup. The used value is a CSSOM write, which
+       style-src 'self' allows. --d is only set on the rows whose rules read it. */
+    function wallPaintOne(el) {
+      if (!el || el.nodeType !== 1 || !el.getAttribute) return;
+      const pct = el.getAttribute("data-pct");
+      if (pct != null && pct !== "") el.style.width = pct + "%";
+      const depth = el.getAttribute("data-depth");
+      if (depth != null && depth !== "" && el.classList
+          && (el.classList.contains("mail-room-msg") || el.classList.contains("mill-outline-row"))) {
+        el.style.setProperty("--d", depth);
+      }
+      const dur = el.getAttribute("data-dur");
+      if (dur != null && dur !== "") el.style.animationDuration = dur + "s";
+    }
+    function wallPaintMetrics(root) {
+      if (!root || root.nodeType !== 1) return;
+      wallPaintOne(root);
+      if (!root.querySelectorAll) return;
+      const nodes = root.querySelectorAll("[data-pct], [data-depth], [data-dur]");
+      for (let i = 0; i < nodes.length; i++) wallPaintOne(nodes[i]);
+    }
+    function wallWatchPaintMetrics() {
+      try { window.wallPaintMetrics = wallPaintMetrics; } catch (ePub) {}
+      if (window._wallPaintMetricsObs || typeof MutationObserver !== "function") {
+        try { wallPaintMetrics(document.documentElement); } catch (eScan) {}
+        return;
+      }
+      const obs = new MutationObserver(function (recs) {
+        for (let i = 0; i < recs.length; i++) {
+          const rec = recs[i];
+          if (rec.type === "attributes") wallPaintOne(rec.target);
+          const added = rec.addedNodes;
+          if (!added) continue;
+          for (let j = 0; j < added.length; j++) {
+            if (added[j].nodeType === 1) wallPaintMetrics(added[j]);
+          }
+        }
+      });
+      obs.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-pct", "data-depth", "data-dur"]
+      });
+      window._wallPaintMetricsObs = obs;
+      try { wallPaintMetrics(document.documentElement); } catch (eNow) {}
+    }
+    wallWatchPaintMetrics();
 
 /* WALL_UI_LIB_KEYS wire: desk-scoped shortcuts (Path A). Logic lives in lib/keys.js */
 (function wallKeysBootHook() {

@@ -43,6 +43,9 @@ DEFAULTS: dict[str, Any] = {
     "glance_tap": "",
     # F171: mill-perf.log on (default), all (fast SQL lines too) or off.
     "perf": "on",
+    # #797: mill-home log rotation (bytes cap and retention days).
+    "log_max_bytes": str(10 * 1024 * 1024),
+    "log_retain_days": "30",
 }
 
 _ENV = {
@@ -76,9 +79,11 @@ _ENV = {
     "buffered": "AGENT_COORD_BUFFERED",
     "glance_tap": "AGENT_COORD_GLANCE_TAP",
     "perf": "AGENT_COORD_PERF",
+    "log_max_bytes": "AGENT_COORD_LOG_MAX_BYTES",
+    "log_retain_days": "AGENT_COORD_LOG_RETAIN_DAYS",
 }
 
-_INT_KEYS = {"port", "dashboard_port", "hold_stale_days"}
+_INT_KEYS = {"port", "dashboard_port", "hold_stale_days", "log_max_bytes", "log_retain_days"}
 
 
 def mill_debug() -> bool:

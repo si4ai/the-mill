@@ -149,7 +149,7 @@ def test_dispatch_registry_covers_outbound_wall():
     # WALL is the client command set. The old thread command is gone (#241).
     assert WALL <= set(HANDLERS)
     assert "thread" not in HANDLERS
-    with pytest.raises(CoordError, match="unknown mill command"):
+    with pytest.raises(CoordError, match="unknown command"):
         dispatch(
             type("F", (), {"_tokens": {}, "resolve_bearer": lambda self, token: "DESK_d"})(),
             {"verb": "leftover", "project": "p", "owner": "d"},
@@ -173,6 +173,7 @@ def test_dispatch_open_passes_status(monkeypatch):
     monkeypatch.setattr("agent_coord.server.records.name.ensure_roster", lambda *a, **k: None)
     monkeypatch.setattr("agent_coord.server.records.name.get", lambda *a, **k: 1)
     monkeypatch.setattr("agent_coord.server.records.todo.find", lambda *a, **k: None)
+    monkeypatch.setattr("agent_coord.server.records.todo.find_retired", lambda *a, **k: None)
     monkeypatch.setattr(
         "agent_coord.server.records.todo.insert",
         lambda cn, project, desk, status, body: captured.update(status=status) or [{"id": 1}],
@@ -238,7 +239,7 @@ def test_dispatch_unpark_and_unclaim(monkeypatch):
     )
     assert rec["ok"] is True
     for old in ("yield", "yield-need"):
-        with pytest.raises(CoordError, match="unknown mill command"):
+        with pytest.raises(CoordError, match="unknown command"):
             dispatch(
                 c,
                 {"verb": old, "project": "the-mill", "owner": "desk", "need": "mill-park"},
@@ -336,6 +337,7 @@ def test_open_attaches_parent(monkeypatch):
     monkeypatch.setattr("agent_coord.server.records.name.ensure_roster", lambda *a, **k: None)
     monkeypatch.setattr("agent_coord.server.records.name.get", lambda *a, **k: 1)
     monkeypatch.setattr("agent_coord.server.records.todo.find", lambda *a, **k: None)
+    monkeypatch.setattr("agent_coord.server.records.todo.find_retired", lambda *a, **k: None)
 
     def insert_attached(cn, project, desk, status, body, parent_type, parent_id):
         attached.append((parent_type, int(parent_id), status))

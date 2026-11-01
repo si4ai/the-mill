@@ -16,37 +16,8 @@ from agent_coord.server.redact import redact_format, redact_secrets
 _log = logging.getLogger("mill.push")
 
 
-# mill-perf.log plus .1 through .4. Other logs stay append-only (#220).
+# All mill-home logs rotate through log_rotate (#797). Perf lines keep ms stamps (F171).
 _PERF_LOG = "mill-perf.log"
-_PERF_MAX_BYTES = 10 * 1024 * 1024
-_PERF_KEEP = 4
-_perf_lock = threading.Lock()
-
-
-def _rotate_perf(path) -> None:
-    """Shift mill-perf.log when it reaches the cap. The live file stays the tail."""
-    try:
-        if path.stat().st_size < _PERF_MAX_BYTES:
-            return
-    except OSError:
-        return
-    oldest = path.with_name(path.name + f".{_PERF_KEEP}")
-    try:
-        oldest.unlink(missing_ok=True)
-    except OSError:
-        pass
-    for i in range(_PERF_KEEP - 1, 0, -1):
-        src = path.with_name(path.name + f".{i}")
-        dst = path.with_name(path.name + f".{i + 1}")
-        try:
-            if src.is_file():
-                src.replace(dst)
-        except OSError:
-            pass
-    try:
-        path.replace(path.with_name(path.name + ".1"))
-    except OSError:
-        pass
 
 
 def dest_log(filename: str, msg: str) -> None:
@@ -58,25 +29,28 @@ def dest_log(filename: str, msg: str) -> None:
     try:
         from datetime import datetime, timezone
 
-        from agent_coord.config import mill_home
+        from agent_coord.config import mill_home, settings
+        from agent_coord.server import log_rotate as lr
 
-        p = mill_home() / filename
-        p.parent.mkdir(parents=True, exist_ok=True)
+        s = settings()
+        lr.set_limits(
+            max_bytes=int(s.get("log_max_bytes") or lr.MAX_BYTES),
+            retain_days=int(s.get("log_retain_days") or lr.RETAIN_DAYS),
+        )
+        path = mill_home() / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         if filename == _PERF_LOG:
             # Milliseconds, so the lines of one command sort and join (F171).
             text = now.isoformat(timespec="milliseconds")[:23] + "Z " + line + "\n"
-            with _perf_lock:
-                _rotate_perf(p)
-                with p.open("a", encoding="utf-8") as f:
-                    f.write(text)
         else:
             text = now.strftime("%Y-%m-%dT%H:%M:%SZ ") + line + "\n"
-            with p.open("a", encoding="utf-8") as f:
+        with lr._lock:
+            lr.rotate_if_needed(path)
+            with path.open("a", encoding="utf-8") as f:
                 f.write(text)
     except Exception:
         pass
-
 
 def _bc_log(msg: str) -> None:
     dest_log("mill-backchannel.log", msg)
@@ -290,11 +264,19 @@ def ring_waiting(cn, desk: str, why: str) -> str:
         return "sitting"
     row = rec_push.waiting(cn, desk)
     if not row:
-        return "none"
-    kind = str(row.get("kind") or "hint")
-    frame = dict(row.get("payload") or {})
-    frame.setdefault("kind", kind)
-    reason = ROOM if frame.pop(rec_push.WAKE_REASON, None) == "room" else ADDRESSED
+        # #949 / #826: push may be empty after a short connect marked rows sent, while
+        # the mailbox letter is still unread. Ring on that unread so the desk wakes.
+        unread = unread_mail_frames(cn, desk, limit=1)
+        if not unread:
+            return "none"
+        frame = dict(unread[0])
+        kind = "mail"
+        reason = ADDRESSED
+    else:
+        kind = str(row.get("kind") or "hint")
+        frame = dict(row.get("payload") or {})
+        frame.setdefault("kind", kind)
+        reason = ROOM if frame.pop(rec_push.WAKE_REASON, None) == "room" else ADDRESSED
     num = int(frame.get("id") or 0)
     if kind == "mail":
         frame[FIELD] = letter_key(num, desk)
@@ -764,13 +746,88 @@ def ack_sync(cn, desk: str, ids) -> int:
         return 0
 
 
+
+def unread_mail_frames(cn, desk: str, *, limit: int = 20) -> list[dict]:
+    """#949: newest unread mailbox letters as sync/wake frames (opened IS NULL).
+
+    Soft-fails to [] so connect and wake keep working if the inbox read fails.
+    A short connect that drained the push queue without opening the letter still
+    sees these on the next connect-wait, and wake-done / leave can ring again.
+    """
+    try:
+        from agent_coord.server.records import mail as rec_mail
+
+        rows = rec_mail.inbox(cn, desk, all_mail=False, limit=max(1, int(limit or 20)))
+    except Exception as e:
+        _bc_log(f"unread mail err desk={desk} err={type(e).__name__}")
+        return []
+    if not isinstance(rows, list):
+        return []
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            mid = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if mid <= 0:
+            continue
+        out.append(
+            {
+                "kind": "mail",
+                "id": mid,
+                "outcome": "missed",
+                "body": row.get("body"),
+                "sender": row.get("desk") or row.get("sender"),
+            }
+        )
+    return out
+
+
+def _merge_unread_into_sync(cn, desk: str, sync):
+    """#949: after take/peek, append unread mailbox mail not already in the sync.
+
+    Frames with no push_queue id stay for the next sit until the desk opens the
+    letter (hold/ack does not drop them). Mutates the sync list in place so a
+    held peek keeps its row ids.
+    """
+    try:
+        unread = unread_mail_frames(cn, desk)
+    except Exception:
+        return sync if sync is not None else []
+    if not unread:
+        return sync if sync is not None else []
+    base = sync if isinstance(sync, list) else list(sync or [])
+    seen: set[int] = set()
+    for item in base:
+        if not isinstance(item, dict) or str(item.get("kind") or "") != "mail":
+            continue
+        try:
+            seen.add(int(item.get("id") or 0))
+        except (TypeError, ValueError):
+            pass
+    for frame in unread:
+        try:
+            mid = int(frame.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if mid and mid not in seen:
+            base.append(frame)
+            seen.add(mid)
+    return base
+
+
 def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     """Connect sync plus this desk's holds. Holds are not queue items.
 
     An empty push queue stays an empty list. If the hold read fails, holds is [].
     hold=True (#831): the queue rows stay until ack_sync after the frame is sent.
+    #949: unread mailbox mail (opened IS NULL) not already in the queue is merged
+    into sync so the next connect-wait exits at once after a short connect drained
+    the push rows without opening the letter.
     """
-    sync = take_sync(cn, desk, hold=hold)
+    sync = _merge_unread_into_sync(cn, desk, take_sync(cn, desk, hold=hold))
     holds: list = []
     try:
         from agent_coord.server.records import hold as rec_hold

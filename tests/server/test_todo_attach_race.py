@@ -100,6 +100,7 @@ def _silence(monkeypatch) -> None:
 def test_open_new_card_with_parent_does_not_add_after(monkeypatch) -> None:
     _silence(monkeypatch)
     monkeypatch.setattr(rec_todo, "find", lambda *a, **k: None)
+    monkeypatch.setattr(rec_todo, "find_retired", lambda *a, **k: None)
     seen: dict[str, tuple] = {}
 
     def attached(*args):
@@ -151,6 +152,7 @@ def test_open_existing_card_is_refused_and_attaches_nothing(monkeypatch) -> None
 def test_open_without_parent_stays_a_plain_insert(monkeypatch) -> None:
     _silence(monkeypatch)
     monkeypatch.setattr(rec_todo, "find", lambda *a, **k: None)
+    monkeypatch.setattr(rec_todo, "find_retired", lambda *a, **k: None)
     monkeypatch.setattr(rec_todo, "insert", lambda *a, **k: [{"id": 8}])
     monkeypatch.setattr(
         rec_todo,

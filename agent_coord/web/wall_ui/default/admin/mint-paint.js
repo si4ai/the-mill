@@ -88,7 +88,7 @@
       try {
         const r = await fetch("/api/admin/invites", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
           body: JSON.stringify(seatBody),
         });
         status = r.status;
@@ -111,7 +111,7 @@
         try {
           const r2 = await fetch("/api/admin/invites", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Mill-Wall": "1" },
             body: JSON.stringify(seatBody2),
           });
           status = r2.status;

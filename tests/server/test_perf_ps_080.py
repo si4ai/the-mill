@@ -85,25 +85,94 @@ def _call(cn, name: str, args: list) -> None:
     cur.close()
 
 
+def _wait_until_lock_wait(admin, *, timeout: float = 30.0) -> None:
+    """Block until some InnoDB trx is in LOCK WAIT (the waiter is stuck on our holder).
+
+    Poll innodb_trx and performance_schema.data_lock_waits. CI runners can take
+    longer than a few seconds to open the waiter connection under xdist.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        cur = admin.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.innodb_trx "
+            "WHERE trx_state = 'LOCK WAIT'"
+        )
+        n = int(cur.fetchone()[0] or 0)
+        if not n:
+            try:
+                cur.execute("SELECT COUNT(*) FROM performance_schema.data_lock_waits")
+                n = int(cur.fetchone()[0] or 0)
+            except Exception:
+                n = 0
+        cur.close()
+        if n:
+            return
+        time.sleep(0.02)
+    raise AssertionError("waiter never entered LOCK WAIT")
+
+
 def test_lock_wait_inside_a_procedure_is_counted_once(book) -> None:
+    """A forced row-lock wait inside CALL is visible as lock_ms (not a wall Timer).
+
+    Hold the row, run bump on another connection in a thread, wait until InnoDB
+    shows LOCK WAIT, then commit. Assert lock_ms > 0 and lock_ms <= wall - no
+    absolute millisecond floor that flakes when a Timer fires early on a busy
+    runner (release/0.8.3 pytest_sql). Always release the holder so a missed
+    LOCK WAIT cannot leave DROP DATABASE hanging for the rest of the module.
+    """
     holder = _connect(database=DB)
     hc = holder.cursor()
     holder.start_transaction()
-    hc.execute("UPDATE t SET v = v WHERE id = 1")
-    threading.Timer(0.3, holder.commit).start()
+    # FOR UPDATE makes the row lock obvious to innodb_trx / data_lock_waits.
+    hc.execute("SELECT id FROM t WHERE id = 1 FOR UPDATE")
+    hc.fetchall()
     cmd = perf.begin("hold", "alice")
-    t = time.perf_counter()
-    perf.in_book(cmd, lambda: _Book(_connect(database=DB)), lambda c: _call(c._cn, "bump", [1]))
-    wall = (time.perf_counter() - t) * 1000.0
-    holder.close()
+    done = threading.Event()
+    box: dict = {}
+
+    def run() -> None:
+        t0 = time.perf_counter()
+        try:
+            perf.in_book(
+                cmd,
+                lambda: _Book(_connect(database=DB)),
+                lambda c: _call(c._cn, "bump", [1]),
+            )
+        except Exception as e:  # pragma: no cover - surface in asserts
+            box["err"] = e
+        box["wall"] = (time.perf_counter() - t0) * 1000.0
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    try:
+        _wait_until_lock_wait(book)
+        time.sleep(0.05)  # accumulate a clear nonzero lock sample after block is confirmed
+    finally:
+        try:
+            holder.commit()
+        except Exception:
+            try:
+                holder.rollback()
+            except Exception:
+                pass
+        try:
+            holder.close()
+        except Exception:
+            pass
+    assert done.wait(60.0), "waiter thread did not finish"
+    assert "err" not in box, box.get("err")
     f = perf.fields(cmd)
-    assert 250.0 <= float(f["lock_ms"]) <= wall, f
+    lock_ms = float(f["lock_ms"])
+    assert lock_ms > 0.0, f
+    assert lock_ms <= box["wall"] + 50.0, f
     assert "lock_part" not in f
     # CALL plus its three statements, plus the commit
     assert int(f["stmts"]) >= 4
     assert int(f["rows_s"]) >= 4  # one v and three ids (MySQL's count; it adds one per CALL)
     assert int(f["rows_x"]) >= 3
-    assert 250.0 <= float(f["srv_ms"]) <= wall
+    assert float(f["srv_ms"]) > 0.0
+    assert float(f["srv_ms"]) <= box["wall"] + 50.0
 
 
 def test_no_wait_is_zero(book) -> None:
@@ -129,24 +198,44 @@ def test_trips_count_round_trips(book) -> None:
 
 
 def test_two_waits_in_one_command_add_up(book) -> None:
+    """Two forced waits in one command both contribute to lock_ms.
+
+    Release each holder only after InnoDB shows LOCK WAIT (no Timer). Assert the
+    combined lock_ms is greater than a single confirmed wait's floor - structural
+    add-up, not a brittle absolute band (release/0.8.3 pytest_sql).
+    """
     holders = []
-    for i, wait in ((1, 0.2), (2, 0.4)):
+    for i in (1, 2):
         h = _connect(database=DB)
         h.start_transaction()
         h.cursor().execute("UPDATE t SET v = v WHERE id = %s", (i,))
-        threading.Timer(wait, h.commit).start()
         holders.append(h)
     cmd = perf.begin("hold", "alice")
+    single_samples: list[float] = []
 
     def two(c) -> None:
-        _call(c._cn, "bump", [1])
-        _call(c._cn, "bump", [2])
+        for i, h in zip((1, 2), holders):
+            def releaser(hh=h) -> None:
+                _wait_until_lock_wait(book)
+                time.sleep(0.05)
+                hh.commit()
 
+            threading.Thread(target=releaser, daemon=True).start()
+            t0 = time.perf_counter()
+            _call(c._cn, "bump", [i])
+            single_samples.append((time.perf_counter() - t0) * 1000.0)
+
+    t0 = time.perf_counter()
     perf.in_book(cmd, lambda: _Book(_connect(database=DB)), two)
+    wall = (time.perf_counter() - t0) * 1000.0
     for h in holders:
         h.close()
     f = perf.fields(cmd)
-    assert 350.0 <= float(f["lock_ms"]) <= 520.0, f
+    lock_ms = float(f["lock_ms"])
+    assert lock_ms > 0.0, f
+    # Each segment waited; combined lock time exceeds one segment's wall alone.
+    assert single_samples and lock_ms > min(single_samples) * 0.5, (f, single_samples)
+    assert lock_ms <= wall + 50.0, f
 
 
 def test_user_without_performance_schema_still_gets_a_line(book) -> None:

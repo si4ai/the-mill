@@ -58,7 +58,9 @@ def delete(cn, type: str, id: int, tag: str) -> list[dict]:
     from . import name as rec_name
 
     if rec_name.get(cn, tag_b, CONST_LABEL) is None:
-        raise CoordError("label: no such name %s" % tag_b)
+        from agent_coord.helpers.next_cmd import with_next
+
+        raise CoordError(with_next("label: no such name %s" % tag_b, "mill trail --label %s" % tag_b))
     if not _activity_live(cn, type, int(id)):
         raise CoordError("label-remove: no %s %s" % (type, int(id)))
     return call(cn, "mill_label_delete", [type, int(id), tag_b])

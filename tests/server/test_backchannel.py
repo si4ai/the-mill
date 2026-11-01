@@ -18,7 +18,7 @@ from agent_coord.server.push import HUB, fanout
 
 from tests.sql_isolate import throwaway_db
 
-TEST_DB = throwaway_db("mill_records_test")
+TEST_DB = throwaway_db("mill_backchannel_ws")
 
 
 @pytest.fixture

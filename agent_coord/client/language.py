@@ -115,6 +115,22 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
 
     if cmd == "create":
         obj = str(getattr(args, "object", "") or "")
+        if obj == "todo":
+            # card 736: `mill create todo the-mill/some-need` is the two-word form.
+            project = str(getattr(args, "project", "") or "").strip()
+            need = str(getattr(args, "need", "") or "").strip()
+            if not need and "/" in project and not any(ch.isspace() for ch in project):
+                roster, _, rest = project.partition("/")
+                roster, rest = roster.strip(), rest.strip()
+                if roster and rest and len(roster) <= 64 and len(rest) <= 64:
+                    args.project = roster
+                    args.need = rest
+                    project, need = roster, rest
+            if not project or not need:
+                raise CoordError(
+                    "give roster and need as two words: mill create todo the-mill some-need"
+                )
+            return args
         if obj in ("roster", "label"):
             name = str(args.slug or "").strip()
             if not name:

@@ -445,8 +445,8 @@ def next_connect_line(office: str, project: str, desk: str) -> str:
 
 LINK_ON_ARGV = (
     "join: the welcome link carries the seat secret, so it never goes on the command line "
-    "(process list, shell history, transcripts). Save it to a file and run: "
-    "mill join --link-file PATH (mill invite writes that file), or pipe it: mill join --link-stdin"
+    "(process list, shell history, transcripts). Save the file mill invite writes, then "
+    "run: mill join --link-file PATH. To pipe it, run: mill join --link-stdin"
 )
 
 

@@ -102,6 +102,7 @@
       min-width: 3.5rem;
     }
     .score-bar > i { display: block; height: 100%; background: var(--cyan); width: 0%; }
+    .meta.is-est { opacity: .72; }
     .score-bar.empty > i { width: 0% !important; background: transparent; }
     .score-bar.unknown { opacity: .55; }
     .score-split { display: flex; flex-direction: row; align-items: stretch; gap: .65rem; flex: 1; min-height: 0; }

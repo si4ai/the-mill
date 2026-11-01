@@ -130,3 +130,45 @@ def test_pr_body_credential_shape_fails(tmp_path: Path) -> None:
     assert res.returncode == 1
     assert "credential shape" in res.stderr
     assert ghp not in res.stderr + res.stdout
+
+
+def _who() -> str:
+    """Invented Title-case token; joined so this file stays clean under check_pack."""
+    return "Wib" + "ble"
+
+
+def test_pr_body_name_token_fails(tmp_path: Path) -> None:
+    """Card 937 / F-pr-title-body-name-token: PR title and body use the commit-msg name-token rule."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {"number": 272, "title": "#1 Fix", "body": body}},
+    )
+    assert res.returncode == 1
+    assert "PR #272 body:2: personal name token" in res.stderr
+    assert who not in res.stderr + res.stdout
+
+
+def test_pr_title_name_token_fails(tmp_path: Path) -> None:
+    who = _who()
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {"number": 10, "title": f"#1 ask {who}", "body": "clean"}},
+    )
+    assert res.returncode == 1
+    assert "PR #10 title:1: personal name token" in res.stderr
+    assert who not in res.stderr + res.stdout
+
+
+def test_comment_name_token_stays_on_generic_rules(tmp_path: Path) -> None:
+    """Comments keep generic rules only; a Title-case token alone does not fail."""
+    who = _who()
+    res = _run(
+        tmp_path,
+        "issue_comment",
+        {"issue": {"number": 5}, "comment": {"id": 99, "body": f"thanks {who}"}},
+    )
+    assert res.returncode == 0, res.stderr

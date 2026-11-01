@@ -79,7 +79,7 @@ def test_join_saves_lan_ip_other_commands_do_not(monkeypatch) -> None:
         def __exit__(self, *a):
             return False
 
-    def fake_dispatch(c, data, token=""):
+    def fake_dispatch(c, data, token="", client_mill=""):
         if data.get("verb") == "join":
             return {"owner": "DESK_builder", "token": "minted"}
         return {"ok": True}

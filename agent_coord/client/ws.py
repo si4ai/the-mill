@@ -869,7 +869,10 @@ def sync_view(msg: dict[str, Any]) -> dict[str, Any]:
         hello = hello.strip()
         if hello and hello != "ok":
             out["hello"] = hello
-    return out
+    # 923: once per process, when this pack is older than the office mill field.
+    from agent_coord.client.older import attach_older_once
+
+    return attach_older_once(out)
 
 
 # connect holds the ready and sync lines until the project check passes (#237).
@@ -922,7 +925,15 @@ def own_bridge_call(desk: str, body: dict[str, Any], *, timeout_s: float = 35.0)
     command = str(body.get("verb") or "")
     args = {k: v for k, v in dict(body).items() if k not in ("verb", "cmd", "owner", "token")}
     req_id = str(uuid.uuid4())
-    req = {"id": req_id, "verb": command, "args": args, "secret": ep["secret"]}
+    from agent_coord.install.packver import package_version
+
+    req = {
+        "id": req_id,
+        "verb": command,
+        "args": args,
+        "secret": ep["secret"],
+        "mill": package_version(),
+    }
     raw_req = (json.dumps(req, default=str) + "\n").encode("utf-8")
     buf = b""
     with socket.create_connection((str(ep["host"]), int(ep["port"])), timeout=10.0) as sock:
@@ -1154,6 +1165,9 @@ async def _sit_session(
                                 reply = stashed
                             else:
                                 wire = {"id": req_id, "verb": command, "args": with_connect_roster(command, args)}
+                                client_mill = " ".join(str(req.get("mill") or "").split())[:64]
+                                if client_mill:
+                                    wire["mill"] = client_mill
                                 wait_q: asyncio.Queue = asyncio.Queue(maxsize=1)
 
                                 async def _submit(
@@ -1352,7 +1366,7 @@ def run_ws_loop(
         import websockets
     except ImportError:
         print(
-            "mill here: websockets not installed; backchannel off (mill wake catch-up still works)",
+            "connect: websockets not installed; backchannel off (wake catch-up still works)",
             flush=True,
         )
         return
@@ -1684,11 +1698,14 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
         if not who:
             raise CoordError(SESSION_WS_BRIDGE_REQUIRED)
 
+        from agent_coord.install.packver import package_version
+
         req = {
             "id": req_id,
             "verb": command,
             "args": args,
             "secret": ep["secret"],
+            "mill": package_version(),
         }
         host = str(ep["host"])
         port = int(ep["port"])

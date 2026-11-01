@@ -458,3 +458,144 @@ def mail_tos_names(cn, mail_ids: list[int]) -> dict[int, set[str]]:
 def is_hidden_tree(name: str) -> bool:
     """10-hex plan minted by mill_tree_add (not a room name)."""
     return bool(_HIDDEN_TREE.match(str(name or "")))
+
+
+ROOM_SORTS = frozenset({"recency", "size", "depth", "breadth", "created", "starter"})
+
+
+def list_mail_rooms(
+    cn,
+    *,
+    sort: str = "recency",
+    asc: bool = False,
+    include_hidden: bool = False,
+) -> list[dict[str, Any]]:
+    """Every mail room root (type=mail AND lft=1), with size/depth/breadth.
+
+    size = letter count = (rgt-lft+1)/2 on a mail-only tree.
+    depth = deepest ancestor count on the tree (0 = root only).
+    breadth = distinct member desks (senders U recipients on any letter).
+    The sort is ORDER BY in SQL (not a post-fetch reorder). Default is recency, newest first.
+    Hex-minted plan names are omitted unless include_hidden.
+    """
+    key = str(sort or "recency").strip().lower() or "recency"
+    if key not in ROOM_SORTS:
+        from agent_coord.helpers.errors import CoordError
+
+        raise CoordError(
+            "rooms: --sort must be recency, size, depth, breadth, created, or starter"
+        )
+    order = {
+        "recency": "last_at",
+        "size": "size",
+        "depth": "depth",
+        "breadth": "breadth",
+        "created": "created",
+        "starter": "starter",
+    }[key]
+    direction = "ASC" if asc else "DESC"
+    # Stable ties: tree name then root id.
+    order_sql = f"{order} {direction}, tree ASC, root_id ASC"
+    hidden_sql = "" if include_hidden else " AND n.name NOT REGEXP '^[0-9a-f]{10}$'"
+    sql = f"""
+SELECT
+  n.name AS tree,
+  root.id AS root_id,
+  ((root.rgt - root.lft + 1) DIV 2) AS size,
+  (
+    SELECT COALESCE(MAX(anc_cnt), 0)
+    FROM (
+      SELECT (
+        SELECT COUNT(*)
+        FROM tree a
+        WHERE a.name_id = node.name_id
+          AND a.lft < node.lft AND a.rgt > node.rgt
+      ) AS anc_cnt
+      FROM tree node
+      WHERE node.name_id = root.name_id AND node.type = 'mail'
+    ) depths
+  ) AS depth,
+  (
+    SELECT COUNT(*)
+    FROM (
+      SELECT m.desk_id AS did
+      FROM mail m
+      JOIN tree tm ON tm.type = 'mail' AND tm.id = m.id AND tm.name_id = root.name_id
+      UNION
+      SELECT mt.desk_id AS did
+      FROM mail_to mt
+      JOIN tree tm ON tm.type = 'mail' AND tm.id = mt.id AND tm.name_id = root.name_id
+    ) members
+  ) AS breadth,
+  (
+    SELECT MAX(m.created)
+    FROM mail m
+    JOIN tree tm ON tm.type = 'mail' AND tm.id = m.id AND tm.name_id = root.name_id
+  ) AS last_at,
+  rm.created AS created,
+  sn.name AS starter,
+  SUBSTRING_INDEX(rm.body, CHAR(10), 1) AS root_line
+FROM tree root
+JOIN name n ON n.id = root.name_id AND n.type = 'tree'
+JOIN mail rm ON rm.type = 'mail' AND rm.id = root.id
+JOIN name sn ON sn.id = rm.desk_id
+WHERE root.type = 'mail' AND root.lft = 1
+{hidden_sql}
+ORDER BY {order_sql}
+"""
+    cur = cn.cursor()
+    try:
+        cur.execute(sql)
+        cols = list(cur.column_names)
+        raw_rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    finally:
+        cur.close()
+    out: list[dict[str, Any]] = []
+    for row in raw_rows:
+        root_id = int(row.get("root_id") or 0)
+        out.append(
+            {
+                "tree": str(row.get("tree") or ""),
+                "root_id": root_id,
+                "size": int(row.get("size") or 0),
+                "depth": int(row.get("depth") or 0),
+                "breadth": int(row.get("breadth") or 0),
+                "last_at": _dt(row.get("last_at")),
+                "created": _dt(row.get("created")),
+                "starter": str(row.get("starter") or ""),
+                "root": str(row.get("root_line") or "")[:200],
+                "members": _room_member_names_by_root(cn, root_id),
+            }
+        )
+    return out
+
+
+def _dt(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)[:26]
+
+
+def _room_member_names_by_root(cn, root_id: int) -> list[str]:
+    """Distinct desk names that sent or received any letter on the root's tree."""
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT DISTINCT dn.name"
+            " FROM tree root"
+            " JOIN tree node ON node.name_id = root.name_id AND node.type = 'mail'"
+            " JOIN ("
+            "   SELECT id, desk_id FROM mail WHERE type = 'mail'"
+            "   UNION"
+            "   SELECT id, desk_id FROM mail_to WHERE type = 'mail'"
+            " ) who ON who.id = node.id"
+            " JOIN name dn ON dn.id = who.desk_id"
+            " WHERE root.type = 'mail' AND root.id = %s AND root.lft = 1"
+            " ORDER BY dn.name",
+            (int(root_id),),
+        )
+        return [str(r[0]) for r in cur.fetchall() if r and r[0]]
+    finally:
+        cur.close()

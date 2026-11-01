@@ -9,7 +9,9 @@ DROP PROCEDURE IF EXISTS mill_score_retire;
 DROP PROCEDURE IF EXISTS mill_score_event;
 DROP PROCEDURE IF EXISTS mill_wall_event;
 DROP PROCEDURE IF EXISTS mill_score_evidence_purge;
+DROP PROCEDURE IF EXISTS mill_card_score_event;
 DROP FUNCTION IF EXISTS MILL_SCORE_DOC_ADD;
+DROP FUNCTION IF EXISTS MILL_CARD_SCORE_DOC_ADD;
 
 DELIMITER //
 
@@ -698,6 +700,166 @@ BEGIN
   DELETE FROM score_evidence
    WHERE `timestamp` >= '1970-01-02 00:00:00'
      AND `timestamp` < DATE_SUB(DATE(v_now), INTERVAL 30 DAY);
+END //
+
+-- Card 955: per-roster cards score. Hour slots reuse 1970-01-01 HH:00; day
+-- rollups stay 30 days (mill_score_evidence_purge). Filled only by card moves
+-- and doing ends; desks never write it. A result over 4096 bytes is skipped
+-- (no SIGNAL), so a card move never fails for score.
+CREATE FUNCTION MILL_CARD_SCORE_DOC_ADD(
+  p_doc        JSON,
+  p_kind       VARCHAR(16),
+  p_lead_min   INT,
+  p_eta_min    INT,
+  p_actual_min INT,
+  p_doing_min  INT
+) RETURNS JSON
+  DETERMINISTIC
+  NO SQL
+BEGIN
+  DECLARE v_doc JSON;
+  DECLARE v_n BIGINT;
+  SET v_doc = IFNULL(p_doc, JSON_OBJECT());
+  IF p_kind IN ('claimed', 'started', 'passed', 'shipped') THEN
+    SET v_n = CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, CONCAT('$.', p_kind))), '0') AS SIGNED) + 1;
+    SET v_doc = JSON_SET(v_doc, CONCAT('$.', p_kind), v_n);
+  END IF;
+  IF p_lead_min IS NOT NULL THEN
+    SET v_doc = JSON_SET(
+      v_doc,
+      '$.lead_sum', CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.lead_sum')), '0') AS SIGNED) + GREATEST(p_lead_min, 0),
+      '$.lead_n',   CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.lead_n')), '0') AS SIGNED) + 1
+    );
+  END IF;
+  IF p_eta_min IS NOT NULL THEN
+    SET v_doc = JSON_SET(
+      v_doc,
+      '$.eta_sum',    CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.eta_sum')), '0') AS SIGNED) + GREATEST(p_eta_min, 0),
+      '$.actual_sum', CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.actual_sum')), '0') AS SIGNED) + GREATEST(IFNULL(p_actual_min, 0), 0),
+      '$.eta_n',      CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.eta_n')), '0') AS SIGNED) + 1
+    );
+  END IF;
+  IF p_doing_min IS NOT NULL AND p_doing_min > 0 THEN
+    SET v_doc = JSON_SET(
+      v_doc,
+      '$.doing_sum', CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.doing_sum')), '0') AS SIGNED) + p_doing_min,
+      '$.doing_n',   CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_doc, '$.doing_n')), '0') AS SIGNED) + 1
+    );
+  END IF;
+  RETURN v_doc;
+END //
+
+CREATE PROCEDURE mill_card_score_event(
+  IN p_roster_id  BIGINT UNSIGNED,
+  IN p_kind       VARCHAR(16),
+  IN p_lead_min   INT,
+  IN p_eta_min    INT,
+  IN p_actual_min INT,
+  IN p_doing_min  INT,
+  IN p_now        DATETIME(6)
+)
+BEGIN
+  DECLARE v_ts DATETIME(6);
+  DECLARE v_now DATETIME(6);
+  DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_dup INT DEFAULT 0;
+  DECLARE v_hour DATETIME(6);
+  DECLARE v_day DATETIME(6);
+  DECLARE v_hour_old JSON;
+  DECLARE v_day_old JSON;
+  DECLARE v_hour_new JSON;
+  DECLARE v_day_new JSON;
+  DECLARE v_taken DATE;
+  DECLARE v_len INT;
+  DECLARE v_ship BIGINT;
+  DECLARE v_own INT DEFAULT 0;
+  DECLARE v_fail INT DEFAULT 0;
+  DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
+  -- Soft: swallow so a card move never fails for score. Never ROLLBACK the
+  -- caller's @mill_req_tx; only end a transaction this call started.
+  DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_fail = 1;
+  IF p_roster_id IS NULL OR p_roster_id = 0 THEN
+    SET v_id = NULL;
+  ELSE
+    IF @mill_req_tx IS NULL THEN
+      START TRANSACTION;
+      SET v_own = 1;
+    END IF;
+    SET v_ts = MILL_NOW();
+    SET v_now = IFNULL(p_now, v_ts);
+    SET v_id = (
+      SELECT id FROM score
+       WHERE roster_id = p_roster_id AND desk_id IS NULL AND kpi = 'cards'
+       LIMIT 1
+    );
+    IF v_fail = 0 AND v_id IS NULL THEN
+      INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
+      VALUES (
+        v_ts, NULL, p_roster_id, 'cards', '0', '',
+        'cards claimed/started/passed/shipped per day; lead, eta vs actual, doing minutes',
+        'up', 'cards/day'
+      );
+      IF v_dup = 1 THEN
+        SET v_dup = 0;
+        SET v_id = (
+          SELECT id FROM score
+           WHERE roster_id = p_roster_id AND desk_id IS NULL AND kpi = 'cards'
+           LIMIT 1
+        );
+      ELSE
+        SET v_id = LAST_INSERT_ID();
+        IF v_fail = 0 THEN
+          CALL mill_activity_put('score', v_id, v_ts, NULL, p_roster_id, NULL, NULL);
+        END IF;
+      END IF;
+    END IF;
+    IF v_fail = 0 AND v_id IS NOT NULL THEN
+      SET v_hour = STR_TO_DATE(
+        CONCAT('1970-01-01 ', LPAD(HOUR(v_now), 2, '0'), ':00:00'),
+        '%Y-%m-%d %H:%i:%s'
+      );
+      SET v_day = CAST(DATE(v_now) AS DATETIME);
+      SET v_taken = (
+        SELECT taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
+      );
+      SET v_hour_old = (
+        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
+      );
+      IF v_hour_old IS NULL OR v_taken IS NULL OR v_taken <> DATE(v_now) THEN
+        SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(NULL, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
+      ELSE
+        SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(v_hour_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
+      END IF;
+      SET v_day_old = (
+        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day
+      );
+      SET v_day_new = MILL_CARD_SCORE_DOC_ADD(v_day_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
+      SET v_len = GREATEST(
+        LENGTH(CAST(v_hour_new AS CHAR)),
+        LENGTH(CAST(v_day_new AS CHAR))
+      );
+      IF v_len <= 4096 THEN
+        INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
+        VALUES (v_id, v_hour, v_hour_new, DATE(v_now)) AS new
+        ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
+        INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
+        VALUES (v_id, v_day, v_day_new, DATE(v_now)) AS new
+        ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
+        SET v_ship = CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_day_new, '$.shipped')), '0') AS SIGNED);
+        UPDATE score
+           SET value = LEFT(CAST(v_ship AS CHAR), 64),
+               updated = v_ts
+         WHERE id = v_id;
+      END IF;
+    END IF;
+    IF v_own = 1 THEN
+      IF v_fail = 0 THEN
+        COMMIT;
+      ELSE
+        ROLLBACK;
+      END IF;
+    END IF;
+  END IF;
 END //
 
 DELIMITER ;

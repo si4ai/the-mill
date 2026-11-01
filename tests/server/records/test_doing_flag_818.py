@@ -170,7 +170,7 @@ def test_a_missing_or_retired_item_is_refused(w):
 
 def test_there_is_no_doing_command(w):
     code, out, err = w.run(["doing", "x"])
-    assert code == 2 and "invalid choice" in err
+    assert code == 2 and "unknown command 'doing'" in err
 
 
 # (a)+(b) reply, mark ---------------------------------------------------------

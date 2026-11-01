@@ -5,6 +5,7 @@ Product how-to for putting an office on a machine. **Requirements / must-work:**
 | Doc | What |
 |---|---|
 | [HOST.md](HOST.md) | Local / any-OS host: `mill install server`, update a live office, and [mill-wall + MySQL Operator config](HOST.md#mill-wall-and-mysql-operator-config) |
+| [MAC-TEST-DAY.md](MAC-TEST-DAY.md) | One-day macOS rental checklist (card 933); fill before booking the host |
 | [CLOUD.md](CLOUD.md) | Workstation journey onto one cloud VM |
 | [cloud/aws.md](cloud/aws.md) | AWS playbook (status in the file) |
 | [cloud/azure.md](cloud/azure.md) | Azure playbook (status in the file) |
