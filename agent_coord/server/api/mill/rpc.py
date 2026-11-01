@@ -745,10 +745,12 @@ def _item(typ: Any, nid: Any) -> str | None:
 
 def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str, Any]:
     from agent_coord.lib.observe import heartbeat_flags
+    from agent_coord.server.push import desk_sitting
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
-    alive, stale = heartbeat_flags(hb)
+    # Card 985: a live /ws counts as alive even when seat.updated is old.
+    alive, stale = heartbeat_flags(hb, sitting=desk_sitting(who))
     text = str(r.get("text") or "")
     on = _item(r.get("on_type"), r.get("on_id"))
     ended = r.get("ended_at") is not None

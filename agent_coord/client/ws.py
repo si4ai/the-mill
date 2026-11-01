@@ -1645,7 +1645,10 @@ def start_ws_thread(
     buf = HintBuf(desk)
     who = slug_desk(desk)
     drain = threading.Thread(
-        target=drain_loop, args=(buf, stop), name=f"mill-hint-drain-{who}", daemon=True
+        target=drain_loop,
+        args=(buf, stop, outcome),
+        name=f"mill-hint-drain-{who}",
+        daemon=True,
     )
     drain.start()
     t = threading.Thread(

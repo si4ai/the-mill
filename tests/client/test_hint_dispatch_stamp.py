@@ -73,6 +73,7 @@ def test_wake_stamps_vendor_before_poke(tmp_path, monkeypatch) -> None:
     def fake_poke(vendor, hint):
         seen["vendor"] = vendor
         seen["stamped"] = "op=hint.dispatch" in "\n".join(_lines(tmp_path))
+        return True
 
     monkeypatch.setattr("agent_coord.client.connectors.poke", fake_poke)
     kind = dispatch_hint(
