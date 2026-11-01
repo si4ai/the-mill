@@ -41,17 +41,25 @@ def digest_office(cn):
     empty = int(
         rpc._h_send(
             book,
-            # Leading newline: first line is empty; body still meets 1..4096.
+            # mill send strips the body; rewrite so the stored opener still has an
+            # empty first line (digest root="") while the body stays 1..4096.
             {
                 "src": "dg_a",
                 "dst": "dg_b",
-                "body": "\nsecond line only",
+                "body": "second line only",
                 "name": "dg-empty",
             },
             "dg",
             "dg_a",
         )["id"]
     )
+    cur = cn.cursor()
+    cur.execute(
+        "UPDATE mail SET body = %s WHERE id = %s",
+        ("\nsecond line only", empty),
+    )
+    cn.commit()
+    cur.close()
     one = int(
         rpc._h_send(
             book,
