@@ -484,8 +484,10 @@ def body_from_args(args: Any) -> dict[str, Any]:
     if cmd in ("retire", "rename") and str(getattr(args, "kind", "") or "") == "desk" and getattr(args, "desk_admin", False):
         # Card 880: another desk's name goes to the wall's Admin path (yes + the name twice);
         # your own desk keeps the self path, which needs no Admin.
+        # Card 974: with no sitting connect (owner empty), do not force the Admin
+        # path - that refused self-retire as "mill Admin required" in the cold measure.
         target = str(body.get("slug" if cmd == "retire" else "old") or "").strip()
-        if target and target != desk_stem(owner):
+        if target and owner and target != desk_stem(owner):
             body["yes"] = True
             body["confirm"] = target if cmd == "retire" else str(body.get("new") or "").strip()
     if cmd in ("retire", "reclaim") and str(getattr(args, "kind", "") or "") == "todo":

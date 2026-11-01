@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 974 / F-leave-retire: desk self-retire on live /ws; remove roster without --yes exits 1
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 943: per-desk GitHub apps (needs human app create/install)
 
