@@ -64,7 +64,7 @@ Run: `verify/hold-code/run.sh`. Read results with `/statechart` on `Hold.tla`.
 
 ## anchor rule (card 1014)
 
-each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. `STATECHART_CMD` overrides host path discovery.
+each marker is the real guard line plus its first effect line. markers must not sit on a comment, import, or message line. every anchor has a self-mutant; `run.sh anchors` goes red for each. also anchor what the caller observes (result rows and fields the client reads: op/ok/reason), not just the guards (letter 4267). `STATECHART_CMD` overrides host path discovery.
 ## Tokens
 
 Recorded at hand-off in the PR body and in `TOKENS.txt` (build only; runs are

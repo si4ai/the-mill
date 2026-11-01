@@ -1,5 +1,5 @@
 {
-  "sync_note": "Each marker is the real guard line plus its first effect line (card 1014 / letter 4252). expected_count defaults to 1. Auth anchors are presence-only.",
+  "sync_note": "Each marker is the real guard line plus its first effect line (card 1014 / letter 4252). expected_count defaults to 1. Auth anchors are presence-only. Caller-observed result rows (op/ok/reason) are anchored, not only guards (letter 4267).",
   "anchors": [
     {
       "id": "upsert-for-update",
@@ -77,6 +77,41 @@
       "marker": "SET desk_id = NULL, updated = v_ts\n     WHERE id = p_id AND desk_id = v_expect;",
       "property": "ExpectGuardHolds / DropFreesRow / GuardExpectHolder / GuardDropClears",
       "lines": "231-232"
+    },
+    {
+      "id": "delete-gone-rowcount",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SET v_gone = ROW_COUNT();\n  IF v_gone = 1 THEN",
+      "property": "caller-observed: mill_hold_delete v_gone from ROW_COUNT (C5)",
+      "lines": "138-139"
+    },
+    {
+      "id": "delete-result-ok",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;",
+      "property": "caller-observed: mill_hold_delete result op/ok (C7); hold.py reads ok",
+      "lines": "146"
+    },
+    {
+      "id": "release-gone-rowcount",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "    SET v_gone = ROW_COUNT();\n    IF v_gone = 1 THEN",
+      "property": "caller-observed: mill_hold_release_other v_gone from ROW_COUNT",
+      "lines": "233-234"
+    },
+    {
+      "id": "release-result-ok",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "         IF(v_gone = 1, 'released', IF(v_reason = '' OR v_reason = 'kept', 'kept', v_reason)) AS op,\n         IF(v_gone = 1, 1, 0) AS ok,\n         v_holder AS was_holder, v_reason AS reason;",
+      "property": "caller-observed: mill_hold_release_other op/ok/reason (C9); hold.py reads ok+reason",
+      "lines": "245-247"
+    },
+    {
+      "id": "holder-for-update-null",
+      "path": "agent_coord/server/sql/sp_hold.sql",
+      "marker": "  SELECT desk_id INTO v_holder FROM hold WHERE id = p_id FOR UPDATE;\n  IF v_holder IS NULL THEN",
+      "property": "release-other FOR UPDATE read then already-free gate (B5c)",
+      "lines": "217-218"
     },
     {
       "id": "may-drop-other",
