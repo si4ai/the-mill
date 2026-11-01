@@ -12,7 +12,8 @@ across two desks is a known gap (product refuses self-wait only).
 - `view.mjs`: reader labels for `/statechart`
 - `anchors.json` + `check_anchors.py`: ties the model to marker strings in the real files
 - `mutants/*.cfg`: each flips one guard; the matching invariant must break
-- `known/`: wait-cycle and stale-doing findings still violate; proposed fixes pass
+- `known/`: wait-cycle and stale-doing findings still violate at `MaxTasks=1` and at the target `MaxTasks=2` (`*_target`); proposed fixes pass at both
+- `run.sh witness`: 0.8.6 target checks derived from `Doing-target.cfg` (see below)
 - `run.sh`: one token-free command; out of CI
 - `SKILL.md`: project skill for the next agent
 
@@ -54,6 +55,9 @@ wake token (wake-code).
 - doing ends on ship/done/drop: by-construction of EndFocus; anchored on finish + mill_doing_end
 - wait cycle invisible: **known violated**; proposed `wait_cycle_fixed` passes
 - stale doing clears within bound: **known violated**; proposed `stale_doing_fixed` passes
+- current (`Doing.cfg`): `NoTwoActive` holds (one active task per desk)
+- 0.8.6 target, no supersede: `PROPERTY NoSupersede` (a focus never lands on an occupied slot) holds on `Doing-target.cfg`; fails on witness mutant `target_supersede` (GuardSupersede=TRUE)
+- 0.8.6 target, concurrency reachable: `run.sh witness` expects TLC to break `NoTwoActive` under the target constants (two active tasks on one desk is reachable). Witness mutants `target_max1` (MaxTasks=1) and `target_no_slot2` (Doing.tla never hands out slot 2) must make the witness vanish, and `run.sh` goes red if it doesn't. The witness and mutants read their constants from `Doing-target.cfg`, so an edit there moves them too.
 
 Run: `verify/doing-code/run.sh`. Read results with `/statechart` on `Doing.tla`.
 

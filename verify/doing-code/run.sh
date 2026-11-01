@@ -8,8 +8,10 @@
 #   verify/doing-code/run.sh model        # TLC on Doing.cfg (via statechart)
 #   verify/doing-code/run.sh mutants      # each mutant cfg must violate
 #   verify/doing-code/run.sh mutant NAME  # one mutant (e.g. no_take_free)
-#   verify/doing-code/run.sh known        # wait-cycle and stale-doing findings still reproduces;
-#                                        # proposed fix cfgs still pass
+#   verify/doing-code/run.sh known        # wait-cycle and stale-doing findings still reproduce,
+#                                        # at MaxTasks=1 and 2; proposed fix cfgs still pass
+#   verify/doing-code/run.sh witness      # 0.8.6 target: two active tasks on one desk reachable,
+#                                        # plus target mutants (supersede on, MaxTasks=1, no slot 2)
 #
 # Needs: Python 3, java 17+, tla2tools.jar. statechart is resolved from
 # the pstack skill cache or STATECHART_CMD.
@@ -102,6 +104,76 @@ run_model() {
 }
 
 
+# broke FILE_DIR NAME: TLC (or statechart's report) shows NAME violated,
+# as an invariant or as an action property.
+broke() {
+  local mout=$1 inv=$2
+  grep -E "Invariant $inv is violated|Error: Invariant $inv|Action property $inv is violated|property $inv is violated" \
+    "$mout/tlc.out" >/dev/null 2>&1 && return 0
+  grep -A40 'Rules that break' "$mout/report.md" 2>/dev/null | grep -q "$inv"
+}
+
+clean() {
+  local mout=$1
+  grep -E 'Model checking completed|No error has been found' "$mout/tlc.out" >/dev/null 2>&1 \
+    || grep -q 'Rules that hold' "$mout/report.md" 2>/dev/null
+}
+
+# Constants of Doing-target.cfg (through SPECIFICATION), optionally sed-mutated,
+# followed by the given check lines. Mutants derive from the shipped target cfg,
+# so editing the target cfg moves them too.
+target_cfg() {
+  local sedx=$1; shift
+  sed -n '1,/^SPECIFICATION/p' "$HERE/Doing-target.cfg" | sed -E "${sedx:-s/^//}"
+  printf '%s\n' "$@" "CHECK_DEADLOCK FALSE"
+}
+
+# run_tlc NAME CFG [TLA]: one statechart run under $OUT/NAME.
+run_tlc() {
+  local name=$1 cfg=$2 tla=${3:-$HERE/Doing.tla} sc
+  sc=$(find_statechart)
+  local mout=$OUT/$name
+  rm -rf "$mout" "$mout.log"; mkdir -p "$(dirname "$mout")"
+  "$sc" "$tla" --config "$cfg" --view "$HERE/view.mjs" --out "$mout" >"$mout.log" 2>&1 || true
+  echo "$mout"
+}
+
+# 0.8.6 target: concurrency must be reachable, supersede must be gone.
+# Each target mutant must turn this red.
+run_witness() {
+  local sc mout rc=0 cfgd=$OUT/witness-cfg
+  sc=$(find_statechart)
+  if [ -z "$sc" ]; then echo "witness: statechart not found (set STATECHART_CMD)" >&2; return 1; fi
+  rm -rf "$cfgd"; mkdir -p "$cfgd"
+
+  target_cfg "" "INVARIANT TypeOK" "INVARIANT NoTwoActive" >"$cfgd/two_active.cfg"
+  mout=$(run_tlc witness/two_active "$cfgd/two_active.cfg")
+  if broke "$mout" NoTwoActive; then echo "witness two_active: second concurrent task reachable on target"
+  else echo "witness two_active: FAIL (target never reaches two active tasks; see $mout)" >&2; rc=1; fi
+
+  # mutant: supersede back on -> NoSupersede must break
+  target_cfg 's/^(  GuardSupersede = )FALSE/\1TRUE/' "INVARIANT TypeOK" "PROPERTY NoSupersede" >"$cfgd/target_supersede.cfg"
+  grep -q 'GuardSupersede = TRUE' "$cfgd/target_supersede.cfg" || { echo "witness target_supersede: sed no-op" >&2; rc=1; }
+  mout=$(run_tlc witness/target_supersede "$cfgd/target_supersede.cfg")
+  if broke "$mout" NoSupersede; then echo "witness target_supersede: NoSupersede broke as expected"
+  else echo "witness target_supersede: FAIL (supersede on target not caught; see $mout)" >&2; rc=1; fi
+
+  # mutant: MaxTasks=1 on target -> the two_active witness must vanish
+  target_cfg 's/^(  MaxTasks = )2/\11/' "INVARIANT TypeOK" "INVARIANT NoTwoActive" >"$cfgd/target_max1.cfg"
+  grep -q 'MaxTasks = 1' "$cfgd/target_max1.cfg" || { echo "witness target_max1: sed no-op" >&2; rc=1; }
+  mout=$(run_tlc witness/target_max1 "$cfgd/target_max1.cfg")
+  if clean "$mout" && ! broke "$mout" NoTwoActive; then echo "witness target_max1: witness lost as expected (check catches MaxTasks=1)"
+  else echo "witness target_max1: FAIL (two active still reachable at MaxTasks=1; see $mout)" >&2; rc=1; fi
+
+  # mutant: Doing.tla never hands out slot 2 -> the two_active witness must vanish
+  sed -E 's/ELSE IF MaxTasks = 2 \/\\ st(1|2)2 = 0 THEN 2/ELSE IF FALSE THEN 2/' "$HERE/Doing.tla" >"$cfgd/Doing.tla"
+  if cmp -s "$HERE/Doing.tla" "$cfgd/Doing.tla"; then echo "witness target_no_slot2: sed no-op" >&2; rc=1; fi
+  mout=$(run_tlc witness/target_no_slot2 "$cfgd/two_active.cfg" "$cfgd/Doing.tla")
+  if clean "$mout" && ! broke "$mout" NoTwoActive; then echo "witness target_no_slot2: witness lost as expected"
+  else echo "witness target_no_slot2: FAIL (see $mout)" >&2; rc=1; fi
+  return $rc
+}
+
 run_one_mutant() {
   local name=$1
   local cfg=$HERE/mutants/${name}.cfg
@@ -151,7 +223,8 @@ run_known() {
     echo "run.sh: statechart not found; set STATECHART_CMD" >&2
     return 1
   fi
-  for pair in wait_cycle:GuardDetectWaitCycle stale_doing:GuardAutoClearStale; do
+  for pair in wait_cycle:GuardDetectWaitCycle stale_doing:GuardAutoClearStale \
+              wait_cycle_target:GuardDetectWaitCycle stale_doing_target:GuardAutoClearStale; do
     name=${pair%%:*}; guard=${pair#*:}
     mout=$OUT/known/$name
     rm -rf "$mout"; mkdir -p "$mout"
@@ -183,7 +256,7 @@ run_known() {
 }
 
 usage() {
-  sed -n '2,16p' "$0"
+  sed -n '2,18p' "$0"
 }
 
 note_sync
@@ -195,12 +268,14 @@ case "$cmd" in
   mutants) run_mutants ;;
   mutant) run_one_mutant "${2:?mutant name}" ;;
   known) run_known ;;
+  witness) run_witness ;;
   all)
     rc=0
     run_anchors || rc=1
     run_model || rc=1
     run_mutants || rc=1
     run_known || rc=1
+    run_witness || rc=1
     if [ "$rc" -eq 0 ]; then
       echo "verify/doing-code/run.sh: all checks matched"
     else

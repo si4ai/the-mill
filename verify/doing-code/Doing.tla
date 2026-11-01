@@ -313,8 +313,16 @@ StaleDoingClearsWithinBound ==
   ~ ((age11 >= 3 /\ st11 # 0 /\ ~live1) \/ (age12 >= 3 /\ st12 # 0 /\ ~live1)
      \/ (age21 >= 3 /\ st21 # 0 /\ ~live2) \/ (age22 >= 3 /\ st22 # 0 /\ ~live2))
 
-\* 0.8.6 target: two concurrent actives on one desk are allowed
-ConcurrentTasksAllowed ==
-  (MaxTasks = 2 /\ ~GuardSupersede) => TRUE
+\* Witness only: no desk has two active tasks at once. Holds on current
+\* (MaxTasks=1). On the 0.8.6 target, run.sh expects TLC to BREAK it, which
+\* proves a second concurrent task is reachable (witness/two_active).
+NoTwoActive == ~(st11 = 1 /\ st12 = 1) /\ ~(st21 = 1 /\ st22 = 1)
+
+Occ(d, t) == IF d = 1 THEN (IF t = 1 THEN st11 ELSE st12)
+             ELSE (IF t = 1 THEN st21 ELSE st22)
+
+\* 0.8.6 target: a focus never lands on an occupied slot (no D6 supersede).
+NoSupersede ==
+  [][ (lastStep' = "focus" /\ lastOut' = "focused") => Occ(lastActor', lastTask') = 0 ]_vars
 
 ====

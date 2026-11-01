@@ -3,7 +3,7 @@
  * retire, in 0.8.0. Keyed on transition ids D1-D12, H1-H5, N1.
  * 0.8.6 target (concurrent tw tasks, no D6): modelled in verify/doing-code/Doing.tla
  * (Doing-target.cfg). This SPIN file still matches current single seat.doing_id.
- * *
+ *
  * Sources:
  *   design  docs/requirements/beta/activity-states-080.md (PR #226, c2a91f9), sections doing,
  *           hold, seat focus and name retire; the Builder's handoff (lock order, invariants)
