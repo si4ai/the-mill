@@ -367,6 +367,11 @@ def test_routines_compile_split_script_and_whole_file(cn, tmp_path) -> None:
     if not mysql:
         # CI's python image has no mysql client. The split_script half above still runs;
         # the whole-file half is covered by the release throwaway A/B.
+        # Restore tip routines before skip: the second DROP above would otherwise
+        # poison the shared schema for later modules (card 986).
+        from tests import sql_book
+
+        sql_book.restore_tip_routines(cn)
         pytest.skip("mysql client not on PATH; whole-file apply not checked here")
     kw = conn_kwargs()
     cnf = tmp_path / ("mill-label-ord-%s.cnf" % os.getpid())

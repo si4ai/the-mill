@@ -234,7 +234,7 @@ def test_concurrent_inserts_get_distinct_ids_without_office_lock(cn) -> None:
     # One retry when InnoDB deadlocks under xdist load on a shared MySQL (card 944).
     last_errs: list[BaseException] = []
     ids: dict[str, list[int]] = {"mail": [], "todo": []}
-    for attempt in range(2):
+    for attempt in range(3):  # deadlocks under shared-schema load; retry twice
         blocker = _direct()
         bcur = blocker.cursor()
         bcur.execute("START TRANSACTION")
