@@ -1633,7 +1633,8 @@ def _ensure_act_rename(cn) -> list[str]:
 
 def transition_1022_needed(cn) -> bool:
     """True when wake/transition/System from card 1022 are not yet on the book,
-    or push_queue still exists (fold into wake), or wake lacks payload."""
+    or push_queue still exists (fold into wake), or wake lacks payload,
+    or watcher.type still drifts from the tip ENUM (card 1059 name rows)."""
     cur = cn.cursor()
     try:
         if _table_exists(cur, "push_queue"):
@@ -1674,6 +1675,20 @@ def transition_1022_needed(cn) -> bool:
         row = cur.fetchone()
         if row and (str(row[0]).upper() == "YES" or str(row[1] or "") not in ("0", "0.0")):
             return True
+        # card 1059: watcher.type must match tip (no 'name'; Oct 3 name-is-not-activity)
+        if _table_exists(cur, "watcher"):
+            cur.execute(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'watcher'"
+                " AND COLUMN_NAME = 'type'"
+            )
+            row = cur.fetchone()
+            wtype = row[0] if row else ""
+            if isinstance(wtype, (bytes, bytearray)):
+                wtype = wtype.decode("utf-8")
+            tip = "enum('todo','doing','hold','score','wake')"
+            if str(wtype or "") != tip:
+                return True
         return False
     finally:
         cur.close()
