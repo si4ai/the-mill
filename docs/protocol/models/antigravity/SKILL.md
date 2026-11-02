@@ -35,5 +35,3 @@ Example `~/.gemini/antigravity-cli/settings.json` snippet (placeholders only; sc
   }
 }
 ```
-
-Do not restate rule triggers, frontmatter, the full settings schema, app presets, or `agentMode` here. Those live in Google's docs and change on Google's schedule: https://antigravity.google/docs/rules/ , https://antigravity.google/docs/skills/ , https://antigravity.google/docs/permissions/ , https://antigravity.google/docs/cli/reference/ .
