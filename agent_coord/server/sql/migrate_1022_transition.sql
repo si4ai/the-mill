@@ -59,8 +59,23 @@ SET @mill_1022_sql := IF(
 );
 PREPARE mill_1022_stmt FROM @mill_1022_sql; EXECUTE mill_1022_stmt; DEALLOCATE PREPARE mill_1022_stmt;
 
+-- card 1059: name is not an activity (2026-10-03). Drop illegal name watcher rows
+-- before the tip ENUM (Data truncated otherwise). Also collapses a hand-widen that
+-- kept name beside wake (cloud office 0.8.6 workaround). Skip when watcher is absent
+-- (fragment books in fold tests).
 SET @mill_1022_sql := IF(
-  (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'watcher' AND COLUMN_NAME = 'type' AND COLUMN_TYPE NOT LIKE '%''wake''%') > 0,
+  (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'watcher') > 0,
+  'DELETE FROM watcher WHERE type = ''name''',
+  'SELECT 1'
+);
+PREPARE mill_1022_stmt FROM @mill_1022_sql; EXECUTE mill_1022_stmt; DEALLOCATE PREPARE mill_1022_stmt;
+SET @mill_1022_wt := (
+  SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'watcher' AND COLUMN_NAME = 'type'
+);
+SET @mill_1022_sql := IF(
+  @mill_1022_wt IS NOT NULL AND @mill_1022_wt <> 'enum(''todo'',''doing'',''hold'',''score'',''wake'')',
   'ALTER TABLE watcher MODIFY type ENUM(''todo'',''doing'',''hold'',''score'',''wake'') NOT NULL',
   'SELECT 1'
 );
