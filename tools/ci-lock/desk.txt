@@ -1,6 +1,6 @@
 # The released desk client for copilot-setup-steps.yml, installed with
 # --require-hashes --no-deps after ci.txt (which carries its runtime deps).
 # Hashes are the PyPI wheel and sdist of that release.
-the-mill==0.7.19 \
-    --hash=sha256:939a309d74c5587ee76da4d98cba79b0d9a1bdc29d2ffcda7cef6fab27c5d063 \
-    --hash=sha256:e50a2f12dc935413c67851700bc7790c7f9dde8ce14df1e314e36223749cfe04
+the-mill==0.8.0 \
+    --hash=sha256:ccb73986e14e40166d401119056ac441bd5287ffc0cdd6c57cd4d618f8bdd80d \
+    --hash=sha256:e4732e5159719477f8d1940e941e9346a26589c00f1ca5ff2f39a171a0adbc17
