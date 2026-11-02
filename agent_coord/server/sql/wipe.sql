@@ -16,6 +16,9 @@ DROP TRIGGER IF EXISTS name_fixed;
 -- 0.8.0 has no new table; seat and doing reference each other (FOREIGN_KEY_CHECKS is off, so order is free).
 DROP TABLE IF EXISTS mill_invite_join;
 DROP TABLE IF EXISTS mill_invite;
+DROP TABLE IF EXISTS transition_edge;
+DROP TABLE IF EXISTS transition;
+DROP TABLE IF EXISTS wake;
 DROP TABLE IF EXISTS label;
 DROP TABLE IF EXISTS watcher;
 DROP TABLE IF EXISTS tree;
@@ -40,6 +43,7 @@ DROP TABLE IF EXISTS name;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+DROP PROCEDURE IF EXISTS mill_transition_put;
 DROP PROCEDURE IF EXISTS mill_activity_put;
 DROP PROCEDURE IF EXISTS mill_activity_select;
 DROP PROCEDURE IF EXISTS mill_activity_get;

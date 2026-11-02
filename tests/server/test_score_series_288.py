@@ -153,35 +153,40 @@ def rec(monkeypatch):
     return rpc, calls
 
 
-def test_handler_records_a_point_and_returns_the_series(rec) -> None:
+def test_handler_desk_value_write_is_refused(rec) -> None:
+    """Card 1021: desk VALUE / define writes never reach records."""
     rpc, calls = rec
-    out = rpc._h_score(
-        _Book(), {"name": "tokens.loop", "value": "880", "target": "500", "better": "down", "unit": "tokens",
-                  "note": "shorter prompt"}, "unit", "d1")
-    assert calls[0] == ("add", "unit", "d1", "tokens.loop", 880.0,
-                        {"target": "500", "note": "shorter prompt", "better": "down", "unit": "tokens", "at": None})
-    assert out["score"] == "tokens.loop" and out["trend"] == "improving" and "points" not in out
-
-
-def test_handler_write_keeps_stored_target_better_unit_when_not_given(rec) -> None:
-    rpc, calls = rec
-    rpc._h_score(_Book(), {"name": "tokens.loop", "value": "1"}, "unit", "d1")
-    assert calls[0][5] == {"target": None, "note": "", "better": None, "unit": None, "at": None}
+    with pytest.raises(CoordError, match=r"desks only read scores; use mill score unit tokens\.loop"):
+        rpc._h_score(
+            _Book(),
+            {
+                "name": "tokens.loop",
+                "value": "880",
+                "target": "500",
+                "better": "down",
+                "unit": "tokens",
+                "note": "shorter prompt",
+            },
+            "unit",
+            "d1",
+        )
+    assert calls == []
 
 
 @pytest.mark.parametrize(
-    "body,msg",
+    "body",
     [
-        ({"name": "x", "value": "fast"}, "VALUE must be a number"),
-        ({"name": "x", "value": "nan"}, "VALUE must be a number"),
-        ({"name": "x", "value": "3", "target": "soon"}, "--target must be a number"),
-        ({"name": "x", "value": "3", "better": "sideways"}, "--better must be up or down"),
-        ({"name": "x", "value": "3", "unit": "u" * 17}, "--unit must be 1..16 characters"),
+        {"name": "x", "value": "fast"},
+        {"name": "x", "value": "3", "target": "soon"},
+        {"name": "x", "value": "3", "better": "sideways"},
+        {"name": "x", "value": "3", "unit": "u" * 17},
+        {"name": "x", "retire": True},
+        {"name": "x", "target": "1"},
     ],
 )
-def test_handler_refuses_and_stores_nothing(rec, body, msg) -> None:
+def test_handler_refuses_and_stores_nothing(rec, body) -> None:
     rpc, calls = rec
-    with pytest.raises(CoordError, match=msg):
+    with pytest.raises(CoordError, match=r"desks only read scores; use mill score unit"):
         rpc._h_score(_Book(), body, "unit", "d1")
     assert calls == []
 
@@ -195,7 +200,7 @@ def test_handler_reads_one_score(rec) -> None:
 
 def test_handler_unknown_score_says_how_to_record(rec) -> None:
     rpc, _ = rec
-    with pytest.raises(CoordError, match=r"no score nope on unit; record one with mill score unit nope VALUE"):
+    with pytest.raises(CoordError, match=r"no score nope on unit; use mill score unit nope"):
         rpc._h_score(_Book(), {"name": "nope"}, "unit", "d1")
 
 
@@ -219,3 +224,22 @@ def test_cli_parses_read_write_and_list() -> None:
     assert (a.name, a.value) == ("", "")
     with pytest.raises(SystemExit):
         p.parse_args(["score", "the-mill", "x", "1", "--better", "sideways"])
+
+
+def test_shape_labels_truncated_window() -> None:
+    """Card 1020: a capped point window is labelled; a short history is not."""
+    long = ss.shape(_rows(12), 10)[0]
+    assert long.get("truncated") is True
+    assert long.get("truncated_n") == 2
+    assert len(long["points"]) == 10
+    short = ss.shape(_rows(4), 10)[0]
+    assert "truncated" not in short
+    assert "truncated_n" not in short
+    assert len(short["points"]) == 4
+
+
+def test_shape_limit_zero_is_not_a_truncated_window() -> None:
+    """limit 0 omits points for trend-only reads; not a truncation label."""
+    one = ss.shape(_rows(6), 0)[0]
+    assert "points" not in one
+    assert "truncated" not in one

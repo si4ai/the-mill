@@ -114,7 +114,7 @@ def test_waiting_on_an_item(w, kind):
 def test_no_edge_link_or_adjacency_table(w):
     names = [r["TABLE_NAME"].lower() for r in rows_done(
         w.cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")]
-    assert not [n for n in names if any(k in n for k in ("edge", "link", "adjac", "wait", "block"))]
+    assert not [n for n in names if n != "transition_edge" and any(k in n for k in ("edge", "link", "adjac", "wait", "block"))]
 
 
 # (b) refusals ----------------------------------------------------------------------

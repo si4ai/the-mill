@@ -157,6 +157,10 @@ def shape(rows: list[dict], limit: int) -> list[dict]:
             "owner": cur["owner"],
         }
         if limit > 0:
-            one["points"] = pts[: int(limit)]
+            lim = int(limit)
+            if len(pts) > lim:
+                one["truncated"] = True
+                one["truncated_n"] = len(pts) - lim
+            one["points"] = pts[:lim]
         shaped.append(one)
     return shaped

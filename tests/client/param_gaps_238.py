@@ -16,9 +16,7 @@ GAPS: dict[str, str] = {
     'assign desk unknown': '#238 gap, no card yet: assign desk',
     'assign desk over_length': '#238 gap, no card yet: assign desk',
     'pass project over_length': '#238 gap, no card yet: pass project',
-    'score project empty': '#238 gap, no card yet: score project',
     'score project unknown': '#238 gap, no card yet: score project',
     'score project over_length': '#238 gap, no card yet: score project',
-    'score name unknown': '#238 gap, no card yet: score name',
     'score name over_length': '#238 gap, no card yet: score name',
 }

@@ -192,9 +192,18 @@ def _apply_stmt(cur, stmt: str) -> None:
     MySQL DDL often auto-commits, so a multi-statement apply can leave columns
     applied while agent_schema_meta.version stays behind - re-run must not 1060.
     """
+    def _run(sql: str) -> None:
+        cur.execute(sql)
+        # PREPARE/EXECUTE of SELECT 1 and similar leave a result set; drain it.
+        while True:
+            if getattr(cur, "with_rows", False):
+                cur.fetchall()
+            if not hasattr(cur, "nextset") or not cur.nextset():
+                break
+
     m = _ALTER_TABLE.match(stmt.strip())
     if not m:
-        cur.execute(stmt)
+        _run(stmt)
         return
     table = _ident(m.group(1))
     clause_blob = m.group(2).strip()
@@ -205,7 +214,7 @@ def _apply_stmt(cur, stmt: str) -> None:
     cols = list(_ADD_COLUMN.finditer(clause_blob))
     keys = list(_ADD_KEY.finditer(clause_blob))
     if not cols and not keys:
-        cur.execute(stmt)
+        _run(stmt)
         return
 
     new_clauses: list[str] = []
@@ -289,6 +298,7 @@ _SP_FULL_REFRESH: tuple[str, ...] = (
     "sp_score.sql",
     "sp_label.sql",
     "sp_tree.sql",
+    "sp_cmd.sql",  # card 1022 R3: cmd_push_sent/put_back/mark write transitions
 )
 
 # #216: activity is the timeline, not a parent. A payload row is written first and its
@@ -505,7 +515,7 @@ _FK_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
     ("hold", "fk_hold_res", "resource_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_roster", "roster_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_desk", "desk_id", "name", "id", "RESTRICT"),
-    ("push_queue", "fk_push_queue_desk", "desk_id", "name", "id", "RESTRICT"),
+    ("wake", "fk_wake_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
 )
 
 
@@ -577,7 +587,7 @@ def _ensure_mail_sp(cn) -> list[str]:
 
 
 def _ensure_push_expired(cn) -> list[str]:
-    """Widen push_queue.kind with expired and refresh mill_push_put, mill_push_take, mill_push_expire."""
+    """Refresh mill_push_* after kind/cause shape; no-op when push_queue already folded into wake."""
     applied: list[str] = []
     cur = cn.cursor()
     try:
@@ -844,7 +854,18 @@ def _ensure_mail_to_asked(cn) -> list[str]:
             " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mail_to' AND COLUMN_NAME = 'asked'"
         )
         if str((cur.fetchone() or ("NO",))[0]) == "YES":
-            if _table_exists(cur, "push_queue"):
+            if _table_exists(cur, "wake"):
+                cur.execute(
+                    "UPDATE mail_to mt JOIN ("
+                    " SELECT DISTINCT p.desk_id,"
+                    " CAST(JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.id')) AS UNSIGNED) AS mail_id"
+                    " FROM wake p"
+                    " WHERE p.cause = 'mail'"
+                    " AND JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.wake_reason')) = 'room'"
+                    ") r ON r.desk_id = mt.desk_id AND r.mail_id = mt.id"
+                    " SET mt.asked = 0 WHERE mt.type = 'mail' AND mt.asked IS NULL"
+                )
+            elif _table_exists(cur, "push_queue"):
                 cur.execute(
                     "UPDATE mail_to mt JOIN ("
                     " SELECT DISTINCT p.desk_id,"
@@ -1077,6 +1098,7 @@ def _ensure_label_ord(cn) -> list[str]:
 
 ROSTER_070 = "migrate_070_roster.sql"
 DOING_818 = "migrate_818_doing.sql"
+TRANSITION_1022 = "migrate_1022_transition.sql"
 
 
 def roster_070_needed(cn) -> bool:
@@ -1218,7 +1240,7 @@ _REFUSE_080: dict[str, str] = {
     "desk_hold": "hold.desk_id holds a name that is not a desk",
     "desk_score_point": "score_point.desk_id holds a name that is not a desk",
     "desk_human_desk": "human_desk.desk_id holds a name that is not a desk",
-    "desk_push_queue": "push_queue.desk_id holds a name that is not a desk",
+    "desk_wake": "wake.desk_id holds a name that is not a desk",
     "desk_watcher": "watcher.desk_id holds a label, tree or res name",
     "kind_member": "member.name_id holds a name that is not a roster",
     "kind_activity": "activity.roster_id holds a name that is not a roster",
@@ -1608,6 +1630,105 @@ def _ensure_act_rename(cn) -> list[str]:
     return applied
 
 
+
+def transition_1022_needed(cn) -> bool:
+    """True when wake/transition/System from card 1022 are not yet on the book,
+    or push_queue still exists (fold into wake), or wake lacks payload."""
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "push_queue"):
+            return True
+        if not _table_exists(cur, "transition") or not _table_exists(cur, "wake"):
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wake' AND COLUMN_NAME = 'payload'"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
+            return True
+        cur.execute(
+            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'activity' AND COLUMN_NAME = 'type'"
+        )
+        row = cur.fetchone()
+        ctype = row[0] if row else ""
+        if isinstance(ctype, (bytes, bytearray)):
+            ctype = ctype.decode("utf-8")
+        if "'wake'" not in str(ctype or ""):
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM name WHERE id = 0 AND type = 'desk' AND name = 'System'"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM seat WHERE desk_id = 0"
+        )
+        if int(cur.fetchone()[0] or 0) == 0:
+            return True
+        # desk_id on transition must be NOT NULL DEFAULT 0 (owner 2026-11-01)
+        cur.execute(
+            "SELECT IS_NULLABLE, COLUMN_DEFAULT FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'transition' AND COLUMN_NAME = 'desk_id'"
+        )
+        row = cur.fetchone()
+        if row and (str(row[0]).upper() == "YES" or str(row[1] or "") not in ("0", "0.0")):
+            return True
+        return False
+    finally:
+        cur.close()
+
+
+def apply_transition_1022(cn) -> list[str]:
+    """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
+    if not transition_1022_needed(cn):
+        return []
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        # If transition exists with nullable desk_id, widen in place before / with migrate.
+        if _table_exists(cur, "transition"):
+            cur.execute(
+                "SELECT IS_NULLABLE FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'transition'"
+                " AND COLUMN_NAME = 'desk_id'"
+            )
+            row = cur.fetchone()
+            if row and str(row[0]).upper() == "YES":
+                cur.execute(
+                    "UPDATE transition SET desk_id = 0 WHERE desk_id IS NULL"
+                )
+                cur.execute(
+                    "ALTER TABLE transition MODIFY desk_id BIGINT UNSIGNED NOT NULL DEFAULT 0"
+                )
+                applied.append("transition.desk_id_not_null")
+        for stmt in split_script((sql_dir() / TRANSITION_1022).read_text(encoding="utf-8-sig")):
+            _apply_stmt(cur, stmt)
+            if cur.with_rows:
+                cur.fetchall()
+        # Fold push_queue rows into activity+wake, then drop push_queue.
+        if _table_exists(cur, "push_queue"):
+            cur.execute(
+                "INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act) "
+                "SELECT 'wake', pq.id, pq.created, pq.created, 0, 1, 'ring' FROM push_queue pq"
+            )
+            cur.execute(
+                "INSERT IGNORE INTO wake (id, type, desk_id, cause, state, payload, created) "
+                "SELECT pq.id, 'wake', pq.desk_id, pq.kind, pq.outcome, pq.payload, pq.created "
+                "FROM push_queue pq"
+            )
+            cur.execute("DROP TABLE push_queue")
+            applied.append("fold_push_queue_into_wake")
+        applied.append(TRANSITION_1022)
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -1670,6 +1791,11 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_score_one_name(cn))
             # 0.8.0 schema last: every step above leaves a main-shape (0.7.18) book.
             applied.extend(apply_080(cn))
+            # card 1022: wake + transition + System desk 0 (after 0.8.0 shape).
+            did_1022 = apply_transition_1022(cn)
+            applied.extend(did_1022)
+            if did_1022:
+                applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])

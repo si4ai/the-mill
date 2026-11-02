@@ -188,7 +188,9 @@ BEGIN
   CALL mill_migrate_080_check('desk_hold', 'refuse', 'hold x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
   CALL mill_migrate_080_check('desk_score_point', 'refuse', 'score_point x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
   CALL mill_migrate_080_check('desk_human_desk', 'refuse', 'human_desk x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
-  CALL mill_migrate_080_check('desk_push_queue', 'refuse', 'push_queue x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
+  IF mill_migrate_080_tbl('push_queue') THEN
+    CALL mill_migrate_080_check('desk_push_queue', 'refuse', 'push_queue x JOIN name n ON n.id = x.desk_id WHERE n.type <> ''desk''');
+  END IF;
   CALL mill_migrate_080_check('desk_watcher', 'refuse',
     'watcher x JOIN name n ON n.id = x.desk_id WHERE n.type NOT IN (''desk'', ''roster'')');
   -- refuse: a kind-checked column that holds a name of another kind.
@@ -255,7 +257,8 @@ BEGIN
            AND TRIGGER_NAME = 'name_no_delete' AND ACTION_STATEMENT NOT LIKE '%sp_name_retire%'));
   CALL mill_migrate_080_fk_list();
   SELECT COUNT(*) INTO v_fk FROM m080_fk f
-   WHERE NOT mill_migrate_080_fk_ok(f.tbl, f.name, f.cols, f.ref, f.refcols, f.rule_);
+   WHERE mill_migrate_080_tbl(f.tbl)
+     AND NOT mill_migrate_080_fk_ok(f.tbl, f.name, f.cols, f.ref, f.refcols, f.rule_);
   INSERT INTO m080_pf (chk, action, n) VALUES ('schema_fks', 'schema', v_fk);
   DROP TEMPORARY TABLE IF EXISTS m080_fk;
   -- keys 0.8.0 changes or adds (a kind column it needs not there yet counts as to do), and indexes named after an FK.
@@ -378,7 +381,7 @@ BEGIN
   DECLARE v_t VARCHAR(64);
   DECLARE v_drop TEXT;
   DECLARE v_add TEXT;
-  DECLARE v_fk CURSOR FOR SELECT DISTINCT tbl FROM m080_fk ORDER BY tbl;
+  DECLARE v_fk CURSOR FOR SELECT DISTINCT tbl FROM m080_fk WHERE mill_migrate_080_tbl(tbl) ORDER BY tbl;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -629,7 +632,8 @@ BEGIN
              COUNT(*)
         INTO v_drop, v_add, @m080_n
         FROM m080_fk f
-       WHERE f.tbl = v_t AND NOT mill_migrate_080_fk_ok(f.tbl, f.name, f.cols, f.ref, f.refcols, f.rule_);
+       WHERE f.tbl = v_t AND mill_migrate_080_tbl(f.tbl)
+         AND NOT mill_migrate_080_fk_ok(f.tbl, f.name, f.cols, f.ref, f.refcols, f.rule_);
       IF v_drop IS NOT NULL THEN
         CALL mill_migrate_080_exec(CONCAT('ALTER TABLE `', v_t, '` ', v_drop));
       END IF;

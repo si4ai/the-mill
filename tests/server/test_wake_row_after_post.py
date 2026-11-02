@@ -2,7 +2,7 @@
 """#832 a woken desk must not miss a letter whose row lands after its sync (spin model W07, card 830).
 
 Seen (throwaway office, real Wall on loopback, at d1c1ae5): emit reads HUB.rooms,
-rings the desk's webhook (post_desk), and only then writes the push_queue row
+rings the desk's webhook (post_desk), and only then writes the wake row
 (push.py 565-587; fanout 453-489 the same). When the woken run connects before
 that write, its sync is empty and gate_clear drops the window; the row lands
 after it, no live frame goes out (the desk was not sitting when emit looked),
@@ -97,13 +97,14 @@ def wall(book):
 
 
 def queued(desk: str) -> list[int]:
-    """Mail ids in push_queue for desk, read on a connection of its own."""
+    """Mail ids in wake for desk, read on a connection of its own."""
     c = connect(sql_book.shared_db_name())
     try:
         cur = c.cursor()
         cur.execute(
-            "SELECT JSON_EXTRACT(p.payload, '$.id') FROM push_queue p JOIN name d ON d.id = p.desk_id"
-            " WHERE d.type = 'desk' AND d.name = %s AND p.kind = 'mail' ORDER BY p.id",
+            "SELECT JSON_EXTRACT(p.payload, '$.id') FROM wake p JOIN name d ON d.id = p.desk_id"
+            " WHERE d.type = 'desk' AND d.name = %s AND p.cause = 'mail'"
+            " AND p.state <> 'taken' ORDER BY p.id",
             (desk,),
         )
         out = [int(r[0]) for r in cur.fetchall()]
@@ -218,13 +219,13 @@ def test_woken_desk_gets_a_letter_whose_row_lands_after_its_sync(wall, book, mon
 
         orig_put = rec_push.put
 
-        def put_after_sync(cn, desk, kind, payload, outcome):
-            if desk == D1 and kind == "mail" and posts and "held" not in box:
+        def put_after_sync(cn, desk, cause, payload, outcome):
+            if desk == D1 and cause == "mail" and posts and "held" not in box:
                 # The row is written after the doorbell (push.py 587): hold it
                 # until the woken connect has its sync.
                 box["held"] = True
                 synced.wait(15)
-            return orig_put(cn, desk, kind, payload, outcome)
+            return orig_put(cn, desk, cause, payload, outcome)
 
         monkeypatch.setattr(wake, "_open", receiver)
         monkeypatch.setattr(rec_push, "put", put_after_sync)

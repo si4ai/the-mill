@@ -45,7 +45,7 @@ BOOK = {
     "watch": ["todo", "{TID}"],
     "add": ["todo:{TID}"],
     "remove": ["todo:{TID}"],
-    "score": ["{P}", "c238-kpi", "5"],
+    "score": ["{P}", "c238-kpi"],
     "delete": ["roster", "{DEL}", "--yes"],
     "restore": ["roster", "{TRASHED}", "--yes"],
     "purge": ["roster", "{PURGEABLE}", "--yes"],

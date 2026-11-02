@@ -372,7 +372,10 @@ CREATE PROCEDURE cmd_push_put_back(
   IN p_payload JSON
 )
 BEGIN
-  UPDATE push_queue SET outcome = 'missed', payload = p_payload WHERE id = p_push AND outcome = 'sent';
+  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+  SELECT 'wake', id, state, 'missed', 'wake_owed', 0, 'office'
+    FROM wake WHERE id = p_push AND type = 'wake' AND state = 'sent';
+  UPDATE wake SET state = 'missed', payload = p_payload WHERE id = p_push AND type = 'wake' AND state = 'sent';
   SELECT ROW_COUNT() AS marked;
 END //
 
@@ -382,7 +385,12 @@ CREATE PROCEDURE cmd_push_mark(
   IN p_outcome VARCHAR(8)
 )
 BEGIN
-  UPDATE push_queue SET outcome = p_outcome WHERE id = p_push AND outcome = 'missed';
+  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+  SELECT 'wake', id, state, p_outcome,
+         CASE p_outcome WHEN 'sent' THEN 'wake_sent' ELSE 'wake_fail' END,
+         0, 'office'
+    FROM wake WHERE id = p_push AND type = 'wake' AND state = 'missed';
+  UPDATE wake SET state = p_outcome WHERE id = p_push AND type = 'wake' AND state = 'missed';
   SELECT ROW_COUNT() AS marked;
 END //
 
@@ -392,9 +400,16 @@ CREATE PROCEDURE cmd_push_sent(
   IN p_ids  JSON
 )
 BEGIN
-  DELETE p FROM push_queue p
+  -- card 1022: hand-back marks taken; rows stay; write transition (F-transition-table)
+  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+  SELECT 'wake', p.id, p.state, 'taken', 'wake_deliver', 0, 'office'
+    FROM wake p
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = p.id
-   WHERE p.desk_id = p_desk;
+   WHERE p.desk_id = p_desk AND p.type = 'wake' AND p.state <> 'taken';
+  UPDATE wake p
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = p.id
+     SET p.state = 'taken'
+   WHERE p.desk_id = p_desk AND p.type = 'wake' AND p.state <> 'taken';
   SELECT ROW_COUNT() AS sent;
 END //
 

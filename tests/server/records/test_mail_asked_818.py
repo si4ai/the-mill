@@ -9,7 +9,7 @@
 (c) `mill connected` counts only unhandled letters the desk was asked on as
     waiting on it; a copy never does;
 (d) on an existing book `migrate.ensure()` adds the column: old rows are
-    asked unless the stored wake for that letter and desk (push_queue,
+    asked unless the stored wake for that letter and desk (wake,
     wake_reason room) says the desk got it as a room member; a second ensure
     changes nothing, and a run killed after the column was added converges.
 """
@@ -117,8 +117,8 @@ def test_wake_reason_and_stored_flag_agree(w):
     rows = rows_done(
         w.cn,
         "SELECT n.name, JSON_UNQUOTE(JSON_EXTRACT(p.payload, '$.wake_reason')) AS why"
-        " FROM push_queue p JOIN name n ON n.id = p.desk_id"
-        " WHERE p.kind = 'mail' AND JSON_EXTRACT(p.payload, '$.id') = %s",
+        " FROM wake p JOIN name n ON n.id = p.desk_id"
+        " WHERE p.cause = 'mail' AND JSON_EXTRACT(p.payload, '$.id') = %s",
         (r1,),
     )
     wake = {str(r["name"]): (0 if r["why"] == "room" else 1) for r in rows}
@@ -178,7 +178,7 @@ def test_migration_without_a_stored_wake_defaults_to_asked(w):
     copy = _reply(w, root, THIRD)
     cur = w.cn.cursor()
     try:
-        cur.execute("DELETE FROM push_queue WHERE kind = 'mail' AND JSON_EXTRACT(payload, '$.id') = %s", (copy,))
+        cur.execute("DELETE FROM wake WHERE cause = 'mail' AND JSON_EXTRACT(payload, '$.id') = %s", (copy,))
         w.cn.commit()
     finally:
         cur.close()

@@ -175,12 +175,22 @@ def test_span_reads_each_desk_once(cn) -> None:
     call(cn, "mill_member_put", ["roster", "span", desk])
     call(cn, "mill_member_put", ["roster", "span_b", desk])
     call(cn, "mill_member_put", ["roster", "span", desk])
-    when = datetime(2026, 10, 2, 11, 15, 0)
+    # Day grain keeps only the last 30 days from MILL_NOW; stamp relative to that
+    # clock so the fixture cannot age out of the window (card 1052).
+    cur = cn.cursor()
+    cur.execute("SELECT MILL_NOW()")
+    mill_now = cur.fetchone()[0]
+    cur.close()
+    if not isinstance(mill_now, datetime):
+        mill_now = datetime.fromisoformat(str(mill_now).replace(" ", "T"))
+    when = mill_now.replace(microsecond=0)
+    hour_prefix = f"1970-01-01 {when.hour:02d}:"
+    day_prefix = when.strftime("%Y-%m-%d")
     _note(cn, desk, "hold", req_b=0, resp_b=0, ms=4, now=when)
 
     hours = span(cn, "project", "span", "hour")
     assert len(hours) == 1
-    assert str(hours[0]["timestamp"]).startswith("1970-01-01 11:")
+    assert str(hours[0]["timestamp"]).startswith(hour_prefix)
     other = span(cn, "project", "span_b", "hour")
     assert len(other) == 1
     assert other[0]["desk_id"] == hours[0]["desk_id"]
@@ -188,7 +198,7 @@ def test_span_reads_each_desk_once(cn) -> None:
 
     days = span(cn, "role", "span", "day")
     assert len(days) == 1
-    assert str(days[0]["timestamp"]).startswith("2026-10-02")
+    assert str(days[0]["timestamp"]).startswith(day_prefix)
     assert _loads(days[0]["value"])["n"] == 1
 
     rec_join.upsert(cn, "Office", desk, "span", "a" * 64, "present")

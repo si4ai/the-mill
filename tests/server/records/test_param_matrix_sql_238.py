@@ -189,6 +189,11 @@ def world(cn, tmp_path_factory):
     )
     for d in (ME, PEER):
         here.upsert(cn, pc.P, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+    from agent_coord.server.records import score as rec_score
+
+    # Card 1021: desks only read scores; seed the matrix base KPI for score reads.
+    rec_score.point_add(cn, pc.P, ME, "c238-kpi", 5.0)
+    cn.commit()
     mp = pytest.MonkeyPatch()
     w = World(cn, tmp_path_factory.mktemp("m238"))
     mp.setenv("AGENT_COORD_MILL_HOME", str(tmp_path_factory.mktemp("m238home")))

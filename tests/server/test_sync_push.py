@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_watcher_type_has_no_mail():
     text = (ROOT / "agent_coord" / "server" / "sql" / "tables.sql").read_text(encoding="utf-8")
     body = text.split("CREATE TABLE IF NOT EXISTS watcher", 1)[1].split("CREATE TABLE", 1)[0]
-    assert "ENUM('todo','doing','hold','score')" in body
+    assert "ENUM('todo','doing','hold','score','wake')" in body
     assert "'name'" not in body
     assert "'mail'" not in body
 

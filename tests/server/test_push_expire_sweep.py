@@ -68,10 +68,10 @@ def test_take_no_longer_sweeps() -> None:
     sql = (Path(push.__file__).resolve().parent / "sql" / "sp_push.sql").read_text(encoding="utf-8")
     take = sql.split("CREATE PROCEDURE mill_push_take(", 1)[1].split("END //", 1)[0]
     assert "GROUP BY" not in take
-    assert "INSERT INTO push_queue" not in take
+    assert "INSERT INTO wake" not in take
     assert "created < v_cut" not in take
     sweep = sql.split("CREATE PROCEDURE mill_push_expire()", 1)[1].split("END //", 1)[0]
-    assert "INSERT INTO push_queue" in sweep and "DELETE FROM push_queue" in sweep
+    assert "INSERT INTO wake" in sweep and "DELETE FROM wake" in sweep
 
 
 def test_f17_names_the_push_expire_row() -> None:

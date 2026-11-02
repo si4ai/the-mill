@@ -23,7 +23,7 @@ DROP PROCEDURE IF EXISTS mill_activity_bucket;
 DELIMITER //
 
 CREATE PROCEDURE mill_activity_put(
-  IN p_type    ENUM('mail','todo','doing','hold','score'),
+  IN p_type    ENUM('mail','todo','doing','hold','score','wake'),
   IN p_id      BIGINT UNSIGNED,
   IN p_ts      DATETIME(6),
   IN p_desk    BIGINT UNSIGNED,

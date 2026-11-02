@@ -1,0 +1,3 @@
+> Dev tooling (card 1051): lives under `tools/dev_scores/`, not the shipped pack. Kept here for our release/PR cycle, not as a product F-row.
+
+| F-release-activity-score | Release pipeline speed scores (no new activity type / DDL): `mill score` derives release_n plus consensus_to_gos_ms, gos_to_tag_ms, tag_to_pypi_ms, pypi_to_live_ms, consensus_to_live_ms as median+worst from structured ReleaseSample rows (fixtures in tests; optional live fetch hook). Empty series omitted. Never returns tokens, PATs, hosts, or emails. Durable release transition rows need activity.type ENUM ALTER (schema proposal; not this land). Card 1029. | `server/release_activity.py`, `_h_score` | `tests/server/test_release_activity_1029.py` (all cases) |

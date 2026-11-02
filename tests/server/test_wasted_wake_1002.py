@@ -8,6 +8,8 @@ share and trigger breakdown. Does not change wake behavior (card 949 rules stay 
 """
 from __future__ import annotations
 
+import pytest
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -272,3 +274,83 @@ def test_publish_skips_omitted_wasted_wake_kpis(monkeypatch) -> None:
     keys = [k for k, _ in published]
     assert "mill-office.wasted_wake_n" not in keys
     assert "mill-office.wasted_wake_share" not in keys
+
+
+@pytest.mark.sql
+def test_finish_lease_writes_wake_done_transition(cn) -> None:
+    """Card 1002 on 0.8.6: wasted/why-fired durability on existing transition (W9)."""
+    from agent_coord.server.transition_enums import ActivityType, Reason, State
+    from tests.server.records.conftest import seed_names
+
+    seed_names(cn, ("ww1002", "roster"), ("wwd", "desk"))
+    cur = cn.cursor()
+    cur.execute("SELECT id FROM name WHERE type='desk' AND name='wwd'")
+    desk_id = int(cur.fetchone()[0])
+    cur.close()
+
+    ww.reset_for_tests()
+    ww.mark_lease("wwd", trigger="hold_release", wake_id=910002)
+    # no action -> wasted
+    out = ww.finish_lease("wwd", cn=cn, desk_id=desk_id)
+    assert out is not None and out["wasted"] is True and out["trigger"] == "hold_release"
+    cn.commit()
+    cur = cn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT activity_type, activity_id, from_state, to_state, reason, desk_id, join_key, meta"
+        " FROM transition WHERE activity_type='wake' AND activity_id=910002"
+        " ORDER BY id DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    cur.close()
+    assert row is not None
+    assert row["from_state"] == State.lease_live.value
+    assert row["to_state"] == State.idle.value
+    assert row["reason"] == Reason.wake_done.value
+    assert int(row["desk_id"]) == desk_id
+    assert str(row["join_key"]) == f"wake-lease:{desk_id}:910002"
+    meta = row["meta"]
+    if isinstance(meta, (bytes, bytearray)):
+        meta = meta.decode()
+    import json
+
+    if isinstance(meta, str):
+        meta = json.loads(meta)
+    assert meta.get("wasted") == 1
+    assert meta.get("trigger") == "hold_release"
+    # no bodies/names/hosts
+    blob = json.dumps(meta)
+    assert "wwd" not in blob
+    assert "host" not in blob.lower()
+
+
+@pytest.mark.sql
+def test_useful_wake_transition_marks_wasted_zero(cn) -> None:
+    from tests.server.records.conftest import seed_names
+
+    seed_names(cn, ("ww1002b", "roster"), ("wwb", "desk"))
+    cur = cn.cursor()
+    cur.execute("SELECT id FROM name WHERE type='desk' AND name='wwb'")
+    desk_id = int(cur.fetchone()[0])
+    cur.close()
+    ww.reset_for_tests()
+    ww.mark_lease("wwb", trigger="other", wake_id=910003)
+    ww.note_rpc("wwb", "reply", ok=True)
+    out = ww.finish_lease("wwb", cn=cn, desk_id=desk_id)
+    assert out is not None and out["wasted"] is False
+    cn.commit()
+    cur = cn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT meta FROM transition WHERE activity_type='wake' AND activity_id=910003"
+        " ORDER BY id DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    cur.close()
+    assert row
+    meta = row["meta"]
+    import json
+
+    if isinstance(meta, (bytes, bytearray)):
+        meta = meta.decode()
+    if isinstance(meta, str):
+        meta = json.loads(meta)
+    assert meta.get("wasted") == 0
