@@ -17,7 +17,7 @@ State map for card 1001 children (0.8.6). Sync: `origin/main` `ce115f8`.
 | 980 | mail-activity-score | mail (+ wake latencies that touch mail) |
 | 981 | hold-activity-score | hold |
 | 982 | open-cards-queue-score | todo (card state ages / flow) |
-| 983 | open-prs-queue-score | open-PRs queue (dev process; not a mill activity.type) |
+| 983 | open-prs-queue-score | **dev tooling** under `tools/dev_scores/` (card 1051); not a mill activity.type |
 | 970 | TaskWrapper (tw) | doing (sole writer in 0.8.6 target) |
 | 1002 | wasted-wake-score | wake (measurement only; claimed) |
 | (new) | score-read-only | score (server-written from other activities) |
@@ -39,7 +39,7 @@ State map for card 1001 children (0.8.6). Sync: `origin/main` `ce115f8`.
 | score (0.8.6 target) | 4 | 7 server-triggered | tick/admin today | desk CLI write drops | 1019, 1020 |
 | **Total (current five + wake)** | **29** | **70** | **48** | **22** | |
 
-983 has no mill state machine; its events come from gh + Validator letters (out of this table).
+983 / 1029 have no mill state machine; after card 1051 they live under `tools/dev_scores/` (gh + Validator / release stage samples). Out of this product table.
 
 ---
 
@@ -334,7 +334,7 @@ Desk-side publish paths to revisit for score-read-only are listed for the build 
 
 ## What 1001 already listed vs this map
 
-Already on 1001 / children: mail pipeline; hold wait/held/expired/force-taken; tw(970); todo timing via **982**; wasted wake **1002**; open-PRs **983**.
+Already on 1001 / children: mail pipeline; hold wait/held/expired/force-taken; tw(970); todo timing via **982**; wasted wake **1002**. Open-PRs **983** and release **1029** moved to `tools/dev_scores/` (card 1051).
 
 Added by plan -> auditor (not originally on 1001 detail): instrument **at state transitions** (one event each); instrumentation -> score -> decisions; mill is **middleware**, CLI is API; graceful **bounded** recovery; outcomes over proxies; **missing ≠ zero**.
 
