@@ -15,7 +15,8 @@ def _rows(cn, desk_id: int) -> list[dict]:
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
-            "SELECT id, kind, payload, outcome FROM push_queue WHERE desk_id = %s ORDER BY id",
+            "SELECT id, cause AS kind, payload, state AS outcome FROM wake "
+            "WHERE desk_id = %s AND state <> 'taken' ORDER BY id",
             (desk_id,),
         )
         out = []
@@ -114,7 +115,8 @@ def test_mail_row_still_waiting_is_left(cn) -> None:
     assert rows[0]["payload"]["body"] == "letter"
     cur = cn.cursor()
     try:
-        cur.execute("DELETE FROM push_queue WHERE desk_id = %s", (desk,))
+        # Hand-back style clear: mark taken (no delete of history)
+        cur.execute("UPDATE wake SET state = 'taken' WHERE desk_id = %s", (desk,))
         cn.commit()
     finally:
         cur.close()

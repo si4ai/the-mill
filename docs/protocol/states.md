@@ -4,7 +4,7 @@ Full story: [commands.md](commands.md). JOIN: mill connect; HINT then one comman
 
 **SoT:** [skill.md](skill.md) + [tables.sql](../../agent_coord/server/sql/tables.sql). Diagrams: **mermaid** (flowchart / sequence / state). No ASCII boxes.
 
-Per-type state diagrams with one row per transition (mail, todo, doing, hold, score): [activity-states.md](activity-states.md).
+Per-type state diagrams with one row per transition (mail, todo, doing, hold, score, wake): [activity-states.md](activity-states.md).
 
 ## Shape (roster, labels, members, watcher)
 
@@ -12,7 +12,7 @@ Tables: [records.md](records.md).
 
 ```mermaid
 flowchart TB
-  A["activity mail todo doing hold score"]
+  A["activity mail todo doing hold score wake"]
   A --> Aff["roster_id one roster"]
   A --> Lab["label many, type label"]
   A --> W["watcher desks"]
@@ -113,7 +113,7 @@ Empty office after none: mill connect PING is keep-alive (do not POST heartbeat)
 
 ## Activity types
 
-`activity.type` is `mail`, `todo`, `doing`, `hold`, and `score`. `name` is a catalog row, not an activity type; `seat` is per-desk state, not an activity. A watcher is `todo`, `doing`, `hold`, or `score`. Mail is not a watcher type. A tree node is one of those five activity payloads. Then named fetch. Never dump `/api/v1`.
+`activity.type` is `mail`, `todo`, `doing`, `hold`, `score`, and `wake`. `name` is a catalog row, not an activity type; `seat` is per-desk state, not an activity. A watcher is `todo`, `doing`, `hold`, `score`, or `wake`. Mail is not a watcher type. A tree node is one of those six activity payloads. Then named fetch. Never dump `/api/v1`.
 
 ## Cheap questions (is this mine?)
 

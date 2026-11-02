@@ -155,5 +155,8 @@ def test_a_retired_card_takes_no_other_command(book):
         rpc._h_claim(book, {"need": "c19-quiet"}, R, VOL)
     with pytest.raises(CoordError, match="no such need"):
         rpc._h_retire(book, {"name_type": "todo", "need": "c19-quiet"}, R, ASKER)
+    # reclaim of a live card must say "is not retired" (self-contained; do not
+    # borrow c19-admin from another test in this module).
+    _card(book, "c19-live")
     with pytest.raises(CoordError, match="is not retired"):
-        rpc._h_reclaim(book, {"name_type": "todo", "need": "c19-admin"}, R, ASKER)
+        rpc._h_reclaim(book, {"name_type": "todo", "need": "c19-live"}, R, ASKER)

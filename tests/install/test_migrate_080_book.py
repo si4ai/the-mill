@@ -268,9 +268,20 @@ def seed(cn, scale: int = 1, *, collapse: bool = False, bad_kind: bool = False, 
             "roster_watch": roster_watch, "n_mail": n_mail, "n_todo": n_todo, "n_doing": n_doing}
 
 
+# 0.8.0 core (card 868). Card 1022 adds wake/transition/transition_edge on top (FRESH_TABLES).
 MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher", "mail", "mail_to", "tree_read", "todo",
                "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
                "mill_invite", "mill_invite_join", "push_queue")
+CARD_1022_TABLES = ("wake", "transition", "transition_edge")
+FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES
+
+def _apply_1022_after_080(cn) -> None:
+    """Tip schema = 0.8.0 + card 1022. Kill/resume tests run apply_080 only; finish with 1022."""
+    from agent_coord.install import migrate
+
+    migrate.apply_transition_1022(cn)
+
+
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
 DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "glance_cache", "sp_deploy")
 # Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
@@ -296,7 +307,10 @@ def _cols(cn, table):
 
 def dump(cn, tables=MAIN_TABLES) -> dict[str, list[tuple]]:
     out = {}
+    present = {r[0] for r in _q(cn, "SHOW TABLES")}
     for t in tables:
+        if t not in present:
+            continue  # gone after card 1022 fold (push_queue -> wake)
         cols = [c for c in _cols(cn, t) if c not in ADDED]
         sel = ", ".join(f"`{c}`" for c in cols)
         out[t] = (cols, _q(cn, f"SELECT {sel} FROM `{t}` ORDER BY {', '.join(f'`{c}`' for c in _pk(cn, t))}"))
@@ -318,11 +332,11 @@ def _migrate(cn):
 
 
 def test_fresh_tables_sql_is_the_080_schema(fresh_snapshot):
-    """tables.sql is the 22-table 0.8.0 schema, the same as docs/requirements/beta/beta_ddl.sql."""
+    """tables.sql matches beta_ddl.sql (0.8.0 + card 1022 wake/transition tables)."""
     from tests.beta_book import drop_db, make_book, schema_snapshot
 
     tables = {r[0] for r in fresh_snapshot["tables"]}
-    assert tables == set(MAIN_TABLES), sorted(tables)
+    assert tables == set(FRESH_TABLES), sorted(tables)
     assert not set(DROPPED_PLAN) & tables
     cn, db = make_book("mill_m080_doc", sp=False)
     try:
@@ -353,9 +367,11 @@ def test_ids_rows_and_transforms(main_book):
     after = dump(main_book)
     cn = main_book
 
-    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing"}
+    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue"}  # name: System id 0; push_queue folded (1022)
     for t in sorted(untouched):
         assert after[t] == before[t], t
+    assert "push_queue" not in after and "push_queue" in before  # fold into wake
+    assert "wake" in {r[0] for r in _q(cn, "SHOW TABLES")}
 
     # seat: every desk has a seat; old rows unchanged; the unseated desks got a token-NULL row.
     old_seats = {r["desk_id"]: r for r in _rows_as_dicts(before, "seat")}
@@ -363,9 +379,10 @@ def test_ids_rows_and_transforms(main_book):
     new_seats = {r["desk_id"]: r for r in _rows_as_dicts(after, "seat")}
     for d, row in old_seats.items():
         assert new_seats[d] == row
-    assert set(new_seats) - set(old_seats) == set(s["unseated"])
+    assert set(new_seats) - set(old_seats) == set(s["unseated"]) | {0}  # 0 = System seat (card 1022)
     for d in s["unseated"]:
         assert new_seats[d]["token_hash"] is None
+    assert new_seats[0]["token_hash"] is None  # System seat
     assert _one(cn, "SELECT COUNT(*) FROM name n WHERE n.type = 'desk'"
                     " AND NOT EXISTS (SELECT 1 FROM seat s WHERE s.desk_id = n.id)") == 0
 
@@ -387,9 +404,17 @@ def test_ids_rows_and_transforms(main_book):
     assert set(new_w) == want
 
     # activity and score: a desk_id that is not a desk becomes NULL (the office); every other field kept.
+    # card 1022: push_queue rows fold into activity type=wake (desk_id=0 System) + wake table.
     desk_ids = {r["id"] for r in _rows_as_dicts(after, "name") if r["type"] == "desk"}
+    pq_n = len(_rows_as_dicts(before, "push_queue"))
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
+        if t == "activity":
+            wake_after = [r for r in a if r["type"] == "wake"]
+            a = [r for r in a if r["type"] != "wake"]
+            assert len(wake_after) == pq_n
+            assert all(r["desk_id"] == 0 for r in wake_after)
+            assert _one(cn, "SELECT COUNT(*) FROM activity WHERE type = 'wake' AND act <> 'ring'") == 0
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -443,6 +468,8 @@ def test_ids_rows_and_transforms(main_book):
             want = "hold" if _one(cn, "SELECT desk_id FROM hold WHERE id = %s", (i,)) else "drop"
         elif t == "mail":
             want = "send"
+        elif t == "wake":
+            want = "ring"
         else:
             want = "score"
         assert act == want, (t, i, act)
@@ -516,13 +543,16 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
     migrate.apply_080(main_book, stop_after=kill_after)
     done = migrate.apply_080(main_book)
     assert done, "the resumed run had work left"
+    _apply_1022_after_080(main_book)
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (kill_after, key)
     after = dump(main_book)
     for t in MAIN_TABLES:
+        if t not in after or t not in before:
+            continue  # push_queue folded away after 1022
         grow = len(before["todo"][1]) if t == "doing" else 0  # one move row per card
-        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher"), t
+        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
     assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(
         before["todo"][1])
 
@@ -645,6 +675,7 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
     main_book.commit()
     cur.close()
     assert migrate.apply_080(main_book)
+    _apply_1022_after_080(main_book)
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)

@@ -208,3 +208,59 @@ def test_publish_book_activities_empty_target() -> None:
     assert by_kpi["mill-office.activities"]["target"] == ""
     assert by_kpi["mill-office.activities"]["value"] == "7"
     assert by_kpi["todo.shipped"]["target"] == "0"
+
+
+def test_p50_empty_sample_is_missing_not_zero() -> None:
+    """Card 1019: no samples means missing, never a green numeric zero."""
+    from agent_coord.server.score_tick import _p50
+
+    assert _p50([]) is None
+
+
+def test_p95_empty_sample_is_missing_not_zero() -> None:
+    """Card 1019: empty p95 sample is missing, not 0."""
+    from agent_coord.server.score_tick import _p95
+
+    assert _p95([]) is None
+
+
+def test_publish_omits_missing_host_ms_and_keeps_measured_zero() -> None:
+    """Card 1019: None host ms omitted; measured 0 still publishes as 0."""
+    from unittest.mock import MagicMock, patch
+
+    from agent_coord.server import score_tick as st
+
+    admin: list[tuple[str, str]] = []
+    cn = MagicMock()
+    cur = MagicMock()
+    cur.fetchall.return_value = []
+    cn.cursor.return_value = cur
+
+    def _admin(_c, kpi, val, *a):
+        admin.append((kpi, val))
+        return [{"id": 1}]
+
+    counts = {
+        st.KPI_TICKS: 0,
+        st.KPI_IDLE: 2,
+        st.KPI_DROP: 0,
+        st.KPI_API_MS: None,  # empty percentile sample
+        st.KPI_FLOOR_MS: None,
+        st.KPI_API_N: 3,  # real count
+        "desks": {},
+    }
+    with patch("agent_coord.server.records.connect", return_value=cn), patch(
+        "agent_coord.server.records.score.admin_upsert", side_effect=_admin
+    ), patch("agent_coord.server.records.score.upsert", return_value=[{"id": 2}]), patch(
+        "agent_coord.server.records.db.call", return_value=[]
+    ), patch("agent_coord.server.score_tick.measure_book", return_value={}):
+        out = st.publish(counts)
+    assert out["ok"] is True
+    by_kpi = {k: v for k, v in admin}
+    assert by_kpi[st.KPI_TICKS] == "0"
+    assert by_kpi[st.KPI_IDLE] == "2"
+    assert by_kpi[st.KPI_API_N] == "3"
+    assert st.KPI_API_MS not in by_kpi
+    assert st.KPI_FLOOR_MS not in by_kpi
+    omitted = out.get("omitted") or []
+    assert st.KPI_API_MS in omitted and st.KPI_FLOOR_MS in omitted

@@ -813,7 +813,7 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     try:
         from agent_coord.server import wasted_wake
 
-        wasted_wake.finish_lease(d)
+        wasted_wake.finish_lease(d, cn=cn)
     except Exception:
         pass
     if not t:
@@ -1185,7 +1185,16 @@ def post_desk(
             tag_name = wasted_wake.classify_trigger(
                 frame=frame, reason=reason, opened=opened, ring=ring, trailing=trailing
             )
-            wasted_wake.mark_lease(desk, trigger=tag_name)
+            wasted_wake.mark_lease(desk, trigger=tag_name, wake_id=int(hint_id) if hint_id is not None else 0)
+        except Exception:
+            pass
+        try:
+            if str(frame.get("kind") or "") == "mail" and hint_id is not None:
+                from agent_coord.server import mail_activity as ma
+
+                did = ma.desk_id_for(cn, desk) or 0
+                ma.emit_delivered(cn, mail_id=int(hint_id), desk_id=int(did))
+                ma.emit_woken(cn, mail_id=int(hint_id), desk_id=int(did))
         except Exception:
             pass
         return "sent"

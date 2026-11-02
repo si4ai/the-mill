@@ -95,8 +95,14 @@ def point_add(
     at: str | None = None,
 ) -> list[dict]:
     """#288: one numeric point on the roster's series (mill_score_point_add); at = --at (#308)."""
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server import score_series as ss
     from agent_coord.server.records.name import bare
 
+    if len(note) > ss.NOTE_MAX:
+        raise CoordError(
+            f"score: --note is {len(note)} characters; the most is {ss.NOTE_MAX}, one line; nothing stored"
+        )
     return call(
         cn,
         "mill_score_point_add",

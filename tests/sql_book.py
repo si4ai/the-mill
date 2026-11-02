@@ -39,7 +39,9 @@ DATA_TABLES = (
     "human_member",
     "human_desk",
     "human",
-    "push_queue",
+    "transition_edge",
+    "transition",
+    "wake",
     "activity",
     "name",
 )
@@ -119,12 +121,22 @@ def apply_tip(cn) -> float:
 
 
 def reseed(cn) -> None:
-    """Office/Admin name rows and system score seeds from tables.sql."""
+    """System/Office/Admin name rows, System seat, and system score seeds from tables.sql."""
     cur = cn.cursor()
     try:
+        cur.execute("SET @mill_1022_old_mode := @@SESSION.sql_mode")
+        cur.execute(
+            "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO')"
+        )
         cur.execute(
             "INSERT IGNORE INTO name (id, type, name) VALUES "
-            "(1, 'roster', 'Office'), (2, 'roster', 'Admin')"
+            "(0, 'desk', 'System'), (1, 'roster', 'Office'), (2, 'roster', 'Admin')"
+        )
+        cur.execute("SET SESSION sql_mode = @mill_1022_old_mode")
+        cur.execute("ALTER TABLE name AUTO_INCREMENT = 100")
+        cur.execute(
+            "INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on) "
+            "VALUES (0, NULL, 'polling', 'addressed')"
         )
         for kpi, note in (
             (
@@ -154,6 +166,19 @@ def reseed(cn) -> None:
             "FROM score s WHERE s.kpi IN "
             "('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop')"
         )
+
+        # card 1022: allowed edges (truncated clears them; reseed from Python Enums)
+        from agent_coord.server.transition_enums import ALLOWED_TRANSITIONS
+        cur.execute("DELETE FROM transition_edge")
+        rows = sorted(
+            {(a.value, f.value, to.value, r.value) for a, f, to, r in ALLOWED_TRANSITIONS}
+        )
+        if rows:
+            cur.executemany(
+                "INSERT INTO transition_edge (activity_type, from_state, to_state, reason) "
+                "VALUES (%s, %s, %s, %s)",
+                rows,
+            )
         cn.commit()
     finally:
         cur.close()

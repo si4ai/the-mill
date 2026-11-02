@@ -1801,6 +1801,22 @@ def _h_send(
             mill_admin_alert(c._cn, f"mail fanout: {e}", command="send")
         except Exception:
             pass
+    try:
+        from agent_coord.server import mail_activity as ma
+        from agent_coord.server.records import name as rec_name
+
+        sid = ma.desk_id_for(c._cn, src) or 0
+        rids = []
+        for dr in dest_rows or []:
+            dn = str(dr.get("desk") or dr.get("name") or dr.get("to") or "").strip()
+            if not dn:
+                continue
+            did = ma.desk_id_for(c._cn, dn)
+            if did:
+                rids.append(did)
+        ma.emit_send(c._cn, mail_id=int(mid), sender_desk_id=int(sid), recipient_desk_ids=rids)
+    except Exception:
+        pass
     return rec
 
 
@@ -2036,6 +2052,13 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         from agent_coord.server.records import opened as rec_opened
 
         rec_opened.insert(c._cn, int(mail_id), self_bare)
+        try:
+            from agent_coord.server import mail_activity as ma
+
+            did = ma.desk_id_for(c._cn, self_bare) or 0
+            ma.emit_answered(c._cn, mail_id=int(mail_id), desk_id=int(did))
+        except Exception:
+            pass
     if isinstance(rec, dict):
         rec["replied_to"] = mail_id
         if skipped:
@@ -2570,6 +2593,20 @@ def _claim_once(c: Book, body: dict[str, Any], project: str, need: str, hit: dic
         rec["eta_at"] = payload["eta_at"]
     if note:
         rec["note"] = note
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if rec["id"] > 0 and did > 0:
+            ta.emit_claim(
+                c._cn,
+                todo_id=int(rec["id"]),
+                desk_id=did,
+                take_over=bool(take_over),
+                fixture=ta.roster_excluded(project),
+            )
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "claim", owner=owner)
     return rec
 
@@ -2664,6 +2701,15 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     rec = {"project_id": project, "need_id": need, "id": tid, "status": st, "detail": detail}
     if str(body.get("done_when") or "").strip():
         rec["done_when"] = _done_when(c, tid, project, need, body.get("done_when"), owner)["done_when"]
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        fx = ta.roster_excluded(project)
+        if tid > 0 and did > 0:
+            ta.emit_create(c._cn, todo_id=tid, desk_id=did, parked=(st == "parked"), fixture=fx)
+    except Exception:
+        pass
     _poke(c, "todo", tid, "open", owner=owner)
     return rec
 
@@ -2704,6 +2750,14 @@ def _h_unpark(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         raise CoordError(f"unpark: {project}/{need} is {st}; nothing changed")
     rec_todo.update(c._cn, tid, _stored(owner or ""), status="open")
     rec = {"ok": True, "need": need, "status": "open"}
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if tid > 0 and did > 0:
+            ta.emit_unpark(c._cn, todo_id=tid, desk_id=did, fixture=ta.roster_excluded(project))
+    except Exception:
+        pass
     _poke(c, "todo", tid, "unpark", owner=owner)
     return rec
 
@@ -2747,6 +2801,15 @@ def _h_yield(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     hit = _card_hit(c, project, need)
     _card_sp(c, "cmd_unclaim", [_desk_arg(owner), int(hit["id"])], project, need)
     rec = {"ok": True, "need": need, "status": "open"}
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        tid = int(hit["id"])
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if tid > 0 and did > 0:
+            ta.emit_unclaim(c._cn, todo_id=tid, desk_id=did, fixture=ta.roster_excluded(project))
+    except Exception:
+        pass
     _poke(c, "todo", int(hit["id"]), "unclaim", owner=owner)
     return rec
 
@@ -2809,6 +2872,37 @@ def _pass_one(
     # #867: the card's evidence after the step (a done keeps the ship's; a back step clears it).
     if got.get("evidence"):
         rec["evidence"] = str(got["evidence"])
+    try:
+        from agent_coord.server import todo_activity as ta
+        from agent_coord.server.transition_enums import State as TrState
+
+        tid = int(rec["id"])
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        fx = ta.roster_excluded(project)
+        was = str(rec.get("was") or "")
+        if tid > 0 and did > 0:
+            if step == "ship":
+                ta.emit_ship(c._cn, todo_id=tid, desk_id=did, fixture=fx)
+            elif step == "done":
+                ta.emit_done(c._cn, todo_id=tid, desk_id=did, fixture=fx)
+            elif step == "back":
+                src = {
+                    "done": TrState.done,
+                    "shipped": TrState.shipped,
+                    "claimed": TrState.claimed,
+                    "open": TrState.open,
+                }.get(was)
+                dst = {
+                    "shipped": TrState.shipped,
+                    "claimed": TrState.claimed,
+                    "open": TrState.open,
+                }.get(nxt)
+                if src is not None and dst is not None:
+                    ta.emit_pass_back(
+                        c._cn, todo_id=tid, desk_id=did, from_state=src, to_state=dst, fixture=fx
+                    )
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "pass", owner=owner)
     return rec
 
@@ -3010,6 +3104,43 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     }
     if ok and rec.get("since") is not None:
         out["since"] = str(rec.get("since"))[:26]
+    # Card 981: hold FEATURE transitions (existing H1-H8); soft-fail; ids only in meta.
+    try:
+        from agent_coord.server import hold_activity as ha
+        from agent_coord.server.transition_enums import State as TrState
+
+        hid = int(rec.get("id") or 0)
+        actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
+        if hid > 0 and actor_id > 0:
+            if not ok:
+                holder_id = 0
+                try:
+                    holder_id = int(rec.get("desk_id") or 0)
+                except (TypeError, ValueError):
+                    holder_id = 0
+                ha.emit_refuse(
+                    c._cn, hold_id=hid, desk_id=actor_id, holder_desk_id=holder_id or None
+                )
+                ha.note_refused(actor_id, hid)
+            elif out.get("refreshed"):
+                ha.emit_refresh(c._cn, hold_id=hid, desk_id=actor_id)
+            elif ha.take_waited(actor_id, hid):
+                ha.emit_wait_acquire(c._cn, hold_id=hid, desk_id=actor_id)
+            else:
+                cur = c._cn.cursor()
+                try:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM transition"
+                        " WHERE activity_type='hold' AND activity_id=%s",
+                        (hid,),
+                    )
+                    n_prev = int((cur.fetchone() or [0])[0])
+                finally:
+                    cur.close()
+                from_state = TrState.no_row if n_prev == 0 else TrState.free
+                ha.emit_grant(c._cn, hold_id=hid, desk_id=actor_id, from_state=from_state)
+    except Exception:
+        pass
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)
@@ -3026,6 +3157,25 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     key = resource_name(str(body.get("resource") or ""))
     out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
     if out.get("released"):
+        try:
+            from agent_coord.server import hold_activity as ha
+
+            hid = int(out.get("id") or 0)
+            actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
+            was = str(out.get("was_owner") or "").strip()
+            holder_id = int(ha.desk_id_for(c._cn, was) or 0)
+            if hid > 0 and holder_id > 0:
+                if was and owner and was == str(owner).strip():
+                    ha.emit_drop(c._cn, hold_id=hid, desk_id=holder_id)
+                else:
+                    ha.emit_force(
+                        c._cn,
+                        hold_id=hid,
+                        desk_id=holder_id,
+                        by_desk_id=actor_id or None,
+                    )
+        except Exception:
+            pass
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
     return out
 
@@ -3085,7 +3235,6 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
             "n": eta_n,
         },
         "doing_min": int(doc.get("doing_sum") or 0),
-        "escapes": None,
         "size_mix": {
             "claimed": int(doc.get("claimed") or 0),
             "started": int(doc.get("started") or 0),
@@ -3106,8 +3255,8 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
 
 
 def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """#288: NAME VALUE records a point; NAME --target/--better/--unit sets them (#306);
-    retire removes the score (#302); NAME reads the series; neither lists the roster."""
+    """#288 / card 1021: NAME reads the series; neither lists the roster.
+    Desk VALUE / define / retire writes are refused; the server tick writes points."""
     from agent_coord.helpers.errors import CoordError
     from agent_coord.server import score_series as ss
     from agent_coord.server.records import score as rec_score
@@ -3117,89 +3266,92 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     roster = _stored(project)
     has_value = raw is not None and str(raw).strip() != ""
     at = str(body.get("at") or "").strip() or None
-    if body.get("retire"):
-        if not name:
-            raise CoordError("score: retire needs ROSTER NAME")
-        if has_value or at:
-            raise CoordError("score: retire takes no VALUE or --at; nothing changed")
-        from agent_coord.server.admin.guard import is_role_admin
-
-        try:
-            rows = rec_score.retire(
-                c._cn, roster, _stored(owner or ""), name, admin=is_role_admin(c._cn, _stored(owner or ""))
-            )
-        except Exception as e:
-            text = str(e)
-            if "no such score" in text:
-                raise CoordError(f"score: no score {name} on {project}; nothing retired") from e
-            if "only a desk" in text:
-                raise CoordError(
-                    f"score: only a desk that recorded on {name}, or Admin, can retire it; nothing retired"
-                ) from e
-            raise
-        nid = (rows[0] or {}).get("id") if rows else None
-        return {"score": name, "id": nid, "retired": True}
-    target = body.get("target")
-    if target is not None and str(target).strip() != "":
-        if ss.number(target) is None:
-            raise CoordError(f"score: --target must be a number, got {str(target)[:40]!r}; nothing stored")
-        target = str(target).strip()
-    else:
-        target = None
-    better = str(body.get("better") or "").strip() or None
-    if better is not None and better not in ("up", "down"):
-        raise CoordError("score: --better must be up or down; nothing stored")
-    unit = str(body.get("unit") or "").strip() or None
-    if unit is not None and len(unit) > 16:
-        raise CoordError("score: --unit must be 1..16 characters; nothing stored")
-    note = str(body.get("note") or "")
-    if len(note) > ss.NOTE_MAX:
-        # #707: say the limit, not the book's column error.
-        raise CoordError(
-            f"score: --note is {len(note)} characters; the most is {ss.NOTE_MAX}, one line; nothing stored"
+    # Card 1021: desks only read. Server ticks / admin_upsert write points.
+    target_early = body.get("target")
+    better_early = str(body.get("better") or "").strip() or None
+    unit_early = str(body.get("unit") or "").strip() or None
+    defining = bool(
+        name
+        and (
+            (target_early is not None and str(target_early).strip() != "")
+            or better_early is not None
+            or unit_early is not None
         )
-    if at and not has_value:
-        raise CoordError("score: --at needs a VALUE; nothing stored")
-    if at and not ss.at_ok(at):
-        raise CoordError("score: --at must be YYYY-MM-DD[THH:MM[:SS]] or Nm, Nh, Nd ago; nothing stored")
-    if has_value:
-        value = ss.number(raw)
-        if value is None:
-            raise CoordError(f"score: VALUE must be a number, got {str(raw)[:40]!r}; nothing stored")
-        try:
-            rows = rec_score.point_add(
-                c._cn,
-                roster,
-                _stored(owner or ""),
-                name,
-                value,
-                target=target,
-                note=note,
-                better=better,
-                unit=unit,
-                at=at,
-            )
-        except Exception as e:
-            text = str(e)
-            if "--at" in text:
-                raise CoordError(text[text.index("score:"):] + "; nothing stored") from e
-            raise
-    elif name and (target is not None or better is not None or unit is not None):
-        if str(body.get("note") or "").strip():
-            raise CoordError("score: --note goes with a VALUE; nothing stored")
-        rows = rec_score.define(c._cn, roster, _stored(owner or ""), name, target=target, better=better, unit=unit)
-    else:
-        rows = None
-    if rows is not None:
-        nid = (rows[0] or {}).get("id") if rows else None
-        _poke(c, "score", nid, "score", owner=owner)
-        got = ss.shape(rec_score.points(c._cn, roster, name, ss.TREND_POINTS), 0) if nid else []
-        return got[0] if got else rows
+    )
+    note_early = str(body.get("note") or "")
+    if has_value or body.get("retire") or defining or at or note_early.strip():
+        hint = f"mill score {project}" + (f" {name}" if name else "")
+        raise CoordError(f"score: desks only read scores; use {hint}")
     limit = int(body.get("limit") or 10)
     if name:
         got = ss.shape(rec_score.points(c._cn, roster, name, max(limit, ss.TREND_POINTS)), limit)
         if not got:
-            raise CoordError(f"score: no score {name} on {project}; record one with mill score {project} {name} VALUE")
+            # Card 980: mail activity views are derived from transition rows; no point series required.
+            if name in (
+                "mail.send_to_wake_ms",
+                "mail.wake_to_answer_ms",
+                "mail.re_rings_n",
+                "mail.never_answered_n",
+                "send-to-wake",
+                "wake-to-answer",
+                "re-rings",
+                "never-answered",
+            ):
+                from agent_coord.server import mail_activity as ma
+
+                did = ma.desk_id_for(c._cn, owner)
+                return ma.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "hold.wait_ms",
+                "hold.held_ms",
+                "hold.contention_n",
+                "hold.force_taken_n",
+                "hold.expired_n",
+                "hold-wait",
+                "hold-held",
+                "hold-contention",
+                "hold-force-taken",
+                "hold-expired",
+            ):
+                from agent_coord.server import hold_activity as ha
+
+                did = ha.desk_id_for(c._cn, owner)
+                return ha.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "todo.open_to_claim_ms",
+                "todo.claim_to_ship_ms",
+                "todo.ship_to_done_ms",
+                "todo.open_age_ms",
+                "todo.claimed_age_ms",
+                "todo.open_n",
+                "todo.claimed_n",
+                "open-cards-open-to-claim",
+                "open-cards-claim-to-ship",
+                "open-cards-ship-to-done",
+                "open-cards-open-age",
+                "open-cards-claimed-age",
+                "open-cards-open-n",
+                "open-cards-claimed-n",
+            ):
+                from agent_coord.server import todo_activity as ta
+
+                did = ta.desk_id_for(c._cn, owner)
+                return ta.score_view_for_name(c._cn, name, desk_id=did)
+            if name in (
+                "connect.startup_ms",
+                "connect.session_ms",
+                "connect.drop_n",
+                "connect.reconnect_n",
+                "connect-startup",
+                "connect-session",
+                "connect-drop",
+                "connect-reconnect",
+            ):
+                from agent_coord.server import connect_activity as ca
+
+                did = ca.desk_id_for(c._cn, owner)
+                return ca.score_view_for_name(c._cn, name, desk_id=did)
+            raise CoordError(f"score: no score {name} on {project}; use mill score {project} {name}")
         one = got[0]
         if name == "cards":
             one = _cards_score_view(c, one, project, owner)
@@ -3209,6 +3361,86 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 one = dict(one)
                 one.update(wasted_wake.score_view(owner if "office" not in name else None))
+            except Exception:
+                pass
+        if name in (
+            "mail.send_to_wake_ms",
+            "mail.wake_to_answer_ms",
+            "mail.re_rings_n",
+            "mail.never_answered_n",
+            "send-to-wake",
+            "wake-to-answer",
+            "re-rings",
+            "never-answered",
+        ):
+            try:
+                from agent_coord.server import mail_activity as ma
+
+                one = dict(one)
+                did = ma.desk_id_for(c._cn, owner)
+                one.update(ma.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "hold.wait_ms",
+            "hold.held_ms",
+            "hold.contention_n",
+            "hold.force_taken_n",
+            "hold.expired_n",
+            "hold-wait",
+            "hold-held",
+            "hold-contention",
+            "hold-force-taken",
+            "hold-expired",
+        ):
+            try:
+                from agent_coord.server import hold_activity as ha
+
+                one = dict(one)
+                did = ha.desk_id_for(c._cn, owner)
+                one.update(ha.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "todo.open_to_claim_ms",
+            "todo.claim_to_ship_ms",
+            "todo.ship_to_done_ms",
+            "todo.open_age_ms",
+            "todo.claimed_age_ms",
+            "todo.open_n",
+            "todo.claimed_n",
+            "open-cards-open-to-claim",
+            "open-cards-claim-to-ship",
+            "open-cards-ship-to-done",
+            "open-cards-open-age",
+            "open-cards-claimed-age",
+            "open-cards-open-n",
+            "open-cards-claimed-n",
+        ):
+            try:
+                from agent_coord.server import todo_activity as ta
+
+                one = dict(one)
+                did = ta.desk_id_for(c._cn, owner)
+                one.update(ta.score_view_for_name(c._cn, name, desk_id=did))
+            except Exception:
+                pass
+        if name in (
+            "connect.startup_ms",
+            "connect.session_ms",
+            "connect.drop_n",
+            "connect.reconnect_n",
+            "connect-startup",
+            "connect-session",
+            "connect-drop",
+            "connect-reconnect",
+        ):
+            try:
+                from agent_coord.server import connect_activity as ca
+
+                one = dict(one)
+                did = ca.desk_id_for(c._cn, owner)
+                one.update(ca.score_view_for_name(c._cn, name, desk_id=did))
             except Exception:
                 pass
         return one
@@ -3900,6 +4132,14 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             raise CoordError("mark: mail %s is not in this desk's mailbox" % mid)
     for mid in ids:
         rec_opened.insert(c._cn, mid, who)
+    try:
+        from agent_coord.server import mail_activity as ma
+
+        did = ma.desk_id_for(c._cn, who) or 0
+        for mid in ids:
+            ma.emit_mark(c._cn, mail_id=int(mid), desk_id=int(did))
+    except Exception:
+        pass
     return {"ok": True, "state": "handled", "ids": ids}
 
 

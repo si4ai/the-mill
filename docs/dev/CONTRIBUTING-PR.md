@@ -88,12 +88,8 @@ person or host leaks:
    and `analyze (actions)`. A red PR is not reviewed. A PR from a fork
    runs CI only after a maintainer approves the run.
 
-5. Tell your loop lead the PR number in the card's thread. Merge path
-   (who Passes, who merges, squash vs merge commit) is in
-   [RELEASE-FLOW.md](RELEASE-FLOW.md): a card PR needs a Validator Pass at
-   head and lands as a squash via the queue; a `release/*` PR lands as a
-   merge commit (card 935, F225). The head branch is deleted on merge. Do
-   not merge your own PR; a partner desk merges.
+5. Tell your loop lead the PR number in the card's thread. Merge path:
+   [RELEASE-FLOW.md](RELEASE-FLOW.md). Do not merge your own PR.
    Automatic Copilot code review is off (the `copilot-review` ruleset is
    disabled to save AI credits). A partner may request one on a PR by hand;
    its comments are advisory, the author addresses or answers each one, and
@@ -191,9 +187,9 @@ builder-type desks that are not the author, with all seven CI checks green
 at that sha; the merge desk is not the author and re-checks before
 enqueueing. After a bypass, the validator desk re-measures within one
 session; the auditor desk's weekly pass matches bypasses to letters. A
-post-hoc fail or a release-candidate tip FAIL opens a card for the merge
-desk and an incident note to the auditor desk. The ruleset keeps `validator` required on every PR (both
-desks can post it through the same app).
+post-hoc fail or a FAIL on the release tip (the head the Validator Passed) opens a card for the merge
+desk and an incident note to the auditor desk. The ruleset keeps `validator` required on every PR head (the release
+PR head carries that success; both desks can post it through the same app).
 
 Pass classes get the full validator check: security, SQL and migrations,
 wire or CLI shape, connect, wake and webhook, CI and dependency gates, and

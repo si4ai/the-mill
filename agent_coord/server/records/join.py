@@ -42,7 +42,7 @@ def upsert(
     )
 
 
-def note_connect(cn, desk: str) -> None:
+def note_connect(cn, desk: str, *, startup_ms: int | None = None) -> None:
     """Record that this desk opened /ws. Does not touch token_hash or lan_ip."""
     from agent_coord.server.records.name import bare
 
@@ -50,6 +50,17 @@ def note_connect(cn, desk: str) -> None:
         return
     rows = call(cn, "mill_join_connect", [bare(desk, CONST_DESK)]) or []
     jid = (rows[0] or {}).get("id") if rows else None
+    desk_id = int((rows[0] or {}).get("desk_id") or 0) if rows else 0
+    # Card 1028: D2 connect transition (soft-fail; ids only).
+    try:
+        from agent_coord.server import connect_activity as ca
+
+        if desk_id <= 0:
+            desk_id = int(ca.desk_id_for(cn, desk) or 0)
+        if desk_id > 0:
+            ca.emit_connect(cn, desk_id=desk_id, startup_ms=startup_ms)
+    except Exception:
+        pass
     if not jid:
         return
     from agent_coord.server.push import fanout
@@ -65,7 +76,19 @@ def mark_socket(cn, desk: str, *, up: bool) -> None:
     if not (desk or "").strip():
         return
     try:
-        call(cn, "mill_join_socket", [bare(desk, CONST_DESK), 1 if up else 0])
+        rows = call(cn, "mill_join_socket", [bare(desk, CONST_DESK), 1 if up else 0]) or []
+        # Card 1028: last socket down -> D3 disconnect.
+        if not up:
+            try:
+                from agent_coord.server import connect_activity as ca
+
+                desk_id = int((rows[0] or {}).get("desk_id") or 0) if rows else 0
+                if desk_id <= 0:
+                    desk_id = int(ca.desk_id_for(cn, desk) or 0)
+                if desk_id > 0:
+                    ca.emit_disconnect(cn, desk_id=desk_id)
+            except Exception:
+                pass
     except Exception:
         try:
             cn.rollback()

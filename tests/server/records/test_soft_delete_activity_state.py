@@ -190,24 +190,18 @@ def test_no_delete_in_tree_triggers_exist(cn) -> None:
         "todo_no_delete_in_tree",
     ]
 
-def test_mail_delete_clears_push_queue(cn) -> None:
-    """mill_mail_delete drops push_queue mail/receipt rows for payload.id before DELETE mail."""
+def test_mail_delete_clears_wake(cn) -> None:
+    """mill_mail_delete marks matching wake mail/receipt rows taken before DELETE mail."""
     seed_names(cn, ("pq_proj", "roster"), ("pq_desk", "desk"), ("pq_reader", "desk"))
     mid = int(mail.insert(cn, "pq_proj", "pq_desk", "pq_reader", "queued")[0]["id"])
-    desk_id = int(scalar(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", ("pq_reader",)))
-    cur = cn.cursor()
-    cur.execute(
-        "INSERT INTO push_queue (desk_id, kind, payload, outcome) VALUES "
-        "(%s, 'mail', JSON_OBJECT('id', %s, 'kind', 'mail'), 'missed'), "
-        "(%s, 'receipt', JSON_OBJECT('id', %s, 'kind', 'receipt'), 'missed'), "
-        "(%s, 'mail', JSON_OBJECT('id', %s, 'kind', 'mail'), 'missed')",
-        (desk_id, mid, desk_id, mid, desk_id, mid + 99999),
-    )
-    cur.close()
+    from agent_coord.server.records import push as rec_push
+    rec_push.put(cn, "pq_reader", "mail", {"id": mid, "kind": "mail"}, "missed")
+    rec_push.put(cn, "pq_reader", "receipt", {"id": mid, "kind": "receipt"}, "missed")
+    rec_push.put(cn, "pq_reader", "mail", {"id": mid + 99999, "kind": "mail"}, "missed")
     assert (
         scalar(
             cn,
-            "SELECT COUNT(*) FROM push_queue WHERE CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
+            "SELECT COUNT(*) FROM wake WHERE state <> 'taken' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
             (mid,),
         )
         == 2
@@ -217,16 +211,24 @@ def test_mail_delete_clears_push_queue(cn) -> None:
     assert (
         scalar(
             cn,
-            "SELECT COUNT(*) FROM push_queue WHERE CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
+            "SELECT COUNT(*) FROM wake WHERE state <> 'taken' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
             (mid,),
         )
         == 0
     )
-    # decoy remains
     assert (
         scalar(
             cn,
-            "SELECT COUNT(*) FROM push_queue WHERE CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
+            "SELECT COUNT(*) FROM wake WHERE state = 'taken' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
+            (mid,),
+        )
+        == 2
+    )
+    # decoy remains untaken
+    assert (
+        scalar(
+            cn,
+            "SELECT COUNT(*) FROM wake WHERE state <> 'taken' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id')) AS UNSIGNED)=%s",
             (mid + 99999,),
         )
         == 1
