@@ -4,16 +4,20 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
-- card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.7; DDL needs office human review before code
-- card 1030 / F-connect-wait-startup-sync: connect-wait first sync ends on push_queue work only (not mailbox resurfacing); one final JSON line; HINT exits 0
+- card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.8; DDL needs office human review before code
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)
 - card 943: per-desk GitHub apps (needs human app create/install)
 
 ## New changes
 
+0.8.7 (2026-11-01)
+
+- card 1059 / migrate-1022-watcher-keep-name: migrate_1022 deletes illegal watcher type=name rows before the tip ENUM (name is not an activity); repairs hand-widened books that kept name
+
 0.8.6 (2026-11-01)
 
+- card 1030 / F-connect-wait-startup-sync: connect-wait first sync ends on push_queue work only (not mailbox resurfacing); one final JSON line; HINT exits 0
 - card 1052: stamp span day fixture from mill_now so day-grain score tests stay inside the 30-day window
 - card 1051: open-PR score (983), release score (1029), and escapes guard (955) move to tools/dev_scores (not shipped); mill score / cards guards stay product-only; no activity.type=release
 - card 1028 / F-connect-activity-score: connect D2/D3 transitions + mill score startup/session median+worst, drop/reconnect counts (empty omitted; no DDL)
