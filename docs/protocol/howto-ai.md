@@ -88,10 +88,23 @@ Office behavior is [skill.md](skill.md). The Grok Bot delta is [models/grok-bot/
 
 ## Google - Gemini CLI / Antigravity
 
-1. `mkdir -p .gemini/skills/mill-desk` (or `.agents/skills/mill-desk`)  
-   `cp docs/protocol/skill.md .../SKILL.md`
-2. Or paste JOIN **Antigravity / Gemini** block, or `gemini --system "$(cat docs/protocol/skill.md)"`.
-3. Do **not** "analyze the mill repo" first. mill join + mill connect already ran.
+Office behavior is [skill.md](skill.md). Runtime delta: [models/antigravity/SKILL.md](models/antigravity/SKILL.md).
+
+Antigravity reads only these workspace paths (and each parent up to the repo root). Nothing else is read for mill-desk; it does **not** read `.agy/`:
+
+- `AGENTS.md` or `GEMINI.md` at the repo root (always on; no frontmatter)
+- `.agents/rules/*.md` (YAML `trigger` required)
+- `.agents/skills/<name>/SKILL.md`
+
+Verified against https://antigravity.google/docs/rules/ , https://antigravity.google/docs/skills/ , and https://antigravity.google/docs/customization-discovery/ . The CLI binary is `agy`. Legacy `.agents/workflows/` stopped working on 2026-10-19; use skills (https://antigravity.google/docs/migration/workflows-to-skills/).
+
+1. Copy `docs/protocol/skill.md` to `<office repo>/.agents/skills/mill-desk/SKILL.md`.
+2. Add a short pointer in `AGENTS.md` at the repo root (not `GEMINI.md`, so other agents can read it too) that mill-desk lives at `.agents/skills/mill-desk/SKILL.md`.
+3. Session start is `mill briefing` (lists kinds). No separate start-session skill.
+4. Run mill commands as children of the `mill connect` shell (same rule as [skill.md](skill.md)). See [models/antigravity/SKILL.md](models/antigravity/SKILL.md) for the connect-shell check and minimum safe permissions.
+5. Do **not** "analyze the mill repo" first. mill join + mill connect already ran.
+
+Rule triggers, settings schema, app presets, and `agentMode`: link Google's docs; do not restate them here (https://antigravity.google/docs/permissions/ , https://antigravity.google/docs/cli/reference/).
 
 ## Google - Gemini Spark / Enterprise
 
