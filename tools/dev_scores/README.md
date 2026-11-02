@@ -1,6 +1,6 @@
 # tools/dev_scores
 
-Helpers for **our** pack/ship and PR cycle. They are **not** part of the
+Helpers for our pack/ship and PR cycle. They are not part of the
 shipped mill pack (`agent_coord*`) and must not be imported from product
 score paths.
 
