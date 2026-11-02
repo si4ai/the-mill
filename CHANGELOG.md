@@ -4,23 +4,30 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
-- card 1051: open-PR score (983), release score (1029), and escapes guard (955) move to tools/dev_scores (not shipped); mill score / cards guards stay product-only; no activity.type=release
-- card 1028 / F-connect-activity-score: connect D2/D3 transitions + mill score startup/session median+worst, drop/reconnect counts (empty omitted; no DDL)
-- card 982 / F-open-cards-queue-score: todo FEATURE transitions (T1-T12) + mill score open/claimed ages and open->claimed->shipped->done median+worst (fixtures excluded; empty omitted; no DDL)
-- card 981 / F-hold-activity-score: hold FEATURE transitions (H1-H9) + mill score wait/held median+worst, contention, force-taken, expired (empty omitted; no DDL)
-- card 980 / F-mail-activity-score: mail feature transitions + score views (send-to-wake / wake-to-answer / re-rings / never-answered; empty omitted)
-- card 1021 / F-score-read-only: desk score VALUE/define/retire refused (message names mill score read verb); server tick writes; note limit on point_add
-- card 1020 / F-score-truncation-labelled: shaped score series labels capped point windows (truncated=true / truncated_n)
-- card 1019 / F-score-empty-as-missing: empty score_tick samples omit from publish (never numeric 0); measured 0 still publishes
-- card 1045: release-branch batch is the default path (RELEASE-FLOW / CONTRIBUTING-PR); skill.md keeps no release-path line (desk skill stays generic)
+- card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.7; DDL needs office human review before code
 - card 1030 / F-connect-wait-startup-sync: connect-wait first sync ends on push_queue work only (not mailbox resurfacing); one final JSON line; HINT exits 0
-- card 1022 / F-transition-table: fold `push_queue` into `wake` activity + `transition`/`transition_edge`; System desk id 0; name ids 0-99 reserved; enums in code (`transition_enums.py`) / VARCHAR text in rows; hand-back marks taken (no delete) and writes a transition on take and ack; `pending` ignores taken; expire only untaken markers; `mill_transition_put`
-- card 1002 / F-wasted-wake-score: no-action wakes counted and tagged by trigger; share is wasted/all wakes (empty omitted); durable W9 wake_done transition meta `{wasted, trigger}` on existing transition table (no DDL)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)
 - card 943: per-desk GitHub apps (needs human app create/install)
 
 ## New changes
+
+0.8.6 (2026-11-01)
+
+- card 1052: stamp span day fixture from mill_now so day-grain score tests stay inside the 30-day window
+- card 1051: open-PR score (983), release score (1029), and escapes guard (955) move to tools/dev_scores (not shipped); mill score / cards guards stay product-only; no activity.type=release
+- card 1028 / F-connect-activity-score: connect D2/D3 transitions + mill score startup/session median+worst, drop/reconnect counts (empty omitted; no DDL)
+- card 982 / F-open-cards-queue-score: todo FEATURE transitions (T1-T12) + mill score open/claimed ages and open->claimed->shipped->done median+worst (fixtures excluded; empty omitted; no DDL)
+- card 981 / F-hold-activity-score: hold FEATURE transitions (H1-H9) + mill score wait/held median+worst, contention, force-taken, expired (empty omitted; no DDL)
+- card 980 / F-mail-activity-score: mail feature transitions + score views (send-to-wake / wake-to-answer / re-rings / never-answered; empty omitted)
+- card 1002 / F-wasted-wake-score: no-action wakes counted and tagged by trigger; share is wasted/all wakes (empty omitted); durable W9 wake_done transition meta `{wasted, trigger}` on existing transition table (no DDL)
+- card 1021 / F-score-read-only: desk score VALUE/define/retire refused (message names mill score read verb); server tick writes; note limit on point_add
+- card 1020 / F-score-truncation-labelled: shaped score series labels capped point windows (truncated=true / truncated_n)
+- card 1019 / F-score-empty-as-missing: empty score_tick samples omit from publish (never numeric 0); measured 0 still publishes
+- card 1045: release-branch batch is the default path (RELEASE-FLOW / CONTRIBUTING-PR); skill.md keeps no release-path line (desk skill stays generic)
+- card 1022 / F-transition-table: fold `push_queue` into `wake` activity + `transition`/`transition_edge`; System desk id 0; name ids 0-99 reserved; enums in code (`transition_enums.py`) / VARCHAR text in rows; hand-back marks taken (no delete) and writes a transition on take and ack; `pending` ignores taken; expire only untaken markers; `mill_transition_put`
+
+## Last changes
 
 0.8.5 (2026-11-01)
 
@@ -32,8 +39,6 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 342 / F-connect-active-tmp-race: unique temp name for concurrent active file writes
 - card 742 / F-refusal-hides-connect-error: surface connect failure on the next command in the shell
 - card 986 / F-sql-tests-schema-once: sql tests one tip schema per worker; truncate data between modules
-
-## Last changes
 
 0.8.4 (2026-11-01)
 
