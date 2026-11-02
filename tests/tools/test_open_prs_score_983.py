@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from agent_coord.server import open_prs_score as ops
+from tools.dev_scores import open_prs_score as ops
 
 
 def _t(hours: float = 0, minutes: float = 0) -> datetime:

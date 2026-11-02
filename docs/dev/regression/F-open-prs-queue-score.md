@@ -1,1 +1,3 @@
+> Dev tooling (card 1051): lives under `tools/dev_scores/`, not the shipped pack. Kept here for our release/PR cycle, not as a product F-row.
+
 | F-open-prs-queue-score | Open-PR queue speed scores (no new activity type / DDL): `mill score` derives open_n, red_n, open_age_ms, open_to_green_ci_ms, open_to_validator_pass_ms, open_to_merge_ms, and per-gate waits (CI / Validator / merge) as median+worst from structured PR samples (GitHub via safe gh path; fixtures in tests). Optional Validator Pass stamps overlay from card 961 (`PassStamp` / `apply_pass_stamps`). Empty series omitted. Never returns tokens, PATs, or hosts. Card 983. | `server/open_prs_score.py`, `_h_score` | `tests/server/test_open_prs_score_983.py` (all cases) |

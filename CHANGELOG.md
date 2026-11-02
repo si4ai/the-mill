@@ -4,10 +4,8 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1051: open-PR score (983), release score (1029), and escapes guard (955) move to tools/dev_scores (not shipped); mill score / cards guards stay product-only; no activity.type=release
 - card 1028 / F-connect-activity-score: connect D2/D3 transitions + mill score startup/session median+worst, drop/reconnect counts (empty omitted; no DDL)
-- card 1029 / F-release-activity-score: release pipeline mill score (consensus->GOs->tag->PyPI->live medians+worst from samples; empty omitted; no DDL; durable transition needs activity.type ALTER proposal)
-- card 955 / F-delivery-kpi-score: escapes guard (Validator Fail + revert counts per shipped) from samples; empty omitted; no DDL
-- card 983 / F-open-prs-queue-score: open-PR queue mill score (open age, open->green-CI / Pass / merge, gate waits; samples from safe gh + optional 961 Pass stamps; no DDL)
 - card 982 / F-open-cards-queue-score: todo FEATURE transitions (T1-T12) + mill score open/claimed ages and open->claimed->shipped->done median+worst (fixtures excluded; empty omitted; no DDL)
 - card 981 / F-hold-activity-score: hold FEATURE transitions (H1-H9) + mill score wait/held median+worst, contention, force-taken, expired (empty omitted; no DDL)
 - card 980 / F-mail-activity-score: mail feature transitions + score views (send-to-wake / wake-to-answer / re-rings / never-answered; empty omitted)

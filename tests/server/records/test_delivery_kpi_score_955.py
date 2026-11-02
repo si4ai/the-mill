@@ -124,9 +124,7 @@ def test_mill_score_cards_shows_guards(cn):
     assert shaped["score"] == "cards"
     assert "cards_per_day" in shaped or "guards" in shaped or shaped.get("unit") == "cards/day"
     guards = shaped.get("guards") or shaped
-    # Lead time / size mix / escapes surface somehow on the read.
+    # Lead time / size mix surface somehow on the read.
     blob = json.dumps(shaped)
     assert "lead" in blob or "lead_min" in blob or "median_lead" in blob
-    assert "escapes" in guards
-    assert guards["escapes"] is None or isinstance(guards["escapes"], dict)
     assert "size_mix" in guards
