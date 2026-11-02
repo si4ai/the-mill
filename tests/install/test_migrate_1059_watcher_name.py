@@ -12,9 +12,6 @@ import pytest
 from agent_coord.install import migrate
 from agent_coord.install.migrate import apply_transition_1022, transition_1022_needed
 
-# fresh_schema: builds throwaway books and mutates watcher.type
-pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
-
 TIP_WATCHER_TYPE = "enum('todo','doing','hold','score','wake')"
 
 
@@ -150,6 +147,8 @@ def _seed_pre_1022_with_name_watchers(cn) -> None:
     cn.commit()
 
 
+@pytest.mark.sql
+@pytest.mark.fresh_schema
 def test_upgrade_from_085_with_name_watchers_deletes_rows_and_matches_tip():
     """0.8.5 book with name watcher rows upgrades; name rows gone; ENUM matches tip."""
     _mysql_up()
@@ -176,6 +175,8 @@ def test_upgrade_from_085_with_name_watchers_deletes_rows_and_matches_tip():
         _drop_book(db)
 
 
+@pytest.mark.sql
+@pytest.mark.fresh_schema
 def test_hand_widened_book_rerun_drops_name_and_matches_tip():
     """Hand-widen workaround: tip book whose watcher ENUM was widened to keep name."""
     _mysql_up()
@@ -216,7 +217,15 @@ def test_hand_widened_book_rerun_drops_name_and_matches_tip():
         _drop_book(db)
 
 
-def test_fresh_watcher_type_matches_tip_constant(cn):
-    """Fresh tables.sql watcher.type is the tip ENUM (no name)."""
-    assert _watcher_type(cn) == TIP_WATCHER_TYPE
-    assert "'name'" not in _watcher_type(cn)
+def test_tables_sql_watcher_type_is_tip_without_name():
+    """tables.sql watcher.type is the tip ENUM (no name). No MySQL needed."""
+    from pathlib import Path
+
+    sql = Path(__file__).resolve().parents[2].joinpath(
+        "agent_coord", "server", "sql", "tables.sql"
+    ).read_text(encoding="utf-8")
+    start = sql.index("CREATE TABLE IF NOT EXISTS watcher")
+    end = sql.index("CREATE TABLE IF NOT EXISTS", start + 1)
+    block = sql[start:end]
+    assert "ENUM('todo','doing','hold','score','wake')" in block
+    assert "'name'" not in block
