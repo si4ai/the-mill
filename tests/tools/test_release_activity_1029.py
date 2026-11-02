@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from agent_coord.server import release_activity as ra
+from tools.dev_scores import release_activity as ra
 
 
 def _t(hours: float = 0, minutes: float = 0) -> datetime:

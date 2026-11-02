@@ -3227,13 +3227,6 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
     eta_n = int(doc.get("eta_n") or 0)
     eta_sum = int(doc.get("eta_sum") or 0)
     actual_sum = int(doc.get("actual_sum") or 0)
-    escapes = None
-    try:
-        from agent_coord.server import delivery_escapes as de
-
-        escapes = de.escapes_view_live(shipped=shipped)
-    except Exception:
-        escapes = None
     out["guards"] = {
         "median_lead_min": (lead_sum // lead_n) if lead_n else None,
         "eta_vs_actual": {
@@ -3242,7 +3235,6 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
             "n": eta_n,
         },
         "doing_min": int(doc.get("doing_sum") or 0),
-        "escapes": escapes,
         "size_mix": {
             "claimed": int(doc.get("claimed") or 0),
             "started": int(doc.get("started") or 0),
@@ -3346,46 +3338,6 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 did = ta.desk_id_for(c._cn, owner)
                 return ta.score_view_for_name(c._cn, name, desk_id=did)
             if name in (
-                "pr.open_n",
-                "pr.red_n",
-                "pr.open_age_ms",
-                "pr.open_to_green_ci_ms",
-                "pr.open_to_validator_pass_ms",
-                "pr.open_to_merge_ms",
-                "pr.ci_gate_wait_ms",
-                "pr.validator_gate_wait_ms",
-                "pr.merge_gate_wait_ms",
-                "open-prs-open-n",
-                "open-prs-red-n",
-                "open-prs-open-age",
-                "open-prs-open-to-green",
-                "open-prs-open-to-pass",
-                "open-prs-open-to-merge",
-                "open-prs-ci-gate",
-                "open-prs-validator-gate",
-                "open-prs-merge-gate",
-            ):
-                from agent_coord.server import open_prs_score as ops
-
-                return ops.score_view_for_name(name)
-            if name in (
-                "release.release_n",
-                "release.consensus_to_gos_ms",
-                "release.gos_to_tag_ms",
-                "release.tag_to_pypi_ms",
-                "release.pypi_to_live_ms",
-                "release.consensus_to_live_ms",
-                "release-n",
-                "release-consensus-to-gos",
-                "release-gos-to-tag",
-                "release-tag-to-pypi",
-                "release-pypi-to-live",
-                "release-consensus-to-live",
-            ):
-                from agent_coord.server import release_activity as ra
-
-                return ra.score_view_for_name(name)
-            if name in (
                 "connect.startup_ms",
                 "connect.session_ms",
                 "connect.drop_n",
@@ -3471,54 +3423,6 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 one = dict(one)
                 did = ta.desk_id_for(c._cn, owner)
                 one.update(ta.score_view_for_name(c._cn, name, desk_id=did))
-            except Exception:
-                pass
-        if name in (
-            "pr.open_n",
-            "pr.red_n",
-            "pr.open_age_ms",
-            "pr.open_to_green_ci_ms",
-            "pr.open_to_validator_pass_ms",
-            "pr.open_to_merge_ms",
-            "pr.ci_gate_wait_ms",
-            "pr.validator_gate_wait_ms",
-            "pr.merge_gate_wait_ms",
-            "open-prs-open-n",
-            "open-prs-red-n",
-            "open-prs-open-age",
-            "open-prs-open-to-green",
-            "open-prs-open-to-pass",
-            "open-prs-open-to-merge",
-            "open-prs-ci-gate",
-            "open-prs-validator-gate",
-            "open-prs-merge-gate",
-        ):
-            try:
-                from agent_coord.server import open_prs_score as ops
-
-                one = dict(one)
-                one.update(ops.score_view_for_name(name))
-            except Exception:
-                pass
-        if name in (
-                "release.release_n",
-                "release.consensus_to_gos_ms",
-                "release.gos_to_tag_ms",
-                "release.tag_to_pypi_ms",
-                "release.pypi_to_live_ms",
-                "release.consensus_to_live_ms",
-                "release-n",
-                "release-consensus-to-gos",
-                "release-gos-to-tag",
-                "release-tag-to-pypi",
-                "release-pypi-to-live",
-                "release-consensus-to-live",
-            ):
-            try:
-                from agent_coord.server import release_activity as ra
-
-                one = dict(one)
-                one.update(ra.score_view_for_name(name))
             except Exception:
                 pass
         if name in (
