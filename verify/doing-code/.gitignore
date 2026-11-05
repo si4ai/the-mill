@@ -1,0 +1,4 @@
+out/
+*.dot
+states.json
+tools/statechart
