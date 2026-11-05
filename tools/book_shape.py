@@ -13,11 +13,16 @@ The shape: tables (engine, collation), columns (type with enum values,
 null, default, extra, collation; not their order), indexes, foreign keys
 with their rules, triggers (timing, event, table, body hash) and routines
 (body hash; the two stamp functions are left out).
+
+`review(old, new)` lists what an upgrade dropped or narrowed (card 1068): the
+columns gone and the column types made smaller. It is for a person's schema
+review and decides nothing.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -121,6 +126,63 @@ def diff(fresh: dict[str, str], book: dict[str, str]) -> list[str]:
         for k in sorted(set(fresh) | set(book))
         if fresh.get(k) != book.get(k)
     ]
+
+
+_INT = ("tinyint", "smallint", "mediumint", "int", "bigint")
+_TEXT = ("tinytext", "text", "mediumtext", "longtext")
+_BLOB = ("tinyblob", "blob", "mediumblob", "longblob")
+_TYPE = re.compile(r"^(\w+)(?:\((.*)\))?(.*)$")
+
+
+def _values(args: str | None) -> set[str]:
+    return set(re.findall(r"'((?:[^']|'')*)'", args or ""))
+
+
+def _col_type(value: str) -> str:
+    return value.split(" null=", 1)[0]
+
+
+def _narrower(old: str, new: str) -> bool | None:
+    """True when NEW holds less than OLD, False when not, None when the two
+    types are not on one scale (a person reads the pair)."""
+    mo, mn = _TYPE.match(old), _TYPE.match(new)
+    if not (mo and mn):
+        return None
+    (bo, ao, to), (bn, an, tn) = mo.groups(), mn.groups()
+    if bo in ("enum", "set") and bo == bn:
+        return not _values(ao) <= _values(an)
+    for scale in (_INT, _TEXT, _BLOB):
+        if bo in scale and bn in scale:
+            return scale.index(bn) < scale.index(bo) or ("unsigned" in to) != ("unsigned" in tn)
+    if bo in _TEXT and bn in ("char", "varchar"):
+        return True
+    if bo == bn and ao and an:
+        try:
+            po, pn = [int(x) for x in ao.split(",")], [int(x) for x in an.split(",")]
+        except ValueError:
+            return None
+        return any(n < o for o, n in zip(po, pn))
+    return None if bo != bn else False
+
+
+def review(old: dict[str, str], new: dict[str, str]) -> dict[str, list[str]]:
+    """What going from OLD to NEW dropped or narrowed, for a person's review:
+    `dropped` columns, `narrowed` types (`KEY: old -> new`), and `changed`
+    types this cannot rank."""
+    out: dict[str, list[str]] = {"dropped": [], "narrowed": [], "changed": []}
+    for k in sorted(old):
+        if not k.startswith("column "):
+            continue
+        if k not in new:
+            out["dropped"].append(k)
+            continue
+        a, b = _col_type(old[k]), _col_type(new[k])
+        if a == b:
+            continue
+        verdict = _narrower(a, b)
+        if verdict is not False:
+            out["narrowed" if verdict else "changed"].append(f"{k}: {a} -> {b}")
+    return out
 
 
 def drift_keys(lines: list[str]) -> list[str]:
