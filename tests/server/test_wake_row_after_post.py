@@ -68,6 +68,11 @@ def book(monkeypatch):
     monkeypatch.setattr(HUB, "rooms", {})
     monkeypatch.setattr(wake, "_GATE", {})
     monkeypatch.setattr(wake, "_TRAIL", {})
+    # #949 process-memory: truncate resets mail ids, so leftover backoff would
+    # swallow the next test's first leave/unsent ring as deferred.
+    monkeypatch.setattr(wake, "_RERINGS", {}, raising=False)
+    monkeypatch.setattr(wake, "_LEASE_MAIL", {}, raising=False)
+    monkeypatch.setattr(wake, "_DONE_MAIL", {}, raising=False)
     yield c
     c.close()
 
