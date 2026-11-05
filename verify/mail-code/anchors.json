@@ -1,0 +1,97 @@
+{
+  "sync_note": "Anchors couple the mail recovery model to the real files. Each marker is the guard line plus its first effect line (card 1014). Line numbers are hints; the check matches the marker string and expected_count.",
+  "anchors": [
+    {
+      "id": "send-body-refuse",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "raw = str(body.get(\"body\") or \"\").strip()\n    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "OversizedBodyRefused / GuardBodyRefuse (_h_send)",
+      "lines": "1556-1558"
+    },
+    {
+      "id": "reply-body-refuse",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "raw = str(body.get(\"body\") or body.get(\"msg\") or \"\").strip()\n    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "OversizedBodyRefused / GuardBodyRefuse (_h_reply)",
+      "lines": "1913-1915"
+    },
+    {
+      "id": "send-receipt-zero",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "receipt = 0\n    sender_roster = _stored(body.get(\"roster\"))",
+      "property": "CLI send never sets receipt (activity-states)",
+      "lines": "1563-1564"
+    },
+    {
+      "id": "h-send-def",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "def _h_send(\n    c: Book, body: dict[str, Any], project: str, owner: str | None, *, room_only: set[str] | None = None\n) -> Any:\n    \"\"\"Speak. Letter body + mail_tos[{deskId}].\n\n    Accept mail_tos in body, or dst (comma To). Top-level roster /\n    --roster = sender tag (mail.roster_id); omitted, the letter's\n    project (the seat's project when the body names none, #241). A dest roster\n    is not stored: mail_to is the dest name, opened, and receipt.\n    To is *, a project name, project:role, a desk name, or a session role.\n    Host room: body name/tree/room (CLI --name) is the plan name.\n    Multi-To alone does NOT open a room. Room cast = sender \u222a mail_tos.\n\n    room_only (#627) is set only by reply: the dests that get this letter as\n    room members (reply-all), not by name. A client body cannot set it.\n    \"\"\"\n\n    from agent_coord.client.outbound.addressing import parse_mail_to\n    from agent_coord.server.records import mail as rec_mail\n    from agent_coord.server.records import name as rec_name\n    from agent_coord.server.records import tree as rec_tree\n\n    src = _stored(str(body.get(\"src\") or owner or \"\"))",
+      "property": "send entry",
+      "lines": "1526"
+    },
+    {
+      "id": "h-reply-def",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:\n    \"\"\"Nest under mail_id. Default mail_to = reply-all: parent sender U parent mail_tos;\n    when the parent is in a room (on a TREE), every room participant (any desk that\n    sent or received a letter on that TREE) is added too.\n\n    Exclude the replying desk from dest (no self-To). --to-desk replaces the full\n    dest list. Recipients on a letter and below it change with mill add|remove mail:ID.\n    Room cast = sender U mail_tos. If parent is not on a TREE, create a room with\n    parent as root and this mail as child. Optional --roster overrides the\n    replying desk's sender tag (mail.roster_id); the letter always carries one.\n    \"\"\"\n    from agent_coord.server.records import mail as rec_mail\n    from agent_coord.server.records import name as rec_name\n    from agent_coord.server.records import tree as rec_tree\n\n    if body.get(\"add_to\") or body.get(\"remove_to\"):",
+      "property": "reply entry",
+      "lines": "1891"
+    },
+    {
+      "id": "orphan-refuse",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "IF NOT EXISTS (SELECT 1 FROM mail_to WHERE type = 'mail' AND id = v_id LIMIT 1) THEN\n    SIGNAL SQLSTATE '45000'",
+      "property": "NoOrphanMail / GuardNoOrphan",
+      "lines": "281-282"
+    },
+    {
+      "id": "insert-rollback",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "  DECLARE EXIT HANDLER FOR SQLEXCEPTION\n  BEGIN\n    ROLLBACK;\n    RESIGNAL;\n  END;\n  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;\n  SET v_ts = MILL_NOW();\n  -- Roster: the sender roster name.\n  SET v_proj = MILL_NAME_GET('roster', p_project);",
+      "property": "FailedInsertLeavesNoPartial / GuardRollbackOnError (mill_mail_insert)",
+      "lines": "254-261"
+    },
+    {
+      "id": "mail-insert-def",
+      "path": "agent_coord/server/sql/sp_mail.sql",
+      "marker": "CREATE PROCEDURE mill_mail_insert(",
+      "property": "mill_mail_insert",
+      "lines": "235"
+    },
+    {
+      "id": "mail-body-varchar",
+      "path": "agent_coord/server/api/mill/rpc.py",
+      "marker": "    if not raw or len(raw) > 4096:\n        raise CoordError(\"body must be 1..4096 chars\")",
+      "property": "rpc body cap 1..4096 matches SQL VARCHAR(4096)",
+      "lines": "1557-1558,1914-1915",
+      "expected_count": 2
+    },
+    {
+      "id": "open-for-update",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "SELECT opened, receipt, 1 INTO v_prev, v_receipt, v_n FROM mail_to\n   WHERE type = 'mail' AND id = p_mail AND desk_id = v_desk\n   LIMIT 1 FOR UPDATE;",
+      "property": "GuardOpenLocked (SPIN E01)",
+      "lines": "29-31"
+    },
+    {
+      "id": "open-first-only",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "IF v_n > 0 AND v_prev IS NULL THEN\n    UPDATE mail_to\n       SET opened = v_ts\n     WHERE type = 'mail' AND id = p_mail AND desk_id = v_desk AND opened IS NULL;",
+      "property": "FirstOpenKept / HandledIsFinal / GuardFirstOpenOnly",
+      "lines": "33-36"
+    },
+    {
+      "id": "push-receipt-first",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "IF(v_prev IS NULL AND v_n > 0 AND v_receipt <> 0, 1, 0) AS push_receipt",
+      "property": "OneReceiptPerRecipient / GuardOneReceipt",
+      "lines": "41"
+    },
+    {
+      "id": "mail-open-def",
+      "path": "agent_coord/server/sql/sp_opened.sql",
+      "marker": "CREATE PROCEDURE mill_mail_open(",
+      "property": "mill_mail_open",
+      "lines": "9"
+    }
+  ]
+}
