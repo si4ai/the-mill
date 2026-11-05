@@ -46,3 +46,26 @@ def read_ids(cn, mail_ids: list[int], desk: str) -> set[int]:
         return {int(row[0]) for row in cur.fetchall() if row and row[0]}
     finally:
         cur.close()
+
+
+def picked_up_ids(cn, mail_ids: list[int], desk: str) -> set[int]:
+    """Letters read/marked, or ever explicitly taken as this desk's doing."""
+    from agent_coord.server.records.name import bare, get as name_get
+
+    ids = [int(i) for i in mail_ids if int(i or 0)]
+    did = name_get(cn, bare(desk, CONST_DESK), CONST_DESK) if desk else None
+    if not ids or not did:
+        return set()
+    marks = ",".join(["%s"] * len(ids))
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT t.id FROM mail_to t WHERE t.type='mail' AND t.desk_id=%s"
+            " AND t.id IN (" + marks + ") AND (t.opened IS NOT NULL OR EXISTS"
+            " (SELECT 1 FROM doing g WHERE g.desk_id=t.desk_id"
+            " AND g.on_type='mail' AND g.on_id=t.id AND g.act='focus'))",
+            (int(did), *ids),
+        )
+        return {int(row[0]) for row in cur.fetchall() if row and row[0]}
+    finally:
+        cur.close()

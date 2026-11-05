@@ -18,7 +18,11 @@ def arm(monkeypatch, *, armed: dict[str, tuple[str, str]] | None = None) -> None
 
     monkeypatch.setenv("AGENT_COORD_WAKE_HOSTS", f"{HOOK_HOST}/automations/webhook/")
     monkeypatch.setattr(wake, "public_host", lambda host: True)
+    monkeypatch.setattr("agent_coord.server.records.opened.picked_up_ids", lambda cn, ids, desk: set())
     monkeypatch.setattr(wake, "_GATE", {})
+    monkeypatch.setattr(wake, "_LEASE_MAIL", {}, raising=False)
+    monkeypatch.setattr(wake, "_DONE_MAIL", {}, raising=False)
+    monkeypatch.setattr(wake, "_RERINGS", {}, raising=False)
     # #669: no real window-end timer thread in a unit test; a test that checks the
     # trailing POST captures _schedule itself.
     monkeypatch.setattr(wake, "_TRAIL", {})
