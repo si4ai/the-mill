@@ -4,6 +4,7 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1063 / antigravity-model-docs: howto-ai Google section + models/antigravity skill (mill-desk placement, connect binding, min permissions)
 - card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.8; DDL needs office human review before code
 - card 1009: grok-bot guide inlines cold barker join flags (no installed link to docs/dev/barker-kit.md)
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
