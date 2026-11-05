@@ -187,6 +187,17 @@ def test_ci_locks_are_fully_hashed_and_pinned() -> None:
             assert re.match(r"^[A-Za-z0-9._-]+(\[[\w,-]+\])?==[\w.+!-]+ ", r), (p.name, r)
             assert re.search(r"--hash=sha256:[0-9a-f]{64}", r), (p.name, r)
 
+def test_ci_lock_pins_setuptools_for_sdist_install() -> None:
+    """ci.txt must pin setuptools: --no-build-isolation sdist install needs mill_build's import."""
+    lines = [
+        ln.strip()
+        for ln in (LOCK / "ci.in").read_text(encoding="utf-8").splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+    assert any(ln.startswith("setuptools") for ln in lines), lines
+    lock = (LOCK / "ci.txt").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^setuptools==", lock), "ci.txt must pin setuptools with hashes"
+
 def test_ci_lock_runtime_lines_match_pyproject() -> None:
     """ci.in carries the pack's runtime deps verbatim, so CI tests what users resolve."""
     import tomllib
