@@ -105,6 +105,33 @@ _STREAM_BODIES = {
 }
 
 
+def test_tw_event_privacy_includes_stream_and_sample_keys() -> None:
+    """Privacy drop list must name stream/sample/pid keys (defense in depth).
+
+    The reply allow-list already omits them; this pins the signed-plan drop list
+    itself so removing those entries fails even when meta_keys is unchanged.
+    """
+    privacy = rpc._TW_EVENT_PRIVACY
+    for key in ("stdout", "stderr", "log", "sample", "pid"):
+        assert key in privacy
+    # Apply only the drop (not the allow-list copy) to a payload that has them.
+    payload = {
+        "ok": True,
+        "watch_id": "w1",
+        "kind": "start",
+        "card": 970,
+        **_STREAM_BODIES,
+    }
+    out = dict(payload)
+    for key in privacy:
+        out.pop(key, None)
+    for key in ("stdout", "stderr", "log", "sample", "pid"):
+        assert key not in out
+    assert out["watch_id"] == "w1"
+    assert out["kind"] == "start"
+    assert out["card"] == 970
+
+
 def test_stream_and_sample_bodies_are_dropped(locked) -> None:
     mod, doing_n, trans_n = locked
     before_d, before_t = doing_n["n"], trans_n["n"]
