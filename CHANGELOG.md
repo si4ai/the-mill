@@ -24,9 +24,9 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 970 / doing tasks feed: doing view lists live task rows as `tasks[]` (#365)
 - card 970 / wall display: tasked rows, doing.task rollups and a last-done tail when no live task remains; only available score fields, no invented command text or relative timestamp (#363)
 - card 1080 / command docs: document desk commands without a leftover sitting connect; align the foreground forms assertion (#364, #367)
-- docs: map protocol, code, process and CI checks in CHECKS-AND-TOOLS (#366)
-- docs: activity-state diagrams for the current schema, including task (#226)
-- docs: README caveats reflect the unused-connect same-shell change
+- card 1089 / docs: map protocol, code, process and CI checks in CHECKS-AND-TOOLS (#366)
+- card 970 / docs: activity-state diagrams for the current schema, including task (#226)
+- card 1080 / docs: README caveats reflect the unused-connect same-shell change (#210)
 
 ## Last changes
 
