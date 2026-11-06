@@ -157,8 +157,9 @@ The author never merges their own work.
    `agent_coord/sql/**`); the file set was named in that signed plan;
    and a named CI check covers that class, not line count alone. Then
    Validator Passes the exact head and merges.
-3. Docs on the allowlist use the CI gate alone (no partner PR read, no
-   Validator Pass): `docs/protocol/skill.md`, JOIN, the grok-bot guide,
+3. Docs on the allowlist skip the partner PR read; Validator still
+   Passes (required `validator` status) and merges:
+   `docs/protocol/skill.md`, JOIN, the grok-bot guide,
    and `office-*` maps. `docs/dev/**` is not on that list.
 4. Heavy path: the partner also reads the PR when any light condition
    fails, including a plan that did not name what would change, a file

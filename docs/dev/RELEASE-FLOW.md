@@ -11,11 +11,11 @@ flowchart TD
   sign --> code[Author implements]
   code --> split{Skip script on the actual diff}
   split -->|Light: named files, size bound, off sensitive paths, named CI covers the class| pass[Validator Pass: claims vs evidence on the exact head]
-  split -->|Docs on the allowlist| ciOnly[CI gate only]
+  split -->|Docs on the allowlist| ciOnly[CI green; no partner PR read]
   split -->|Heavy: any light check fails, or wall_ui JS/CSS until named CI exists| read[Partner reads the PR]
   read --> pass
-  ciOnly --> merge[Validator merges: release-labeled merge commit]
-  pass --> merge
+  ciOnly --> pass
+  pass --> merge[Validator merges: release-labeled merge commit]
   merge --> go[Ship GO at the merge-commit sha]
   go --> tag[Ship desk tags, publishes, and installs]
   tag --> post[Post-ship: Validator check, Auditor release pass, gardener cold measure]
