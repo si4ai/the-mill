@@ -187,12 +187,45 @@ function wallDoingTaskRowHtml(row) {
     cardBit +
     `</span>`;
 }
+function wallDoingTaskLastDoneHtml(row) {
+  if (!row) return "";
+  const actBit = (typeof wallActLabel === "function") ? wallActLabel("task") : "tasked";
+  const bits = [];
+  bits.push(`<span class="dt-act">${esc(actBit)}</span>`);
+  bits.push(`<span class="dt-last-done">last done</span>`);
+  const keys = (typeof DOING_TASK_LAST_DONE_KEYS !== "undefined")
+    ? DOING_TASK_LAST_DONE_KEYS
+    : ["end_reason", "dwell_active_ms", "dwell_idle_ms"];
+  keys.forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(row, key)) return;
+    const shown = (typeof scoreDoingTaskFormatLeaf === "function")
+      ? scoreDoingTaskFormatLeaf(key, row[key])
+      : String(row[key]);
+    if (!shown) return;
+    const label = (typeof scoreKpiLabel === "function") ? scoreKpiLabel("doing.task." + key) : key;
+    bits.push(`<span class="doing-task-kpi" data-kpi="${esc("doing.task." + key)}"><b>${esc(label)}</b> ${esc(shown)}</span>`);
+  });
+  if (row.ago) bits.push(`<span class="dt-ago">${esc(row.ago)}</span>`);
+  return `<span class="doing-task-row is-last-done" data-act="task" data-state="last-done" data-live="false">` +
+    bits.join(" ") + `</span>`;
+}
 function wallDoingTaskRowsHtml(owner) {
+  /* Live non-terminal tasks[] win. If none, last-done tail from doing.task.* scores. */
   const rows = wallDoingTaskList(owner);
-  if (!rows.length) return "";
+  if (rows.length) {
+    return `<div class="doing-tasks" data-slot="tasks">` +
+      `<span class="dt-head">Tasks</span>` +
+      rows.map(wallDoingTaskRowHtml).join("") +
+      `</div>`;
+  }
+  const kpis = (window._officeScores && window._officeScores.kpis) || [];
+  const last = (typeof scoreDoingTaskLastDoneFromScores === "function")
+    ? scoreDoingTaskLastDoneFromScores(kpis, owner)
+    : null;
+  if (!last) return "";
   return `<div class="doing-tasks" data-slot="tasks">` +
     `<span class="dt-head">Tasks</span>` +
-    rows.map(wallDoingTaskRowHtml).join("") +
+    wallDoingTaskLastDoneHtml(last) +
     `</div>`;
 }
 function wallDoingTaskScoresHtml(owner) {

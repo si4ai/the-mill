@@ -67,6 +67,27 @@ const out = {
   liveHasTitle: live.some(r => r.title),
   liveHasPattern: live.some(r => r.pattern),
   liveWaiting: live.find(r => r.state === 'waiting'),
+  lastNone: scoreDoingTaskLastDoneFromScores([], 'builder'),
+  lastMissing: scoreDoingTaskLastDoneFromScores(kpis, 'missing-desk'),
+  lastEmptyDesk: scoreDoingTaskLastDoneFromScores(kpis, ''),
+  lastBuilder: scoreDoingTaskLastDoneFromScores(kpis, 'builder'),
+  lastWall: scoreDoingTaskLastDoneFromScores(kpis, 'wall-ui'),
+  lastIdleOnly: scoreDoingTaskLastDoneFromScores([
+    { kpi: 'doing.task.dwell_idle_ms', owner: 'auditor', value: '28800003.795' }
+  ], 'auditor', Date.parse('2026-11-06T21:00:00Z')),
+  lastWithFinishedAt: scoreDoingTaskLastDoneFromScores([
+    { kpi: 'doing.task.end_reason', owner: 'auditor', value: 'tw_finished', finished_at: '2026-11-06T10:00:00Z' }
+  ], 'auditor', Date.parse('2026-11-06T12:00:00Z')),
+  lastWithUpdatedAt: scoreDoingTaskLastDoneFromScores([
+    { kpi: 'doing.task.end_reason', owner: 'auditor', value: 'tw_finished', updated_at: '2026-11-06T11:00:00Z' }
+  ], 'auditor', Date.parse('2026-11-06T12:00:00Z')),
+  lastWithLeafTs: scoreDoingTaskLastDoneFromScores([
+    { kpi: 'doing.task.end_reason', owner: 'auditor', value: 'tw_finished' },
+    { kpi: 'doing.task.finished_at', owner: 'auditor', value: '2026-11-06T10:00:00Z' }
+  ], 'auditor', Date.parse('2026-11-06T12:00:00Z')),
+  agoTwoHours: scoreDoingTaskFormatAgo(Date.parse('2026-11-06T10:00:00Z'), Date.parse('2026-11-06T12:00:00Z')),
+  agoEmpty: scoreDoingTaskFormatAgo(null, Date.now()),
+  parseIdleMs: scoreDoingTaskParseTimestamp(28800003.795),
 };
 process.stdout.write(JSON.stringify(out));
 """
@@ -122,3 +143,38 @@ def test_phase_a_hide_terminal_and_privacy():
     assert wait["waiting_on"] == "pattern"
     assert "title" not in wait
     assert "argv" not in wait
+
+
+def test_phase_a_last_done_from_scores():
+    got = _run()
+    assert got["lastNone"] is None
+    assert got["lastMissing"] is None
+    assert got["lastEmptyDesk"] is None
+    last = got["lastBuilder"]
+    assert last["kind"] == "last_done"
+    assert last["live"] is False
+    assert last["end_reason"] == "tw_finished"
+    assert last["dwell_active_ms"] == "20"
+    assert last["dwell_idle_ms"] == "10"
+    assert "ago" not in last
+    assert "title" not in last
+    assert "wait_by_cause" not in last
+    wall = got["lastWall"]
+    assert wall["end_reason"] == "tw_failed"
+    assert wall["dwell_idle_ms"] == "5"
+    assert "dwell_active_ms" not in wall
+    idle = got["lastIdleOnly"]
+    assert idle["dwell_idle_ms"] == "28800003.795"
+    assert "ago" not in idle
+    assert "end_reason" not in idle
+    assert got["parseIdleMs"] is None
+
+
+def test_phase_a_last_done_ago_only_from_real_timestamp():
+    got = _run()
+    assert got["agoTwoHours"] == "2 hours ago"
+    assert got["agoEmpty"] == ""
+    assert got["lastWithFinishedAt"]["ago"] == "2 hours ago"
+    assert got["lastWithUpdatedAt"]["ago"] == "1 hour ago"
+    assert got["lastWithLeafTs"]["ago"] == "2 hours ago"
+    assert got["lastWithFinishedAt"]["end_reason"] == "tw_finished"

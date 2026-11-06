@@ -310,6 +310,89 @@
     });
     return out.slice(0, 8);
   }
+  var DOING_TASK_LAST_DONE_KEYS = ["end_reason", "dwell_active_ms", "dwell_idle_ms"];
+  /* Per-score timestamps only. Never treat dwell_idle_ms (or other leaf values) as a clock. */
+  var DOING_TASK_TS_KEYS = {
+    finished_at: 1, written_at: 1, updated_at: 1, created_at: 1,
+    scored_at: 1, upserted_at: 1, timestamp: 1, ts: 1, when: 1, at: 1
+  };
+  function scoreDoingTaskParseTimestamp(raw) {
+    if (raw == null || raw === "") return null;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      if (raw > 1e12) return raw;
+      if (raw > 1e9) return raw * 1000;
+      return null;
+    }
+    if (typeof raw === "string" && /^-?\d+(?:\.\d+)?$/.test(raw.trim())) {
+      var n = Number(raw.trim());
+      if (Number.isFinite(n)) {
+        if (n > 1e12) return n;
+        if (n > 1e9) return n * 1000;
+        return null;
+      }
+    }
+    return scoreParseAt(raw);
+  }
+  function scoreDoingTaskPickTimestamp(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    var best = null;
+    Object.keys(DOING_TASK_TS_KEYS).forEach(function (key) {
+      if (obj[key] == null || obj[key] === "") return;
+      var t = scoreDoingTaskParseTimestamp(obj[key]);
+      if (t != null && (best == null || t > best)) best = t;
+    });
+    return best;
+  }
+  function scoreDoingTaskFormatAgo(tsMs, nowMs) {
+    if (tsMs == null || !Number.isFinite(Number(tsMs))) return "";
+    var now = nowMs != null ? nowMs : Date.now();
+    var delta = now - Number(tsMs);
+    if (!Number.isFinite(delta)) return "";
+    if (delta < 0) delta = 0;
+    var sec = Math.floor(delta / 1000);
+    if (sec < 60) return (sec <= 1 ? "1 second ago" : (sec + " seconds ago"));
+    var min = Math.floor(sec / 60);
+    if (min < 60) return (min === 1 ? "1 minute ago" : (min + " minutes ago"));
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return (hr === 1 ? "1 hour ago" : (hr + " hours ago"));
+    var day = Math.floor(hr / 24);
+    return (day === 1 ? "1 day ago" : (day + " days ago"));
+  }
+  function scoreDoingTaskLastDoneFromScores(kpis, desk, nowMs) {
+    /* Last wrapper from that desk's doing.task.* leaves. No invented fields. */
+    var want = String(desk || "").trim();
+    if (!want) return null;
+    var by = scoreDoingTaskLeavesByDesk(kpis);
+    var packed = by[want];
+    if (!packed) return null;
+    var leaves = scoreDoingTaskDeskRollup(packed);
+    var out = { kind: "last_done", live: false };
+    var any = false;
+    DOING_TASK_LAST_DONE_KEYS.forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(leaves, key)) return;
+      if (leaves[key] == null || leaves[key] === "") return;
+      out[key] = leaves[key];
+      any = true;
+    });
+    if (!any) return null;
+    var ts = null;
+    (kpis || []).forEach(function (k) {
+      if (scoreDeskSlug(k) !== want) return;
+      var suffix = scoreDoingTaskSuffix(scoreKpiName(k));
+      if (!suffix) return;
+      var picked = scoreDoingTaskPickTimestamp(k);
+      if (picked != null && (ts == null || picked > ts)) ts = picked;
+      if (DOING_TASK_TS_KEYS[suffix]) {
+        var fromVal = scoreDoingTaskParseTimestamp(k.value);
+        if (fromVal != null && (ts == null || fromVal > ts)) ts = fromVal;
+      }
+    });
+    if (ts != null) {
+      var ago = scoreDoingTaskFormatAgo(ts, nowMs);
+      if (ago) out.ago = ago;
+    }
+    return out;
+  }
 
   function scoreEnsurePaintContract() {
     return {
@@ -357,7 +440,11 @@
     scoreDoingTaskFormatLeaf: scoreDoingTaskFormatLeaf,
     scoreDoingTaskRowVisible: scoreDoingTaskRowVisible,
     scoreDoingTaskSanitizeRow: scoreDoingTaskSanitizeRow,
-    scoreDoingTaskLiveRows: scoreDoingTaskLiveRows
+    scoreDoingTaskLiveRows: scoreDoingTaskLiveRows,
+    DOING_TASK_LAST_DONE_KEYS: DOING_TASK_LAST_DONE_KEYS,
+    scoreDoingTaskParseTimestamp: scoreDoingTaskParseTimestamp,
+    scoreDoingTaskFormatAgo: scoreDoingTaskFormatAgo,
+    scoreDoingTaskLastDoneFromScores: scoreDoingTaskLastDoneFromScores
   };
   Object.keys(api).forEach(function (k) { global[k] = api[k]; });
   global.WallScore = api;
