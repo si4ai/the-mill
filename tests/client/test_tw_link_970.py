@@ -122,7 +122,15 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         before = list(tmp_path.rglob("*"))
         got = _within(
             lambda: session.request(
-                {"type": "event", "watch_id": "w1", "kind": "start", "card": 970}
+                {
+                    "type": "event",
+                    "watch_id": "w1",
+                    "kind": "start",
+                    "card": 970,
+                    "argv": ["tw", "run"],
+                    "title": "secret",
+                    "pattern": "*.py",
+                }
             )
         )
         assert got["type"] == "reply"
@@ -134,6 +142,9 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         assert len(hops) == 1
         assert hops[0]["verb"] == "tw.event"
         assert hops[0]["watch_id"] == "w1"
+        assert "argv" not in hops[0]
+        assert "title" not in hops[0]
+        assert "pattern" not in hops[0]
     finally:
         session.close()
         link.close()
