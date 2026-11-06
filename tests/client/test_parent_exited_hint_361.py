@@ -41,9 +41,12 @@ def test_parent_exited_keeps_extra_fields():
 
 
 def test_both_connect_loops_print_the_notice():
-    # The http connect loop and the ws sit loop both stop on parent exit (#192).
-    assert "parent_exited_notice(who)" in inspect.getsource(http)
+    # The seat hold (mill connect) and the ws sit loop both stop on parent exit (#192).
+    from agent_coord.client.seat import session as seat_session
+
+    assert "parent_exited_notice(desk)" in inspect.getsource(seat_session)
     assert "parent_exited_notice(who, url=sit_url)" in inspect.getsource(ws)
+    assert '"reason": "parent exited"' not in inspect.getsource(seat_session)
     assert '"reason": "parent exited"' not in inspect.getsource(http)
     assert '"reason": "parent exited"' not in inspect.getsource(ws)
 

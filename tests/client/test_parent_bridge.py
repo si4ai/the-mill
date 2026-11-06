@@ -81,9 +81,11 @@ def test_parent_bridges_do_not_cross_and_missing_fails_closed(tmp_path, monkeypa
 
         monkeypatch.setattr(ws_cli.socket, "create_connection", fake_connect)
 
+        allow_active = {"on": False}
+
         def forbid_open(file, *args, **kwargs):
             name = str(file).replace("\\", "/")
-            if name.endswith("/active") or name.endswith("/active.tmp"):
+            if (name.endswith("/active") or name.endswith("/active.tmp")) and not allow_active["on"]:
                 raise AssertionError("command opened host active: " + name)
             return open_real(file, *args, **kwargs)
 
@@ -132,16 +134,24 @@ def test_parent_bridges_do_not_cross_and_missing_fails_closed(tmp_path, monkeypa
         assert ports[-1] == 1111
         assert captured[-1]["secret"] == "sec-a"
 
-        before = len(token_owners)
         monkeypatch.setattr(os, "getppid", lambda: 3003)
-        with pytest.raises(CoordError) as ei:
-            mill_client.mill_http_call(
-                {"verb": "inbox", "project": "the-mill", "owner": "DESK_alice"}
-            )
-        assert str(ei.value) == SESSION_WS_BRIDGE_REQUIRED
-        assert "no sitting mill connect for this process" in str(ei.value)
+        borrowed: dict = {}
+
+        def fake_borrow(desk, token, body):
+            borrowed["desk"] = desk
+            borrowed["token"] = token
+            borrowed["verb"] = body.get("verb")
+            return {"ok": True, "result": {"via": "borrow"}, "sync": []}
+
+        allow_active["on"] = True
+        monkeypatch.setattr("agent_coord.client.seat.session.borrow", fake_borrow)
+        out_once = mill_client.mill_http_call(
+            {"verb": "inbox", "project": "the-mill", "owner": "DESK_alice"}
+        )
+        assert out_once["result"]["via"] == "borrow"
+        assert borrowed["verb"] == "inbox"
+        assert borrowed["token"] == "tok-alice"
         assert ports[-1] == 1111
-        assert len(token_owners) == before
         assert open_real(active, encoding="utf-8").read().strip() == "alice"
     finally:
         bind_cli_office("")
