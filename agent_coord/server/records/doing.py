@@ -15,7 +15,7 @@ from typing import Any
 
 from agent_coord.const import CONST_DESK
 
-from .db import call
+from .db import call, rows_done
 
 TEXT_MAX = 512
 ON_TYPES = ("mail", "todo", "hold", "score")
@@ -50,11 +50,13 @@ def finish(cn, desk: str, on_type: str, on_id: int) -> None:
 def now(cn, desk: str = "", roster: str = "", all_desks: bool = False) -> list[dict[str, Any]]:
     from agent_coord.server.records.name import bare
 
-    return call(
+    rows = call(
         cn,
         "mill_doing_now",
         [bare(desk, CONST_DESK) if desk else "", roster or "", 1 if all_desks else 0],
     ) or []
+    rows.extend(task_rows(cn, [r["desk"] for r in rows if r.get("part") == "desk"]))
+    return rows
 
 
 def history(
@@ -95,6 +97,35 @@ def live_tasks(cn, desk_id: int) -> int:
         return int(cur.fetchone()[0])
     finally:
         cur.close()
+
+
+def task_rows(cn, desks: list[str]) -> list[dict[str, Any]]:
+    """One bounded batch for the connected desks; no focus pointer or private payloads."""
+    if not desks:
+        return []
+    return rows_done(cn, """
+        SELECT 'task' AS part, d.name AS desk, x.state, x.join_key, x.cause, x.card_id
+          FROM name d
+          JOIN LATERAL (
+            SELECT COALESCE(t.to_state, 'idle') AS state, t.join_key,
+                   CASE WHEN t.to_state='waiting'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(t.meta, '$.cause')) END AS cause,
+                   card.id AS card_id
+              FROM doing g
+              LEFT JOIN transition t ON t.id=(
+                SELECT latest.id FROM transition latest
+                 WHERE latest.activity_type='doing' AND latest.activity_id=g.id
+                 ORDER BY latest.id DESC LIMIT 1)
+              LEFT JOIN todo card ON g.on_type='todo' AND card.id=g.on_id
+             WHERE g.desk_id=d.id AND g.act='task' AND NOT EXISTS (
+                SELECT 1 FROM transition ended
+                 WHERE ended.activity_type='doing' AND ended.activity_id=g.id
+                   AND ended.to_state IN (%s, %s, %s, %s))
+             ORDER BY g.created DESC, g.id DESC LIMIT %s
+          ) x ON TRUE
+         WHERE d.type='desk' AND d.name IN (""" + ",".join(["%s"] * len(desks)) + ")",
+        (*_TASK_TERMINAL, TASK_CAP, *desks),
+    )
 
 
 def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str:
