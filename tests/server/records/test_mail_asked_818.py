@@ -218,4 +218,12 @@ def test_waiting_letters_carry_asked_in_connected_and_the_wall_route(w, wall):  
     code, got = _get(wall, f"/api/v1/doing?desk={ME}")
     assert code == 200, got
     route = got[0]["waiting_on_it"]["letters"]["newest"]
-    assert route == letters and all(set(x) == {"id", "from", "age", "asked"} for x in route)
+    assert all(set(x) == {"id", "from", "age", "asked"} for x in route)
+    # age can tick 0s to 1s between connected and wall snapshots; compare stable fields only
+    assert all(
+        isinstance(x["age"], str) and x["age"][:-1].isdigit() and x["age"].endswith("s")
+        for x in route
+    )
+    assert [{k: x[k] for k in ("id", "from", "asked")} for x in route] == [
+        {k: x[k] for k in ("id", "from", "asked")} for x in letters
+    ]
