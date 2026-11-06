@@ -4240,14 +4240,21 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     }
 
 
+# Card 970: local-only tw.event keys. Dropped from the reply (defense in depth;
+# the meta_keys allow-list already omits them). Never stored.
+_TW_EVENT_PRIVACY = ("argv", "title", "pattern", "stdout", "stderr", "log", "sample", "pid")
+
+
 def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """Card 970: sitting-session hop for a local task-wrapper event.
 
-    Accept a well-formed event. Drop argv/title/pattern (never stored). Write no
-    doing row and no tw_* transition. Meta tokens only in the reply.
+    Accept a well-formed event. Drop argv/title/pattern and the stream and
+    sample bodies (stdout, stderr, log, sample, pid): never echoed, never
+    stored. Write no doing row and no tw_* transition. Meta tokens only in the
+    reply.
     """
     _ = c, project  # sitting identity is owner; no book write in this slice
-    privacy = ("argv", "title", "pattern")
+    privacy = _TW_EVENT_PRIVACY
     meta_keys = ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts")
     wid_raw = body.get("watch_id")
     if isinstance(wid_raw, bool) or wid_raw is None:

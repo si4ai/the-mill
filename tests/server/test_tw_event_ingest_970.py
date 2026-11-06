@@ -96,6 +96,102 @@ def test_privacy_keys_are_not_echoed_or_stored(locked) -> None:
     assert trans_n["n"] == before_t
 
 
+_STREAM_BODIES = {
+    "stdout": "STDOUT-BODY line one\nline two",
+    "stderr": "STDERR-BODY traceback",
+    "log": "LOG-BODY /tmp/run.log contents",
+    "sample": {"tree": [{"pid": 4242, "cmd": "SAMPLE-BODY python"}], "cpu": 12},
+    "pid": 4242,
+}
+
+
+def test_tw_event_privacy_includes_stream_and_sample_keys() -> None:
+    """Privacy drop list must name stream/sample/pid keys (defense in depth).
+
+    The reply allow-list already omits them; this pins the signed-plan drop list
+    itself so removing those entries fails even when meta_keys is unchanged.
+    """
+    privacy = rpc._TW_EVENT_PRIVACY
+    for key in ("stdout", "stderr", "log", "sample", "pid"):
+        assert key in privacy
+    # Apply only the drop (not the allow-list copy) to a payload that has them.
+    payload = {
+        "ok": True,
+        "watch_id": "w1",
+        "kind": "start",
+        "card": 970,
+        **_STREAM_BODIES,
+    }
+    out = dict(payload)
+    for key in privacy:
+        out.pop(key, None)
+    for key in ("stdout", "stderr", "log", "sample", "pid"):
+        assert key not in out
+    assert out["watch_id"] == "w1"
+    assert out["kind"] == "start"
+    assert out["card"] == 970
+
+
+def test_stream_and_sample_bodies_are_dropped(locked) -> None:
+    mod, doing_n, trans_n = locked
+    before_d, before_t = doing_n["n"], trans_n["n"]
+    out = mod._h_tw_event(
+        _Book(),
+        _event_body(cause="exit", exit_code=1, counts={"lines": 2}, **_STREAM_BODIES),
+        "the-mill",
+        "builder",
+    )
+    assert out["ok"] is True
+    for key in ("stdout", "stderr", "log", "sample", "pid"):
+        assert key not in out
+    blob = repr(out)
+    for marker in ("STDOUT-BODY", "STDERR-BODY", "LOG-BODY", "SAMPLE-BODY", "4242"):
+        assert marker not in blob
+    assert out["watch_id"] == "w1"
+    assert out["kind"] == "start"
+    assert out["card"] == 970
+    assert out["cause"] == "exit"
+    assert out["exit_code"] == 1
+    assert out["counts"] == {"lines": 2}
+    assert doing_n["n"] == before_d
+    assert trans_n["n"] == before_t
+
+
+def test_meta_only_event_still_accepts(locked) -> None:
+    mod, doing_n, trans_n = locked
+    before_d, before_t = doing_n["n"], trans_n["n"]
+    out = mod._h_tw_event(
+        _Book(), _event_body(kind="exit", cause="exit", exit_code=0), "the-mill", "builder"
+    )
+    assert out == {
+        "ok": True,
+        "watch_id": "w1",
+        "desk": "builder",
+        "kind": "exit",
+        "card": 970,
+        "cause": "exit",
+        "exit_code": 0,
+    }
+    assert doing_n["n"] == before_d
+    assert trans_n["n"] == before_t
+
+
+def test_dispatch_ws_drops_stream_bodies_without_writes(locked, monkeypatch) -> None:
+    mod, doing_n, trans_n = locked
+    before_d, before_t = doing_n["n"], trans_n["n"]
+    monkeypatch.setattr(mod, "_note_doing", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_doing_text", lambda *a, **k: "")
+    book = MagicMock()
+    book._cn = object()
+    out = mod.dispatch_ws(book, "builder", "tw.event", _event_body(**_STREAM_BODIES))
+    assert out["ok"] is True
+    blob = repr(out)
+    for marker in ("STDOUT-BODY", "STDERR-BODY", "LOG-BODY", "SAMPLE-BODY", "4242"):
+        assert marker not in blob
+    assert doing_n["n"] == before_d
+    assert trans_n["n"] == before_t
+
+
 def test_dispatch_ws_accepts_tw_event_without_writes(locked, monkeypatch) -> None:
     mod, doing_n, trans_n = locked
     before_d, before_t = doing_n["n"], trans_n["n"]
