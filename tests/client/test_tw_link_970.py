@@ -150,6 +150,56 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         link.close()
 
 
+def test_event_hop_leaves_stream_and_sample_on_the_desk(tmp_path, monkeypatch) -> None:
+    _home(monkeypatch, tmp_path)
+    hops = []
+
+    def fake_http(body):
+        hops.append(dict(body))
+        return {"ok": True, "result": {"ok": True}}
+
+    monkeypatch.setattr("agent_coord.client.http.mill_http_call", fake_http)
+    link = serve("tw-nofire")
+    session = Session(link)
+    try:
+        got = _within(
+            lambda: session.request({
+                "type": "event",
+                "watch_id": "w5",
+                "desk": "tw-nofire",
+                "card": 970,
+                "kind": "exit",
+                "cause": "exit",
+                "exit_code": 3,
+                "counts": {"lines": 4},
+                "pid": 4242,
+                "stdout": "STDOUT-BODY",
+                "stderr": "STDERR-BODY",
+                "log": "LOG-BODY",
+                "sample": {"tree": [{"pid": 4242, "cmd": "SAMPLE-BODY"}]},
+            })
+        )
+        assert got["ok"] is True
+        assert len(hops) == 1
+        hop = hops[0]
+        assert hop == {
+            "verb": "tw.event",
+            "watch_id": "w5",
+            "desk": "tw-nofire",
+            "card": 970,
+            "kind": "exit",
+            "cause": "exit",
+            "exit_code": 3,
+            "counts": {"lines": 4},
+        }
+        blob = repr(hop)
+        for marker in ("STDOUT-BODY", "STDERR-BODY", "LOG-BODY", "SAMPLE-BODY", "4242"):
+            assert marker not in blob
+    finally:
+        session.close()
+        link.close()
+
+
 def test_stop_is_pushed_to_the_session(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
     monkeypatch.setattr(
