@@ -106,8 +106,14 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
     from agent_coord.client.tw import link as linkmod
 
     assert "mill_transition_put" not in Path(linkmod.__file__).read_text(encoding="utf-8")
+    assert "mill_doing_put" not in Path(linkmod.__file__).read_text(encoding="utf-8")
     calls = []
+    hops = []
     monkeypatch.setattr(linkmod, "add_route", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
+    )
     link = serve("tw-event")
     session = Session(link)
     try:
@@ -116,7 +122,15 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         before = list(tmp_path.rglob("*"))
         got = _within(
             lambda: session.request(
-                {"type": "event", "watch_id": "w1", "kind": "start", "card": 970}
+                {
+                    "type": "event",
+                    "watch_id": "w1",
+                    "kind": "start",
+                    "card": 970,
+                    "argv": ["tw", "run"],
+                    "title": "secret",
+                    "pattern": "*.py",
+                }
             )
         )
         assert got["type"] == "reply"
@@ -125,6 +139,12 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         assert got["msg"] == "accepted"
         assert calls == []
         assert list(tmp_path.rglob("*")) == before
+        assert len(hops) == 1
+        assert hops[0]["verb"] == "tw.event"
+        assert hops[0]["watch_id"] == "w1"
+        assert "argv" not in hops[0]
+        assert "title" not in hops[0]
+        assert "pattern" not in hops[0]
     finally:
         session.close()
         link.close()
@@ -132,6 +152,10 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
 
 def test_stop_is_pushed_to_the_session(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: {"ok": True, "result": {"ok": True}},
+    )
     link = serve("tw-stop")
     session = Session(link)
     try:
@@ -219,6 +243,10 @@ def test_two_registers_at_once(tmp_path, monkeypatch) -> None:
 
 def test_ninth_session_is_refused(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: {"ok": True, "result": {"ok": True}},
+    )
     link = serve("tw-cap")
     held = []
     try:

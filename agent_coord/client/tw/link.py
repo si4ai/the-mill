@@ -304,8 +304,27 @@ class Link:
         return protocol.reply(True, "registered")
 
     def _event(self, peer: _Peer, msg: dict[str, Any]) -> dict[str, Any]:
-        # Accepted only. Doing scores are server-side and are not written here.
+        # Hop before ok (letter 4618). Doing scores stay server-side; this slice
+        # only posts tw.event and writes no doing / tw_* row itself.
+        # argv/title/pattern stay on the desk (letter 4621); hop body omits them.
         wid = _watch_id(msg)
+        body: dict[str, Any] = {"verb": "tw.event"}
+        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
+            if key in msg:
+                body[key] = msg[key]
+        if wid and "watch_id" not in body:
+            body["watch_id"] = wid
+        try:
+            from agent_coord.client.http import mill_http_call
+
+            got = mill_http_call(body)
+        except Exception:
+            self.marks.append("tw.event")
+            return protocol.reply(False, "hop failed", wid or None)
+        ok = isinstance(got, dict) and got.get("ok") is True
+        if not ok:
+            self.marks.append("tw.event")
+            return protocol.reply(False, "hop failed", wid or None)
         if wid:
             peer.watch_ids.add(wid)
             with self._peers_lock:
