@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 import uuid
 from typing import Any
 
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
+from agent_coord.client.tw.sample import take
 
 
 def runs_path(desk: str):
@@ -154,7 +156,70 @@ def _drop(desk: str, watch_id: str) -> None:
         _save(desk, runs)
 
 
-def run_argv(desk: str, argv: list[str]) -> int:
+def query_status(desk: str, watch_id: str | None = None) -> dict[str, Any]:
+    who = _desk(desk)
+    try:
+        session = open_session(who)
+    except OSError:
+        return {"type": "reply", "ok": False, "msg": "down"}
+    try:
+        msg: dict[str, Any] = {"type": "status"}
+        if watch_id:
+            msg["watch_id"] = watch_id
+        reply = session.request(msg)
+        return reply if isinstance(reply, dict) else {"type": "reply", "ok": False, "msg": "bad"}
+    except OSError:
+        return {"type": "reply", "ok": False, "msg": "down"}
+    finally:
+        session.close()
+
+
+def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int]) -> None:
+    if stream is None:
+        return
+    while True:
+        chunk = stream.read(4096)
+        if not chunk:
+            return
+        with lock:
+            counters[key] = counters.get(key, 0) + len(chunk)
+            if sink is not None:
+                sink.write(chunk)
+                sink.flush()
+
+
+def _send_sample(
+    session: Any,
+    watch_id: str,
+    pid: int,
+    counters: dict[str, int],
+    lock: Any,
+    log_on: bool,
+) -> None:
+    with lock:
+        stdout_bytes = int(counters.get("stdout", 0))
+        stderr_bytes = int(counters.get("stderr", 0))
+    try:
+        sample = take(pid)
+    except OSError:
+        sample = {}
+    try:
+        session.request(
+            {
+                "type": "sample",
+                "watch_id": watch_id,
+                "pid": pid,
+                "stdout_bytes": stdout_bytes,
+                "stderr_bytes": stderr_bytes,
+                "log": bool(log_on),
+                "sample": sample,
+            }
+        )
+    except OSError:
+        return
+
+
+def run_argv(desk: str, argv: list[str], log_path: str | None = None) -> int:
     who = _desk(desk)
     if not argv or any(not isinstance(part, str) or part == "" for part in argv):
         return 2
@@ -169,58 +234,92 @@ def run_argv(desk: str, argv: list[str]) -> int:
         )
         if not (isinstance(registered, dict) and registered.get("ok") is True):
             return 1
-        proc = subprocess.Popen(argv)
-        runs = _load(who)
-        runs[watch_id] = {"pid": proc.pid, "argv": argv, "stop": False}
-        _save(who, runs)
-        print(watch_id, flush=True)
-        started = session.request(
-            {
-                "type": "event",
-                "watch_id": watch_id,
-                "kind": "start",
-                "pid": proc.pid,
-            }
-        )
-        if not (isinstance(started, dict) and started.get("ok") is True):
-            proc.terminate()
-            proc.wait(timeout=2)
-            _drop(who, watch_id)
-            return 1
-        while proc.poll() is None:
-            if _flagged(who, watch_id):
-                break
-            if _pending(session._conn):
-                msg = session.read()
-                if (
-                    isinstance(msg, dict)
-                    and msg.get("type") == "stop"
-                    and str(msg.get("watch_id") or "") == watch_id
-                ):
-                    break
-                continue
-            time.sleep(0.1)
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=2)
-        code = proc.returncode if proc.returncode is not None else 1
+        sink = None
+        pumps: list[threading.Thread] = []
+        lock = threading.Lock()
+        counters = {"stdout": 0, "stderr": 0}
+        proc = None
         try:
-            session.send(
+            if log_path:
+                sink = open(log_path, "ab")
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            pumps = [
+                threading.Thread(
+                    target=_pump,
+                    args=(proc.stdout, sink, "stdout", lock, counters),
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=_pump,
+                    args=(proc.stderr, sink, "stderr", lock, counters),
+                    daemon=True,
+                ),
+            ]
+            for pump in pumps:
+                pump.start()
+            runs = _load(who)
+            runs[watch_id] = {"pid": proc.pid, "argv": argv, "stop": False}
+            _save(who, runs)
+            print(watch_id, flush=True)
+            started = session.request(
                 {
                     "type": "event",
                     "watch_id": watch_id,
-                    "kind": "exit",
-                    "exit_code": code,
+                    "kind": "start",
                     "pid": proc.pid,
                 }
             )
-        except OSError:
-            pass
-        return code
+            if not (isinstance(started, dict) and started.get("ok") is True):
+                return 1
+            while proc.poll() is None:
+                if _flagged(who, watch_id):
+                    break
+                if _pending(session._conn):
+                    msg = session.read()
+                    if (
+                        isinstance(msg, dict)
+                        and msg.get("type") == "stop"
+                        and str(msg.get("watch_id") or "") == watch_id
+                    ):
+                        break
+                    continue
+                time.sleep(0.1)
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+            for pump in pumps:
+                pump.join(2)
+            code = proc.returncode if proc.returncode is not None else 1
+            _send_sample(session, watch_id, proc.pid, counters, lock, sink is not None)
+            try:
+                session.send(
+                    {
+                        "type": "event",
+                        "watch_id": watch_id,
+                        "kind": "exit",
+                        "exit_code": code,
+                        "pid": proc.pid,
+                    }
+                )
+            except OSError:
+                pass
+            return code
+        finally:
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+            for pump in pumps:
+                pump.join(1)
+            if sink is not None:
+                sink.close()
     finally:
         _drop(who, watch_id)
         session.close()
