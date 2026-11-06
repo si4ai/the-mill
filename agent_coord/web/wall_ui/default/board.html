@@ -424,6 +424,7 @@
           <div class="score-pane" id="score-graphs" aria-label="Rollups"><div class="idle">Pick a command.</div></div>
           <div class="score-desk-table" id="score-desk-table" aria-label="Desks"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading scores...</span></div></div>
           <div class="score-pane score-desk-table" id="score-verbs" aria-label="Commands"><div class="idle">Pick a desk.</div></div>
+          <div class="score-pane" id="score-task-wrap" aria-label="Task wrapper scores"><div class="idle">Task scores load with Office.</div></div>
         </div>
       </div>
       <div class="score-spend-view" id="score-spend-view" hidden></div>
@@ -623,7 +624,7 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow324"></script>
+  <script defer src="/lib/lazy.js?v=wow329"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
