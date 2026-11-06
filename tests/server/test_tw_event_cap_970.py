@@ -1,13 +1,17 @@
 """Card 970 step 4: per-desk cap of live task doing rows on tw.event start."""
 from __future__ import annotations
 
+import threading
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
+from agent_coord.server import records
 from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import doing, join
+from agent_coord.server.records.db import request_tx
 
 pytestmark = [pytest.mark.sql, pytest.mark.fresh_schema]
 
@@ -30,11 +34,11 @@ def desk(cn, monkeypatch):
         name = "builder-" + uuid4().hex[:8]
         join.upsert(cn, "Office", name, "", "a" * 64, "reviewing")
 
-        def event(wid, kind, **kw):
-            return rpc._h_tw_event(SimpleNamespace(_cn=cn), {"watch_id": wid, "kind": kind, **kw}, "Office", name)
+        def event(wid, kind, conn=None, **kw):
+            return rpc._h_tw_event(SimpleNamespace(_cn=conn or cn), {"watch_id": wid, "kind": kind, **kw}, "Office", name)
 
-        def tasks():
-            return rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (name,))
+        def tasks(conn=None):
+            return rows(conn or cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (name,))
 
         def edges(wid=None):
             if wid is None:
@@ -117,3 +121,51 @@ def test_cap_counts_only_task_rows_not_stale_or_cleared_states(desk, cn):
     fill(d, 7)
     assert doing.live_tasks(cn, rows(cn, "SELECT id FROM name WHERE name=%s AND type='desk'", (d.name,))[0]["id"]) == 7
     assert not {"tw_stale", "wait_cycle", "clear"} & {e["reason"] for e in d.edges()}
+
+
+def test_retried_start_of_waiting_watch_at_cap_is_a_noop(desk):
+    d = desk()
+    fill(d)
+    assert d.event("w3", "stall", cause="quiet")["ok"] is True
+    n, w = len(d.edges("w3")), len(d.pings)
+    assert d.event("w3", "start")["ok"] is True
+    assert len(d.edges("w3")) == n and len(d.pings) == w and len(d.tasks()) == 8
+    assert d.event("w3", "exit", exit_code=1)["ok"] is True
+    assert d.edges("w3")[-1]["reason"] == "tw_failed" and len(d.pings) == w + 1
+
+
+def test_concurrent_starts_at_seven_live_birth_only_one(desk, cn):
+    d = desk()
+    fill(d, 7)
+    cn.commit()
+    db = rows(cn, "SELECT DATABASE() d")[0]["d"]
+    ca, cb = records.connect(db), records.connect(db)
+    out = {}
+
+    def run_a():
+        def body():
+            out["a"] = d.event("A", "start", conn=ca)
+            time.sleep(1.5)  # hold the seat lock while B arrives
+            return out["a"]
+        request_tx(ca, body)
+
+    def run_b():
+        time.sleep(0.4)
+        t0 = time.monotonic()
+        out["b"] = request_tx(cb, lambda: d.event("B", "start", conn=cb))
+        out["b_wait_s"] = time.monotonic() - t0
+
+    try:
+        ta, tb = threading.Thread(target=run_a), threading.Thread(target=run_b)
+        ta.start(); tb.start(); ta.join(); tb.join()
+        cc = records.connect(db)
+        try:
+            n = len(d.tasks(cc))
+        finally:
+            cc.close()
+    finally:
+        ca.close(); cb.close()
+    assert out["a"]["ok"] is True
+    assert out["b_wait_s"] > 0.8, out  # B really blocked on the seat lock
+    assert out["b"].get("code") == "cap", out
+    assert n == 8

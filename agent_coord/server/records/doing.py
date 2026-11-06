@@ -89,7 +89,7 @@ def live_tasks(cn, desk_id: int) -> int:
         cur.execute(
             "SELECT COUNT(*) FROM doing g WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
             " SELECT 1 FROM transition t WHERE t.activity_type='doing' AND t.activity_id=g.id"
-            " AND t.to_state IN (%s, %s, %s, %s))",
+            " AND t.to_state IN (%s, %s, %s, %s)) FOR SHARE",
             (desk_id, *_TASK_TERMINAL),
         )
         return int(cur.fetchone()[0])
