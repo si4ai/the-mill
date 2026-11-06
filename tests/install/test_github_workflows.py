@@ -6,8 +6,13 @@ top-level permissions, and every job that scans history clones it in full.
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 WF = ROOT / ".github" / "workflows"
@@ -54,7 +59,7 @@ def _job(text: str, name: str) -> str:
 def test_history_jobs_clone_full_history() -> None:
     """check_pack and both pytest jobs scan commit messages; shallow fails closed."""
     text = (WF / "ci.yml").read_text(encoding="utf-8")
-    for name in ("check_pack", "pytest_no_sql", "pytest_sql"):
+    for name in ("check_pack", "detect_docs_only", "pytest_no_sql_run", "pytest_sql_run"):
         job = _job(text, name)
         assert job.count("fetch-depth: 0") == job.count("actions/checkout@"), name
         assert "fetch-depth: 0" in job, name
@@ -442,7 +447,7 @@ def test_pytest_sql_runs_two_xdist_workers() -> None:
     pytest-xdist from the hash lock and pass -n 2 so the wall drops.
     """
     text = (WF / "ci.yml").read_text(encoding="utf-8")
-    job = _job(text, "pytest_sql")
+    job = _job(text, "pytest_sql_run")
     assert re.search(r"pytest tests -m sql -n 2 --dist loadgroup\b", job), job
     assert "-n 2" in job and "--dist loadgroup" in job
     assert "--durations=50" in job and "junitxml=pytest-sql-junit.xml" in job
@@ -454,3 +459,66 @@ def test_pytest_sql_runs_two_xdist_workers() -> None:
     assert any(ln.startswith("pytest-xdist") for ln in lines), lines
     lock = (LOCK / "ci.txt").read_text(encoding="utf-8")
     assert "pytest-xdist==" in lock, "ci.txt must pin pytest-xdist with hashes"
+
+
+def test_docs_detector_has_no_pack_or_database_dependency() -> None:
+    text = _code(WF / "ci.yml")
+    job = _job(text, "detect_docs_only")
+    assert "needs:" not in job and "services:" not in job
+    assert "skip_pytest: ${{ steps.detect.outputs.skip_pytest }}" in job
+    assert 'python3 tools/docs_only.py >> "$GITHUB_OUTPUT"' in job
+    assert "id: detect" in job
+    assert "pip install" not in job
+
+
+def test_pytest_runners_are_conditional_and_gates_keep_required_names() -> None:
+    text = _code(WF / "ci.yml")
+    for name in ("pytest_sql", "pytest_no_sql"):
+        run = _job(text, name + "_run")
+        assert "needs: [detect_docs_only, build_pack]" in run
+        assert "if: needs.detect_docs_only.outputs.skip_pytest != 'true'" in run
+        assert "python -m pytest tests" in run
+        gate = _job(text, name)
+        assert f"needs: [detect_docs_only, {name}_run]" in gate
+        assert "if: always() && !cancelled()" in gate
+        assert "DETECT_RESULT: ${{ needs.detect_docs_only.result }}" in gate
+        assert "SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}" in gate
+        assert f"RUN_RESULT: ${{{{ needs.{name}_run.result }}}}" in gate
+        assert 'test "$DETECT_RESULT" = success' in gate
+        assert 'test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success' in gate
+        assert "services:" not in gate and "uses:" not in gate
+        assert "build_pack" not in gate
+    assert "services:" in _job(text, "pytest_sql_run")
+    assert "services:" not in _job(text, "pytest_no_sql_run")
+
+
+def test_prose_inspectors_and_codeql_stay_unconditional() -> None:
+    text = _code(WF / "ci.yml")
+    for name in ("build_pack", "check_pack", "mill_cli_smoke", "precheck"):
+        job = _job(text, name)
+        assert not re.search(r"^    if:", job, re.M), name
+        assert "skip_pytest" not in job, name
+    codeql = _code(WF / "codeql.yml")
+    assert "skip_pytest" not in codeql and "detect_docs_only" not in codeql
+
+
+@pytest.mark.parametrize("detect,skip,run,success", [
+    ("success", "true", "skipped", True),
+    ("success", "false", "success", True),
+    ("success", "false", "failure", False),
+    ("success", "false", "cancelled", False),
+    ("success", "false", "skipped", False),
+    ("success", "", "skipped", False),
+    ("failure", "true", "skipped", False),
+    ("skipped", "true", "skipped", False),
+])
+def test_required_gate_exit_status(detect: str, skip: str, run: str, success: bool) -> None:
+    text = _code(WF / "ci.yml")
+    for name in ("pytest_sql", "pytest_no_sql"):
+        gate = _job(text, name)
+        shell = textwrap.dedent(gate.split("run: |\n", 1)[1])
+        result = subprocess.run(
+            ["bash", "-e", "-c", shell], capture_output=True, text=True,
+            env={**os.environ, "DETECT_RESULT": detect, "SKIP_PYTEST": skip, "RUN_RESULT": run},
+        )
+        assert (result.returncode == 0) is success
