@@ -17,5 +17,6 @@ Office / customer desks do **not** load this folder. They use:
 | [BUILD.md](BUILD.md) | Pack, pipeline, PyPI, mill update |
 | [PROBE-DELETED-ROWS.md](PROBE-DELETED-ROWS.md) | Test-only probe that makes deleted todo and score rows live (#160) |
 | [FAILURE-CLASSES.md](FAILURE-CLASSES.md) | Auditor coverage list: who checks which failure class (card 913) |
+| [CHECKS-AND-TOOLS.md](CHECKS-AND-TOOLS.md) | Map of protocol, code, process, CI, hygiene, and field checks (where each lives, and what is still only a card) |
 | [DETERMINISTIC-OFFICE.md](DETERMINISTIC-OFFICE.md) | Design for scripted, self-checking office steps (#282) |
 | [OPTIMIZATION.md](OPTIMIZATION.md) | Query and read-path principles, plus the log of optimization examples |
