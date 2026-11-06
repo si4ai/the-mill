@@ -181,3 +181,16 @@
       .score-split { overflow-x: auto; }
       .score-hot, .score-detail { min-width: 12rem; }
     }
+
+/* wall-scores Phase A: derived doing.task.* rollups on Scorecards */
+#score-task-wrap { flex: 0 1 auto; min-height: 0; overflow: auto; padding: .35rem .5rem .5rem; border-top: 1px solid var(--line); }
+#score-task-wrap h3 { margin: 0 0 .25rem; font-size: 11px; letter-spacing: .06em; color: var(--amber); }
+.score-task-office, .score-task-desk {
+  display: grid; grid-template-columns: minmax(5rem, 8rem) 1fr; gap: .2rem .55rem;
+  padding: .28rem 0; border-bottom: 1px solid var(--line); align-items: baseline;
+}
+.score-task-office:last-child, .score-task-desk:last-child { border-bottom: 0; }
+.score-task-office .who, .score-task-desk .who { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-task-office .meta, .score-task-desk .meta { color: var(--dim); display: flex; flex-wrap: wrap; gap: .15rem .45rem; }
+.score-task-desk.sel { background: var(--shop-2); }
+.score-task-detail { margin-top: .55rem; padding-top: .35rem; border-top: 1px solid var(--line); }

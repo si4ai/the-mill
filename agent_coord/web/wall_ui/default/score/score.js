@@ -52,7 +52,14 @@
     "mill-wall.ticks": "ticks",
     "mill-desk.idle_verbs": "idle",
     "mill-desk.hint_drop": "hint drop",
-    "mill-office.activities": "activities/h"
+    "mill-office.activities": "activities/h",
+    "doing.task.dwell_idle_ms": "task idle ms",
+    "doing.task.dwell_active_ms": "task active ms",
+    "doing.task.dwell_waiting_ms": "task waiting ms",
+    "doing.task.wait_by_cause": "task waits",
+    "doing.task.end_reason": "task end",
+    "doing.task.buffer_overflow_n": "task overflow",
+    "doing.task.retry_give_up_n": "task give-up"
   };
   function scoreKpiName(k) {
     return String((k && (k.kpi || k.name)) || "").trim();
@@ -167,6 +174,143 @@
     });
     return n;
   }
+
+  /* wall-scores Phase A (letters 4805/4808/4853): doing.task.* leaves + derived rollups.
+   * Missing != 0: omit unwritten KPIs. Never invent stale_n / wait_cycle_n. */
+  var DOING_TASK_PREFIX = "doing.task.";
+  var DOING_TASK_SUM_KEYS = [
+    "dwell_idle_ms", "dwell_active_ms", "dwell_waiting_ms",
+    "buffer_overflow_n", "retry_give_up_n"
+  ];
+  var DOING_TASK_LEAF_KEYS = DOING_TASK_SUM_KEYS.concat(["wait_by_cause", "end_reason"]);
+  var DOING_TASK_TERMINAL = { finished: 1, failed: 1 };
+  var DOING_TASK_PRIVACY = {
+    title: 1, argv: 1, pattern: 1, stdout: 1, stderr: 1, log: 1, sample: 1, pid: 1
+  };
+
+  function scoreDoingTaskSuffix(name) {
+    var n = String(name || "").trim();
+    if (n.indexOf(DOING_TASK_PREFIX) !== 0) return "";
+    return n.slice(DOING_TASK_PREFIX.length);
+  }
+  function scoreDoingTaskIsLeaf(name) {
+    var suf = scoreDoingTaskSuffix(name);
+    return !!suf && DOING_TASK_LEAF_KEYS.indexOf(suf) >= 0;
+  }
+  function scoreDoingTaskParseCause(raw) {
+    /* wait_by_cause value is JSON cause->count. Keys are cause names (e.g. "pattern"), never a watch pattern string. */
+    if (raw == null || raw === "") return null;
+    if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+    try {
+      var o = JSON.parse(String(raw));
+      if (o && typeof o === "object" && !Array.isArray(o)) return o;
+    } catch (eParse) {}
+    return null;
+  }
+  function scoreDoingTaskLeavesByDesk(kpis) {
+    var by = {};
+    (kpis || []).forEach(function (k) {
+      var name = scoreKpiName(k);
+      var suf = scoreDoingTaskSuffix(name);
+      if (!suf || DOING_TASK_LEAF_KEYS.indexOf(suf) < 0) return;
+      var val = k && k.value;
+      if (val == null || val === "") return; /* omit missing; never treat as 0 */
+      var desk = scoreDeskSlug(k);
+      if (!by[desk]) by[desk] = { desk: desk, leaves: {} };
+      by[desk].leaves[suf] = String(val);
+    });
+    return by;
+  }
+  function scoreDoingTaskDeskRollup(leaves) {
+    /* Per-desk rollup = that desk's current leaves grouped together (latest upsert). */
+    var out = {};
+    var src = (leaves && leaves.leaves) ? leaves.leaves : (leaves || {});
+    DOING_TASK_LEAF_KEYS.forEach(function (key) {
+      if (Object.prototype.hasOwnProperty.call(src, key) && src[key] != null && src[key] !== "") {
+        out[key] = src[key];
+      }
+    });
+    return out;
+  }
+  function scoreDoingTaskOfficeRollup(byDesk) {
+    /* Sums / merges / tallies of each desk's latest upsert. Omit missing; never treat as 0. */
+    var sum = {};
+    var causes = {};
+    var endTally = {};
+    var desks = 0;
+    Object.keys(byDesk || {}).forEach(function (desk) {
+      var row = byDesk[desk] || {};
+      var leaves = scoreDoingTaskDeskRollup(row);
+      if (!Object.keys(leaves).length) return;
+      desks += 1;
+      DOING_TASK_SUM_KEYS.forEach(function (key) {
+        if (!Object.prototype.hasOwnProperty.call(leaves, key)) return;
+        var n = numish(leaves[key]);
+        if (n == null) return;
+        sum[key] = (sum[key] == null ? 0 : sum[key]) + n;
+      });
+      var causeMap = scoreDoingTaskParseCause(leaves.wait_by_cause);
+      if (causeMap) {
+        Object.keys(causeMap).forEach(function (cause) {
+          var n = Number(causeMap[cause]);
+          if (!Number.isFinite(n)) return;
+          causes[cause] = (causes[cause] || 0) + n;
+        });
+      }
+      var er = leaves.end_reason != null ? String(leaves.end_reason).trim() : "";
+      if (er) endTally[er] = (endTally[er] || 0) + 1;
+    });
+    var out = { desks: desks, sum: sum, wait_by_cause: causes, end_reason: endTally };
+    return out;
+  }
+  function scoreDoingTaskFormatLeaf(key, raw) {
+    if (raw == null || raw === "") return "";
+    if (key === "wait_by_cause") {
+      var m = scoreDoingTaskParseCause(raw);
+      if (!m) return "";
+      return Object.keys(m).sort().map(function (cause) {
+        return cause + ":" + String(m[cause]);
+      }).join(" ");
+    }
+    return String(raw);
+  }
+  function scoreDoingTaskRowVisible(row) {
+    var st = String((row && row.state) || "").trim().toLowerCase();
+    if (!st) return true;
+    return !DOING_TASK_TERMINAL[st];
+  }
+  function scoreDoingTaskSanitizeRow(row) {
+    /* Show only contracted fields; drop privacy keys even if a feed leaks them. */
+    if (!row || typeof row !== "object") return null;
+    var out = {
+      act: "task",
+      state: String(row.state || "").trim(),
+      join_key: String(row.join_key || "").trim(),
+      waiting_on: "",
+      card: ""
+    };
+    if (row.waiting_on != null && String(row.waiting_on).trim()) {
+      out.waiting_on = typeof row.waiting_on === "object"
+        ? String((row.waiting_on.on || row.waiting_on.why || "")).trim()
+        : String(row.waiting_on).trim();
+    } else if (row.cause != null && String(row.cause).trim()) {
+      /* cause name only (e.g. pattern), never a watch pattern string */
+      out.waiting_on = String(row.cause).trim();
+    }
+    if (row.card != null && String(row.card).trim()) out.card = String(row.card).trim();
+    else if (row.on != null && String(row.on).trim()) out.card = String(row.on).trim();
+    return out;
+  }
+  function scoreDoingTaskLiveRows(list) {
+    var out = [];
+    (list || []).forEach(function (raw) {
+      var row = scoreDoingTaskSanitizeRow(raw);
+      if (!row || !scoreDoingTaskRowVisible(row)) return;
+      out.push(row);
+    });
+    return out.slice(0, 8);
+  }
+
   function scoreEnsurePaintContract() {
     return {
       marker: "WALL_UI_DEFAULT_SCORE",
@@ -200,7 +344,20 @@
     scoreDelta: scoreDelta,
     scorePreferDesk: scorePreferDesk,
     scoreWaiting: scoreWaiting,
-    scoreEnsurePaintContract: scoreEnsurePaintContract
+    scoreEnsurePaintContract: scoreEnsurePaintContract,
+    DOING_TASK_PREFIX: DOING_TASK_PREFIX,
+    DOING_TASK_LEAF_KEYS: DOING_TASK_LEAF_KEYS,
+    DOING_TASK_SUM_KEYS: DOING_TASK_SUM_KEYS,
+    scoreDoingTaskSuffix: scoreDoingTaskSuffix,
+    scoreDoingTaskIsLeaf: scoreDoingTaskIsLeaf,
+    scoreDoingTaskParseCause: scoreDoingTaskParseCause,
+    scoreDoingTaskLeavesByDesk: scoreDoingTaskLeavesByDesk,
+    scoreDoingTaskDeskRollup: scoreDoingTaskDeskRollup,
+    scoreDoingTaskOfficeRollup: scoreDoingTaskOfficeRollup,
+    scoreDoingTaskFormatLeaf: scoreDoingTaskFormatLeaf,
+    scoreDoingTaskRowVisible: scoreDoingTaskRowVisible,
+    scoreDoingTaskSanitizeRow: scoreDoingTaskSanitizeRow,
+    scoreDoingTaskLiveRows: scoreDoingTaskLiveRows
   };
   Object.keys(api).forEach(function (k) { global[k] = api[k]; });
   global.WallScore = api;

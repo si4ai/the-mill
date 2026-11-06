@@ -349,12 +349,38 @@
         return `<tr${miss}><td title="${esc(k.kpi || "")}">${esc(kn)}</td><td>${esc(k.value)}</td><td>${esc(k.target)}</td>` +
           `<td>${esc(k.note || "")}</td><td>${esc(dt(k.updated_at))}</td></tr>`;
       }).join("");
+      let taskBlock = "";
+      try {
+        if (typeof scoreDoingTaskLeavesByDesk === "function") {
+          const books = [];
+          if (window._officeScores && Array.isArray(window._officeScores.kpis)) books.push(window._officeScores.kpis);
+          const all = [];
+          books.forEach(function (list) { list.forEach(function (k) { all.push(k); }); });
+          const by = scoreDoingTaskLeavesByDesk(all);
+          const hit = by[String(row.desk || "").trim()];
+          if (hit) {
+            const leaves = scoreDoingTaskDeskRollup(hit);
+            const bits = [];
+            (DOING_TASK_LEAF_KEYS || []).forEach(function (key) {
+              if (!Object.prototype.hasOwnProperty.call(leaves, key)) return;
+              const shown = scoreDoingTaskFormatLeaf(key, leaves[key]);
+              if (!shown) return;
+              const label = (typeof scoreKpiLabel === "function") ? scoreKpiLabel("doing.task." + key) : key;
+              bits.push(`<div class="meta"><b>${esc(label)}</b> ${esc(shown)}</div>`);
+            });
+            if (bits.length) {
+              taskBlock = `<div class="score-task-detail" data-slot="doing.task"><div class="note">doing.task.* (latest upsert)</div>${bits.join("")}</div>`;
+            }
+          }
+        }
+      } catch (eTaskDetail) { taskBlock = ""; }
       el.innerHTML = `<h3>DETAIL | ${esc(row.desk)}</h3>` +
         `<div class="note">Last vs Target | agent_kpi | ${esc(millGid(row))}</div>` +
         `<div class="note">published ${esc(dt(row.published))} | ${esc((row.reasons || []).join(" | ") || "ok")}</div>` +
         (rows
           ? `<table data-table="score-detail"><thead><tr><th>kpi</th><th>last</th><th>target</th><th>note</th><th>published</th></tr></thead><tbody>${rows}</tbody></table>`
-          : `<div class="idle">no KPIs for this desk</div>`);
+          : `<div class="idle">no KPIs for this desk</div>`) +
+        taskBlock;
     }
     function scoreRowFor(name, d) {
       const want = String(name || "").trim();
@@ -694,6 +720,66 @@
         scoreGraphBlock("Day", dayN, "30 days, this command", day) +
         `</div>`;
     }
+
+    function paintScoreTaskWrap(d, selectedDesk) {
+      /* Phase A: office rollup + per-desk doing.task.* leaves (latest upsert). end_reason stays here even when Session/Floor hide terminal rows. */
+      const el = document.getElementById("score-task-wrap");
+      if (!el) return;
+      const books = [];
+      if (window._officeScores && Array.isArray(window._officeScores.kpis)) books.push(window._officeScores.kpis);
+      if (d && Array.isArray(d.kpis)) books.push(d.kpis);
+      const kpis = [];
+      books.forEach(function (list) { list.forEach(function (k) { kpis.push(k); }); });
+      if (typeof scoreDoingTaskLeavesByDesk !== "function") {
+        el.innerHTML = `<div class="idle">Task score helpers not loaded.</div>`;
+        return;
+      }
+      const byDesk = scoreDoingTaskLeavesByDesk(kpis);
+      const office = scoreDoingTaskOfficeRollup(byDesk);
+      const deskNames = Object.keys(byDesk).sort();
+      if (!deskNames.length) {
+        el.innerHTML = `<h3>TASK WRAPPER</h3><div class="idle">No doing.task.* scores yet (omit missing; never 0).</div>`;
+        return;
+      }
+      function leafBits(leaves) {
+        const bits = [];
+        (DOING_TASK_LEAF_KEYS || []).forEach(function (key) {
+          if (!Object.prototype.hasOwnProperty.call(leaves, key)) return;
+          const shown = scoreDoingTaskFormatLeaf(key, leaves[key]);
+          if (!shown) return;
+          const label = (typeof scoreKpiLabel === "function") ? scoreKpiLabel("doing.task." + key) : key;
+          bits.push(`<span class="doing-task-kpi" data-kpi="${esc("doing.task." + key)}"><b>${esc(label)}</b> ${esc(shown)}</span>`);
+        });
+        return bits.join(" ");
+      }
+      const officeLeaves = {};
+      Object.keys(office.sum || {}).forEach(function (k) { officeLeaves[k] = String(office.sum[k]); });
+      if (office.wait_by_cause && Object.keys(office.wait_by_cause).length) {
+        officeLeaves.wait_by_cause = JSON.stringify(office.wait_by_cause);
+      }
+      if (office.end_reason && Object.keys(office.end_reason).length) {
+        officeLeaves.end_reason = Object.keys(office.end_reason).sort().map(function (r) {
+          return r + ":" + office.end_reason[r];
+        }).join(" ");
+      }
+      const officeBits = leafBits(officeLeaves);
+      const want = String(selectedDesk || "").trim();
+      const deskBlocks = deskNames.map(function (name) {
+        const leaves = scoreDoingTaskDeskRollup(byDesk[name]);
+        const bits = leafBits(leaves);
+        if (!bits) return "";
+        const sel = (want && want === name) ? " sel" : "";
+        return `<div class="score-task-desk${sel}" data-score-desk="${esc(name)}">` +
+          `<div class="who">${esc(millName ? millName("desk", name) : name)}</div>` +
+          `<div class="meta">${bits}</div></div>`;
+      }).filter(Boolean).join("");
+      el.innerHTML =
+        `<h3>TASK WRAPPER</h3>` +
+        `<div class="note">Derived from current leaves (latest upsert), not a series. ${esc(String(office.desks || 0))} desk(s).</div>` +
+        (officeBits ? `<div class="score-task-office"><div class="who">Office rollup</div><div class="meta">${officeBits}</div></div>` : "") +
+        (deskBlocks || `<div class="idle">No per-desk leaves to group.</div>`);
+    }
+
     function selectScoreDesk(desk, rows) {
       scoreSelectedDesk = desk || "";
       try { localStorage.setItem("factory-score-desk", scoreSelectedDesk); } catch (e) {}
@@ -701,6 +787,7 @@
       paintScoreHot(rows);
       paintScoreDeskTable(rows);
       paintScoreDetail(row);
+      try { paintScoreTaskWrap(window._floor || {}, scoreSelectedDesk); } catch (eTask) {}
     }
 
     function cards(d) {
@@ -710,6 +797,7 @@
       paintScorePulse(d, rows);
       paintScoreBottlenecks(d);
       paintScoreDeskProgress(d);
+      try { paintScoreTaskWrap(d, scoreSelectedDesk); } catch (eTaskCards) {}
       const spendBlock = millSpend(d);
       const spendView = document.getElementById("score-spend-view");
       if (spendView) spendView.innerHTML = spendBlock || `<div class="idle">No mill spend in this window.</div>`;

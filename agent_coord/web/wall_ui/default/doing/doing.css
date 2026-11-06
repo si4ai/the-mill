@@ -55,3 +55,19 @@ a.doing-on:hover, a.doing-on:focus-visible { color: var(--ink); }
 @media (max-width: 520px) {
   .doing-meta { padding-left: 1.25rem; }
 }
+
+/* wall-scores Phase A: act=task rows + once-per-desk doing.task.* leaves */
+.doing-tasks, .doing-task-scores {
+  display: flex; flex-direction: column; gap: .12rem;
+  margin-top: .35rem; font-size: 12px; color: var(--dim);
+}
+.doing-task-row {
+  display: flex; flex-wrap: wrap; gap: .1rem .4rem; align-items: baseline;
+  line-height: 1.35; color: var(--ink);
+}
+.doing-task-row .dt-act { color: var(--cyan); font-weight: 600; }
+.doing-task-row .dt-state { color: var(--amber); }
+.doing-task-row .dt-join { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--dim); }
+.doing-task-row .dt-wait { color: var(--amber); }
+.doing-task-kpi { display: inline-block; margin-right: .45rem; color: var(--ink); }
+.doing-task-kpi b { color: var(--dim); font-weight: 600; margin-right: .15rem; }

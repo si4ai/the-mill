@@ -4475,7 +4475,11 @@
         const scoreFloor = window._floor || {};
         paintScoreShow(scoreFloor);
         paintScoreDeskTable((typeof scoreDeskRows === "function") ? scoreDeskRows(scoreFloor) : []);
+        if (typeof paintScoreTaskWrap === "function") paintScoreTaskWrap(scoreFloor, typeof scoreSelectedDesk !== "undefined" ? scoreSelectedDesk : "");
       } catch (eScorePane) {}
+      try {
+        if (_hereOwner && typeof paintHereDesk === "function") paintHereDesk(window._floor || {}, _hereOwner);
+      } catch (eHereTask) {}
       const now = hereScoreRows().length > 0;
       _officeScoreMiss = now;
       try { strip(window._floor || {}); } catch (eStrip) {}
