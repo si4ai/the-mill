@@ -75,9 +75,11 @@ def test_kind_map_and_terminal_lifecycle(cn, task, kind, extra, reason, state, w
     assert edges()[-1]["to_state"] == state
     assert len({e["activity_id"] for e in edges()}) == 1
     n = len(edges())
-    with pytest.raises(CoordError, match="terminal"):
-        event("start")
+    # Replayed or late hops on a terminal watch write nothing and reply ok (card 970 step 4).
+    for late in ("start", "stall", "resume", "exit", "crash"):
+        assert event(late, exit_code=0, cause="quiet")["ok"] is True
     assert len(edges()) == n
+    assert edges()[-1]["to_state"] == state
 
 
 def test_recipe_one_start_one_exit(cn, task):
@@ -250,3 +252,46 @@ def test_wrapper_clock_does_not_set_dwell(cn, task):
     got = rows(cn, "SELECT value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s AND kpi='doing.task.dwell_active_ms'", (desk,))[0]
     assert 0 <= float(got["value"]) < 60_000
     assert all("ts" not in json.loads(e["meta"]) for e in edges())
+
+
+def scores(cn, desk):
+    return {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+
+
+@pytest.mark.parametrize("kind,extra", [("exit", {"exit_code": 0}), ("exit", {"exit_code": 3}), ("crash", {})])
+def test_replayed_start_and_terminal_hop_write_nothing(cn, task, kind, extra):
+    desk, event, edges, pings = task
+    banned = dict.fromkeys(rpc._TW_EVENT_PRIVACY, "SECRET")
+    assert event("start", card=970, **banned)["ok"] is True
+    assert event("start", card=970, **banned)["ok"] is True
+    assert [e["reason"] for e in edges()] == ["tw_start"]
+    assert event(kind, **extra)["ok"] is True
+    after, n, woke = scores(cn, desk), len(edges()), len(pings)
+    for _ in range(2):
+        reply = event(kind, **extra)
+        assert reply["ok"] is True and "code" not in reply
+    assert len(edges()) == n and scores(cn, desk) == after
+    assert len(pings) == woke  # a replay that writes nothing does not ping again
+    assert len(rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (desk,))) == 1
+    for edge in edges():
+        assert "SECRET" not in edge["meta"]
+        assert not set(json.loads(edge["meta"])) & set(rpc._TW_EVENT_PRIVACY)
+
+
+def test_replayed_stall_and_resume_are_noops_but_later_hops_still_write(cn, task):
+    desk, event, edges, pings = task
+    event("start")
+    pings.clear()
+    assert event("stall", cause="quiet")["ok"] is True
+    assert event("stall", cause="quiet")["ok"] is True
+    assert len(pings) == 1
+    assert event("resume")["ok"] is True
+    assert event("resume")["ok"] is True
+    assert [e["reason"] for e in edges()] == ["tw_start", "tw_wait", "tw_resume"]
+    # A later stall after resume is a new hop, and a later resume after it too.
+    assert event("stall", cause="quiet")["ok"] is True
+    assert event("resume")["ok"] is True
+    assert [e["reason"] for e in edges()] == ["tw_start", "tw_wait", "tw_resume", "tw_wait", "tw_resume"]
+    assert len(pings) == 2
+    assert json.loads(scores(cn, desk)["doing.task.wait_by_cause"]) == {"quiet": 2}
+    assert not {"tw_stale", "wait_cycle", "clear"} & {e["reason"] for e in edges()}
