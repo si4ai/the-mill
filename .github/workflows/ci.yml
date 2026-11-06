@@ -33,6 +33,20 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  # No pack or database dependency: decide before either heavy runner starts.
+  detect_docs_only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      skip_pytest: ${{ steps.detect.outputs.skip_pytest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: detect
+        run: python3 tools/docs_only.py >> "$GITHUB_OUTPUT"
+
   build_pack:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -149,8 +163,9 @@ jobs:
       # F90: every mill command and flag the docs teach is one the parser takes.
       - run: python tools/check_doc_commands.py
 
-  pytest_no_sql:
-    needs: build_pack
+  pytest_no_sql_run:
+    needs: [detect_docs_only, build_pack]
+    if: needs.detect_docs_only.outputs.skip_pytest != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -193,8 +208,9 @@ jobs:
       - run: python -m pip check
       - run: python -m pytest tests -m "not sql"
 
-  pytest_sql:
-    needs: build_pack
+  pytest_sql_run:
+    needs: [detect_docs_only, build_pack]
+    if: needs.detect_docs_only.outputs.skip_pytest != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -259,6 +275,36 @@ jobs:
           name: pytest-sql-junit
           path: pytest-sql-junit.xml
           if-no-files-found: warn
+
+  # Keep the required check names present even when the heavy jobs skip.
+  # A failed detector or a failed/skipped runner must never turn green.
+  pytest_sql:
+    needs: [detect_docs_only, pytest_sql_run]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          DETECT_RESULT: ${{ needs.detect_docs_only.result }}
+          SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}
+          RUN_RESULT: ${{ needs.pytest_sql_run.result }}
+        run: |
+          test "$DETECT_RESULT" = success
+          test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success
+
+  pytest_no_sql:
+    needs: [detect_docs_only, pytest_no_sql_run]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          DETECT_RESULT: ${{ needs.detect_docs_only.result }}
+          SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}
+          RUN_RESULT: ${{ needs.pytest_no_sql_run.result }}
+        run: |
+          test "$DETECT_RESULT" = success
+          test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success
 
   precheck:
     needs: build_pack
