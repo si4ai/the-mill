@@ -4,12 +4,22 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
-- card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.8; DDL needs office human review before code
+- card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.9; DDL needs office human review before code
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)
 - card 943: per-desk GitHub apps (needs human app create/install)
 
 ## New changes
+
+0.8.8 (2026-11-05)
+
+- card 1072 / readme-honest-caveats: README honest caveats refreshed against 0.8.7; mail-thread wording per docs owner GO (#210)
+- card 1009: grok-bot guide inlines cold barker join flags (no installed link to docs/dev/barker-kit.md) (#331)
+- card 1063 / antigravity-model-docs: howto-ai Google section + models/antigravity skill (#344)
+- card 925 auditor verify pack: verify/{doing,score,mail,wake,hold}-code anchors and mutants (#329, #330, #332-#335)
+- card 1073 / dep-bumps-088: dependency bumps: pytest 9.2.0 (#261), starlette 1.10.0 (#263), eslint 10.14.0 (#345), ci-lock the-mill 0.8.0 (#346); desk.txt the-mill pin to 0.8.7
+- card 949: stop picked-up letter re-rings and bound pending retries
+- card 1068: schema parity prev-release, setuptools ci pin, wake sql fixture clear (#348)
 
 0.8.7 (2026-11-01)
 

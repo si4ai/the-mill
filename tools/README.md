@@ -72,7 +72,7 @@ Compare a book's schema with a fresh install (card 840). Build a fresh book with
 python tools/book_shape.py FRESH_DB BOOK_DB
 ```
 
-Exit 1 when a part differs that is not in `KNOWN_LIVE_DRIFT`. CI runs the same comparison on a 0.7.6 book upgraded by tip ensure (`tests/server/records/test_book_schema_parity_840.py`).
+Exit 1 when a part differs that is not in `KNOWN_LIVE_DRIFT`. CI runs the same comparison on a 0.7.6 book and on the previous release (the newest `vX.Y.Z` tag, or `MILL_PARITY_PREV`), each upgraded by tip ensure, and requires a second ensure to change nothing (`tests/server/records/test_book_schema_parity_840.py`). `review(old, new)` lists the columns that upgrade dropped and the types it narrowed; CI keeps that list as the `schema_review` property in the sql junit xml for a person's review, and it never fails the test (card 1068).
 
 ## check_doc_commands.py
 

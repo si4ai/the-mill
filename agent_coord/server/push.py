@@ -849,7 +849,7 @@ def connect_sync_frame(cn, desk: str, *, hold: bool = False) -> dict:
     try:
         from agent_coord.server.wake import lease_synced
 
-        lease_synced(desk)
+        lease_synced(desk, sync)
     except Exception:
         pass
     return {"kind": "sync", "sync": sync, "holds": holds, "wake": wake_line(cn, desk), "hello": hello_line(cn)}

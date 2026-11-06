@@ -576,6 +576,14 @@ _NOTE: dict[str, str] = {}
 # F144b (card 888): desk -> the token of its current lease, sent as wake.lease;
 # mill wake-done --lease TOKEN ends only that lease.
 _EPOCH: dict[str, str] = {}
+# #949: only letters actually handed to this run are completed by wake-done.
+# Mail arriving after its last sync remains eligible for the trailing wake.
+_LEASE_MAIL: dict[str, set[int]] = {}
+_DONE_MAIL: dict[str, set[int]] = {}
+# Same-letter re-rings: four retries at 1, 2, 4, 8 minutes, then a health signal.
+# Like the lease and transport retry state, this is wall-process memory.
+_RERINGS: dict[tuple[str, int], dict[str, Any]] = {}
+RERING_DELAYS = (60.0, 120.0, 240.0, 480.0)
 
 
 def _new_lease(desk: str, now: float) -> str:
@@ -585,6 +593,7 @@ def _new_lease(desk: str, now: float) -> str:
     token = uuid.uuid4().hex[:12]
     _GATE[desk] = now
     _EPOCH[desk] = token
+    _LEASE_MAIL[desk] = set()
     return token
 
 
@@ -613,6 +622,10 @@ def gate_clear(desk: str) -> None:
         _GATE.pop(d, None)
         _EPOCH.pop(d, None)
         _TRAIL.pop(d, None)
+        _LEASE_MAIL.pop(d, None)
+        _DONE_MAIL.pop(d, None)
+        for key in [k for k in _RERINGS if k[0] == d]:
+            _RERINGS.pop(key, None)
     try:
         from agent_coord.server import wasted_wake
 
@@ -621,11 +634,16 @@ def gate_clear(desk: str) -> None:
         pass
 
 
-def lease_synced(desk: str) -> None:
+def lease_synced(desk: str, frames=()) -> None:
     """F144: a connect sync handed over the queue. The lease stays held; the
     items it held back so far were delivered, so pending_count starts again."""
     d = str(desk or "").strip()
     with _GATE_LOCK:
+        if d in _GATE:
+            _LEASE_MAIL.setdefault(d, set()).update(
+                int(f["id"]) for f in frames
+                if f.get("kind") == "mail" and f.get("id")
+            )
         t = _TRAIL.get(d)
         if t is not None:
             t["keys"] = set()
@@ -698,11 +716,21 @@ def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: st
     return _hold_or_take(desk, frame, hint_id, reason, room, take=False) == ""
 
 
+def mail_picked_up(cn, desk: str, mid: int) -> bool:
+    """One stop rule shared by fresh, leave, trailing and replay wake paths."""
+    with _GATE_LOCK:
+        if mid in _DONE_MAIL.get(desk, ()):
+            return True
+    from agent_coord.server.records import opened
+
+    return mid in opened.picked_up_ids(cn, [mid], desk)
+
+
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
     """The one trailing POST for a lease's held-back items (F144). none when the
     run's own connect syncs already took every waiting row and no unread mail
-    remains (#949). A short connect that drained the push queue without opening
-    the letter still gets one trailing wake for the unread mailbox."""
+    remains (#949). Only letters not already picked up or completed by this
+    run can produce another wake; sync-only unread replay is not new mail."""
     from agent_coord.server.poke_key import FIELD, letter_key
     from agent_coord.server.records import push as rec_push
 
@@ -718,6 +746,7 @@ def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
         unread = unread_mail_frames(cn, desk)
     except Exception:
         unread = []
+    unread = [f for f in unread if not mail_picked_up(cn, desk, int(f.get("id") or 0))]
     if not unread:
         _bc_log_safe(f"webhook desk={desk} wake=none reason=drained held={len(t.get('keys') or ())}")
         return "none"
@@ -800,6 +829,8 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
             at = _GATE.pop(d, None)
             _EPOCH.pop(d, None)
             t = _TRAIL.pop(d, None)
+            if at is not None:
+                _DONE_MAIL.setdefault(d, set()).update(_LEASE_MAIL.pop(d, set()))
             if text:
                 _NOTE[d] = text
     if stale:
@@ -1027,6 +1058,21 @@ def _arm_retry(
         if _ok_gen(desk) != state["gen"]:
             state["alive"] = False
             return True
+        if frame.get("kind") == "mail":
+            cn = None
+            try:
+                cn = _book()
+                if mail_picked_up(cn, desk, int(frame.get("id") or 0)):
+                    state["alive"] = False
+                    return True
+            except Exception:
+                pass
+            finally:
+                if cn is not None:
+                    try:
+                        cn.close()
+                    except Exception:
+                        pass
         if _queue_drained(desk):
             state["alive"] = False
             return True
@@ -1081,6 +1127,46 @@ def _arm_retry(
     pump()
 
 
+def _rering_wait(desk: str, mid: int, frame: dict[str, Any], **kw) -> str:
+    """Delay repeated pending mail without delaying a different, NEW letter."""
+    import time
+
+    key = (desk, mid)
+    with _GATE_LOCK:
+        state = _RERINGS.get(key)
+        if state is None:
+            return ""
+        if state["n"] >= len(RERING_DELAYS):
+            if not state.get("stuck"):
+                state["stuck"] = True
+                _wake_log(desk, frame, mid, "stuck-ring attempts=4 reason=no-new-mail")
+            return "none"
+        delay = state["next"] - time.monotonic()
+        if delay <= 0:
+            return ""
+        if state.get("timer"):
+            return "deferred"
+        state["timer"] = True
+
+    def once():
+        with _GATE_LOCK:
+            if _RERINGS.get(key) is not state:
+                return
+            state["timer"] = False
+        cn = None
+        try:
+            cn = _book()
+            post_desk(cn, desk, frame, **kw)
+        except Exception as e:
+            _wake_log(desk, frame, mid, f"fail err={type(e).__name__} reason=rering")
+        finally:
+            if cn is not None:
+                cn.close()
+
+    _schedule(delay, once)
+    return "deferred"
+
+
 def post_desk(
     cn,
     desk: str,
@@ -1093,7 +1179,9 @@ def post_desk(
     ring: str = "",
     pending_count: int = 0,
 ) -> str:
-    """Wake an armed desk that is not sitting. sent | coalesced | skipped | error | off.
+    """Wake an armed desk that is not sitting.
+
+    sent | coalesced | skipped | error | off | none (picked up) | deferred (backoff).
 
     ring (#832): why a wake with no new item went out (leave: the last socket left
     with rows it never got live; unsent: a live frame found no socket). The log
@@ -1119,6 +1207,10 @@ def post_desk(
     if not target:
         return "off"
     url, key = target
+    mid = int(frame.get("id") or 0) if frame.get("kind") == "mail" else 0
+    if mid and mail_picked_up(cn, desk, mid):
+        _wake_log(desk, frame, hint_id, "none reason=picked-up")
+        return "none"
     if reason == ROOM and rec_join.wake_state(cn, desk).get("wake_on") == ADDRESSED:
         # #628: this desk wakes for addressed items only. The item still waits in
         # the queue for its next connect; no window is taken.
@@ -1129,6 +1221,11 @@ def post_desk(
         # lookup. Checked and recorded in one lock hold (F144a, card 887).
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
+    if mid and (trailing or ring or frame.get("outcome") == "missed"):
+        wait = _rering_wait(desk, mid, frame, hint_id=hint_id, reason=reason, room=room,
+                            trailing=trailing, ring=ring, pending_count=pending_count)
+        if wait:
+            return wait
     try:
         url, host = check_url(url)
     except WakeRefused:
@@ -1145,6 +1242,14 @@ def post_desk(
     if not lease:
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
+    with _GATE_LOCK:
+        if mid:
+            _LEASE_MAIL.setdefault(desk, set()).add(mid)
+            old = _RERINGS.get((desk, mid))
+            n = old["n"] + 1 if old else 0
+            _RERINGS[(desk, mid)] = {
+                "n": n, "next": time.monotonic() + RERING_DELAYS[min(n, len(RERING_DELAYS) - 1)],
+            }
     from agent_coord.server.records import push as rec_push
 
     # #832: every item is queued before this call, so pending is the queue size.

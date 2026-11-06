@@ -1,0 +1,113 @@
+{
+  "sync_note": "Each marker is the real guard line plus its first effect line (card 1014). expected_count defaults to 1.",
+  "anchors": [
+    {
+      "id": "no-self-wait",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "IF v_wid = v_desk THEN\n      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: a desk is not blocked on itself';",
+      "property": "NoSelfWait / GuardNoSelfWait",
+      "lines": "116-117"
+    },
+    {
+      "id": "live-token",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "UPDATE seat SET updated = v_ts WHERE desk_id = v_desk AND token_hash IS NOT NULL;\n  IF ROW_COUNT() = 0 THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';",
+      "property": "LiveTokenRequired / GuardLiveToken (F186)",
+      "lines": "132-134"
+    },
+    {
+      "id": "one-insert",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "CALL mill_doing_insert(v_desk, v_roster, p_text, v_ts, v_id);",
+      "property": "OneFocusInsertPerPut / GuardOneInsertPerPut",
+      "lines": "164"
+    },
+    {
+      "id": "seat-for-update",
+      "path": "agent_coord/server/sql/sp_join.sql",
+      "marker": "SELECT doing_id INTO v_prev FROM seat WHERE desk_id = p_desk FOR UPDATE;",
+      "property": "seat lock before focus insert (SPIN D01)",
+      "lines": "45"
+    },
+    {
+      "id": "finish-no-row",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "SELECT g.id, g.text, g.on_type, g.on_id, g.roster_id INTO v_cur, v_text, v_type, v_on, v_roster\n    FROM seat dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = v_desk FOR UPDATE;",
+      "property": "DoingEndsOnShip / finish writes no row (F186)",
+      "lines": "204-205"
+    },
+    {
+      "id": "derived-end",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "    SELECT MIN(f.created) INTO v_at\n      FROM doing f\n     WHERE f.desk_id = p_desk AND f.act IN ('ship', 'done', 'drop', 'finish')\n       AND f.on_type = p_on_type AND f.on_id = p_on_id",
+      "property": "DoingEndsOnShip / mill_doing_end",
+      "lines": "51-52"
+    },
+    {
+      "id": "waiting-resolve",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "IF v_wid IS NULL THEN\n      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: --waiting-on names no desk or item';",
+      "property": "waiting-on must name a live desk",
+      "lines": "113-114"
+    },
+    {
+      "id": "put-desk-not-joined",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "IF v_desk IS NULL THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: desk has not joined';",
+      "property": "put refuses a desk that has not joined",
+      "lines": "103-104"
+    },
+    {
+      "id": "put-item-gone",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "  IF IFNULL(p_on_type, '') NOT IN ('mail', 'todo', 'hold', 'score') OR p_on_id IS NULL\n     OR NOT EXISTS (SELECT 1 FROM activity WHERE type = p_on_type AND id = p_on_id AND deleted IS NULL) THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: the item is gone';",
+      "property": "put refuses a focus on a gone item",
+      "lines": "107-108"
+    },
+    {
+      "id": "waiting-item-gone",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "IF NOT EXISTS (SELECT 1 FROM activity WHERE type = p_w_type AND id = v_wid AND deleted IS NULL) THEN\n      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: --waiting-on names no desk or item';",
+      "property": "waiting-on an item that does not exist is refused",
+      "lines": "121-122"
+    },
+    {
+      "id": "waiting-unknown-type",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "marker": "ELSEIF IFNULL(p_w_type, '') <> '' THEN\n    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing: --waiting-on names no desk or item';",
+      "property": "waiting-on an unknown type is refused",
+      "lines": "124-125"
+    },
+    {
+      "id": "finish-writes-nothing",
+      "kind": "absent",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "start": "CREATE PROCEDURE mill_doing_finish(",
+      "end": "END //",
+      "forbid": [
+        "\\bINSERT\\b",
+        "\\bCALL\\s+mill_",
+        "^\\s*UPDATE\\b",
+        "\\bDELETE\\b"
+      ],
+      "inject": "  CALL mill_doing_insert(v_desk, v_roster, '', v_ts, v_id);",
+      "marker": "",
+      "property": "finish writes no row (0.8.0 rule)",
+      "lines": "178-212"
+    },
+    {
+      "id": "put-no-raw-insert",
+      "kind": "absent",
+      "path": "agent_coord/server/sql/sp_doing.sql",
+      "start": "CREATE PROCEDURE mill_doing_put(",
+      "end": "END //",
+      "forbid": [
+        "\\bINSERT\\s+INTO\\s+doing\\b"
+      ],
+      "inject": "  INSERT INTO doing (desk_id) VALUES (v_desk);",
+      "marker": "",
+      "property": "put writes the focus only through mill_doing_insert (one insert per put)",
+      "lines": "82-176"
+    }
+  ]
+}
