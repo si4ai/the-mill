@@ -21,7 +21,8 @@ from agent_coord.server.records import tree as rec_tree
 from agent_coord.server.records.db import call, scalar
 from tests.server.records.conftest import seed_names
 
-pytestmark = pytest.mark.sql
+# own xdist_group so this module's room fixture stays on one loadgroup worker
+pytestmark = [pytest.mark.sql, pytest.mark.xdist_group("add_remove_265")]
 
 R = "ar265"
 
@@ -72,13 +73,24 @@ def room(cn):
     return {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m5": m5}
 
 
-def test_add_at_node_backfills_subtree_only(cn, room):
+def test_add_at_node_then_remove_subtree_and_refuse_orphan(cn, room):
+    """add/remove/orphan share one room mutation sequence; one failure fails the case."""
     out = _go(cn, "add", "mail", room["m2"], "ar_c")
     assert (out["added"], out["letters"], out["desks"]) == (2, 2, 1)
     assert _tos(cn, room["m2"])["ar_c"] == 1  # node row unread
     assert _tos(cn, room["m3"])["ar_c"] == 0  # older row below it marked opened
     assert "ar_c" not in _tos(cn, room["m1"]) and "ar_c" not in _tos(cn, room["m4"])
     assert _go(cn, "add", "mail", room["m2"], "ar_c")["added"] == 0  # idempotent
+
+    assert _go(cn, "remove", "mail", room["m2"], "ar_c")["removed"] == 2
+    assert "ar_c" not in _tos(cn, room["m2"]) and "ar_c" not in _tos(cn, room["m3"])
+    with pytest.raises(Exception, match="not a recipient"):
+        _go(cn, "remove", "mail", room["m2"], "ar_c")
+
+    before = _tos(cn, room["m3"])
+    with pytest.raises(Exception, match=f"mail {room['m3']} would have no recipient"):
+        _go(cn, "remove", "mail", room["m3"], "ar_b")
+    assert _tos(cn, room["m3"]) == before
 
 
 def test_add_skips_a_letters_own_sender(cn, room):
@@ -94,20 +106,6 @@ def test_roster_on_mail_expands_to_members_now(cn, room):
 def test_off_tree_letter_is_its_own_node(cn, room):
     out = _go(cn, "add", "mail", room["m5"], "ar_e")
     assert out["letters"] == 1 and "ar_e" in _tos(cn, room["m5"])
-
-
-def test_remove_at_node_drops_subtree_rows(cn, room):
-    assert _go(cn, "remove", "mail", room["m2"], "ar_c")["removed"] == 2
-    assert "ar_c" not in _tos(cn, room["m2"]) and "ar_c" not in _tos(cn, room["m3"])
-    with pytest.raises(Exception, match="not a recipient"):
-        _go(cn, "remove", "mail", room["m2"], "ar_c")
-
-
-def test_remove_refuses_an_orphan_letter_and_changes_nothing(cn, room):
-    before = _tos(cn, room["m3"])
-    with pytest.raises(Exception, match=f"mail {room['m3']} would have no recipient"):
-        _go(cn, "remove", "mail", room["m3"], "ar_b")
-    assert _tos(cn, room["m3"]) == before
 
 
 def test_mail_never_writes_a_watcher_and_refuses_hint(cn, room):
