@@ -75,3 +75,79 @@ def history(
         [bare(desk, CONST_DESK) if desk else "", since, int(page), int(size),
          on_type or "", int(on_id) if on_type and on_id is not None else None],
     ) or []
+
+
+def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> None:
+    """Card 970: one serialized task lifecycle, inside the caller's request tx."""
+    import json
+
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server import transition as tr
+    from agent_coord.server.records import score
+    from agent_coord.server.records.name import bare
+
+    desk = bare(desk, CONST_DESK)
+    kind = meta["kind"]
+    key = f"task:{desk}:{meta['watch_id']}"
+    row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), int(kind == "start")])[0]
+    mapped = {
+        "start": (tr.State.active, tr.Reason.tw_start),
+        "stall": (tr.State.waiting, tr.Reason.tw_wait),
+        "resume": (tr.State.active, tr.Reason.tw_resume),
+        "exit": (tr.State.finished, tr.Reason.tw_finished) if meta.get("exit_code") == 0
+                else (tr.State.failed, tr.Reason.tw_failed),
+        "crash": (tr.State.failed, tr.Reason.tw_failed),
+    }
+    if kind in mapped:
+        if row["id"] is None:
+            raise CoordError("tw.event: start required before a transition")
+        state = tr.State(row["state"])
+        if state in (tr.State.finished, tr.State.failed, tr.State.stale, tr.State.cleared):
+            raise CoordError("tw.event: watch_id is terminal")
+        if kind == "start" and state != tr.State.idle:
+            return  # repeated delivery is not a second birth or transition
+        to_state, reason = mapped[kind]
+        try:
+            tr.check_edge(tr.ActivityType.doing, state, to_state, reason)
+        except tr.UnknownTransition as e:
+            raise CoordError("tw.event: kind does not follow the task state") from e
+        tr.put(cn, activity_type=tr.ActivityType.doing, activity_id=row["id"],
+               from_state=state, to_state=to_state, reason=reason,
+               desk_id=row["desk_id"], join_key=key, meta=meta)
+        cur = cn.cursor(dictionary=True)
+        try:
+            cur.execute(
+                "SELECT at, from_state, to_state, reason, meta FROM transition"
+                " WHERE activity_type='doing' AND activity_id=%s AND join_key=%s ORDER BY id FOR UPDATE",
+                (row["id"], key),
+            )
+            events = cur.fetchall()
+        finally:
+            cur.close()
+        measures: dict[str, Any] = {}
+        waits: dict[str, int] = {}
+        previous = row["created"]
+        for event in events:
+            state_name = event["from_state"]
+            if state_name in ("idle", "active", "waiting"):
+                name = f"dwell_{state_name}_ms"
+                elapsed = max(0, (event["at"] - previous).total_seconds() * 1000)
+                measures[name] = measures.get(name, 0) + elapsed
+            previous = event["at"]
+            if event["reason"] == "tw_wait":
+                cause = json.loads(event["meta"]).get("cause")
+                if cause:
+                    waits[cause] = waits.get(cause, 0) + 1
+        if waits:
+            measures["wait_by_cause"] = json.dumps(waits, sort_keys=True)
+        if to_state in (tr.State.finished, tr.State.failed):
+            measures["end_reason"] = reason.value
+    else:
+        # Overflow/retry are metrics, never Tsk8 or any other transition.
+        measures = {}
+        if kind == "overflow" and meta.get("counts", {}).get("dropped") is not None:
+            measures["buffer_overflow_n"] = meta["counts"]["dropped"]
+        if kind == "retry" and outcome == "give_up":
+            measures["retry_give_up_n"] = 1
+    for name, value in measures.items():
+        score.upsert(cn, "Office", desk, "doing.task." + name, str(value))

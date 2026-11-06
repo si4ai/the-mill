@@ -195,6 +195,7 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `purge` | a trashed unreferenced name was hard-deleted (`mill purge`; card 879) | name row removed |
 | `rename` | a card's need was renamed (`mill rename todo`); evidence holds old, new, why | activity only; card id and status unchanged |
 | `ring` | a wake/push was queued for a desk (card 1022) | activity only; wake payload holds cause/state |
+| `task` | a desk's task-wrapper run was born (`tw.event` start; card 970); never a focus or clear | the task's transition rows; not `seat.doing_id` |
 
 Not in the list: `open` and `mark` (opening a letter writes no move: `mail_to.opened` keeps the first open and
 activity is not bumped), `status` and `pass` (a pass is ship, done or back), `cast` and `close` (no votes).
@@ -268,4 +269,10 @@ the top of admin.md:
 | 1022a | `push_queue` stand-alone queue; delete on hand-back | `wake` activity kind table (fold); hand-back marks `taken` + `transition` row; 7-day rollup to `cause=expired` | instrument-score / transition table under 1001; owner fold decision | accepted |
 | 1022b | 22 tables | 24 tables (`wake` + `transition` + `transition_edge`; `push_queue` gone) | card 1022 | accepted |
 | 1022c | `activity.act` without `ring` | `activity.act` / `doing.act` gain `ring`; label/tree/watcher type gain `wake` | wake activity rows | accepted |
+
+## card 970 (step 3)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 970a | `activity.act` / `doing.act` end at `ring` | both gain `task` (appended; existing books via `migrate_970_task.sql`) | task-wrapper birth rows, kept apart from focus/clear | proposed |
 

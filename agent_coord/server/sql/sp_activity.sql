@@ -38,11 +38,12 @@ BEGIN
   INSERT INTO activity (type, id, updated, desk_id, roster_id, act, bytes)
   VALUES (p_type, p_id, p_ts, p_desk, IFNULL(p_project, 1), IFNULL(p_act, 'create'), p_bytes)
   ON DUPLICATE KEY UPDATE
-    updated = p_ts,
-    desk_id = IF(p_act IS NULL, desk_id, p_desk),
-    roster_id = IFNULL(p_project, roster_id),
-    act = IFNULL(p_act, act),
-    bytes = IFNULL(p_bytes, bytes);
+    -- card 970: connect/disconnect bumps only change focus/clear activities.
+    updated = IF(type = 'doing' AND act NOT IN ('focus', 'clear') AND p_act IN ('focus', 'clear'), updated, p_ts),
+    desk_id = IF(type = 'doing' AND act NOT IN ('focus', 'clear') AND p_act IN ('focus', 'clear'), desk_id, IF(p_act IS NULL, desk_id, p_desk)),
+    roster_id = IF(type = 'doing' AND act NOT IN ('focus', 'clear') AND p_act IN ('focus', 'clear'), roster_id, IFNULL(p_project, roster_id)),
+    bytes = IF(type = 'doing' AND act NOT IN ('focus', 'clear') AND p_act IN ('focus', 'clear'), bytes, IFNULL(p_bytes, bytes)),
+    act = IF(type = 'doing' AND act NOT IN ('focus', 'clear') AND p_act IN ('focus', 'clear'), act, IFNULL(p_act, act));
 END //
 
 CREATE PROCEDURE mill_watcher_put(

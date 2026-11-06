@@ -4240,46 +4240,65 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     }
 
 
-# Card 970: local-only tw.event keys. Dropped from the reply (defense in depth;
-# the meta_keys allow-list already omits them). Never stored.
+# Card 970: local-only tw.event keys, dropped before building stored/hopped meta.
 _TW_EVENT_PRIVACY = ("argv", "title", "pattern", "stdout", "stderr", "log", "sample", "pid")
 
 
 def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 970: sitting-session hop for a local task-wrapper event.
+    """Card 970: accept metadata, persist task edges and use the shared wake path."""
+    import re
 
-    Accept a well-formed event. Drop argv/title/pattern and the stream and
-    sample bodies (stdout, stderr, log, sample, pid): never echoed, never
-    stored. Write no doing row and no tw_* transition. Meta tokens only in the
-    reply.
-    """
-    _ = c, project  # sitting identity is owner; no book write in this slice
+    from agent_coord.server import wake
+    from agent_coord.server.records import doing
+    from agent_coord.server.records.db import after_commit, in_request_tx, request_tx
+    from agent_coord.server.records.name import bare
+
     privacy = _TW_EVENT_PRIVACY
-    meta_keys = ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts")
-    wid_raw = body.get("watch_id")
-    if isinstance(wid_raw, bool) or wid_raw is None:
-        wid = ""
-    elif isinstance(wid_raw, int):
-        wid = str(wid_raw)
-    else:
-        wid = str(wid_raw).strip()
+    clean = {k: v for k, v in body.items() if k not in privacy}
+    raw = clean.get("watch_id")
+    wid = "" if raw is None or isinstance(raw, bool) else str(raw).strip()
     if not wid:
         raise CoordError("tw.event: watch_id required")
-    out: dict[str, Any] = {"ok": True, "watch_id": wid}
-    if owner:
-        out["desk"] = owner
-    for key in meta_keys:
-        if key in ("watch_id", "desk"):
-            continue
-        if key not in body:
-            continue
-        val = body.get(key)
-        if val is None:
-            continue
-        out[key] = val
-    for key in privacy:
-        out.pop(key, None)
-    return out
+    if not owner:
+        raise CoordError("tw.event: owner required")
+    desk = bare(owner, CONST_DESK)
+    key = f"task:{desk}:{wid}"
+    if not key.isascii() or len(key) > 96:
+        raise CoordError("tw.event: task key must be ascii and at most 96 characters")
+    kind = clean.get("kind")
+    if kind not in ("start", "stall", "resume", "exit", "crash", "match", "overflow", "retry"):
+        raise CoordError("tw.event: unknown kind")
+    meta: dict[str, Any] = {"watch_id": wid, "desk": desk, "kind": kind}
+    card = clean.get("card")
+    if isinstance(card, int) and not isinstance(card, bool) and card > 0:
+        meta["card"] = card
+    cause = clean.get("cause")
+    if cause is not None:
+        if not isinstance(cause, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", cause):
+            raise CoordError("tw.event: cause must be a token")
+        meta["cause"] = cause
+    code = clean.get("exit_code")
+    if code is not None:
+        if not isinstance(code, int) or isinstance(code, bool):
+            raise CoordError("tw.event: exit_code must be an integer")
+        meta["exit_code"] = code
+    counts = clean.get("counts")
+    if counts is not None:
+        if not isinstance(counts, dict) or any(
+            not isinstance(k, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", k)
+            or k in privacy or not isinstance(v, int) or isinstance(v, bool) or v < 0
+            for k, v in counts.items()
+        ):
+            raise CoordError("tw.event: counts must contain numeric counters only")
+        meta["counts"] = counts
+
+    def run():
+        doing.task_event(c._cn, desk, meta, outcome=str(clean.get("outcome") or ""))
+        if clean.get("wake") is not False and kind in ("stall", "match", "exit", "crash"):
+            after_commit(c._cn, lambda: wake.post_desk(c._cn, desk, dict(meta)))
+        return {"ok": True, **meta}
+
+    return run() if in_request_tx(c._cn) else request_tx(c._cn, run)
 
 
 

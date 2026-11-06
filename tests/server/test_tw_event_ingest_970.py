@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Card 970 step 1 server: accept tw.event hop; write no doing and no tw_*."""
+"""Card 970: metadata boundary and local hop privacy (task writes tested separately)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,38 +29,13 @@ def _event_body(**extra):
 
 @pytest.fixture
 def locked(monkeypatch):
-    """Any doing or transition write must refuse before touching the book."""
-    from agent_coord.server.records import doing as rec_doing
-    from agent_coord.server import transition_enums
-
-    doing_n = {"n": 0}
-    trans_n = {"n": 0}
-
-    def boom_doing(*a, **k):
-        doing_n["n"] += 1
-        raise AssertionError("tw.event must not write a doing row")
-
-    def boom_trans(*a, **k):
-        trans_n["n"] += 1
-        raise AssertionError("tw.event must not write a transition")
-
-    monkeypatch.setattr(rec_doing, "put", boom_doing)
-    monkeypatch.setattr(rec_doing, "finish", boom_doing)
-    monkeypatch.setattr(transition_enums, "put", boom_trans, raising=False)
-    if hasattr(transition_enums, "emit"):
-        monkeypatch.setattr(transition_enums, "emit", boom_trans, raising=False)
-
-    def boom_call(cn, name, args=()):
-        if "doing" in str(name) or "transition" in str(name):
-            if "doing" in str(name):
-                doing_n["n"] += 1
-            else:
-                trans_n["n"] += 1
-            raise AssertionError(f"tw.event must not call {name}")
-        return []
-
-    monkeypatch.setattr("agent_coord.server.records.db.call", boom_call)
-    return rpc, doing_n, trans_n
+    """Capture the sanitized record boundary; real writes have their own SQL tests."""
+    stored = []
+    monkeypatch.setattr("agent_coord.server.records.doing.task_event",
+                        lambda cn, desk, meta, **kw: stored.append(dict(meta)))
+    monkeypatch.setattr("agent_coord.server.records.db.request_tx", lambda cn, run: run())
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **kw: None)
+    return rpc, stored
 
 
 def test_tw_event_handler_is_registered() -> None:
@@ -68,17 +43,13 @@ def test_tw_event_handler_is_registered() -> None:
 
 
 def test_well_formed_event_returns_ok(locked) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+    mod, stored = locked
     out = mod._h_tw_event(_Book(), _event_body(), "the-mill", "builder")
     assert out["ok"] is True
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
 def test_privacy_keys_are_not_echoed_or_stored(locked) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+    mod, stored = locked
     out = mod._h_tw_event(
         _Book(),
         _event_body(argv=["tw", "run"], title="secret", pattern="*.py", cause="exit", exit_code=0),
@@ -86,14 +57,12 @@ def test_privacy_keys_are_not_echoed_or_stored(locked) -> None:
         "builder",
     )
     assert out["ok"] is True
-    blob = repr(out)
+    blob = repr((out, stored))
     assert "argv" not in blob
     assert "secret" not in blob
     assert "*.py" not in blob
     assert "title" not in blob
     assert "pattern" not in blob
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
 _STREAM_BODIES = {
@@ -133,8 +102,7 @@ def test_tw_event_privacy_includes_stream_and_sample_keys() -> None:
 
 
 def test_stream_and_sample_bodies_are_dropped(locked) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+    mod, stored = locked
     out = mod._h_tw_event(
         _Book(),
         _event_body(cause="exit", exit_code=1, counts={"lines": 2}, **_STREAM_BODIES),
@@ -144,7 +112,7 @@ def test_stream_and_sample_bodies_are_dropped(locked) -> None:
     assert out["ok"] is True
     for key in ("stdout", "stderr", "log", "sample", "pid"):
         assert key not in out
-    blob = repr(out)
+    blob = repr((out, stored))
     for marker in ("STDOUT-BODY", "STDERR-BODY", "LOG-BODY", "SAMPLE-BODY", "4242"):
         assert marker not in blob
     assert out["watch_id"] == "w1"
@@ -153,13 +121,10 @@ def test_stream_and_sample_bodies_are_dropped(locked) -> None:
     assert out["cause"] == "exit"
     assert out["exit_code"] == 1
     assert out["counts"] == {"lines": 2}
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
 def test_meta_only_event_still_accepts(locked) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+    mod, stored = locked
     out = mod._h_tw_event(
         _Book(), _event_body(kind="exit", cause="exit", exit_code=0), "the-mill", "builder"
     )
@@ -172,37 +137,29 @@ def test_meta_only_event_still_accepts(locked) -> None:
         "cause": "exit",
         "exit_code": 0,
     }
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
-def test_dispatch_ws_drops_stream_bodies_without_writes(locked, monkeypatch) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+def test_dispatch_ws_drops_stream_bodies(locked, monkeypatch) -> None:
+    mod, stored = locked
     monkeypatch.setattr(mod, "_note_doing", lambda *a, **k: None)
     monkeypatch.setattr(mod, "_doing_text", lambda *a, **k: "")
     book = MagicMock()
     book._cn = object()
     out = mod.dispatch_ws(book, "builder", "tw.event", _event_body(**_STREAM_BODIES))
     assert out["ok"] is True
-    blob = repr(out)
+    blob = repr((out, stored))
     for marker in ("STDOUT-BODY", "STDERR-BODY", "LOG-BODY", "SAMPLE-BODY", "4242"):
         assert marker not in blob
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
-def test_dispatch_ws_accepts_tw_event_without_writes(locked, monkeypatch) -> None:
-    mod, doing_n, trans_n = locked
-    before_d, before_t = doing_n["n"], trans_n["n"]
+def test_dispatch_ws_accepts_tw_event(locked, monkeypatch) -> None:
+    mod, stored = locked
     monkeypatch.setattr(mod, "_note_doing", lambda *a, **k: None)
     monkeypatch.setattr(mod, "_doing_text", lambda *a, **k: "")
     book = MagicMock()
     book._cn = object()
     out = mod.dispatch_ws(book, "builder", "tw.event", _event_body())
     assert out["ok"] is True
-    assert doing_n["n"] == before_d
-    assert trans_n["n"] == before_t
 
 
 def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
