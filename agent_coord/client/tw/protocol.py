@@ -20,10 +20,19 @@ def loads(line: bytes) -> dict[str, Any]:
     return msg
 
 
-def reply(ok: bool, msg: str, watch_id: str | None = None) -> dict[str, Any]:
+def reply(
+    ok: bool,
+    msg: str,
+    watch_id: str | None = None,
+    *,
+    code: str | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"type": "reply", "ok": bool(ok), "msg": msg}
     if watch_id:
-        return {"type": "reply", "watch_id": watch_id, "ok": bool(ok), "msg": msg}
-    return {"type": "reply", "ok": bool(ok), "msg": msg}
+        out["watch_id"] = watch_id
+    if code:
+        out["code"] = code
+    return out
 
 
 def line_too_long() -> dict[str, Any]:

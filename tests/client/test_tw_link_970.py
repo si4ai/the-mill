@@ -261,6 +261,7 @@ def test_ninth_session_is_refused(tmp_path, monkeypatch) -> None:
         assert refused["type"] == "reply"
         assert refused["ok"] is False
         assert refused["msg"] == "cap"
+        assert refused["code"] == "cap"
         keys = [key for key, _ in load_routes("tw-cap")]
         assert "tw:extra" not in keys
         assert len(keys) == MAX_SESSIONS

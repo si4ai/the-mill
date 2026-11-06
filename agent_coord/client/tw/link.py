@@ -137,6 +137,14 @@ class Session:
         if close is not None:
             close()
 
+    @classmethod
+    def from_conn(cls, conn: Any) -> Session:
+        self = cls.__new__(cls)
+        self._conn = conn
+        self._read_lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        return self
+
 
 class Link:
     def __init__(self, desk: str) -> None:
@@ -228,7 +236,7 @@ class Link:
                 self._peers.append(peer)
         if peer is None:
             try:
-                conn.write(protocol.dumps(protocol.reply(False, "cap")))
+                conn.write(protocol.dumps(protocol.reply(False, "cap", code="cap")))
                 while _read_some(conn):
                     pass
             except OSError:
@@ -383,6 +391,24 @@ class Link:
         except OSError:
             pass
         self._transport.cleanup()
+
+
+def open_session(desk: str) -> Session:
+    """Connect to the sitting link named by the desk pointer file."""
+    who = _desk(desk)
+    text = pointer_path(who).read_text(encoding="utf-8").strip()
+    kind_name, _, _address = text.partition(" ")
+    if kind_name == "pipe":
+        from agent_coord.client.tw.win_pipe import Pipe
+
+        conn = Pipe(who).connect()
+    elif kind_name == "unix":
+        from agent_coord.client.tw.unix_sock import Unix
+
+        conn = Unix(who, pointer_path(who).parent).connect()
+    else:
+        raise OSError("bad pointer")
+    return Session.from_conn(conn)
 
 
 def serve(desk: str) -> Link:
