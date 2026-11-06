@@ -12,6 +12,8 @@ Office / customer desks do **not** load this folder. They use:
 | Doc | For |
 |---|---|
 | [AGENTS.md](AGENTS.md) | Repo contributor always-on (tiny) |
+| [RELEASE-FLOW.md](RELEASE-FLOW.md) | How cards reach main, ship GO, and who merges |
+| [CONTRIBUTING-PR.md](CONTRIBUTING-PR.md) | PR shape, partner review, Validator gate |
 | [BUILD.md](BUILD.md) | Pack, pipeline, PyPI, mill update |
 | [PROBE-DELETED-ROWS.md](PROBE-DELETED-ROWS.md) | Test-only probe that makes deleted todo and score rows live (#160) |
 | [FAILURE-CLASSES.md](FAILURE-CLASSES.md) | Auditor coverage list: who checks which failure class (card 913) |

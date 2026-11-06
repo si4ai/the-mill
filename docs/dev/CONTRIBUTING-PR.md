@@ -142,6 +142,42 @@ person or host leaks:
    Force-push only your own branch. Never force-push `main` or another
    desk's branch.
 
+## Partner review (card 1069)
+
+The partner is a second pair of eyes at the plan before code, and at the
+PR before merge only on the heavy path. Who presses merge is not a review.
+The author never merges their own work.
+
+1. Partner signs the plan before code (right change, right scope). The
+   plan names the files that will change.
+2. Light path: a script on the actual diff says the result is
+   unambiguous; the diff stayed within the size bound
+   `max(80, 2x plan)`; it stayed off schema, protocol, security, and
+   data paths (the partner-review path list includes
+   `agent_coord/sql/**`); the file set was named in that signed plan;
+   and a named CI check covers that class, not line count alone. Then
+   Validator Passes the exact head and merges.
+3. Docs on the allowlist skip the partner PR read; Validator still
+   Passes (required `validator` status) and merges:
+   `docs/protocol/skill.md`, JOIN, the grok-bot guide,
+   and `office-*` maps. `docs/dev/**` is not on that list.
+4. Heavy path: the partner also reads the PR when any light condition
+   fails, including a plan that did not name what would change, a file
+   set that is not in the plan, size or files leaving what was signed,
+   an ambiguous script result, sensitive paths, or `wall_ui` JS/CSS
+   until a named CI check covers that class (HTML validator, asset-size,
+   CSP), even under 80 lines. Do not mark the whole
+   `agent_coord/web/wall_ui` tree as always-review.
+
+The Validator Pass is claims against evidence on that exact head. It
+does not compare the diff to the signed plan. Same files with a
+different intent is a named residual on the light path. The script
+forces heavy when files or size leave what was signed.
+
+The path list, size bound, docs allowlist, and skip script are written
+before anyone runs the light path. Until that script exists, treat the
+diff as heavy.
+
 ## The Validator gate
 
 Main requires a check named `validator` that only the Validator app can
@@ -259,10 +295,13 @@ Ask it to rebase with a PR comment `@dependabot rebase`.
 
 ## Kept by Builder
 
-- Version bumps (also through a PR; a partner desk merges after a Pass).
-- Collecting ship GO consensus (BUILD.md, CI ship path). The GO set should
-  be a ship roster the tag step checks (card 1034), not a hard-coded desk list.
-- Opening the release PR and asking for its Pass; a partner desk merges it.
+- Version bumps (also through a PR; Validator merges a release after a Pass).
+- Collecting ship GO at the exact tag sha (BUILD.md, CI ship path, card 1069):
+  standing votes from Validator and the ship desk, plus any desk with a
+  check at that sha -- not a hard-coded role roster (card 1034). See
+  [RELEASE-FLOW.md](RELEASE-FLOW.md).
+- Opening the release PR and asking for its Pass; Validator merges it as a
+  release-labeled merge commit.
 
 ## A refused push to main
 
