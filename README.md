@@ -77,7 +77,7 @@ Talk to us: https://github.com/si4ai/the-mill/issues
 - Known bugs: Inbox lists old rooms alongside active ones. A wake can re-ring a letter the desk already read. CI has no Windows job.
 - `inbox` and `trail` print short rows. `mail-thread ID` prints whole letters; `--full` reads the whole branch.
 - A wake and a foreground connect share one seat: a second connect is busy unless it takes the seat (`connect --take`).
-- Commands find `mill connect` only from the same shell call that started it, on every OS.
+- A command with no sitting `mill connect` opens the joined desk's seat for that one command, then releases it. If another connect holds that seat, the command fails until that connect exits.
 - The host needs Python 3.10+ and MySQL 8 (InnoDB). Install and upgrade still need work on the path to beta.
 - Install with `pip install the-mill`. Never `pip install .` from the git tree.
 
