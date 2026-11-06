@@ -13,6 +13,7 @@ from typing import Any
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
 from agent_coord.client.tw.notice import Notices
 from agent_coord.client.tw.sample import take
+from agent_coord.client.tw.spool import Spool, retry_delay
 
 
 def runs_path(desk: str):
@@ -330,117 +331,230 @@ def run_argv(
     ):
         return 2
     watch_id = "tw-" + uuid.uuid4().hex[:16]
+    session: Any = None
+    attempt = 0
+    next_try = 0.0
+    spool = Spool()
+    sink = None
+    pumps: list[threading.Thread] = []
+    procs: list[Any] = []
     try:
-        session = open_session(who)
-    except OSError:
-        return 1
-    try:
-        registered = session.request(
-            {"type": "register", "key": watch_id, "argv": steps[0]}
-        )
-        if not (isinstance(registered, dict) and registered.get("ok") is True):
-            return 1
-        sink = None
-        pumps: list[threading.Thread] = []
+        try:
+            session = open_session(who)
+            registered = session.request(
+                {"type": "register", "key": watch_id, "argv": steps[0]}
+            )
+            if not (isinstance(registered, dict) and registered.get("ok") is True):
+                return 1
+        except OSError:
+            if session is not None:
+                try:
+                    session.close()
+                except OSError:
+                    pass
+            session = None
+            next_try = time.monotonic() + retry_delay(0)
+            attempt = 1
         lock = threading.Lock()
         counters = {"stdout": 0, "stderr": 0}
         texts: list[str] = []
-        procs: list[Any] = []
         notes = Notices(pattern, quiet_s)
-        try:
-            if log_path:
-                sink = open(log_path, "ab")
-            procs = _chain(steps)
-            last = procs[-1]
+        if log_path:
+            sink = open(log_path, "ab")
+        procs = _chain(steps)
+        last = procs[-1]
+        pumps.append(
+            threading.Thread(
+                target=_pump,
+                args=(last.stdout, sink, "stdout", lock, counters, texts),
+                daemon=True,
+            )
+        )
+        for proc in procs:
             pumps.append(
                 threading.Thread(
                     target=_pump,
-                    args=(last.stdout, sink, "stdout", lock, counters, texts),
+                    args=(proc.stderr, None, "stderr", lock, counters),
                     daemon=True,
                 )
             )
-            for proc in procs:
-                pumps.append(
-                    threading.Thread(
-                        target=_pump,
-                        args=(proc.stderr, None, "stderr", lock, counters),
-                        daemon=True,
+        for pump in pumps:
+            pump.start()
+        runs = _load(who)
+        runs[watch_id] = {"pid": procs[0].pid, "argv": steps[0], "stop": False}
+        _save(who, runs)
+        print(watch_id, flush=True)
+
+        def _lose() -> None:
+            nonlocal session
+            if session is None:
+                return
+            try:
+                session.close()
+            except OSError:
+                pass
+            session = None
+
+        def _backoff() -> None:
+            nonlocal attempt, next_try
+            next_try = time.monotonic() + retry_delay(attempt)
+            attempt += 1
+
+        def _hop(body: dict[str, Any]) -> None:
+            nonlocal attempt
+            if session is None:
+                spool.add(body)
+                return
+            try:
+                reply = session.request(body)
+            except OSError:
+                spool.add(body)
+                _lose()
+                _backoff()
+                return
+            if isinstance(reply, dict) and reply.get("ok") is True:
+                attempt = 0
+                return
+            spool.add(body)
+            _backoff()
+
+        def _flush() -> None:
+            if session is None:
+                return
+            if spool.overflow:
+                spool.overflow = False
+                spool.add(
+                    _event_body(
+                        watch_id,
+                        "overflow",
+                        procs[0].pid,
+                        cause="spool",
+                        no_wake=no_wake,
                     )
                 )
-            for pump in pumps:
-                pump.start()
-            runs = _load(who)
-            runs[watch_id] = {"pid": procs[0].pid, "argv": steps[0], "stop": False}
-            _save(who, runs)
-            print(watch_id, flush=True)
-            if not _emit(
-                session,
-                _event_body(watch_id, "start", procs[0].pid, no_wake=no_wake),
-            ):
-                return 1
-            notes.start(time.monotonic())
+            pending = spool.drain()
+            for index, body in enumerate(pending):
+                try:
+                    reply = session.request(body)
+                except OSError:
+                    for rest in pending[index:]:
+                        spool.add(rest)
+                    _lose()
+                    _backoff()
+                    return
+                if not (isinstance(reply, dict) and reply.get("ok") is True):
+                    for rest in pending[index:]:
+                        spool.add(rest)
+                    _backoff()
+                    return
+            attempt = 0
 
-            def _drain_notices() -> None:
-                with lock:
-                    chunk = "".join(texts)
-                    texts.clear()
-                    total = int(counters.get("stdout", 0)) + int(counters.get("stderr", 0))
-                for kind, cause in notes.feed(chunk, total, time.monotonic()):
-                    _emit(
-                        session,
-                        _event_body(
-                            watch_id,
-                            kind,
-                            procs[0].pid,
-                            cause=cause,
-                            no_wake=no_wake,
-                        ),
+        def _reconnect() -> None:
+            nonlocal session
+            if session is not None or time.monotonic() < next_try:
+                return
+            try:
+                fresh = open_session(who)
+            except OSError:
+                _backoff()
+                return
+            try:
+                registered = fresh.request(
+                    {"type": "register", "key": watch_id, "argv": steps[0]}
+                )
+            except OSError:
+                registered = None
+            if not (isinstance(registered, dict) and registered.get("ok") is True):
+                try:
+                    fresh.close()
+                except OSError:
+                    pass
+                _backoff()
+                return
+            session = fresh
+            _flush()
+
+        _hop(_event_body(watch_id, "start", procs[0].pid, no_wake=no_wake))
+        notes.start(time.monotonic())
+
+        def _drain_notices() -> None:
+            with lock:
+                chunk = "".join(texts)
+                texts.clear()
+                total = int(counters.get("stdout", 0)) + int(counters.get("stderr", 0))
+            for kind, cause in notes.feed(chunk, total, time.monotonic()):
+                _hop(
+                    _event_body(
+                        watch_id,
+                        kind,
+                        procs[0].pid,
+                        cause=cause,
+                        no_wake=no_wake,
                     )
+                )
 
-            while last.poll() is None:
-                _drain_notices()
-                if _flagged(who, watch_id):
-                    break
-                if _pending(session._conn):
-                    msg = session.read()
-                    if (
-                        isinstance(msg, dict)
-                        and msg.get("type") == "stop"
-                        and str(msg.get("watch_id") or "") == watch_id
-                    ):
-                        break
-                    continue
-                time.sleep(0.1)
-            _end_all(procs)
-            for pump in pumps:
-                pump.join(2)
+        while last.poll() is None:
             _drain_notices()
-            code = 0
-            for proc in procs:
-                if proc.returncode not in (0, None):
-                    code = int(proc.returncode)
+            if _flagged(who, watch_id):
+                break
+            if session is not None and _pending(session._conn):
+                try:
+                    msg = session.read()
+                except OSError:
+                    _lose()
+                    _backoff()
+                    continue
+                if (
+                    isinstance(msg, dict)
+                    and msg.get("type") == "stop"
+                    and str(msg.get("watch_id") or "") == watch_id
+                ):
+                    if str(msg.get("reason") or "") == "sit-end":
+                        continue
                     break
-            if code == 0:
-                code = 0 if last.returncode in (0, None) else int(last.returncode)
+                continue
+            if session is None or spool.items:
+                if session is None:
+                    _reconnect()
+                elif time.monotonic() >= next_try:
+                    _flush()
+            time.sleep(0.05)
+        _end_all(procs)
+        for pump in pumps:
+            pump.join(2)
+        _drain_notices()
+        code = 0
+        for proc in procs:
+            if proc.returncode not in (0, None):
+                code = int(proc.returncode)
+                break
+        if code == 0 and last.returncode not in (0, None):
+            code = int(last.returncode)
+        if session is None:
+            _reconnect()
+        if session is not None:
             _send_sample(session, watch_id, procs[0].pid, counters, lock, sink is not None)
-            # Wait for accepted. A bare send can close before the link hops.
-            _emit(
-                session,
-                _event_body(
-                    watch_id,
-                    "exit",
-                    procs[0].pid,
-                    exit_code=code,
-                    no_wake=no_wake,
-                ),
+        _hop(
+            _event_body(
+                watch_id,
+                "exit",
+                procs[0].pid,
+                exit_code=code,
+                no_wake=no_wake,
             )
-            return code
-        finally:
-            _end_all(procs)
-            for pump in pumps:
-                pump.join(1)
-            if sink is not None:
-                sink.close()
+        )
+        if session is not None and spool.items and time.monotonic() >= next_try:
+            _flush()
+        return code
     finally:
+        _end_all(procs)
+        for pump in pumps:
+            pump.join(1)
+        if sink is not None:
+            sink.close()
         _drop(who, watch_id)
-        session.close()
+        if session is not None:
+            try:
+                session.close()
+            except OSError:
+                pass
