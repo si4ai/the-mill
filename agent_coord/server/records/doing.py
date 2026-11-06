@@ -77,8 +77,32 @@ def history(
     ) or []
 
 
-def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> None:
-    """Card 970: one serialized task lifecycle, inside the caller's request tx."""
+# Card 970 step 4: live (non-terminal) act=task doing rows a desk may hold.
+TASK_CAP = 8
+_TASK_TERMINAL = ("finished", "failed", "stale", "cleared")
+
+
+def live_tasks(cn, desk_id: int) -> int:
+    """Count the desk's act=task doing rows with no terminal transition."""
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(*) FROM doing g WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
+            " SELECT 1 FROM transition t WHERE t.activity_type='doing' AND t.activity_id=g.id"
+            " AND t.to_state IN (%s, %s, %s, %s))",
+            (desk_id, *_TASK_TERMINAL),
+        )
+        return int(cur.fetchone()[0])
+    finally:
+        cur.close()
+
+
+def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str:
+    """Card 970: one serialized task lifecycle, inside the caller's request tx.
+
+    Returns "cap" (a 9th live start; nothing written), "noop" (a replayed or
+    late hop; nothing written), "wrote" (a transition) or "metric".
+    """
     import json
 
     from agent_coord.helpers.errors import CoordError
@@ -89,7 +113,12 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> Non
     desk = bare(desk, CONST_DESK)
     kind = meta["kind"]
     key = f"task:{desk}:{meta['watch_id']}"
-    row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), int(kind == "start")])[0]
+    # The seat row lock in mill_doing_task serializes this desk's births.
+    row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), 0])[0]
+    if kind == "start" and row["id"] is None:
+        if live_tasks(cn, row["desk_id"]) >= TASK_CAP:
+            return "cap"
+        row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), 1])[0]
     mapped = {
         "start": (tr.State.active, tr.Reason.tw_start),
         "stall": (tr.State.waiting, tr.Reason.tw_wait),
@@ -102,11 +131,13 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> Non
         if row["id"] is None:
             raise CoordError("tw.event: start required before a transition")
         state = tr.State(row["state"])
-        if state in (tr.State.finished, tr.State.failed, tr.State.stale, tr.State.cleared):
-            raise CoordError("tw.event: watch_id is terminal")
+        if state.value in _TASK_TERMINAL:
+            return "noop"  # a replayed or late hop never reopens a terminal watch
         if kind == "start" and state != tr.State.idle:
-            return  # repeated delivery is not a second birth or transition
+            return "noop"  # repeated delivery is not a second birth or transition
         to_state, reason = mapped[kind]
+        if state == to_state:
+            return "noop"  # a replayed stall while waiting, or resume while active
         try:
             tr.check_edge(tr.ActivityType.doing, state, to_state, reason)
         except tr.UnknownTransition as e:
@@ -151,3 +182,4 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> Non
             measures["retry_give_up_n"] = 1
     for name, value in measures.items():
         score.upsert(cn, "Office", desk, "doing.task." + name, str(value))
+    return "wrote" if kind in mapped else "metric"
