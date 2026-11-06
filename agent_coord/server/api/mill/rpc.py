@@ -4240,6 +4240,45 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     }
 
 
+def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 970: sitting-session hop for a local task-wrapper event.
+
+    Accept a well-formed event. Drop argv/title/pattern (never stored). Write no
+    doing row and no tw_* transition. Meta tokens only in the reply.
+    """
+    _ = c, project  # sitting identity is owner; no book write in this slice
+    privacy = ("argv", "title", "pattern")
+    meta_keys = ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts")
+    wid_raw = body.get("watch_id")
+    if isinstance(wid_raw, bool) or wid_raw is None:
+        wid = ""
+    elif isinstance(wid_raw, int):
+        wid = str(wid_raw)
+    else:
+        wid = str(wid_raw).strip()
+    if not wid:
+        raise CoordError("tw.event: watch_id required")
+    out: dict[str, Any] = {"ok": True, "watch_id": wid}
+    if owner:
+        out["desk"] = owner
+    for key in meta_keys:
+        if key in ("watch_id", "desk"):
+            continue
+        if key not in body:
+            continue
+        val = body.get(key)
+        if val is None:
+            continue
+        out[key] = val
+    for key in privacy:
+        out.pop(key, None)
+    return out
+
+
+
+# Sitting-session hops that are not skill.md WALL verbs (card 970).
+SESSION_HOPS = frozenset({"tw.event"})
+
 HANDLERS = {
     "wake-done": _h_wake_done,
     "inbox": _h_inbox,
@@ -4288,6 +4327,7 @@ HANDLERS = {
     "trust": _h_trust,
     "trail": _h_trail,
     "probe-delete": _h_probe_delete,
+    "tw.event": _h_tw_event,
 }
 
 
@@ -4343,7 +4383,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
         body["project"] = project  # handlers that read the body see id 1's name too
     owner_raw = str(body.get("owner") or "").strip()
     owner = _stored(owner_raw) if owner_raw else None
-    if command not in WALL:
+    if command not in WALL and command not in SESSION_HOPS:
         raise CoordError(unknown_command_message(command, client_mill))
     _refuse_join_type(command, body)
     if command not in OPEN_COMMANDS:
@@ -4508,7 +4548,7 @@ def dispatch_ws(
         raise CoordError("ws rpc: command required")
     if v in OPEN_COMMANDS or v == "join":
         raise CoordError("join stays HTTP only; not a /ws RPC command")
-    if v not in WALL:
+    if v not in WALL and v not in SESSION_HOPS:
         raise CoordError(unknown_command_message(v, client_mill))
     owner = desk_name(desk)
     if not owner:
