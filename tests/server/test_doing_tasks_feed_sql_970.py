@@ -6,12 +6,15 @@ import pytest
 from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import doing, join, todo
 from agent_coord.server.records.db import call, rows_done
+from tests import sql_book
 
 pytestmark = pytest.mark.sql
 
 
 @pytest.fixture
 def feed(cn, monkeypatch):
+    # cn is module-scoped; start each test from an empty book so one test's tasks never leak into the next.
+    sql_book.reset_data(cn)
     monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
     join.upsert(cn, "Office", "Builder", "", "a" * 64, "reviewing")
     book = SimpleNamespace(_cn=cn)
