@@ -1099,6 +1099,7 @@ def _ensure_label_ord(cn) -> list[str]:
 ROSTER_070 = "migrate_070_roster.sql"
 DOING_818 = "migrate_818_doing.sql"
 TRANSITION_1022 = "migrate_1022_transition.sql"
+TASK_970 = "migrate_970_task.sql"
 
 
 def roster_070_needed(cn) -> bool:
@@ -1744,6 +1745,46 @@ def apply_transition_1022(cn) -> list[str]:
     return applied
 
 
+def task_970_needed(cn) -> bool:
+    """Both act enums share the task value (card 970)."""
+    cur = cn.cursor()
+    try:
+        for table in ("activity", "doing"):
+            cur.execute(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'act'",
+                (table,),
+            )
+            row = cur.fetchone()
+            ctype = row[0] if row else ""
+            if isinstance(ctype, (bytes, bytearray)):
+                ctype = ctype.decode("utf-8")
+            if "'task'" not in str(ctype):
+                return True
+        return False
+    finally:
+        cur.close()
+
+
+def apply_task_970(cn) -> list[str]:
+    """Append task without rewriting or narrowing an existing enum. Idempotent."""
+    if not task_970_needed(cn):
+        return []
+    cur = cn.cursor()
+    try:
+        for stmt in split_script((sql_dir() / TASK_970).read_text(encoding="utf-8-sig")):
+            _apply_stmt(cur, stmt)
+            if cur.with_rows:
+                cur.fetchall()
+        cn.commit()
+        return [TASK_970]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -1809,6 +1850,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             # card 1022: wake + transition + System desk 0 (after 0.8.0 shape).
             did_1022 = apply_transition_1022(cn)
             applied.extend(did_1022)
+            applied.extend(apply_task_970(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}

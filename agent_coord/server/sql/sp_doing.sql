@@ -16,6 +16,7 @@
 DROP FUNCTION IF EXISTS mill_doing_end;
 DROP FUNCTION IF EXISTS mill_doing_cleared;
 DROP PROCEDURE IF EXISTS mill_doing_put;
+DROP PROCEDURE IF EXISTS mill_doing_task;
 DROP PROCEDURE IF EXISTS mill_doing_finish;
 DROP PROCEDURE IF EXISTS mill_doing_now;
 DROP PROCEDURE IF EXISTS mill_doing_history;
@@ -71,6 +72,42 @@ BEGIN
    WHERE e.desk_id = p_desk AND e.act = 'clear'
      AND (e.created > p_created OR (e.created = p_created AND e.id > p_id));
   RETURN v_at;
+END //
+
+-- card 970: dedicated task birth, never a focus/clear or seat.doing_id write.
+-- The caller holds a request transaction through the first transition insert.
+CREATE PROCEDURE mill_doing_task(
+  IN p_desk VARCHAR(64),
+  IN p_join_key VARCHAR(96),
+  IN p_card BIGINT UNSIGNED,
+  IN p_start TINYINT
+)
+BEGIN
+  DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED DEFAULT NULL;
+  DECLARE v_id BIGINT UNSIGNED DEFAULT NULL;
+  DECLARE v_state VARCHAR(32) DEFAULT 'idle';
+  DECLARE v_created DATETIME(6);
+  DECLARE v_roster BIGINT UNSIGNED DEFAULT 1;
+  SET v_desk = MILL_NAME_GET('desk', p_desk);
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk AND token_hash IS NOT NULL FOR UPDATE;
+  IF v_seat IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tw.event: desk has not joined';
+  END IF;
+  SELECT t.activity_id, t.to_state, g.created
+    INTO v_id, v_state, v_created
+    FROM transition t JOIN doing g ON g.id = t.activity_id AND g.act = 'task'
+   WHERE t.activity_type = 'doing' AND t.desk_id = v_desk AND t.join_key = p_join_key
+   ORDER BY t.id DESC LIMIT 1 FOR UPDATE;
+  IF v_id IS NULL AND p_start = 1 THEN
+    SET v_created = MILL_NOW();
+    SET v_roster = IFNULL((SELECT roster_id FROM todo WHERE id = p_card), 1);
+    INSERT INTO doing (created, desk_id, roster_id, text, act, on_type, on_id)
+    VALUES (v_created, v_desk, v_roster, '', 'task', IF(p_card IS NULL, NULL, 'todo'), p_card);
+    SET v_id = LAST_INSERT_ID();
+    CALL mill_activity_put('doing', v_id, v_created, v_desk, v_roster, 'task', NULL);
+  END IF;
+  SELECT v_id AS id, v_desk AS desk_id, v_state AS state, v_created AS created;
 END //
 
 -- One new entry for the desk, on the item the command just wrote. The roster
