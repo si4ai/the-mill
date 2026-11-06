@@ -59,6 +59,29 @@ def _argv_text(argv: Any) -> str:
     return shlex.join(parts)
 
 
+def _byte_count(msg: dict[str, Any], name: str, previous: int) -> int:
+    raw = msg.get(name + "_bytes")
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+        return raw
+    text = msg.get(name)
+    if isinstance(text, str):
+        return len(text.encode("utf-8"))
+    if isinstance(text, (bytes, bytearray)):
+        return len(text)
+    return previous
+
+
+def _numeric(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, item in value.items():
+        if isinstance(item, bool) or not isinstance(item, int):
+            continue
+        out[str(key)[:32]] = item
+    return out
+
+
 def _watch_id(msg: dict[str, Any]) -> str:
     raw = msg.get("watch_id")
     if isinstance(raw, bool) or raw is None:
@@ -160,6 +183,8 @@ class Link:
         self._by_watch: dict[str, _Peer] = {}
         self._peers_lock = threading.Lock()
         self._route_lock = threading.Lock()
+        self._snap_lock = threading.Lock()
+        self._snapshots: dict[str, dict[str, Any]] = {}
 
     def start(self) -> None:
         path = pointer_path(self.desk)
@@ -297,6 +322,10 @@ class Link:
             return self._register(msg)
         if kind_name == "event":
             return self._event(peer, msg)
+        if kind_name == "sample":
+            return self._sample(msg)
+        if kind_name == "status":
+            return self._status(msg)
         return protocol.reply(False, "unknown type")
 
     def _register(self, msg: dict[str, Any]) -> dict[str, Any]:
@@ -337,7 +366,74 @@ class Link:
             peer.watch_ids.add(wid)
             with self._peers_lock:
                 self._by_watch[wid] = peer
+            self._remember(wid, msg)
         return protocol.reply(True, "accepted", wid or None)
+
+    def _sample(self, msg: dict[str, Any]) -> dict[str, Any]:
+        # Local buffer only. stdout, stderr, log, and sample do not hop.
+        wid = _watch_id(msg)
+        if not wid:
+            return protocol.reply(False, "watch_id required")
+        self._remember(wid, msg)
+        return protocol.reply(True, "noted", wid)
+
+    def _status(self, msg: dict[str, Any]) -> dict[str, Any]:
+        wid = _watch_id(msg)
+        with self._snap_lock:
+            if wid:
+                row = self._snapshots.get(wid)
+                if row is None:
+                    return protocol.reply(False, "missing", wid)
+                out = protocol.reply(True, "status", wid)
+                out["snapshot"] = self._public(row)
+                return out
+            rows = [self._public(row) for _, row in sorted(self._snapshots.items())]
+        out = protocol.reply(True, "status")
+        out["snapshot"] = rows
+        return out
+
+    def _remember(self, wid: str, msg: dict[str, Any]) -> None:
+        with self._snap_lock:
+            row = self._snapshots.get(wid)
+            if row is None:
+                row = {
+                    "watch_id": wid,
+                    "pid": 0,
+                    "kind": "",
+                    "exit_code": None,
+                    "stdout_bytes": 0,
+                    "stderr_bytes": 0,
+                    "log": False,
+                    "sample": {},
+                }
+            if isinstance(msg.get("kind"), str) and msg["kind"].strip():
+                row["kind"] = msg["kind"].strip()[:32]
+            pid = msg.get("pid")
+            if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+                row["pid"] = pid
+            code = msg.get("exit_code")
+            if isinstance(code, int) and not isinstance(code, bool):
+                row["exit_code"] = code
+            row["stdout_bytes"] = _byte_count(msg, "stdout", row["stdout_bytes"])
+            row["stderr_bytes"] = _byte_count(msg, "stderr", row["stderr_bytes"])
+            if msg.get("log"):
+                row["log"] = True
+            sample = _numeric(msg.get("sample"))
+            if sample:
+                row["sample"] = sample
+            self._snapshots[wid] = row
+
+    def _public(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "watch_id": row["watch_id"],
+            "pid": row["pid"],
+            "kind": row["kind"],
+            "exit_code": row["exit_code"],
+            "stdout_bytes": row["stdout_bytes"],
+            "stderr_bytes": row["stderr_bytes"],
+            "log": bool(row["log"]),
+            "sample": dict(row["sample"]),
+        }
 
     def stop(self, watch_id: str, reason: str) -> bool:
         if reason not in _STOP_REASONS:
