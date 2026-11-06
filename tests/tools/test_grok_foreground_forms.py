@@ -31,6 +31,6 @@ def test_no_stale_forms_in_docs():
 def test_grok_foreground_teaches_the_shipped_forms():
     doc = (ROOT / "docs" / "protocol" / "grok-foreground.md").read_text(encoding="utf-8")
     assert "mill connect-wait YOUR-DESK" in doc
-    assert "python -m agent_coord connect YOUR-DESK" in doc
+    assert "python -m agent_coord reply" in doc   # doc teaches reply, not connect
     assert "reply MAIL_ID --body-file" in doc
     assert "Regression row F27 (grok-foreground-shipped-forms)" in doc
