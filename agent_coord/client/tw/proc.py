@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
+from agent_coord.client.tw.notice import Notices
 from agent_coord.client.tw.sample import take
 
 
@@ -174,7 +175,14 @@ def query_status(desk: str, watch_id: str | None = None) -> dict[str, Any]:
         session.close()
 
 
-def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int]) -> None:
+def _pump(
+    stream: Any,
+    sink: Any,
+    key: str,
+    lock: Any,
+    counters: dict[str, int],
+    texts: list[str] | None = None,
+) -> None:
     if stream is None:
         return
     while True:
@@ -183,6 +191,8 @@ def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int])
             return
         with lock:
             counters[key] = counters.get(key, 0) + len(chunk)
+            if texts is not None:
+                texts.append(chunk.decode("utf-8", "replace"))
             if sink is not None:
                 sink.write(chunk)
                 sink.flush()
@@ -219,9 +229,105 @@ def _send_sample(
         return
 
 
-def run_argv(desk: str, argv: list[str], log_path: str | None = None) -> int:
+def _event_body(
+    watch_id: str,
+    kind: str,
+    pid: int,
+    *,
+    cause: str | None = None,
+    exit_code: int | None = None,
+    no_wake: bool = False,
+) -> dict[str, Any]:
+    msg: dict[str, Any] = {
+        "type": "event",
+        "watch_id": watch_id,
+        "kind": kind,
+        "pid": pid,
+    }
+    if cause:
+        msg["cause"] = cause
+    if exit_code is not None:
+        msg["exit_code"] = exit_code
+    if no_wake:
+        msg["wake"] = False
+    return msg
+
+
+def _emit(session: Any, msg: dict[str, Any]) -> bool:
+    try:
+        reply = session.request(msg)
+    except OSError:
+        return False
+    return isinstance(reply, dict) and reply.get("ok") is True
+
+
+def _end_all(procs: list[Any]) -> None:
+    for proc in procs:
+        if proc.poll() is None:
+            proc.terminate()
+    for proc in procs:
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+
+
+def _chain(steps: list[list[str]]) -> list[Any]:
+    procs: list[Any] = []
+    previous: Any = None
+    try:
+        for argv in steps:
+            proc = subprocess.Popen(
+                argv,
+                stdin=previous,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if previous is not None:
+                previous.close()
+            previous = proc.stdout
+            procs.append(proc)
+    except Exception:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+            for stream in (proc.stdout, proc.stderr, proc.stdin):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            try:
+                proc.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        raise
+    return procs
+
+
+def run_argv(
+    desk: str,
+    argv: list[str],
+    log_path: str | None = None,
+    *,
+    pattern: str | None = None,
+    quiet_s: float = 30.0,
+    no_wake: bool = False,
+    steps: list[list[str]] | None = None,
+) -> int:
     who = _desk(desk)
-    if not argv or any(not isinstance(part, str) or part == "" for part in argv):
+    if steps is None:
+        if not argv or any(not isinstance(part, str) or part == "" for part in argv):
+            return 2
+        steps = [list(argv)]
+    elif (
+        not steps
+        or any(
+            not item or any(not isinstance(part, str) or part == "" for part in item)
+            for item in steps
+        )
+    ):
         return 2
     watch_id = "tw-" + uuid.uuid4().hex[:16]
     try:
@@ -230,7 +336,7 @@ def run_argv(desk: str, argv: list[str], log_path: str | None = None) -> int:
         return 1
     try:
         registered = session.request(
-            {"type": "register", "key": watch_id, "argv": argv}
+            {"type": "register", "key": watch_id, "argv": steps[0]}
         )
         if not (isinstance(registered, dict) and registered.get("ok") is True):
             return 1
@@ -238,40 +344,61 @@ def run_argv(desk: str, argv: list[str], log_path: str | None = None) -> int:
         pumps: list[threading.Thread] = []
         lock = threading.Lock()
         counters = {"stdout": 0, "stderr": 0}
-        proc = None
+        texts: list[str] = []
+        procs: list[Any] = []
+        notes = Notices(pattern, quiet_s)
         try:
             if log_path:
                 sink = open(log_path, "ab")
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            pumps = [
+            procs = _chain(steps)
+            last = procs[-1]
+            pumps.append(
                 threading.Thread(
                     target=_pump,
-                    args=(proc.stdout, sink, "stdout", lock, counters),
+                    args=(last.stdout, sink, "stdout", lock, counters, texts),
                     daemon=True,
-                ),
-                threading.Thread(
-                    target=_pump,
-                    args=(proc.stderr, sink, "stderr", lock, counters),
-                    daemon=True,
-                ),
-            ]
+                )
+            )
+            for proc in procs:
+                pumps.append(
+                    threading.Thread(
+                        target=_pump,
+                        args=(proc.stderr, None, "stderr", lock, counters),
+                        daemon=True,
+                    )
+                )
             for pump in pumps:
                 pump.start()
             runs = _load(who)
-            runs[watch_id] = {"pid": proc.pid, "argv": argv, "stop": False}
+            runs[watch_id] = {"pid": procs[0].pid, "argv": steps[0], "stop": False}
             _save(who, runs)
             print(watch_id, flush=True)
-            started = session.request(
-                {
-                    "type": "event",
-                    "watch_id": watch_id,
-                    "kind": "start",
-                    "pid": proc.pid,
-                }
-            )
-            if not (isinstance(started, dict) and started.get("ok") is True):
+            if not _emit(
+                session,
+                _event_body(watch_id, "start", procs[0].pid, no_wake=no_wake),
+            ):
                 return 1
-            while proc.poll() is None:
+            notes.start(time.monotonic())
+
+            def _drain_notices() -> None:
+                with lock:
+                    chunk = "".join(texts)
+                    texts.clear()
+                    total = int(counters.get("stdout", 0)) + int(counters.get("stderr", 0))
+                for kind, cause in notes.feed(chunk, total, time.monotonic()):
+                    _emit(
+                        session,
+                        _event_body(
+                            watch_id,
+                            kind,
+                            procs[0].pid,
+                            cause=cause,
+                            no_wake=no_wake,
+                        ),
+                    )
+
+            while last.poll() is None:
+                _drain_notices()
                 if _flagged(who, watch_id):
                     break
                 if _pending(session._conn):
@@ -284,38 +411,33 @@ def run_argv(desk: str, argv: list[str], log_path: str | None = None) -> int:
                         break
                     continue
                 time.sleep(0.1)
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=2)
+            _end_all(procs)
             for pump in pumps:
                 pump.join(2)
-            code = proc.returncode if proc.returncode is not None else 1
-            _send_sample(session, watch_id, proc.pid, counters, lock, sink is not None)
+            _drain_notices()
+            code = 0
+            for proc in procs:
+                if proc.returncode not in (0, None):
+                    code = int(proc.returncode)
+                    break
+            if code == 0:
+                code = 0 if last.returncode in (0, None) else int(last.returncode)
+            _send_sample(session, watch_id, procs[0].pid, counters, lock, sink is not None)
             try:
                 session.send(
-                    {
-                        "type": "event",
-                        "watch_id": watch_id,
-                        "kind": "exit",
-                        "exit_code": code,
-                        "pid": proc.pid,
-                    }
+                    _event_body(
+                        watch_id,
+                        "exit",
+                        procs[0].pid,
+                        exit_code=code,
+                        no_wake=no_wake,
+                    )
                 )
             except OSError:
                 pass
             return code
         finally:
-            if proc is not None and proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=2)
+            _end_all(procs)
             for pump in pumps:
                 pump.join(1)
             if sink is not None:

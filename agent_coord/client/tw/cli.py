@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 from agent_coord.client.tw.proc import list_runs, query_status, run_argv, stop_run
+
+
+def _recipe(path: str) -> list[list[str]]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("recipe required")
+    steps: list[list[str]] = []
+    for item in data:
+        if not isinstance(item, list) or not item:
+            raise ValueError("recipe required")
+        if any(not isinstance(part, str) or part == "" for part in item):
+            raise ValueError("recipe required")
+        steps.append(list(item))
+    return steps
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run")
     run.add_argument("--desk", required=True)
     run.add_argument("--log", default=None)
+    run.add_argument("--pattern", default=None)
+    run.add_argument("--quiet", type=float, default=30.0)
+    run.add_argument("--no-wake", action="store_true")
+    run.add_argument("--recipe", default=None)
     run.add_argument("cmd_argv", nargs=argparse.REMAINDER)
 
     listed = sub.add_parser("list")
@@ -58,10 +78,28 @@ def main(argv: list[str] | None = None) -> int:
     cmd_argv = list(args.cmd_argv)
     if cmd_argv and cmd_argv[0] == "--":
         cmd_argv = cmd_argv[1:]
-    if not cmd_argv:
+    steps = None
+    if args.recipe:
+        if cmd_argv:
+            print("argv required", file=sys.stderr)
+            return 2
+        try:
+            steps = _recipe(args.recipe)
+        except (OSError, ValueError):
+            print("argv required", file=sys.stderr)
+            return 2
+    elif not cmd_argv:
         print("argv required", file=sys.stderr)
         return 2
-    return run_argv(args.desk, cmd_argv, log_path=args.log)
+    return run_argv(
+        args.desk,
+        cmd_argv,
+        log_path=args.log,
+        pattern=args.pattern,
+        quiet_s=args.quiet,
+        no_wake=args.no_wake,
+        steps=steps,
+    )
 
 
 if __name__ == "__main__":

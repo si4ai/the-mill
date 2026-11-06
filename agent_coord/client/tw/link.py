@@ -349,6 +349,8 @@ class Link:
         for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
             if key in msg:
                 body[key] = msg[key]
+        if msg.get("wake") is False:
+            body["wake"] = False
         if wid and "watch_id" not in body:
             body["watch_id"] = wid
         try:
