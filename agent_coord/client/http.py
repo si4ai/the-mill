@@ -1022,6 +1022,91 @@ def check_project_on_socket(who: str, project: str, stop: Any, outcome: dict) ->
     stop.set()
 
 
+def _open_tw_link(desk: str):
+    """Local tw socket for this sit. A bind failure leaves the sit up."""
+    try:
+        from agent_coord.client.tw.link import serve
+
+        return serve(desk)
+    except OSError:
+        return None
+
+
+def _sit_mill_here(
+    *,
+    foreground: bool,
+    who: str,
+    tok: str,
+    parent: int,
+    refuse: bool,
+    args: Any,
+    parent_gone,
+) -> int:
+    import threading
+
+    if foreground:
+        # Foreground: this process waits for ONE work HINT, prints it, exits.
+        # No HintBuf drain / mill route spawn. Break-out = KeyboardInterrupt.
+        from agent_coord.client.ws import wait_one_hint
+
+        try:
+            # Card 1030: first sync ends only on push_queue work; mailbox resurfacing holds.
+            got = wait_one_hint(
+                who, tok, skip_ping=True, timeout_s=None, parent_pid=parent, hold_empty_sync=True,
+                refuse=refuse, skip_first_sync=True,
+            )
+        except KeyboardInterrupt:
+            print(
+                json.dumps(
+                    {"ok": False, "mode": "foreground", "error": "interrupted", "desk": who},
+                    default=str,
+                ),
+                flush=True,
+            )
+            return 130
+        from agent_coord.client.older import attach_older_once
+
+        if isinstance(got, dict):
+            got = attach_older_once(got)
+        print(json.dumps(got, default=str), flush=True)
+        if got.get("ok"):
+            return 0
+        return int(got["exit"]) if "exit" in got else 1  # busy exits 0 (card 834)
+    stop = threading.Event()
+    outcome: dict = {}
+    from agent_coord.client.ws import clear_connect_starting, hold_sync_lines, start_ws_thread, write_connect_starting
+
+    write_connect_starting(who, pid=os.getpid(), parent_pid=parent)
+    # Unknown, retired, or empty project: the server refuses on this socket and
+    # connect exits 1 before any sync line (#237).
+    project = str(getattr(args, "project", "") or "").strip()
+    hold_sync_lines()
+    start_ws_thread(who, tok, stop, outcome, refuse=refuse)
+    threading.Thread(
+        target=seat_then_focus,
+        args=(who, project, stop, outcome),
+        name="mill-connect-project-%s" % who,
+        daemon=True,
+    ).start()
+    try:
+        try:
+            while not stop.is_set():
+                # Start-Process leaves this process up after the script exits (#192).
+                if parent_gone(parent):
+                    stop.set()
+                    from agent_coord.client.session_errors import parent_exited_notice
+
+                    print(json.dumps(parent_exited_notice(who), default=str), flush=True)
+                    return 0
+                stop.wait(1.0)
+        except KeyboardInterrupt:
+            stop.set()
+            return 0
+        return int(outcome.get("exit") or 0)
+    finally:
+        clear_connect_starting(who, pid=os.getpid())
+
+
 def mill_here_over_http(args: Any) -> int:
     """Sit on /ws until Ctrl+C. Does not POST join.
 
@@ -1082,10 +1167,6 @@ def mill_here_over_http(args: Any) -> int:
     # Card 1030: connect-wait stdout is only the final result JSON line.
     if not foreground:
         print(json.dumps({"desk": who, "mode": "ws"}, default=str), flush=True)
-    import threading
-
-    from agent_coord.client.ws import start_ws_thread
-
     vendor = str(getattr(args, "vendor", "") or os.environ.get("AGENT_COORD_VENDOR") or "").strip()
     if vendor:
         os.environ["AGENT_COORD_VENDOR"] = vendor
@@ -1107,66 +1188,17 @@ def mill_here_over_http(args: Any) -> int:
 
     parent = _shell_ppid()
     refuse = bool(getattr(args, "refuse", False))
-    if foreground:
-        # Foreground: this process waits for ONE work HINT, prints it, exits.
-        # No HintBuf drain / mill route spawn. Break-out = KeyboardInterrupt.
-        from agent_coord.client.ws import wait_one_hint
-
-        try:
-            # Card 1030: first sync ends only on push_queue work; mailbox resurfacing holds.
-            got = wait_one_hint(
-                who, tok, skip_ping=True, timeout_s=None, parent_pid=parent, hold_empty_sync=True,
-                refuse=refuse, skip_first_sync=True,
-            )
-        except KeyboardInterrupt:
-            print(
-                json.dumps(
-                    {"ok": False, "mode": "foreground", "error": "interrupted", "desk": who},
-                    default=str,
-                ),
-                flush=True,
-            )
-            return 130
-        from agent_coord.client.older import attach_older_once
-
-        if isinstance(got, dict):
-            got = attach_older_once(got)
-        print(json.dumps(got, default=str), flush=True)
-        if got.get("ok"):
-            return 0
-        return int(got["exit"]) if "exit" in got else 1  # busy exits 0 (card 834)
-    stop = threading.Event()
-    outcome: dict = {}
-    from agent_coord.client.ws import clear_connect_starting, write_connect_starting
-
-    write_connect_starting(who, pid=os.getpid(), parent_pid=parent)
-    # Unknown, retired, or empty project: the server refuses on this socket and
-    # connect exits 1 before any sync line (#237).
-    from agent_coord.client.ws import hold_sync_lines
-
-    project = str(getattr(args, "project", "") or "").strip()
-    hold_sync_lines()
-    start_ws_thread(who, tok, stop, outcome, refuse=refuse)
-    threading.Thread(
-        target=seat_then_focus,
-        args=(who, project, stop, outcome),
-        name="mill-connect-project-%s" % who,
-        daemon=True,
-    ).start()
+    tw_link = _open_tw_link(who)
     try:
-        try:
-            while not stop.is_set():
-                # Start-Process leaves this process up after the script exits (#192).
-                if parent_gone(parent):
-                    stop.set()
-                    from agent_coord.client.session_errors import parent_exited_notice
-
-                    print(json.dumps(parent_exited_notice(who), default=str), flush=True)
-                    return 0
-                stop.wait(1.0)
-        except KeyboardInterrupt:
-            stop.set()
-            return 0
-        return int(outcome.get("exit") or 0)
+        return _sit_mill_here(
+            foreground=foreground,
+            who=who,
+            tok=tok,
+            parent=parent,
+            refuse=refuse,
+            args=args,
+            parent_gone=parent_gone,
+        )
     finally:
-        clear_connect_starting(who, pid=os.getpid())
+        if tw_link is not None:
+            tw_link.close()
