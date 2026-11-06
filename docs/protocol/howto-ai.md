@@ -99,7 +99,7 @@ Antigravity reads only these workspace paths (and each parent up to the repo roo
 1. Copy `docs/protocol/skill.md` to `<office repo>/.agents/skills/mill-desk/SKILL.md`.
 2. Add a short pointer in `AGENTS.md` at the repo root (not `GEMINI.md`, so other agents can read it too) that mill-desk lives at `.agents/skills/mill-desk/SKILL.md`.
 3. Session start is `mill briefing` (lists kinds). No separate start-session skill.
-4. Run mill commands as children of the `mill connect` shell (same rule as [skill.md](skill.md)). See [models/antigravity/SKILL.md](models/antigravity/SKILL.md) for the connect-shell check and minimum safe permissions.
+4. A command with no sitting connect opens the joined desk's seat for that one command and releases it (same rule as [skill.md](skill.md)). See [models/antigravity/SKILL.md](models/antigravity/SKILL.md) for seat borrow and minimum safe permissions.
 5. Do **not** "analyze the mill repo" first. mill join + mill connect already ran.
 
 ## Google - Gemini Spark / Enterprise
