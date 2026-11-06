@@ -2,6 +2,7 @@
 """Card 970 slice (a): local link, one route, 4572 frames."""
 from __future__ import annotations
 
+import ctypes
 import socket
 import threading
 from pathlib import Path
@@ -38,6 +39,17 @@ def _within(fn, seconds=3):
     if "error" in box:
         raise box["error"]
     return box.get("value")
+
+
+def test_pipe_module_imports_without_kernel32(monkeypatch) -> None:
+    import importlib
+
+    import agent_coord.client.tw.win_pipe as win_pipe
+
+    monkeypatch.delattr(ctypes, "WinDLL", raising=False)
+    loaded = importlib.reload(win_pipe)
+    assert loaded.PIPE_REJECT_REMOTE_CLIENTS == 0x00000008
+    assert loaded._kernel32._lib is None
 
 
 def test_linux_macos_and_wsl_share_the_unix_transport() -> None:

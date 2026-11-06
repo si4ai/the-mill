@@ -22,64 +22,87 @@ PIPE_UNLIMITED_INSTANCES = 255
 _WAIT_TIMEOUT = 258
 _INFINITE = 0xFFFFFFFF
 
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-_kernel32.CreateNamedPipeW.argtypes = [
-    wintypes.LPCWSTR,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    ctypes.c_void_p,
-]
-_kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
-_kernel32.ConnectNamedPipe.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
-_kernel32.ConnectNamedPipe.restype = wintypes.BOOL
-_kernel32.ReadFile.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
-]
-_kernel32.ReadFile.restype = wintypes.BOOL
-_kernel32.WriteFile.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
-]
-_kernel32.WriteFile.restype = wintypes.BOOL
-_kernel32.GetOverlappedResult.argtypes = [
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    ctypes.POINTER(wintypes.DWORD),
-    wintypes.BOOL,
-]
-_kernel32.GetOverlappedResult.restype = wintypes.BOOL
-_kernel32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
-_kernel32.CreateEventW.restype = wintypes.HANDLE
-_kernel32.SetEvent.argtypes = [wintypes.HANDLE]
-_kernel32.SetEvent.restype = wintypes.BOOL
-_kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
-_kernel32.ResetEvent.restype = wintypes.BOOL
-_kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-_kernel32.WaitForSingleObject.restype = wintypes.DWORD
-_kernel32.WaitForMultipleObjects.argtypes = [
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.HANDLE),
-    wintypes.BOOL,
-    wintypes.DWORD,
-]
-_kernel32.WaitForMultipleObjects.restype = wintypes.DWORD
-_kernel32.DisconnectNamedPipe.argtypes = [wintypes.HANDLE]
-_kernel32.DisconnectNamedPipe.restype = wintypes.BOOL
-_kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-_kernel32.CloseHandle.restype = wintypes.BOOL
-_kernel32.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
-_kernel32.CancelIoEx.restype = wintypes.BOOL
+
+class _LazyKernel:
+    """Load kernel32 on first use. Import stays clean where WinDLL does not exist."""
+
+    def __init__(self) -> None:
+        self._lib = None
+
+    def _load(self):
+        if self._lib is None:
+            if not hasattr(ctypes, "WinDLL"):
+                raise OSError("named pipe is windows only")
+            lib = ctypes.WinDLL("kernel32", use_last_error=True)
+            _bind_kernel32(lib)
+            self._lib = lib
+        return self._lib
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+def _bind_kernel32(lib) -> None:
+    lib.CreateNamedPipeW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    lib.CreateNamedPipeW.restype = wintypes.HANDLE
+    lib.ConnectNamedPipe.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    lib.ConnectNamedPipe.restype = wintypes.BOOL
+    lib.ReadFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    lib.ReadFile.restype = wintypes.BOOL
+    lib.WriteFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    lib.WriteFile.restype = wintypes.BOOL
+    lib.GetOverlappedResult.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.BOOL,
+    ]
+    lib.GetOverlappedResult.restype = wintypes.BOOL
+    lib.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    lib.CreateEventW.restype = wintypes.HANDLE
+    lib.SetEvent.argtypes = [wintypes.HANDLE]
+    lib.SetEvent.restype = wintypes.BOOL
+    lib.ResetEvent.argtypes = [wintypes.HANDLE]
+    lib.ResetEvent.restype = wintypes.BOOL
+    lib.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    lib.WaitForSingleObject.restype = wintypes.DWORD
+    lib.WaitForMultipleObjects.argtypes = [
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+    lib.WaitForMultipleObjects.restype = wintypes.DWORD
+    lib.DisconnectNamedPipe.argtypes = [wintypes.HANDLE]
+    lib.DisconnectNamedPipe.restype = wintypes.BOOL
+    lib.CloseHandle.argtypes = [wintypes.HANDLE]
+    lib.CloseHandle.restype = wintypes.BOOL
+    lib.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    lib.CancelIoEx.restype = wintypes.BOOL
+
+
+_kernel32 = _LazyKernel()
 
 _INVALID = ctypes.c_void_p(-1).value
 
