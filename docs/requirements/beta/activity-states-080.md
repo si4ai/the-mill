@@ -174,9 +174,7 @@ stateDiagram-v2
     Active --> Waiting: --doing with --waiting-on, act focus
     Waiting --> Active: newer --doing without --waiting-on, act focus
     Active --> Idle: own ship, done or drop on the focus item (derived, no focus row)
-    Waiting --> Idle: own ship, done or drop on the focus item (derived, no focus row)
     Active --> Idle: reply under the focus letter (derived, no row)
-    Waiting --> Idle: reply under the focus letter (derived, no row)
     Active --> Idle: reset seat / retire desk, act clear
     Waiting --> Idle: reset seat / retire desk, act clear
   }
@@ -277,11 +275,11 @@ stateDiagram-v2
 | H2 | free | held by caller | `mill hold NAME` | `hold` | one, `hold` |
 | H3 | held by caller | held by caller | `mill hold NAME` | none | none; `hold.updated` only |
 | H4 | held by caller | free | `mill drop NAME` | `drop` | one, `drop` |
-| H5 | held by D | free | `mill reset seat D --yes`, `mill retire desk D --yes`, or D retiring itself | `drop` | one per freed hold, by the acting desk, `peer_id` = D when another desk acted (reset names D itself) |
+| H5 | held by D | free | `mill reset seat D --yes`, `mill retire desk D --yes`, or D retiring itself; or `mill drop NAME` by Admin, or by a desk when D is disconnected and has held it the configured stale days (card 931) | `drop` | one per freed hold, by the acting desk, `peer_id` = D when another desk acted (reset names D itself). Transition reason `hold_force`. |
 | H6 | any | same | `mill hold --peek NAME`, `mill hold` | none | none |
-| H7 | held by D | free | `mill drop NAME` by Admin, or by a desk when D is disconnected and has held it the configured stale days (card 931) | `drop` | one, `drop`, by the acting desk, `peer_id` = D |
+| H7 | any | refused | `mill hold NAME` while another desk holds it | none | none; no hold move row. Transition reason `hold_refuse`. |
 
-A take locks the hold row (`SELECT ... FOR UPDATE` on `resource_id`) before it checks `desk_id`, as in 0.7.19. A refused take (another desk holds it) writes no row. H7 releases only when the holder is still the one the caller checked (`mill_hold_release_other`).
+A take locks the hold row (`SELECT ... FOR UPDATE` on `resource_id`) before it checks `desk_id`, as in 0.7.19. A refused take (another desk holds it) writes no hold move row and records transition reason `hold_refuse` (H7). A forced release (H5, reason `hold_force`) covers reset, retire, Admin drop, or a stale-holder drop. An Admin or stale-holder drop frees the hold only when the holder is still the one the caller checked (`mill_hold_release_other`).
 
 Changes from 0.7.19:
 
@@ -291,7 +289,8 @@ Changes from 0.7.19:
 | H3 | `hold.updated` refreshed | the same; still no activity write and no row |
 | H4 | `desk_id` set NULL, activity bumped | the same, plus one `drop` move row and act `drop` |
 | H5 | holds freed in the reset or retire call, each activity row bumped | the same, plus one `drop` row per freed hold by the acting desk |
-| H7 | (no such path) | new (card 931) |
+| H5 force path | (admin/stale release-other not separate) | `hold_force` also covers Admin or stale-holder `mill drop` (card 931) |
+| H7 | (no such path) | `hold_refuse`: a blocked take writes no move row |
 | history | who held it before is lost | the hold's move rows; no `hold_event` table |
 
 ## score
