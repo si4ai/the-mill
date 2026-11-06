@@ -85,6 +85,9 @@ const out = {
     { kpi: 'doing.task.end_reason', owner: 'auditor', value: 'tw_finished' },
     { kpi: 'doing.task.finished_at', owner: 'auditor', value: '2026-11-06T10:00:00Z' }
   ], 'auditor', Date.parse('2026-11-06T12:00:00Z')),
+  lastWithDocAt: scoreDoingTaskLastDoneFromScores([
+    { kpi: 'doing.task.end_reason', owner: 'auditor', value: 'tw_finished', at: '2026-11-06T10:00:00Z' }
+  ], 'auditor', Date.parse('2026-11-06T12:00:00Z')),
   agoTwoHours: scoreDoingTaskFormatAgo(Date.parse('2026-11-06T10:00:00Z'), Date.parse('2026-11-06T12:00:00Z')),
   agoEmpty: scoreDoingTaskFormatAgo(null, Date.now()),
   parseIdleMs: scoreDoingTaskParseTimestamp(28800003.795),
@@ -178,3 +181,5 @@ def test_phase_a_last_done_ago_only_from_real_timestamp():
     assert got["lastWithUpdatedAt"]["ago"] == "1 hour ago"
     assert got["lastWithLeafTs"]["ago"] == "2 hours ago"
     assert got["lastWithFinishedAt"]["end_reason"] == "tw_finished"
+    assert "ago" not in got["lastWithDocAt"]
+    assert got["lastWithDocAt"]["end_reason"] == "tw_finished"

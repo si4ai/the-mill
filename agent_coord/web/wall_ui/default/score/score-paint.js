@@ -722,7 +722,7 @@
     }
 
     function paintScoreTaskWrap(d, selectedDesk) {
-      /* Phase A: office rollup + per-desk doing.task.* leaves (latest upsert). end_reason stays here; Session/Floor show a last-done tail when tasks[] is empty, not a live terminal row. */
+      /* Phase A: office rollup + per-desk doing.task.* leaves (latest upsert). end_reason stays here even when Session/Floor hide terminal rows. */
       const el = document.getElementById("score-task-wrap");
       if (!el) return;
       const books = [];

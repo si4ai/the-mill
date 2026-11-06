@@ -314,7 +314,7 @@
   /* Per-score timestamps only. Never treat dwell_idle_ms (or other leaf values) as a clock. */
   var DOING_TASK_TS_KEYS = {
     finished_at: 1, written_at: 1, updated_at: 1, created_at: 1,
-    scored_at: 1, upserted_at: 1, timestamp: 1, ts: 1, when: 1, at: 1
+    scored_at: 1, upserted_at: 1, timestamp: 1, ts: 1, when: 1
   };
   function scoreDoingTaskParseTimestamp(raw) {
     if (raw == null || raw === "") return null;
