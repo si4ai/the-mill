@@ -713,16 +713,16 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
 
 
 def _doing_rows(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, list]]]:
-    """Group mill_doing_now's parts: (desk row, {letters, cards, blocked desks})."""
+    """Group the doing read parts: (desk row, {letters, cards, blocked desks, tasks})."""
     extra: dict[str, dict[str, list]] = {}
     desks: list[dict[str, Any]] = []
     for r in rows:
         part = str(r.get("part") or "")
         if part == "desk":
             desks.append(r)
-        elif part in ("letter", "card", "blocked"):
-            extra.setdefault(str(r.get("desk") or ""), {"letter": [], "card": [], "blocked": []})[part].append(r)
-    return [(d, extra.get(str(d.get("desk") or ""), {"letter": [], "card": [], "blocked": []})) for d in desks]
+        elif part in ("letter", "card", "blocked", "task"):
+            extra.setdefault(str(r.get("desk") or ""), {"letter": [], "card": [], "blocked": [], "task": []})[part].append(r)
+    return [(d, extra.get(str(d.get("desk") or ""), {"letter": [], "card": [], "blocked": [], "task": []})) for d in desks]
 
 
 def _age(seconds: Any) -> str:
@@ -746,6 +746,7 @@ def _item(typ: Any, nid: Any) -> str | None:
 def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str, Any]:
     from agent_coord.lib.observe import heartbeat_flags
     from agent_coord.server.push import desk_sitting
+    from agent_coord.server.records.doing import TASK_CAP
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
@@ -802,6 +803,22 @@ def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str,
     n_letters = int(by["letter"][0].get("n") or 0) if by["letter"] else 0
     n_cards = int(by["card"][0].get("n") or 0) if by["card"] else 0
     n_blocked = int(by["blocked"][0].get("n") or 0) if by.get("blocked") else 0
+    tasks = []
+    for task in by.get("task", []):
+        if task.get("state") not in ("idle", "active", "waiting"):
+            continue
+        item = {"state": task["state"]}
+        if task.get("join_key"):
+            item["join_key"] = task["join_key"]
+        cause = task.get("cause")
+        if task["state"] == "waiting" and isinstance(cause, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,31}", cause):
+            item["waiting_on"] = cause
+        if task.get("card_id") is not None:
+            item["card"] = _item("todo", task["card_id"])
+        tasks.append(item)
+        if len(tasks) == TASK_CAP:
+            break
+    out["tasks"] = tasks
     out["waiting_on_it"] = {
         "letters": {"n": n_letters, "newest": letters},
         "cards": {"n": n_cards, "newest": cards},
