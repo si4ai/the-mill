@@ -423,18 +423,17 @@ def run_argv(
             if code == 0:
                 code = 0 if last.returncode in (0, None) else int(last.returncode)
             _send_sample(session, watch_id, procs[0].pid, counters, lock, sink is not None)
-            try:
-                session.send(
-                    _event_body(
-                        watch_id,
-                        "exit",
-                        procs[0].pid,
-                        exit_code=code,
-                        no_wake=no_wake,
-                    )
-                )
-            except OSError:
-                pass
+            # Wait for accepted. A bare send can close before the link hops.
+            _emit(
+                session,
+                _event_body(
+                    watch_id,
+                    "exit",
+                    procs[0].pid,
+                    exit_code=code,
+                    no_wake=no_wake,
+                ),
+            )
             return code
         finally:
             _end_all(procs)
