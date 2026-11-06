@@ -1416,26 +1416,20 @@ def run_ws_loop(
         hdrs["Authorization"] = "Bearer " + token
 
     async def _once() -> None:
-        kw: dict[str, Any] = {"open_timeout": 10}
+        ssl_ctx = None
         if url.startswith("wss://"):
             try:
                 from agent_coord.client.http import mill_ssl_context
 
-                kw["ssl"] = mill_ssl_context()
+                ssl_ctx = mill_ssl_context()
             except Exception as e:
                 print(_json_line({"backchannel": "ssl", "error": type(e).__name__}), flush=True)
                 raise
-        if hdrs:
-            kw["additional_headers"] = hdrs
 
         def _connect() -> Any:
-            try:
-                return websockets.connect(url, **kw)
-            except TypeError:
-                kw.pop("additional_headers", None)
-                if hdrs:
-                    kw["extra_headers"] = hdrs
-                return websockets.connect(url, **kw)
+            from agent_coord.client.seat.open import connect_websocket
+
+            return connect_websocket(url, headers=hdrs, ssl_context=ssl_ctx)
 
         extras: list[Any] = []
 
@@ -1575,23 +1569,17 @@ def wait_one_hint(
         hdrs["Authorization"] = "Bearer " + token
 
     async def _go() -> dict[str, Any]:
-        kw: dict[str, Any] = {"open_timeout": 10}
+        ssl_ctx = None
         if url.startswith("wss://"):
             try:
                 from agent_coord.client.http import mill_ssl_context
 
-                kw["ssl"] = mill_ssl_context()
+                ssl_ctx = mill_ssl_context()
             except Exception as e:
                 return {"ok": False, "error": f"ssl: {e}", "desk": who}
-        if hdrs:
-            kw["additional_headers"] = hdrs
-        try:
-            conn = websockets.connect(url, **kw)
-        except TypeError:
-            kw.pop("additional_headers", None)
-            if hdrs:
-                kw["extra_headers"] = hdrs
-            conn = websockets.connect(url, **kw)
+        from agent_coord.client.seat.open import connect_websocket
+
+        conn = connect_websocket(url, headers=hdrs, ssl_context=ssl_ctx)
         async with conn as wsock:
             sit_url = url.split("?")[0]
             mode = "hold" if hold_empty_sync else "foreground"

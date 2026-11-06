@@ -153,12 +153,9 @@ def mill_http_call(body: dict[str, Any]) -> Any:
             key = ""
     else:
         payload.pop("token", None)
-        # JSON RPC on the sitting connect that shares this process parent pid.
-        # Not the host active file. Not argv owner. Not another desk token.
-        from agent_coord.client.session_errors import (
-            SESSION_TOKEN_REQUIRED,
-            SESSION_WS_BRIDGE_REQUIRED,
-        )
+        # A sit for this process carries the command. With no sit, seat.command
+        # opens one socket for the joined desk, sends the command, and releases it.
+        from agent_coord.client.session_errors import SESSION_TOKEN_REQUIRED
         from agent_coord.client.ws import mill_ws_call, wait_for_sitting_desk
 
         # Sitting miss: one short wait, or up to 10s while this parent's connect
@@ -167,12 +164,11 @@ def mill_http_call(body: dict[str, Any]) -> Any:
         if not who:
             who = (wait_for_sitting_desk() or "").strip()
         if not who:
-            from agent_coord.client.ws import busy_for_parent, fail_for_parent
+            # No sit for this process: same socket package as mill connect,
+            # one command, then the bearer is released.
+            from agent_coord.client.seat import command
 
-            # Card 834: busy. Card 742: connect exited with an error (e.g. no seat).
-            raise CoordError(
-                busy_for_parent() or fail_for_parent() or SESSION_WS_BRIDGE_REQUIRED
-            )
+            return command(payload)
         key = mill_api_key(who)
         if not key:
             raise CoordError(SESSION_TOKEN_REQUIRED)
@@ -1072,39 +1068,19 @@ def _sit_mill_here(
         if got.get("ok"):
             return 0
         return int(got["exit"]) if "exit" in got else 1  # busy exits 0 (card 834)
-    stop = threading.Event()
-    outcome: dict = {}
-    from agent_coord.client.ws import clear_connect_starting, hold_sync_lines, start_ws_thread, write_connect_starting
-
-    write_connect_starting(who, pid=os.getpid(), parent_pid=parent)
     # Unknown, retired, or empty project: the server refuses on this socket and
     # connect exits 1 before any sync line (#237).
     project = str(getattr(args, "project", "") or "").strip()
-    hold_sync_lines()
-    start_ws_thread(who, tok, stop, outcome, refuse=refuse)
-    threading.Thread(
-        target=seat_then_focus,
-        args=(who, project, stop, outcome),
-        name="mill-connect-project-%s" % who,
-        daemon=True,
-    ).start()
-    try:
-        try:
-            while not stop.is_set():
-                # Start-Process leaves this process up after the script exits (#192).
-                if parent_gone(parent):
-                    stop.set()
-                    from agent_coord.client.session_errors import parent_exited_notice
+    from agent_coord.client.seat import hold
 
-                    print(json.dumps(parent_exited_notice(who), default=str), flush=True)
-                    return 0
-                stop.wait(1.0)
-        except KeyboardInterrupt:
-            stop.set()
-            return 0
-        return int(outcome.get("exit") or 0)
-    finally:
-        clear_connect_starting(who, pid=os.getpid())
+    return hold(
+        who,
+        tok,
+        parent=parent,
+        refuse=refuse,
+        parent_gone=parent_gone,
+        project=project,
+    )
 
 
 def mill_here_over_http(args: Any) -> int:
