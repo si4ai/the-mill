@@ -37,7 +37,7 @@ Long `mill connect` / `connect-wait` stays for presence, hints, and idle. Severa
 bash -c 'mill connect DESK >/dev/null 2>&1 & trap "kill $!" EXIT; mill inbox; mill todo'
 ```
 
-- Commands wait for a sitting connect to be ready.
+- When you use the optional same-shell one-liner above, wait for that connect to be ready before the commands. One-shot seat borrow does not need it.
 - `mill connect DESK` alone in the foreground just blocks.
 - A second connect for the same desk is refused as busy while the first is up (exit 0); `mill connect --take DESK` takes the seat.
 - `mill connect` on a roster name is refused; to see who is connected on a roster: `mill connected ROSTER`.
