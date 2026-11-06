@@ -213,7 +213,7 @@ def _win_pid_running(pid: int) -> bool | None:
 # parent is a fresh launcher per call, never the shell that ran
 # `mill connect`. The connect bridge matches on the shell, so walk past them.
 CONSOLE_LAUNCHERS = frozenset(
-    {"mill.exe", "agent-coord.exe", "mill-hold.exe"}
+    {"mill.exe", "agent-coord.exe", "mill-hold.exe", "tw.exe"}
 )
 _MAX_LAUNCHER_HOPS = 3
 
