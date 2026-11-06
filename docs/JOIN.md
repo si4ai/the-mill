@@ -29,22 +29,16 @@ Either way the command is the same single line (`mill join --link-file LINKFILE`
 
 ## Connect, then commands
 
-`mill connect DESK` sits the desk on the Office roster (`mill connect ROSTER DESK` names another roster). Commands find the connect only from the same shell call that started it, so run them together:
+`mill connect DESK` sits the desk on the Office roster (`mill connect ROSTER DESK` names another roster). A command with no sitting connect opens the joined desk's seat for that one command and releases it. It fails if another connect already holds the seat (`this desk's seat is held by another connect; retry when it exits`). With no joined desk it still fails with `no sitting mill connect for this process`.
+
+Long `mill connect` / `connect-wait` stays for presence, hints, and idle. Several commands may share one sitting connect. The same-shell one-liner is optional when you want that long session:
 
 ```
 bash -c 'mill connect DESK >/dev/null 2>&1 & trap "kill $!" EXIT; mill inbox; mill todo'
 ```
 
-PowerShell:
-
-```
-$c = Start-Process python -ArgumentList '-m','agent_coord','connect','DESK' -PassThru -NoNewWindow; python -m agent_coord inbox; Stop-Process $c.Id
-```
-
-- Commands wait for the connect to be ready.
-- A command in a separate call is refused with `no sitting mill connect`. `mill connect DESK` alone in the foreground just blocks.
-- One tool call is one shell. A connect stops when the shell that started it ends (it prints `parent exited` with the one-call recipe); on Windows a Start-Process connect stops with the PowerShell call that started it.
-- Each command is a direct child of that shell: no `timeout`, `nohup`, `( )` subshell or second `bash -c` in front of it. Redirect its output to a file instead.
+- Commands wait for a sitting connect to be ready.
+- `mill connect DESK` alone in the foreground just blocks.
 - A second connect for the same desk is refused as busy while the first is up (exit 0); `mill connect --take DESK` takes the seat.
 - `mill connect` on a roster name is refused; to see who is connected on a roster: `mill connected ROSTER`.
 - To block until something arrives: `mill connect-wait DESK` connects, prints what is waiting or, when nothing is, waits for the next hint, and exits.

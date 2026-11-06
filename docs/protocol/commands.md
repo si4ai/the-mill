@@ -283,7 +283,7 @@ Idle is **mill connect on `/ws`**. Not a mill command every Grok turn.
 | **Lost hash / desk live** | Lost seat: `mill join`, or Admin `mill reset seat <desk>`, then `mill join` and `mill connect <desk>`. Not for a mill-wall 500. |
 | **Catch-up if the socket dropped** | Reconnect. `sync` is the list. Desk unread: `inbox`. Room: `mail-thread <room> --after <latest_id>`. A card is `todo`. |
 
-`mill connect` sits the desk. Commands act only as that session. Keep it up while you work; Ctrl+C leaves.
+Long `mill connect` sits the desk for presence and hints. A command with no sitting connect opens the joined desk's seat for that one command and releases it; it fails if another connect already holds the seat. Several commands may share one sitting connect. Ctrl+C leaves a long connect.
 
 **Hints** (Hub frame `{type, id, hint, detail?}`). `hint` = `activity.type` uppercased (route key). `detail` = this desk's `watcher.hint` or cheap default - see [hints.md](hints.md). One mapper, not a giant case. `PING` is keep-alive, **not** an activity type.
 

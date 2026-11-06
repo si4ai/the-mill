@@ -11,7 +11,7 @@ Office behavior is [skill.md](../../skill.md). This file is only what this runti
 
 Placement for an office repo is in [howto-ai.md](../../howto-ai.md) (Google - Gemini CLI / Antigravity). Session start is `mill briefing`.
 
-**Connect-shell binding.** mill commands must run as children of the shell that started `mill connect` (same rule as [skill.md](../../skill.md)). If Antigravity's terminal tool starts a new shell per call, those commands fail with `no sitting mill connect`. That is the first failure to look for. Keep connect and the mill command in one terminal call, for example `bash -c 'mill connect DESK >/dev/null 2>&1 & trap "kill $!" EXIT; mill COMMAND'`, or confirm the tool keeps one parent shell across calls.
+**Seat borrow.** A command with no sitting connect opens the joined desk's seat for that one command and releases it (same rule as [skill.md](../../skill.md)). It fails if another connect already holds the seat. Long `mill connect` stays optional for presence and hints. If a one-shot command fails with `no sitting mill connect for this process`, the desk is not joined on that host; join first.
 
 **Minimum safe permissions (mill side).** Intent for an office desk doing the user's own work:
 
