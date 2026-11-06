@@ -276,10 +276,11 @@ CARD_1022_TABLES = ("wake", "transition", "transition_edge")
 FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema = 0.8.0 + card 1022. Kill/resume tests run apply_080 only; finish with 1022."""
+    """Tip schema = 0.8.0 + card 1022 + card 970. Kill/resume tests run apply_080 only; finish with 1022 and 970."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
+    migrate.apply_task_970(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
