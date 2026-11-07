@@ -441,7 +441,7 @@
 
     <div class="pane" id="pane-admin">
       <div class="admin-chrome">
-        <h2>ADMIN - door | keys | network</h2>
+        <h2>ADMIN - door | keys | network | transitions</h2>
         <span class="admin-ladder" id="admin-ladder" role="group" aria-label="Security ladder">
           <button type="button" data-ladder="solo" class="on" title="Solo: light Admin">Solo</button>
           <button type="button" data-ladder="office" title="Office: full key board">Office</button>
@@ -479,6 +479,26 @@
           </div>
           <p class="note" id="admin-net-note"></p>
         </section>
+
+        <section class="admin-panel" id="admin-transition-panel" aria-label="Transition instrumentation">
+          <h3>TRANSITIONS</h3>
+          <p class="note">Compress two-state cycles (sit/unsit, hold free/held) into one row with count <code>n</code>. Odd <code>n</code> = at to_state; even = at from_state. Capture keeps every flip.</p>
+          <dl id="admin-transition-body">
+            <dt>Mode</dt><dd id="admin-tr-mode">...</dd>
+            <dt>Pairs</dt><dd id="admin-tr-pairs">...</dd>
+            <dt>Rows / events</dt><dd id="admin-tr-stats">...</dd>
+          </dl>
+          <div class="admin-actions admin-full-only">
+            <button type="button" id="admin-tr-compress" title="Compress cycles (default)">Compress</button>
+            <button type="button" id="admin-tr-capture" title="Capture every transition row">Capture</button>
+            <input id="admin-tr-pairs-input" placeholder="doing:seated/connected,hold:free/held,hold:held/held" size="42" />
+            <button type="button" id="admin-tr-save-pairs">save pairs</button>
+            <button type="button" id="admin-tr-refresh">refresh</button>
+          </div>
+          <div id="admin-tr-compressed" class="body note"></div>
+          <p class="note" id="admin-tr-note"></p>
+        </section>
+
         <section class="admin-panel oidc-stub" id="admin-oidc-panel" aria-label="Directory / OIDC stub">
           <h3>DIRECTORY / OIDC (stub)</h3>
           <p class="note">Company directory - coming later; use invite keys today</p>

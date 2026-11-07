@@ -38,6 +38,7 @@ async function loadAdminInvites() {
       if (doorEl) doorEl.textContent = "door: " + (data.door || "?") + " | ladder hint: " + (data.ladder || "?");
       if (data.ladder && !localStorage.getItem("factory-admin-ladder")) applyAdminLadder(data.ladder);
       else applyAdminLadder(localStorage.getItem("factory-admin-ladder") || "solo");
+      adminLoadTransitions();
       const keys = data.keys || [];
       if (!keys.length) {
         body.innerHTML = '<div class="idle">No invite keys yet. Mint one (Office ladder) or <code>invite --mint</code>.</div>';
@@ -111,6 +112,59 @@ async function loadAdminInvites() {
     return data;
   }
 
+
+  async function adminLoadTransitions() {
+    try {
+      const row = await adminPost({ action: "transition" });
+      const modeEl = document.getElementById("admin-tr-mode");
+      const pairsEl = document.getElementById("admin-tr-pairs");
+      const statsEl = document.getElementById("admin-tr-stats");
+      const noteEl = document.getElementById("admin-tr-note");
+      const listEl = document.getElementById("admin-tr-compressed");
+      const input = document.getElementById("admin-tr-pairs-input");
+      if (modeEl) modeEl.textContent = row.mode || "...";
+      if (pairsEl) pairsEl.textContent = (row.pairs || []).join(", ") || "(none)";
+      if (input && row.pairs_raw) input.value = row.pairs_raw;
+      const a = row.analysis || {};
+      if (statsEl) {
+        if (a.error) statsEl.textContent = "unavailable: " + a.error;
+        else statsEl.textContent = (a.total_rows || 0) + " rows / " + (a.total_events || 0) + " events (saved " + (a.saved_rows || 0) + ")";
+      }
+      if (listEl) {
+        const top = a.top_compressed || [];
+        listEl.textContent = top.length
+          ? ("compressed: " + top.map(r => r.activity_type + " " + r.from_state + "->" + r.to_state + " n=" + r.n).join("; "))
+          : "no compressed rows yet";
+      }
+      if (noteEl) noteEl.textContent = row.note || "";
+    } catch (e) {
+      const noteEl = document.getElementById("admin-tr-note");
+      if (noteEl) noteEl.textContent = String(e && e.message || e);
+    }
+  }
+
+  async function adminSetTransitionMode(mode) {
+    try {
+      await adminPost({ action: "transition", mode: mode });
+      await adminLoadTransitions();
+    } catch (e) {
+      const noteEl = document.getElementById("admin-tr-note");
+      if (noteEl) noteEl.textContent = String(e && e.message || e);
+    }
+  }
+
+  async function adminSaveTransitionPairs() {
+    const input = document.getElementById("admin-tr-pairs-input");
+    const pairs = (input && input.value) || "";
+    try {
+      await adminPost({ action: "transition", pairs: pairs });
+      await adminLoadTransitions();
+    } catch (e) {
+      const noteEl = document.getElementById("admin-tr-note");
+      if (noteEl) noteEl.textContent = String(e && e.message || e);
+    }
+  }
+
   async function adminSetLan(on) {
     try {
       const row = await adminPost({ action: "network", lan_only: !!on });
@@ -175,6 +229,14 @@ async function loadAdminInvites() {
     if (lanOn) lanOn.addEventListener("click", function () { adminSetLan(true); });
     var lanOff = document.getElementById("admin-lan-off");
     if (lanOff) lanOff.addEventListener("click", function () { adminSetLan(false); });
+    var trCompress = document.getElementById("admin-tr-compress");
+    if (trCompress) trCompress.addEventListener("click", function () { adminSetTransitionMode("compress"); });
+    var trCapture = document.getElementById("admin-tr-capture");
+    if (trCapture) trCapture.addEventListener("click", function () { adminSetTransitionMode("capture"); });
+    var trSave = document.getElementById("admin-tr-save-pairs");
+    if (trSave) trSave.addEventListener("click", function () { adminSaveTransitionPairs(); });
+    var trRefresh = document.getElementById("admin-tr-refresh");
+    if (trRefresh) trRefresh.addEventListener("click", function () { adminLoadTransitions(); });
     var netRefresh = document.getElementById("admin-net-refresh");
     if (netRefresh) netRefresh.addEventListener("click", function () { loadAdminInvites(); });
     var mint = document.getElementById("admin-mint");
