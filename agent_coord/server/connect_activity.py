@@ -221,7 +221,10 @@ def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
     """Startup/session medians+worst; drop and reconnect counts. Empty omitted.
 
     Card 1098: under transition compress, seated<->connected flips share one row with
-    count n (reason stays connect). drop_n = floor(n/2); reconnects = max(0, ceil(n/2)-1).
+    count n; the row keeps its first edge (reason). Decode from that first edge:
+    connect-led: connects = ceil(n/2), drops = floor(n/2);
+    disconnect-led (e.g. a 0.8.9 / capture book whose latest row was a disconnect):
+    drops = ceil(n/2), connects = floor(n/2). Every connect after a drop is a reconnect.
     Session duration still needs separate connect/disconnect rows (capture mode).
     """
     rows = _fetch(cn, desk_id)
@@ -244,7 +247,7 @@ def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
         n = max(1, int(e.get("n") or 1))
         frm = str(e.get("from_state") or "")
         to = str(e.get("to_state") or "")
-        # Compressed sit/unsit cycle: one connect-reason row encodes the flips via n.
+        # Compressed sit/unsit cycle: one row encodes the flips via n, led by its first edge.
         if (
             reason == "connect"
             and n > 1
@@ -261,6 +264,17 @@ def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
             ms = _meta_startup(e.get("meta"))
             if ms is not None:
                 startups.append(float(ms))
+            continue
+        if (
+            reason == "disconnect"
+            and n > 1
+            and frm == "connected"
+            and to == "seated"
+        ):
+            # disconnect-led: D, C, D, ... each connect follows a drop in the row
+            drops += (n + 1) // 2
+            reconnects += n // 2
+            last_was_disconnect = (n % 2 == 1)
             continue
         if reason == "disconnect":
             drops += n
