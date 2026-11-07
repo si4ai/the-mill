@@ -1695,6 +1695,29 @@ def transition_1022_needed(cn) -> bool:
         cur.close()
 
 
+
+def _ensure_transition_n(cn) -> list[str]:
+    """card 1098: transition.n cycle count (default 1). Idempotent ADD COLUMN."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition"):
+            return applied
+        if not _column_exists(cur, "transition", "n"):
+            cur.execute(
+                "ALTER TABLE transition ADD COLUMN n INT UNSIGNED NOT NULL DEFAULT 1"
+                " AFTER meta"
+            )
+            applied.append("transition.n")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def apply_transition_1022(cn) -> list[str]:
     """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
@@ -1851,6 +1874,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             did_1022 = apply_transition_1022(cn)
             applied.extend(did_1022)
             applied.extend(apply_task_970(cn))
+            # card 1098: transition.n (after 1022 table exists)
+            applied.extend(_ensure_transition_n(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
