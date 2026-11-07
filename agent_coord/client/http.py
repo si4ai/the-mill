@@ -23,6 +23,7 @@ from agent_coord.helpers.ident import slug
 from agent_coord.client.tokens import (
     read_session_token,
     resolve_desk_owner,
+    write_active_desk,
     write_session_token,
 )
 
@@ -232,6 +233,7 @@ def mill_http_call(body: dict[str, Any]) -> Any:
         if tok and who:
             try:
                 write_session_token(who, tok, desk_id=row.get("desk_id"))
+                write_active_desk(who)
             except (OSError, ValueError):
                 pass
     return row
@@ -1139,6 +1141,10 @@ def mill_here_over_http(args: Any) -> int:
         except Exception:
             pass
         return 1
+    try:
+        write_active_desk(who)
+    except (OSError, ValueError):
+        pass
     foreground = bool(getattr(args, "foreground", False))
     # Card 1030: connect-wait stdout is only the final result JSON line.
     if not foreground:

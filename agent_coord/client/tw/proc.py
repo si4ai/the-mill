@@ -158,19 +158,68 @@ def _drop(desk: str, watch_id: str) -> None:
         _save(desk, runs)
 
 
+def _live_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "watch_id": row["watch_id"],
+        "pid": int(row["pid"]),
+        "kind": "",
+        "exit_code": None,
+        "stdout_bytes": 0,
+        "stderr_bytes": 0,
+        "log": False,
+        "sample": {},
+    }
+
+
+def _local_status(desk: str, watch_id: str | None) -> dict[str, Any] | None:
+    """A live local run. Byte counts stay on the sit link."""
+    rows: list[dict[str, Any]] = []
+    for row in list_runs(desk):
+        if watch_id and row["watch_id"] != watch_id:
+            continue
+        rows.append(_live_snapshot(row))
+    if watch_id:
+        if not rows:
+            return None
+        out: dict[str, Any] = {
+            "type": "reply",
+            "ok": True,
+            "msg": "status",
+            "watch_id": watch_id,
+        }
+        out["snapshot"] = rows[0]
+        return out
+    if not rows:
+        return None
+    return {"type": "reply", "ok": True, "msg": "status", "snapshot": rows}
+
+
+def _status_miss(reply: Any) -> bool:
+    if not isinstance(reply, dict) or reply.get("ok") is True:
+        return False
+    return str(reply.get("msg") or "") in ("missing", "down")
+
+
 def query_status(desk: str, watch_id: str | None = None) -> dict[str, Any]:
     who = _desk(desk)
+    local = _local_status(who, watch_id)
     try:
         session = open_session(who)
     except OSError:
+        if local is not None:
+            return local
         return {"type": "reply", "ok": False, "msg": "down"}
     try:
         msg: dict[str, Any] = {"type": "status"}
         if watch_id:
             msg["watch_id"] = watch_id
         reply = session.request(msg)
+        if _status_miss(reply) and local is not None:
+            return local
         return reply if isinstance(reply, dict) else {"type": "reply", "ok": False, "msg": "bad"}
     except OSError:
+        if local is not None:
+            return local
         return {"type": "reply", "ok": False, "msg": "down"}
     finally:
         session.close()
