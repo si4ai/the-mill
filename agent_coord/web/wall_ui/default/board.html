@@ -482,7 +482,7 @@
 
         <section class="admin-panel" id="admin-transition-panel" aria-label="Transition instrumentation">
           <h3>TRANSITIONS</h3>
-          <p class="note">Compress two-state cycles (sit/unsit, hold free<->held) into one row with count <code>n</code>. Odd <code>n</code> = at to_state; even = at from_state. Capture keeps every flip.</p>
+          <p class="note">Compress two-state cycles (sit/unsit, hold free/held) into one row with count <code>n</code>. Odd <code>n</code> = at to_state; even = at from_state. Capture keeps every flip.</p>
           <dl id="admin-transition-body">
             <dt>Mode</dt><dd id="admin-tr-mode">...</dd>
             <dt>Pairs</dt><dd id="admin-tr-pairs">...</dd>
@@ -491,7 +491,7 @@
           <div class="admin-actions admin-full-only">
             <button type="button" id="admin-tr-compress" title="Compress cycles (default)">Compress</button>
             <button type="button" id="admin-tr-capture" title="Capture every transition row">Capture</button>
-            <input id="admin-tr-pairs-input" placeholder="doing:seated/connected,hold:free/held" size="42" />
+            <input id="admin-tr-pairs-input" placeholder="doing:seated/connected,hold:free/held,hold:held/held" size="42" />
             <button type="button" id="admin-tr-save-pairs">save pairs</button>
             <button type="button" id="admin-tr-refresh">refresh</button>
           </div>

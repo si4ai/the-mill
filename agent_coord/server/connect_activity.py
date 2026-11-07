@@ -156,13 +156,13 @@ def _fetch(cn, desk_id: int | None) -> list[dict[str, Any]]:
     try:
         if desk_id is None or int(desk_id) <= 0:
             cur.execute(
-                "SELECT id, activity_id, from_state, to_state, reason, desk_id, join_key, at, meta"
+                "SELECT id, activity_id, from_state, to_state, reason, desk_id, join_key, at, meta, n"
                 " FROM transition WHERE activity_type='doing' AND join_key LIKE 'connect:%'"
                 " ORDER BY id"
             )
         else:
             cur.execute(
-                "SELECT id, activity_id, from_state, to_state, reason, desk_id, join_key, at, meta"
+                "SELECT id, activity_id, from_state, to_state, reason, desk_id, join_key, at, meta, n"
                 " FROM transition WHERE activity_type='doing' AND desk_id=%s"
                 " AND join_key LIKE %s ORDER BY id",
                 (int(desk_id), f"connect:{int(desk_id)}:%"),
@@ -218,7 +218,12 @@ def _meta_startup(meta) -> int | None:
 
 
 def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
-    """Startup/session medians+worst; drop and reconnect counts. Empty omitted."""
+    """Startup/session medians+worst; drop and reconnect counts. Empty omitted.
+
+    Card 1098: under transition compress, seated<->connected flips share one row with
+    count n (reason stays connect). drop_n = floor(n/2); reconnects = max(0, ceil(n/2)-1).
+    Session duration still needs separate connect/disconnect rows (capture mode).
+    """
     rows = _fetch(cn, desk_id)
     by_sess: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
@@ -236,8 +241,29 @@ def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
     last_was_disconnect = False
     for e in timeline:
         reason = str(e.get("reason") or "")
+        n = max(1, int(e.get("n") or 1))
+        frm = str(e.get("from_state") or "")
+        to = str(e.get("to_state") or "")
+        # Compressed sit/unsit cycle: one connect-reason row encodes the flips via n.
+        if (
+            reason == "connect"
+            and n > 1
+            and frm == "seated"
+            and to == "connected"
+        ):
+            drops += n // 2
+            connects = (n + 1) // 2
+            if last_was_disconnect:
+                reconnects += connects
+            else:
+                reconnects += max(0, connects - 1)
+            last_was_disconnect = (n % 2 == 0)
+            ms = _meta_startup(e.get("meta"))
+            if ms is not None:
+                startups.append(float(ms))
+            continue
         if reason == "disconnect":
-            drops += 1
+            drops += n
             last_was_disconnect = True
         elif reason == "connect":
             if last_was_disconnect:

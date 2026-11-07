@@ -49,7 +49,7 @@ DEFAULTS: dict[str, Any] = {
     # card 1098: compress two-state transition cycles (compress|capture)
     "transition_mode": "compress",
     # undirected pairs activity:from/to,... default sit/unsit + hold free/held
-    "transition_pairs": "doing:seated/connected,hold:free/held",
+    "transition_pairs": "doing:seated/connected,hold:free/held,hold:held/held",
 }
 
 _ENV = {
@@ -138,7 +138,7 @@ def hold_stale_days() -> int:
 
 
 
-DEFAULT_TRANSITION_PAIRS = "doing:seated/connected,hold:free/held"
+DEFAULT_TRANSITION_PAIRS = "doing:seated/connected,hold:free/held,hold:held/held"
 
 
 def transition_mode() -> str:

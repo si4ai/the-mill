@@ -340,11 +340,13 @@ def _try_compress(
     activity_id: int,
     from_state: State,
     to_state: State,
+    desk_id: int | None = 0,
 ) -> bool:
     """If latest row is the same two-state cycle and from matches effective state, bump n.
 
     Odd n => still at original to_state; even n => back at from_state.
     Same-state A->A refreshes bump n on a matching A->A row.
+    Desk must match the latest row (a new holder/desk starts a new row).
     Returns True when an existing row was updated (no INSERT).
     """
     from agent_coord.config import transition_mode
@@ -355,11 +357,12 @@ def _try_compress(
     to = to_state.value
     if not _pair_configured(activity_type, frm, to):
         return False
+    want_desk = 0 if desk_id is None else int(desk_id)
 
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT id, from_state, to_state, n FROM transition"
+            "SELECT id, from_state, to_state, n, desk_id FROM transition"
             " WHERE activity_type=%s AND activity_id=%s"
             " ORDER BY id DESC LIMIT 1",
             (activity_type.value, int(activity_id)),
@@ -368,6 +371,9 @@ def _try_compress(
         if not row:
             return False
         tid, lf, lt, n = row[0], str(row[1]), str(row[2]), int(row[3] or 1)
+        latest_desk = int(row[4] or 0)
+        if latest_desk != want_desk:
+            return False
         if _pair_key(lf, lt) != _pair_key(frm, to):
             return False
         # effective current state from odd/even on the stored edge
@@ -414,7 +420,13 @@ def put(
         activity_id=activity_id,
         from_state=from_state,
         to_state=to_state,
+        desk_id=desk_id,
     ):
+        # Match call(): compress UPDATE must be durable without a later caller commit
+        # (autocommit off + pool reset would otherwise drop the bump).
+        from agent_coord.server.records.db import commit as db_commit
+
+        db_commit(cn)
         return
     meta_arg = None if meta is None else (meta if isinstance(meta, str) else json.dumps(meta))
     call(

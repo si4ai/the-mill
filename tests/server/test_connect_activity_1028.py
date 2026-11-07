@@ -51,9 +51,11 @@ def _backdate(cn, join_key: str, reason: str, when) -> None:
     cur.close()
 
 
-def test_emit_connect_disconnect_session_and_startup(cn):
+def test_emit_connect_disconnect_session_and_startup(cn, monkeypatch):
+    """Session duration needs separate connect/disconnect rows (capture)."""
     from tests.server.records.conftest import seed_names
 
+    monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "capture")
     seed_names(cn, ("c1028", "roster"), ("desk1028", "desk"))
     did = _desk_id(cn, "desk1028")
     now = datetime.now(timezone.utc).replace(tzinfo=None)

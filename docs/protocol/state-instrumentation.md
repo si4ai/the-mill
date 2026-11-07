@@ -7,7 +7,7 @@ State map for card 1001 children (0.8.6). Sync: `origin/main` `ce115f8`.
 **Rule:** one durable server event per protocol transition.
 
 
-**Card 1098 (compress):** two-state cycles (default `doing:seated/connected` sit/unsit and `hold:free/held`) share one `transition` row with count `n` (default 1). Odd `n` = still at original `to_state`; even `n` = back at `from_state`. Office `transition_mode=compress|capture` and `transition_pairs` live in `config.toml` (Admin pane). Capture keeps every flip. The old `activity.n` count is gone; this transition count replaces it for these cycles.
+**Card 1098 (compress):** two-state cycles (default `doing:seated/connected` sit/unsit, `hold:free/held`, and same-state `hold:held/held` refreshes) share one `transition` row with count `n` (default 1). Odd `n` = still at original `to_state`; even `n` = back at `from_state`. Office `transition_mode=compress|capture` and `transition_pairs` live in `config.toml` (Admin pane). Capture keeps every flip. The old `activity.n` count is gone; this transition count replaces it for these cycles.
 
 **0.8.6 plan (letter 4317 / 980-plan.md):** feature events land in shared `transition` (card **1022**); performance/health in metric stream (**1023**); opt-in `share.transitions` (**1024**) and `share.metrics` separate; emitters **980/981/982/970/1002**; desk score writes out (**1021**); `seat.doing_id` drop after 970 (**1025**).
 
