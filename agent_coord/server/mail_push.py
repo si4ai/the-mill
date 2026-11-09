@@ -120,11 +120,66 @@ def _room_name(cn, mail_id: int) -> str | None:
     return name if name and not is_hidden_tree(name) else None
 
 
+def wake_reason_for_dest(row: dict, room_members: set[str]) -> str:
+    """Wake reason for one mail_to row.
+
+    A receipt-required dest is always addressed (card 1093): room-copy quiet
+    and --wake-on addressed must not suppress it. Named dests stay addressed;
+    ordinary room copies stay room.
+    """
+    desk = str(row.get("desk") or "").strip()
+    if int(row.get("receipt") or 0) == 1:
+        return "addressed"
+    return "room" if desk in room_members else "addressed"
+
+
+def counts_as_waiting(
+    *, pending: int = 0, unread: bool = False, unopened_receipt: bool = False
+) -> bool:
+    """True when a wake still has work (card 1093 / item 5 empty-skip hook).
+
+    An unopened receipt letter is never skippable as empty. Item 5 calls this
+    (or has_unopened_receipt) before logging skipped reason=empty.
+    """
+    return bool(int(pending or 0)) or bool(unread) or bool(unopened_receipt)
+
+
+def has_unopened_receipt(cn, desk: str) -> bool:
+    """True when this desk has a receipt=1 mail_to with opened still NULL.
+
+    Item 5's empty-wake skip and owed/ring paths must treat this as waiting work
+    until the dest opens (mark/reply/thread) or the letter expires.
+    """
+    from agent_coord.server.records.name import bare, get as name_get
+    from agent_coord.const import CONST_DESK
+
+    who = bare(str(desk or "").strip(), CONST_DESK)
+    if not who:
+        return False
+    did = name_get(cn, who, CONST_DESK)
+    if not did:
+        return False
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT 1 FROM mail_to t"
+            " WHERE t.type='mail' AND t.desk_id=%s AND t.receipt=1"
+            " AND t.opened IS NULL LIMIT 1",
+            (int(did),),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        cur.close()
+
+
 def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
     """Async MAIL item to every mail_to desk. Does not plant a watcher.
 
     room_only (#627): dests that get this letter as room members (reply-all);
     their wake says reason room. Every other dest was named: addressed.
+    A receipt-required dest is always addressed (card 1093), even as a room copy.
     """
     from agent_coord.server.push import emit
 
@@ -138,7 +193,7 @@ def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
         desk = str(row.get("desk") or "")
         if not desk:
             continue
-        reason = "room" if desk.strip() in members else "addressed"
+        reason = wake_reason_for_dest(row, members)
         emit(
             cn,
             desk,
