@@ -3,7 +3,7 @@
 
 (a) send --receipt to 2 desks -> both mail_to.receipt=1
 (b) reply-all --receipt room copy -> emit reason=addressed (wake_on=addressed posts)
-(c) same reply without --receipt -> reason=room, skipped room-only
+(c) same reply without --receipt -> reason=room; stays queued (item 5: no POST)
 (d) first open of a receipt letter -> one receipt item to the sender
 (e) body_from_args receipt=True -> body["receipt"] is True; human_required still dropped
 (f) unopened receipt room copy counts as waiting work (item 5 empty-skip hook)
@@ -220,12 +220,12 @@ def test_b_receipt_room_copy_wakes_addressed_desk(desk_wake):
 
 
 def test_c_room_copy_without_receipt_stays_quiet(desk_wake):
-    """(c) receipt=0 room copy -> reason=room; skipped for wake_on=addressed."""
+    """(c) receipt=0 room copy -> reason=room; item 5: queued, no POST/owed."""
     _push_room_letter(receipt=0, room_only={"away"})
     assert desk_wake.posts == []
-    assert [ln for ln in desk_wake.lines if ln.startswith("webhook ")] == [
-        "webhook desk=away kind=mail id=10930 wake=skipped reason=room-only"
-    ]
+    assert [ln for ln in desk_wake.lines if ln.startswith("webhook ")] == []
+    assert desk_wake.q.rows and desk_wake.q.rows[0].get("outcome") == "queued"
+    assert desk_wake.q.rows[0].get("wake_reason") == "room"
 
 
 # --- (f) empty-wake hook: unopened receipt is waiting work ---

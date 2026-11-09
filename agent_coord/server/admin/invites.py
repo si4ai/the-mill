@@ -228,7 +228,7 @@ def post_invites(
             out = tr_admin.compress_packet()
         try:
             with office() as c:
-                out["analysis"] = tr_admin.analysis(c._cn)
+                out["analysis"] = tr_admin.analysis(c._cn, since=data.get("since"))
         except Exception as e:
             out["analysis"] = {"error": str(e)[:200]}
         return out
