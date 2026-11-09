@@ -262,3 +262,31 @@ def test_analysis_wake_receipt_and_auto_done(cn, monkeypatch):
     assert by["auto_done"] >= 1
     assert by["receipt_unopened"] >= 1
     assert by["receipt_opened"] >= 1
+
+
+def test_glance_block_marks_failed_windows_stored_false_without_error_key():
+    """glance seal drops 'error'; a failed read carries stored=False and no figures."""
+
+    class Boom:
+        def cursor(self):
+            raise RuntimeError("no book")
+
+    out = ta.glance_block(Boom())
+    assert set(out) == {"mode", "pairs", "windows"}
+    assert out["mode"] in ("compress", "capture")
+    assert set(out["windows"]) == {"all", "24h", "7d"}
+    for win in out["windows"].values():
+        assert win == {"stored": False}
+
+
+@pytest.mark.sql
+def test_glance_block_matches_analysis_for_each_window(cn, monkeypatch):
+    monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
+    out = ta.glance_block(cn)
+    assert out["mode"] == "compress"
+    for key, since in (("all", None), ("24h", "24h"), ("7d", "7d")):
+        want = ta.analysis(cn, limit=10, since=since)
+        got = dict(out["windows"][key])
+        assert got.pop("stored") is True
+        assert got == want
+        assert "error" not in got

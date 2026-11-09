@@ -235,3 +235,23 @@ def analysis(cn, *, limit: int = 20, since: str | None = None) -> dict[str, Any]
     finally:
         if cur is not None:
             cur.close()
+
+
+def glance_block(cn) -> dict[str, Any]:
+    """Read-only transition summary for the glance packet (trusted human readers).
+
+    Same analysis the Admin 'transition' read returns, for all rows, 24h and 7d,
+    plus the current mode and pairs. The mode/pairs change stays the gated write.
+    The glance seal drops an 'error' key, so a failed window is marked
+    stored=False and carries no figures.
+    """
+    cfg = compress_packet()
+    windows: dict[str, Any] = {}
+    for key, since in (("all", None), ("24h", "24h"), ("7d", "7d")):
+        got = analysis(cn, limit=10, since=since)
+        if got.get("error"):
+            windows[key] = {"stored": False}
+        else:
+            got["stored"] = True
+            windows[key] = got
+    return {"mode": cfg["mode"], "pairs": cfg["pairs"], "windows": windows}

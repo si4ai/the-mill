@@ -736,6 +736,7 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
                 "value": touched["value"],
                 "stored": touched["stored"],
             },
+            "transition": _transition_block(cn),
         },
         "door": {
             "secrets": "redacted",
@@ -761,6 +762,16 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
         },
     }
     return seal(packet)
+
+
+def _transition_block(cn) -> dict[str, Any]:
+    """card 1098: read-only transition analysis for the Book tab (no Admin session)."""
+    from agent_coord.server import transition_admin
+
+    try:
+        return transition_admin.glance_block(cn)
+    except Exception:
+        return {"mode": "", "pairs": [], "windows": {}}
 
 
 def client_bits(*, peer: str, forwarded: str, token: str) -> dict[str, Any]:
