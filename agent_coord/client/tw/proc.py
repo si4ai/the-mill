@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import os
 import subprocess
 import threading
@@ -81,7 +82,53 @@ def _end(pid: int) -> None:
         return
 
 
+def _http_event(body: dict[str, Any]) -> bool:
+    """One direct tw.event hop when the sitting link is gone. No retry loop."""
+    payload: dict[str, Any] = {"verb": "tw.event"}
+    for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
+        if key in body:
+            payload[key] = body[key]
+    if body.get("wake") is False:
+        payload["wake"] = False
+    try:
+        from agent_coord.client.http import mill_http_call
+
+        got = mill_http_call(payload)
+    except Exception:
+        return False
+    return isinstance(got, dict) and got.get("ok") is True
+
+
+def _reclaim_lost(desk: str) -> None:
+    """Card 1098: a dead tw_pid means the wrapper died without an exit hop."""
+    runs = _load(desk)
+    if not runs:
+        return
+    kept: dict[str, dict[str, Any]] = {}
+    changed = False
+    for watch_id, row in runs.items():
+        if not isinstance(row, dict):
+            changed = True
+            continue
+        tw_pid = int(row.get("tw_pid") or 0)
+        if tw_pid and not _alive(tw_pid):
+            ok = _http_event(
+                {"watch_id": watch_id, "kind": "crash", "cause": "lost"}
+            )
+            if not ok:
+                print(
+                    f"tw: lost run {watch_id} not recorded; mill connected shows it active",
+                    file=sys.stderr,
+                )
+            changed = True
+            continue
+        kept[watch_id] = row
+    if changed:
+        _save(desk, kept)
+
+
 def list_runs(desk: str) -> list[dict[str, Any]]:
+    _reclaim_lost(desk)
     runs = _load(desk)
     live: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -367,6 +414,7 @@ def run_argv(
     steps: list[list[str]] | None = None,
 ) -> int:
     who = _desk(desk)
+    _reclaim_lost(who)
     if steps is None:
         if not argv or any(not isinstance(part, str) or part == "" for part in argv):
             return 2
@@ -430,7 +478,12 @@ def run_argv(
         for pump in pumps:
             pump.start()
         runs = _load(who)
-        runs[watch_id] = {"pid": procs[0].pid, "argv": steps[0], "stop": False}
+        runs[watch_id] = {
+            "pid": procs[0].pid,
+            "argv": steps[0],
+            "stop": False,
+            "tw_pid": os.getpid(),
+        }
         _save(who, runs)
         print(watch_id, flush=True)
 
@@ -542,9 +595,11 @@ def run_argv(
                     )
                 )
 
+        stopped = False
         while last.poll() is None:
             _drain_notices()
             if _flagged(who, watch_id):
+                stopped = True
                 break
             if session is not None and _pending(session._conn):
                 try:
@@ -560,6 +615,7 @@ def run_argv(
                 ):
                     if str(msg.get("reason") or "") == "sit-end":
                         continue
+                    stopped = True
                     break
                 continue
             if session is None or spool.items:
@@ -568,32 +624,63 @@ def run_argv(
                 elif time.monotonic() >= next_try:
                     _flush()
             time.sleep(0.05)
+        # Stages still alive before tw ends them are tw-killed; ignore their codes.
+        alive_non_last = {
+            i for i, proc in enumerate(procs[:-1]) if proc.poll() is None
+        }
         _end_all(procs)
         for pump in pumps:
             pump.join(2)
         _drain_notices()
         code = 0
-        for proc in procs:
-            if proc.returncode not in (0, None):
-                code = int(proc.returncode)
-                break
+        for index, proc in enumerate(procs):
+            rc = proc.returncode
+            if rc in (0, None):
+                continue
+            if index < len(procs) - 1 and index in alive_non_last:
+                continue
+            # SIGPIPE on a non-last stage is the pipe closing, not a real fail.
+            if index < len(procs) - 1 and int(rc) in (-13,):
+                continue
+            code = int(rc)
+            break
         if code == 0 and last.returncode not in (0, None):
             code = int(last.returncode)
         if session is None:
             _reconnect()
         if session is not None:
             _send_sample(session, watch_id, procs[0].pid, counters, lock, sink is not None)
-        _hop(
-            _event_body(
-                watch_id,
-                "exit",
-                procs[0].pid,
-                exit_code=code,
-                no_wake=no_wake,
-            )
+        exit_body = _event_body(
+            watch_id,
+            "exit",
+            procs[0].pid,
+            exit_code=code,
+            cause="stopped" if stopped else None,
+            no_wake=no_wake,
         )
+        _hop(exit_body)
         if session is not None and spool.items and time.monotonic() >= next_try:
             _flush()
+        # Durable fallback when the link was down at exit (card 1098).
+        if any(
+            str(item.get("kind") or "") == "exit"
+            and str(item.get("watch_id") or "") == watch_id
+            for item in spool.items
+        ):
+            if not _http_event(exit_body):
+                print(
+                    "tw: exit not recorded (link down); mill connected shows it active",
+                    file=sys.stderr,
+                )
+            else:
+                spool.items[:] = [
+                    item
+                    for item in spool.items
+                    if not (
+                        str(item.get("kind") or "") == "exit"
+                        and str(item.get("watch_id") or "") == watch_id
+                    )
+                ]
         return code
     finally:
         _end_all(procs)

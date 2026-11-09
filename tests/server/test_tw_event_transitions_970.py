@@ -34,7 +34,12 @@ def task(cn, monkeypatch):
         return rpc._h_tw_event(SimpleNamespace(_cn=cn), {"watch_id": "recipe", "kind": kind, **kw}, "Office", desk)
 
     def edges():
-        return rows(cn, "SELECT * FROM transition WHERE join_key=%s ORDER BY id", (f"task:{desk}:recipe",))
+        # Card 1098: score last_run rows share the task join_key; doing edges only here.
+        return rows(
+            cn,
+            "SELECT * FROM transition WHERE activity_type='doing' AND join_key=%s ORDER BY id",
+            (f"task:{desk}:recipe",),
+        )
 
     return desk, event, edges, pings
 
