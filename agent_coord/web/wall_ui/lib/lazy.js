@@ -77,7 +77,7 @@
     },
     todo: {
       js: "/todo/todo.js?v=wow320",
-      css: "/todo/todo.css?v=wow321",
+      css: "/todo/todo.css?v=wow335",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -107,7 +107,7 @@
       marker: "WALL_UI_DEFAULT_FLOOR_MAP"
     },
     adminInvite: {
-      js: "/admin/invite.js?v=wow281",
+      js: "/admin/invite.js?v=wow334",
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
