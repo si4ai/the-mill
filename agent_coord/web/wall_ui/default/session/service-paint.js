@@ -346,6 +346,10 @@
       if (typeof wallHumanReadonly === "function" && wallHumanReadonly()) return false;
       return true;
     }
+    function svcTrWriteNeedMsg() {
+      /* 0.8.10: directory config is not live yet; always ask for a desk vouch. */
+      return "Changing this needs a write voucher (a desk vouch).";
+    }
     function svcTrApplyWriteGate() {
       var can = svcTrCanWrite();
       ["svc-tr-compress", "svc-tr-capture"].forEach(function (id) {
@@ -355,8 +359,89 @@
       var hint = document.getElementById("svc-tr-mode-hint");
       if (hint) {
         hint.hidden = !!can;
-        hint.textContent = can ? "" : "sign in as Admin to change";
+        hint.textContent = can ? "" : svcTrWriteNeedMsg();
       }
+    }
+    function svcTrPairFigKey(r) {
+      return String((r && r.activity_type) || "") + "\0"
+        + String((r && r.from_state) || "") + "\0"
+        + String((r && r.to_state) || "");
+    }
+    function svcTrParsePairParts(raw) {
+      var out = [];
+      String(raw || "").split(",").forEach(function (part) {
+        part = String(part || "").trim();
+        if (!part) return;
+        var i = part.indexOf(":");
+        if (i < 0) return;
+        var typ = part.slice(0, i).trim().toLowerCase();
+        var rest = part.slice(i + 1);
+        var j = rest.indexOf("/");
+        if (j < 0) return;
+        var a = rest.slice(0, j).trim().toLowerCase();
+        var b = rest.slice(j + 1).trim().toLowerCase();
+        if (!typ || !a || !b) return;
+        var ends = (a <= b) ? [a, b] : [b, a];
+        out.push({
+          pair: typ + ":" + ends[0] + "/" + ends[1],
+          activity_type: typ,
+          from_state: ends[0],
+          to_state: ends[1]
+        });
+      });
+      return out;
+    }
+    function svcTrPairStateLabel(entry, mode) {
+      if (String(mode || "") === "capture") return "capturing every flip";
+      return (entry && entry.compress) ? "compressing" : "capturing every flip";
+    }
+    function svcTrBuildPairsString(pairsState, flipPair, flipOn) {
+      var out = [];
+      (Array.isArray(pairsState) ? pairsState : []).forEach(function (e) {
+        if (!e || !e.pair) return;
+        var on = !!e.compress;
+        if (e.pair === flipPair) on = !!flipOn;
+        if (on) out.push(e.pair);
+      });
+      return out.join(",");
+    }
+    function svcTrApplyWriteResult(row) {
+      if (!_svcPacket || !_svcPacket.book) return;
+      var tr = _svcPacket.book.transition || (_svcPacket.book.transition = { mode: "", pairs: [], pairs_state: [], windows: {} });
+      if (row && row.mode) tr.mode = row.mode;
+      var onSet = {};
+      var onList = [];
+      if (row && Array.isArray(row.pairs)) onList = row.pairs;
+      else if (row && row.pairs_raw != null) onList = String(row.pairs_raw).split(",");
+      onList.forEach(function (raw) {
+        svcTrParsePairParts(raw).forEach(function (p) { onSet[p.pair] = true; });
+      });
+      var union = {};
+      var defaults = (row && row.default_pairs) || "doing:seated/connected,hold:free/held,hold:held/held";
+      svcTrParsePairParts(defaults).forEach(function (p) { union[p.pair] = p; });
+      Object.keys(onSet).forEach(function (k) {
+        if (!union[k]) svcTrParsePairParts(k).forEach(function (p) { union[p.pair] = p; });
+      });
+      (Array.isArray(tr.pairs_state) ? tr.pairs_state : []).forEach(function (e) {
+        if (!e || !e.pair || union[e.pair]) return;
+        union[e.pair] = {
+          pair: e.pair,
+          activity_type: e.activity_type,
+          from_state: e.from_state,
+          to_state: e.to_state
+        };
+      });
+      tr.pairs = Object.keys(onSet).sort();
+      tr.pairs_state = Object.keys(union).sort().map(function (k) {
+        var p = union[k];
+        return {
+          pair: p.pair,
+          activity_type: p.activity_type,
+          from_state: p.from_state,
+          to_state: p.to_state,
+          compress: !!onSet[p.pair]
+        };
+      });
     }
     function svcBookTransitionsShellHtml() {
       return ''
@@ -408,20 +493,56 @@
         + "<td>" + esc(String(savedAll)) + "</td><td>" + esc(svcTrShare(savedAll, eventsAll)) + "</td>"
         + "</tr></tfoot></table>";
     }
-    function svcTrHtmlByPair(analysis) {
-      var list = (analysis && analysis.by_pair) || null;
-      if (!list) return "";
-      if (!list.length) return '<p class="svc-note">no configured pair rows</p>';
-      var body = list.map(function (r) {
-        var saved = svcTrSaved(r);
-        return "<tr><td><code>" + esc(r.activity_type || "") + "</code></td>"
-          + "<td>" + esc(r.from_state || "") + " -&gt; " + esc(r.to_state || "") + "</td>"
-          + "<td>" + esc(String(svcTrNum(r.rows))) + "</td>"
-          + "<td>" + esc(String(svcTrNum(r.events))) + "</td>"
-          + "<td>" + esc(String(saved)) + "</td></tr>";
+    function svcTrHtmlByPair(analysis, tr) {
+      tr = tr || svcTrPacket() || {};
+      var mode = tr.mode || "";
+      var state = Array.isArray(tr.pairs_state) ? tr.pairs_state : null;
+      var figMap = {};
+      ((analysis && analysis.by_pair) || []).forEach(function (r) {
+        figMap[svcTrPairFigKey(r)] = r;
+      });
+      if (!state) {
+        var legacy = (analysis && analysis.by_pair) || null;
+        if (!legacy || !legacy.length) return "";
+        var legacyBody = legacy.map(function (r) {
+          var saved = svcTrSaved(r);
+          return "<tr><td><code>" + esc(r.activity_type || "") + "</code></td>"
+            + "<td>" + esc(r.from_state || "") + " -&gt; " + esc(r.to_state || "") + "</td>"
+            + "<td></td>"
+            + "<td>" + esc(String(svcTrNum(r.rows))) + "</td>"
+            + "<td>" + esc(String(svcTrNum(r.events))) + "</td>"
+            + "<td>" + esc(String(saved)) + "</td></tr>";
+        }).join("");
+        return '<table class="svc-table" data-table="svc-tr-by-pair"><thead><tr>'
+          + "<th>type</th><th>from -&gt; to</th><th>state</th><th>rows</th><th>events</th><th>saved</th>"
+          + "</tr></thead><tbody>" + legacyBody + "</tbody></table>";
+      }
+      if (!state.length) return '<p class="svc-note">no configured pair rows</p>';
+      var body = state.map(function (e) {
+        var fig = figMap[svcTrPairFigKey(e)];
+        var label = svcTrPairStateLabel(e, mode);
+        var pressed = !!e.compress;
+        var btn = '<button type="button" class="svc-tr-pair-toggle'
+          + (pressed ? " on" : "")
+          + '" data-tr-pair="' + esc(e.pair || "") + '"'
+          + ' data-tr-compress="' + (pressed ? "1" : "0") + '"'
+          + ' aria-pressed="' + (pressed ? "true" : "false") + '"'
+          + ' title="toggle compress for this pair">'
+          + (pressed ? "compress" : "capture")
+          + "</button>";
+        var rows = fig ? esc(String(svcTrNum(fig.rows))) : "";
+        var events = fig ? esc(String(svcTrNum(fig.events))) : "";
+        var saved = fig ? esc(String(svcTrSaved(fig))) : "";
+        return "<tr data-tr-pair-row=\"" + esc(e.pair || "") + "\">"
+          + "<td><code>" + esc(e.activity_type || "") + "</code></td>"
+          + "<td>" + esc(e.from_state || "") + " -&gt; " + esc(e.to_state || "") + "</td>"
+          + '<td class="svc-tr-pair-state">' + esc(label) + " " + btn + "</td>"
+          + "<td>" + rows + "</td>"
+          + "<td>" + events + "</td>"
+          + "<td>" + saved + "</td></tr>";
       }).join("");
       return '<table class="svc-table" data-table="svc-tr-by-pair"><thead><tr>'
-        + "<th>type</th><th>from -&gt; to</th><th>rows</th><th>events</th><th>saved</th>"
+        + "<th>type</th><th>from -&gt; to</th><th>state</th><th>rows</th><th>events</th><th>saved</th>"
         + "</tr></thead><tbody>" + body + "</tbody></table>";
     }
     function svcTrHtmlWake(wake) {
@@ -526,7 +647,7 @@
         byType.innerHTML = byTypeHtml;
         byTypeWrap.hidden = !byTypeHtml;
       }
-      var byPairHtml = svcTrHtmlByPair(win);
+      var byPairHtml = svcTrHtmlByPair(win, svcTrPacket());
       var byPairWrap = document.getElementById("svc-tr-by-pair-wrap");
       var byPair = document.getElementById("svc-tr-by-pair");
       if (byPairWrap && byPair) {
@@ -549,6 +670,15 @@
       if (err) { err.hidden = true; err.textContent = ""; }
       var note = document.getElementById("svc-tr-note");
       if (note) { note.hidden = true; note.textContent = ""; }
+    }
+    function svcTrPaintPairsOnly(tr) {
+      var byPairHtml = svcTrHtmlByPair({ by_pair: [] }, tr || {});
+      var byPairWrap = document.getElementById("svc-tr-by-pair-wrap");
+      var byPair = document.getElementById("svc-tr-by-pair");
+      if (byPairWrap && byPair) {
+        byPair.innerHTML = byPairHtml;
+        byPairWrap.hidden = !byPairHtml;
+      }
     }
     function svcTrPaintFromPacket() {
       if (!document.getElementById("svc-tr-block")) return;
@@ -575,6 +705,7 @@
           stats.hidden = false;
           stats.textContent = "window unavailable";
         }
+        svcTrPaintPairsOnly(tr);
         return;
       }
       svcTrPaintWindow(win);
@@ -623,6 +754,34 @@
       }
       return data;
     }
+    async function svcTrFlipPair(pair, wantCompress) {
+      var tr = svcTrPacket() || {};
+      var state = Array.isArray(tr.pairs_state) ? tr.pairs_state : [];
+      var pairs = svcTrBuildPairsString(state, pair, wantCompress);
+      var err = document.getElementById("svc-tr-error");
+      var before = JSON.stringify(tr.pairs_state || []);
+      try {
+        var row = await svcAdminTransitionWrite({ pairs: pairs });
+        svcTrApplyWriteResult(row || {});
+        svcTrPaintFromPacket();
+        if (err) { err.hidden = true; err.textContent = ""; }
+        return row;
+      } catch (e) {
+        /* revert: keep prior pairs_state and repaint, then show the need message */
+        if (_svcPacket && _svcPacket.book && _svcPacket.book.transition) {
+          try {
+            _svcPacket.book.transition.pairs_state = JSON.parse(before);
+          } catch (eR) {}
+        }
+        svcTrPaintFromPacket();
+        err = document.getElementById("svc-tr-error");
+        if (err) {
+          err.hidden = false;
+          err.textContent = svcTrWriteNeedMsg();
+        }
+        throw e;
+      }
+    }
     function svcWireBookTransitions() {
       if (!document.getElementById("svc-tr-block")) return;
       function setSince(v) {
@@ -642,16 +801,15 @@
         var err = document.getElementById("svc-tr-error");
         try {
           var row = await svcAdminTransitionWrite({ mode: mode });
-          if (_svcPacket && _svcPacket.book) {
-            var tr = _svcPacket.book.transition || (_svcPacket.book.transition = { mode: "", pairs: [], windows: {} });
-            if (row && row.mode) tr.mode = row.mode;
-            else tr.mode = mode;
+          svcTrApplyWriteResult(row || { mode: mode });
+          if (_svcPacket && _svcPacket.book && _svcPacket.book.transition && !(_svcPacket.book.transition.mode)) {
+            _svcPacket.book.transition.mode = mode;
           }
           svcTrPaintFromPacket();
         } catch (e) {
           if (err) {
             err.hidden = false;
-            err.textContent = String((e && e.message) || e);
+            err.textContent = svcTrWriteNeedMsg();
           }
         }
       }
@@ -659,6 +817,19 @@
       var ba = document.getElementById("svc-tr-capture");
       if (bc) bc.addEventListener("click", function () { setMode("compress"); });
       if (ba) ba.addEventListener("click", function () { setMode("capture"); });
+      var byPair = document.getElementById("svc-tr-by-pair");
+      if (byPair && !byPair._svcTrPairWired) {
+        byPair._svcTrPairWired = true;
+        byPair.addEventListener("click", function (ev) {
+          var t = ev && ev.target;
+          while (t && t !== byPair && !(t.getAttribute && t.getAttribute("data-tr-pair"))) t = t.parentNode;
+          if (!t || t === byPair) return;
+          var pair = t.getAttribute("data-tr-pair") || "";
+          if (!pair || !t.classList || !t.classList.contains("svc-tr-pair-toggle")) return;
+          var cur = t.getAttribute("data-tr-compress") === "1";
+          svcTrFlipPair(pair, !cur);
+        });
+      }
       svcTrPaintFromPacket();
     }
     function paintWallService() {
@@ -698,7 +869,13 @@
       applyWriteGate: svcTrApplyWriteGate,
       paintWakeAlert: svcPaintWakeAlertFromPacket,
       getSince: function () { return _svcTrSince; },
-      windowKey: svcTrWindowKey
+      windowKey: svcTrWindowKey,
+      writeNeedMsg: svcTrWriteNeedMsg,
+      pairStateLabel: svcTrPairStateLabel,
+      buildPairsString: svcTrBuildPairsString,
+      applyWriteResult: svcTrApplyWriteResult,
+      flipPair: svcTrFlipPair,
+      adminWrite: svcAdminTransitionWrite
     };
     try { window.WallServiceBook = WallServiceBook; } catch (eW) {}
 var WALL_UI_DEFAULT_SERVICE_PAINT = "WALL_UI_DEFAULT_SERVICE_PAINT";

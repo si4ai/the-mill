@@ -106,6 +106,12 @@ function snap() {
     wakeHidden: !!els['svc-tr-wake'].hidden,
     wakeBody: els['svc-tr-wake-body'].innerHTML,
     since: api.getSince(),
+    writeNeedMsg: api.writeNeedMsg(),
+    pairToggleDisabled: /svc-tr-pair-toggle[^>]*disabled/.test(els['svc-tr-by-pair'].innerHTML),
+    pairToggleCount: (els['svc-tr-by-pair'].innerHTML.match(/svc-tr-pair-toggle/g) || []).length,
+    byPairHasCompressing: els['svc-tr-by-pair'].innerHTML.indexOf('compressing') >= 0,
+    byPairHasCapturing: els['svc-tr-by-pair'].innerHTML.indexOf('capturing every flip') >= 0,
+    byPairHasFreeHeld: els['svc-tr-by-pair'].innerHTML.indexOf('free -&gt; held') >= 0,
   };
 }
 
@@ -206,6 +212,29 @@ BOOK = {
         "transition": {
             "mode": "compress",
             "pairs": ["doing:connected/seated", "hold:held/held"],
+            "pairs_state": [
+                {
+                    "pair": "doing:connected/seated",
+                    "activity_type": "doing",
+                    "from_state": "connected",
+                    "to_state": "seated",
+                    "compress": True,
+                },
+                {
+                    "pair": "hold:free/held",
+                    "activity_type": "hold",
+                    "from_state": "free",
+                    "to_state": "held",
+                    "compress": False,
+                },
+                {
+                    "pair": "hold:held/held",
+                    "activity_type": "hold",
+                    "from_state": "held",
+                    "to_state": "held",
+                    "compress": True,
+                },
+            ],
             "windows": {
                 "all": WIN_OK,
                 "24h": {**WIN_OK, "total_rows": 3, "total_events": 9, "saved_rows": 6, "since": "24h"},
@@ -250,7 +279,7 @@ def test_paint_from_packet_shows_mode_tables_and_write_gate():
     assert got["compressDisabled"] is True
     assert got["captureDisabled"] is True
     assert got["modeHintHidden"] is False
-    assert got["modeHint"] == "sign in as Admin to change"
+    assert got["modeHint"] == "Changing this needs a write voucher (a desk vouch)."
     assert "10 rows / 40 events (saved 30)" in got["stats"]
     assert got["statsHidden"] is False
     assert got["byTypeWrapHidden"] is False
@@ -299,7 +328,7 @@ def test_missing_transition_hides_unknown_mode_keeps_buttons():
     assert "Mode:" not in got["modeLine"]
     assert got["modeWrapHidden"] is False
     assert got["compressDisabled"] is True
-    assert got["modeHint"] == "sign in as Admin to change"
+    assert got["modeHint"] == "Changing this needs a write voucher (a desk vouch)."
     assert got["stats"] == "window unavailable"
     assert got["byTypeWrapHidden"] is True
     assert got["byPairWrapHidden"] is True
@@ -356,7 +385,9 @@ process.stdout.write('\n' + JSON.stringify(snap()));
     assert got7["since"] == "7d"
     assert got7["stats"] == "window unavailable"
     assert got7["byTypeWrapHidden"] is True
-    assert got7["byPairWrapHidden"] is True
+    # pairs_state still paints when the window is unavailable
+    assert got7["byPairWrapHidden"] is False
+    assert got7["pairToggleCount"] == 3
 
 
 def test_wake_alert_row_links_book():
@@ -420,3 +451,222 @@ def test_touched_last_hour_renders_number_object_or_plain():
         }
     }
     assert "touched last hour: 12" in _run(as_num, mode="book")["html"]
+
+
+def test_pairs_state_labels_and_switched_off_row():
+    got = _run(BOOK, mode="paint")
+    assert got["byPairWrapHidden"] is False
+    assert got["byPairHasCompressing"] is True
+    assert got["byPairHasCapturing"] is True  # hold:free/held is off
+    assert got["byPairHasFreeHeld"] is True
+    assert "compressing" in got["byPair"]
+    assert "capturing every flip" in got["byPair"]
+    assert 'data-tr-pair="doing:connected/seated"' in got["byPair"]
+    assert 'data-tr-pair="hold:free/held"' in got["byPair"]
+    assert got["pairToggleCount"] == 3
+    # per-pair toggles stay enabled even when human-readonly
+    assert got["pairToggleDisabled"] is False
+    assert got["compressDisabled"] is True  # global mode buttons still gated
+    assert got["modeHint"] == "Changing this needs a write voucher (a desk vouch)."
+
+
+def test_capture_mode_overrides_pair_labels():
+    pkt = {
+        "book": {
+            "transition": {
+                "mode": "capture",
+                "pairs": ["doing:connected/seated"],
+                "pairs_state": [
+                    {
+                        "pair": "doing:connected/seated",
+                        "activity_type": "doing",
+                        "from_state": "connected",
+                        "to_state": "seated",
+                        "compress": True,
+                    },
+                    {
+                        "pair": "hold:free/held",
+                        "activity_type": "hold",
+                        "from_state": "free",
+                        "to_state": "held",
+                        "compress": False,
+                    },
+                ],
+                "windows": {
+                    "all": {
+                        "stored": True,
+                        "total_rows": 1,
+                        "total_events": 1,
+                        "saved_rows": 0,
+                        "by_type": [],
+                        "by_pair": [],
+                        "wake": [],
+                    }
+                },
+            }
+        }
+    }
+    got = _run(pkt, mode="paint")
+    assert got["modeLine"] == "Mode: capture"
+    assert "capturing every flip" in got["byPair"]
+    assert "compressing" not in got["byPair"]
+    assert got["pairToggleCount"] == 2
+
+
+def test_build_pairs_string_on_off_sorted_ends():
+    node = shutil.which("node")
+    assert node
+    state = [
+        {
+            "pair": "doing:connected/seated",
+            "activity_type": "doing",
+            "from_state": "connected",
+            "to_state": "seated",
+            "compress": True,
+        },
+        {
+            "pair": "hold:free/held",
+            "activity_type": "hold",
+            "from_state": "free",
+            "to_state": "held",
+            "compress": False,
+        },
+        {
+            "pair": "hold:held/held",
+            "activity_type": "hold",
+            "from_state": "held",
+            "to_state": "held",
+            "compress": True,
+        },
+    ]
+    harness = HARNESS.replace(
+        "if (mode === 'book') {\n  const html = api.typeTableHtml((packet.book) || {});\n  const shell = api.transitionsShellHtml();\n  process.stdout.write(JSON.stringify({ html, shell }));\n}",
+        "if (mode === 'book') {\n"
+        "  const state = JSON.parse(process.argv[5]);\n"
+        "  const off = api.buildPairsString(state, 'doing:connected/seated', false);\n"
+        "  const on = api.buildPairsString(state, 'hold:free/held', true);\n"
+        "  const empty = api.buildPairsString([\n"
+        "    {pair:'doing:connected/seated', compress:true}\n"
+        "  ], 'doing:connected/seated', false);\n"
+        "  const labelOn = api.pairStateLabel({compress:true}, 'compress');\n"
+        "  const labelOff = api.pairStateLabel({compress:false}, 'compress');\n"
+        "  const labelCap = api.pairStateLabel({compress:true}, 'capture');\n"
+        "  process.stdout.write(JSON.stringify({\n"
+        "    off, on, empty, labelOn, labelOff, labelCap, msg: api.writeNeedMsg()\n"
+        "  }));\n"
+        "}",
+    )
+    with tempfile.TemporaryDirectory() as td:
+        h = Path(td) / "h.js"
+        h.write_text(harness, encoding="utf-8")
+        proc = subprocess.run(
+            [node, str(h), str(SERVICE), json.dumps({"book": {}}), "book", json.dumps(state)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    got = json.loads(proc.stdout)
+    assert got["off"] == "hold:held/held"
+    assert got["on"] == "doing:connected/seated,hold:free/held,hold:held/held"
+    assert got["empty"] == ""
+    assert got["labelOn"] == "compressing"
+    assert got["labelOff"] == "capturing every flip"
+    assert got["labelCap"] == "capturing every flip"
+    assert got["msg"] == "Changing this needs a write voucher (a desk vouch)."
+
+
+def test_write_need_message_constant():
+    got = _run(BOOK, mode="paint")
+    assert got["writeNeedMsg"] == "Changing this needs a write voucher (a desk vouch)."
+    assert got["modeHint"] == got["writeNeedMsg"]
+
+
+def _run_async_paint(packet: dict, js_body: str, *, fetch_js: str) -> dict:
+    node = shutil.which("node")
+    assert node
+    harness = HARNESS
+    harness = harness.replace(
+        "global.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });",
+        "global.fetch = " + fetch_js + ";",
+    )
+    old = "if (mode === 'paint') {\n  api.paintFromPacket();\n  process.stdout.write(JSON.stringify(snap()));\n}"
+    new = "if (mode === 'paint') {\n" + js_body + "\n}"
+    if old not in harness:
+        raise AssertionError("paint branch missing")
+    harness = harness.replace(old, new, 1)
+    wrapped = (
+        "async function main() {\n"
+        + harness
+        + "\n}\nmain().catch((e) => { console.error(e); process.exit(1); });\n"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        h = Path(td) / "h.js"
+        h.write_text(wrapped, encoding="utf-8")
+        proc = subprocess.run(
+            [node, str(h), str(SERVICE), json.dumps(packet), "paint"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr or proc.stdout or "node failed")
+    return json.loads(proc.stdout)
+
+
+def test_flip_pair_refuses_without_admin_reverts():
+    body = """
+  api.paintFromPacket();
+  const beforeState = JSON.stringify((_svcPacket.book.transition.pairs_state || []));
+  let threw = false;
+  try { await api.flipPair('doing:connected/seated', false); }
+  catch (e) { threw = true; }
+  const after = snap();
+  after.threw = threw;
+  after.afterState = JSON.stringify((_svcPacket.book.transition.pairs_state || []));
+  after.beforeState = beforeState;
+  process.stdout.write(JSON.stringify(after));
+"""
+    got = _run_async_paint(
+        BOOK,
+        body,
+        fetch_js="async () => ({ ok: false, status: 403, json: async () => ({ error: 'admin required' }) })",
+    )
+    assert got["threw"] is True
+    assert got["errorHidden"] is False
+    assert got["errorText"] == "Changing this needs a write voucher (a desk vouch)."
+    assert got["beforeState"] == got["afterState"]
+    assert 'data-tr-compress="1"' in got["byPair"]
+
+
+def test_flip_pair_success_repaints_from_response():
+    resp = {
+        "mode": "compress",
+        "pairs": ["hold:held/held"],
+        "pairs_raw": "hold:held/held",
+        "default_pairs": "doing:seated/connected,hold:free/held,hold:held/held",
+        "note": "ok",
+    }
+    body = """
+  api.paintFromPacket();
+  await api.flipPair('doing:connected/seated', false);
+  const after = snap();
+  after.state = _svcPacket.book.transition.pairs_state;
+  after.pairs = _svcPacket.book.transition.pairs;
+  process.stdout.write(JSON.stringify(after));
+"""
+    got = _run_async_paint(
+        BOOK,
+        body,
+        fetch_js="async () => ({ ok: true, status: 200, json: async () => (" + json.dumps(resp) + ") })",
+    )
+    assert got["errorHidden"] is True
+    pairs = {e["pair"]: e["compress"] for e in got["state"]}
+    assert pairs["doing:connected/seated"] is False
+    assert pairs["hold:held/held"] is True
+    assert pairs["hold:free/held"] is False
+    assert "hold:held/held" in got["pairs"]
+    assert "doing:connected/seated" not in got["pairs"]
+    assert got["byPairHasFreeHeld"] is True
+    assert 'data-tr-pair="doing:connected/seated"' in got["byPair"]
+    assert 'data-tr-compress="0"' in got["byPair"]
+
