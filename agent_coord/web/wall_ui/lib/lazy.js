@@ -136,7 +136,7 @@
       marker: "WALL_UI_DEFAULT_DESK_PAINT"
     },
     servicePaint: {
-      js: "/session/service-paint.js?v=wow321",
+      js: "/session/service-paint.js?v=wow338",
       marker: "WALL_UI_DEFAULT_SERVICE_PAINT"
     },
     listsPaint: {
