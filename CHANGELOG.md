@@ -4,6 +4,8 @@
 
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
+- card 1098 / 1093: `--receipt` on send and reply; unopened receipt dests always wake; Wall Needs human clears once opened; target 0.8.10
+- card 1098 item 3: tw writes score transitions on start/finish/fail; target 0.8.10
 - card 1053 / transition-retention: archive + rollup for transition (and optional wake); target 0.8.10; DDL needs office human review before code
 - after card 935 lands: repo admin applies the merge-commit ruleset draft for `release/*`
 - card 950 desk-start launcher: moved to 0.8.5 (live: no visible grok screen)

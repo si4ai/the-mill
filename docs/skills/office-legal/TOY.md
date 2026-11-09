@@ -17,18 +17,18 @@
 
 **Toy fill (after agent asks):** use Scenario B facts.
 
-**Fail if:** legal hold confused with mill hold; invent clear CLI; clear without human_required
+**Fail if:** legal hold confused with mill hold; invent clear CLI; clear without `--receipt`
 
 ---
 
 ## Scenario B - happy path (Inputs given)
 
 **Human says:**  
-"Clear ask: publish mill beta blog. Artifact: /docs/announce.md. Decide: host desk human_required. Out: no NDA issues in toy."
+"Clear ask: publish mill beta blog. Artifact: /docs/announce.md. Decide: host desk `--receipt`. Out: no NDA issues in toy."
 
 **Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
 
-**Fail if:** legal hold confused with mill hold; invent clear CLI; clear without human_required
+**Fail if:** legal hold confused with mill hold; invent clear CLI; clear without `--receipt`
 
 ---
 

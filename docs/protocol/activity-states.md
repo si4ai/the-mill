@@ -54,7 +54,7 @@ Gaps:
 - No command deletes a letter (M9). If `mill_mail_delete` runs, it deletes the letter (its `mail_to` rows cascade) and stamps `activity.deleted`. The activity row stays as a tombstone, and so do its labels, because the label foreign key cascades only on an activity delete (`tables.sql:77`).
 - No command edits a letter: `sp_mail.sql:287` `mill_mail_update` has no caller.
 - No command puts a letter back to unread. Handled is final for that desk.
-- Read receipts never fire from the CLI: send always writes `receipt` 0 (`rpc.py:1371`), so `push_receipt` in `sp_opened.sql:47` is always 0.
+- Required receipt: `send` / `reply` `--receipt` sets `mail_to.receipt=1` on every dest; the first open (`mark`, `reply`, whole-letter `mail-thread`) stamps `opened` and pushes one `{kind: receipt}` to the sender (`sp_opened.sql` / `push_receipt`).
 
 ## todo
 
@@ -264,7 +264,7 @@ Gaps:
 | mail | no delete command; the SP leaves an activity tombstone and the labels | `sp_mail.sql:327` |
 | mail | no edit command | `sp_mail.sql:287` |
 | mail | no step back to unread | `sp_opened.sql:9` |
-| mail | read receipts never set by send | `rpc.py:1371` |
+| mail | required receipt via `--receipt` on send/reply | `mail_to.receipt` |
 | todo | no move into parked after create | `rpc.py:2383` |
 | todo | unpark does not check the card is parked | `rpc.py:2425` |
 | todo | create files a second card for a retired need | `rpc.py:2396` |

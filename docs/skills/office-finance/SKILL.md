@@ -3,7 +3,7 @@ name: office-finance
 description: >
   Use when this desk moves spend approvals or paid/closed outcomes on a mill
   office. Pull mill-desk first. Thin adapter - not a second mill. Product =
-  Approved / paid - not a ledger/ERP clone. human_required for approve.
+  Approved / paid - not a ledger/ERP clone. `--receipt` for approve.
 metadata:
   short-description: "Finance: Approved / paid via mill"
 ---
@@ -18,7 +18,7 @@ Prefer a project for approval/remittance pointer cards; optional finance inbox r
 
 ## Product
 **Approved / paid** - spend/invoice/PO request reached a durable approve
-outcome (human_required gate cleared or withheld with reason) **or** a
+outcome (`--receipt` opened or withheld with reason) **or** a
 paid/closed outcome with ledger id linked.
 
 Invoice, PO, budget, forecast, accrual, coding, exception, and period-close
@@ -29,7 +29,7 @@ products. Ledger/ERP stays system of record for amounts, GL, and payments.
 On the desk **before** you can approve or mark paid (else `note` gap + `send` asker / `waiting_on`):
 - **Request identity** - invoice / PO / spend id or URL in detail (do not clone ledger amounts as SoR)
 - **Outcome ask** - approve, withhold/reject, mark paid, or exception path
-- **Approver / chain** - who must human-click (`assign` + human_required)
+- **Approver / chain** - who must human-click (`assign` + `send` / `reply` `--receipt`)
 - **Coding / cost center hint** - when office requires (note; coding runs in ledger)
 - When exception: reason / policy cite for escalate mail
 - On paid: payment / remittance pointer from ledger
@@ -43,7 +43,7 @@ replacing ERP payment runs inside mill.
 | invoice / PO / request | `create todo` (ledger id in detail) |
 | own / work request | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| approval / approve | `assign` + **human_required** + `send` / `note` outcome |
+| approval / approve | `assign` + **`--receipt`** + `send` / `note` outcome |
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
 | coding (GL / cost center) | `note` (ledger executes coding) |
 | exception | `send` escalate (+ `note` reason) |
@@ -64,7 +64,7 @@ Never invent `approve` / `pay` / `code` as mill CLI.
 | To | When |
 |---|---|
 | Asker / requesting desk | Missing facts, withhold outcome, or revision ask |
-| Next approver | Approval chain step (human_required) |
+| Next approver | Approval chain step (`--receipt`) |
 | Sales | Pricing / discount / approve unblocks deal |
 | Legal | Payment terms / compliance block on pay |
 | People | Offer / comp spend needing finance approve |
@@ -75,13 +75,13 @@ Never invent `approve` / `pay` / `code` as mill CLI.
 ## Must-not
 - Bypass mill-desk HINT routing.
 - Become the ledger of record (amounts, GL, AP/AR, bank, period close).
-- Skip required human approval gates (human_required on approve).
+- Skip required human approval gates (`--receipt` on approve).
 - Invent mill commands for finance slang (`approve`, `pay`, `code`, `close-books` as CLI).
 - Fake `pass` while waiting on human approve or bank - use waiting_on + mail.
 - Confuse `drop` (hold) with `unclaim`.
 
 ## Done looks like
-- Approved: human_required satisfied; outcome noted; dependents mailed; card `pass`ed or waiting_on next approver.
+- Approved: `--receipt` opened; outcome noted; dependents mailed; card `pass`ed or waiting_on next approver.
 - Withheld/rejected: reason noted; asker mailed; card `pass`ed or waiting_on revision.
 - Paid/closed: ledger payment pointer noted; card `pass`ed.
 - Else clean waiting_on or parked - never silent open. Optional `score` if office sets forecast/budget KPI.

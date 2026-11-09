@@ -51,12 +51,12 @@ Across functions the same **collab moves** recur; only **nouns** change:
 | We're green / red | `score` | a row in the score table (`kpi`, `value`, `target`) |
 | Finished the artifact | `pass` | after office close path |
 | Who's here | presence | ops/support coverage |
-| Human must click | human_required | offer, spend, legal |
+| Human must click | `send` / `reply` `--receipt` | offer, spend, legal |
 
 **Overlap / reuse**
 - `create todo -> claim -> note -> send -> pass` is the spine for almost every function.
 - hold is rare (eng trees, legal docs) - don't teach it in sales/support unless needed.
-- human_required clusters: people (offer), finance (approve), legal (clear), marketing (brand approve).
+- `--receipt` clusters: people (offer), finance (approve), legal (clear), marketing (brand approve).
 - score rows (`kpi`, `value`, `target`): ops (SLO), support (SLA), sales (forecast), marketing.
 - "Escalate" always = mill send to a more specialized desk, not a new mill command.
 
@@ -85,4 +85,4 @@ Don't only translate slang ? CLI. Ask: **what office fact does mill record so co
 
 **Pattern:** human language names the **intent**; mill stores the **shared fact** (who, what, waiting, evidence, score row). Commands are just how agents write those facts.
 
-**Overlap:** every function's "assign / escalate / approve / pass" collapses to card ownership + mail + optional human_required - the product noun in `doing`/`detail` is what differs.
+**Overlap:** every function's "assign / escalate / approve / pass" collapses to card ownership + mail + optional `--receipt` - the product noun in `doing`/`detail` is what differs.

@@ -133,7 +133,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | Their word | Mill-ish |
 |---|---|
 | brief | todo detail |
-| review / approve | mail; human_required if needed |
+| review / approve | mail; `--receipt` if needed |
 | publish / launch | done + optional wall glance |
 | KPI | a row in the score table (`kpi`, `value`, `target`) |
 
@@ -152,7 +152,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | req | plan or parent todo |
 | interview loop | child todos per interviewer |
 | debrief | mail thread / note |
-| offer | human_required gate |
+| offer | `--receipt` gate |
 | onboarding | checklist todos; claim per owner |
 
 ---
@@ -184,7 +184,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 
 | Their word | Mill-ish |
 |---|---|
-| approval | human_required mail / todo |
+| approval | `--receipt` mail / todo |
 | exception | escalate mail |
 | paid / closed | done |
 | forecast KPI | a row in the score table (`kpi`, `value`, `target`) |
