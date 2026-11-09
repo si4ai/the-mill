@@ -2102,6 +2102,15 @@ div.here-doing { overflow: visible; white-space: normal; text-overflow: clip; }
   color: var(--amber, #e4b56a); border-color: var(--amber, #e4b56a);
 }
 #wall-service .svc-tr-pair-state { font-size: 11px; color: var(--dim, #8d99a8); white-space: nowrap; }
+#wall-service .svc-tr-pair-need td {
+  padding-top: .15rem; padding-bottom: .45rem; border-bottom: 1px solid #2c3644;
+}
+#wall-service .svc-tr-pair-need-msg {
+  margin: 0; color: var(--amber, #e4b56a); font-size: 12px; letter-spacing: .02em;
+}
+/* leave room so the absolute .tbl-copy does not cover the last header (SAVED) */
+#wall-service .tbl-wrap > .tbl-copy { top: .35rem; right: .4rem; }
+#wall-service .svc-table thead th:last-child { padding-right: 3.4rem; }
 #wall-service .svc-tr-label {
   margin: .55rem 0 .2rem; color: var(--dim, #8d99a8);
   font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600;

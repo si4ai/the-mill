@@ -350,6 +350,36 @@
       /* 0.8.10: directory config is not live yet; always ask for a desk vouch. */
       return "Changing this needs a write voucher (a desk vouch).";
     }
+    function svcTrClearPairNeed() {
+      var host = document.getElementById("svc-tr-by-pair");
+      if (!host) return;
+      var html = String(host.innerHTML || "");
+      if (html.indexOf("svc-tr-pair-need") < 0) return;
+      /* Drop any previously injected need rows (string-safe for the test harness). */
+      host.innerHTML = html.replace(/<tr class="svc-tr-pair-need"[^>]*>[\s\S]*?<\/tr>/g, "");
+    }
+    function svcTrShowPairNeed(pair) {
+      var host = document.getElementById("svc-tr-by-pair");
+      if (!host) return;
+      svcTrClearPairNeed();
+      var msg = esc(svcTrWriteNeedMsg());
+      var key = esc(pair || "");
+      var note = '<tr class="svc-tr-pair-need" data-tr-pair-need="' + key + '">'
+        + '<td colspan="6"><p class="svc-note svc-tr-error svc-tr-pair-need-msg">' + msg + "</p></td></tr>";
+      var marker = 'data-tr-pair-row="' + key + '"';
+      var html = String(host.innerHTML || "");
+      var i = html.indexOf(marker);
+      if (i < 0) {
+        host.innerHTML = html + note;
+        return;
+      }
+      var close = html.indexOf("</tr>", i);
+      if (close < 0) {
+        host.innerHTML = html + note;
+        return;
+      }
+      host.innerHTML = html.slice(0, close + 5) + note + html.slice(close + 5);
+    }
     function svcTrApplyWriteGate() {
       var can = svcTrCanWrite();
       ["svc-tr-compress", "svc-tr-capture"].forEach(function (id) {
@@ -764,28 +794,30 @@
         var row = await svcAdminTransitionWrite({ pairs: pairs });
         svcTrApplyWriteResult(row || {});
         svcTrPaintFromPacket();
+        /* success: banner and any inline need are cleared by the rebuild */
         if (err) { err.hidden = true; err.textContent = ""; }
+        svcTrClearPairNeed();
         return row;
       } catch (e) {
-        /* revert: keep prior pairs_state and repaint, then show the need message */
+        /* revert: keep prior pairs_state and repaint, then show the need under the row */
         if (_svcPacket && _svcPacket.book && _svcPacket.book.transition) {
           try {
             _svcPacket.book.transition.pairs_state = JSON.parse(before);
           } catch (eR) {}
         }
         svcTrPaintFromPacket();
-        err = document.getElementById("svc-tr-error");
-        if (err) {
-          err.hidden = false;
-          err.textContent = svcTrWriteNeedMsg();
-        }
+        if (err) { err.hidden = true; err.textContent = ""; }
+        svcTrShowPairNeed(pair);
         throw e;
       }
     }
     function svcWireBookTransitions() {
       if (!document.getElementById("svc-tr-block")) return;
+      var errTop = document.getElementById("svc-tr-error");
       function setSince(v) {
         svcTrSetSinceUi(v);
+        svcTrClearPairNeed();
+        if (errTop) { errTop.hidden = true; errTop.textContent = ""; }
         svcTrPaintFromPacket();
       }
       var b24 = document.getElementById("svc-tr-since-24h");
@@ -795,7 +827,11 @@
       if (b24) b24.addEventListener("click", function () { setSince("24h"); });
       if (b7) b7.addEventListener("click", function () { setSince("7d"); });
       if (ball) ball.addEventListener("click", function () { setSince(""); });
-      if (bref) bref.addEventListener("click", function () { svcTrPaintFromPacket(); });
+      if (bref) bref.addEventListener("click", function () {
+        svcTrClearPairNeed();
+        if (errTop) { errTop.hidden = true; errTop.textContent = ""; }
+        svcTrPaintFromPacket();
+      });
       async function setMode(mode) {
         if (!svcTrCanWrite()) return;
         var err = document.getElementById("svc-tr-error");
@@ -875,7 +911,9 @@
       buildPairsString: svcTrBuildPairsString,
       applyWriteResult: svcTrApplyWriteResult,
       flipPair: svcTrFlipPair,
-      adminWrite: svcAdminTransitionWrite
+      adminWrite: svcAdminTransitionWrite,
+      showPairNeed: svcTrShowPairNeed,
+      clearPairNeed: svcTrClearPairNeed
     };
     try { window.WallServiceBook = WallServiceBook; } catch (eW) {}
 var WALL_UI_DEFAULT_SERVICE_PAINT = "WALL_UI_DEFAULT_SERVICE_PAINT";

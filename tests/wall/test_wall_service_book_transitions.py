@@ -112,6 +112,15 @@ function snap() {
     byPairHasCompressing: els['svc-tr-by-pair'].innerHTML.indexOf('compressing') >= 0,
     byPairHasCapturing: els['svc-tr-by-pair'].innerHTML.indexOf('capturing every flip') >= 0,
     byPairHasFreeHeld: els['svc-tr-by-pair'].innerHTML.indexOf('free -&gt; held') >= 0,
+    pairNeed: els['svc-tr-by-pair'].innerHTML.indexOf('svc-tr-pair-need') >= 0,
+    pairNeedMsg: (function () {
+      const m = els['svc-tr-by-pair'].innerHTML.match(/svc-tr-pair-need-msg[^>]*>([^<]*)</);
+      return m ? m[1] : '';
+    })(),
+    pairNeedFor: (function () {
+      const m = els['svc-tr-by-pair'].innerHTML.match(/data-tr-pair-need="([^"]+)"/);
+      return m ? m[1] : '';
+    })(),
   };
 }
 
@@ -632,8 +641,12 @@ def test_flip_pair_refuses_without_admin_reverts():
         fetch_js="async () => ({ ok: false, status: 403, json: async () => ({ error: 'admin required' }) })",
     )
     assert got["threw"] is True
-    assert got["errorHidden"] is False
-    assert got["errorText"] == "Changing this needs a write voucher (a desk vouch)."
+    assert got["errorHidden"] is True
+    assert got["errorText"] == ""
+    assert got["pairNeed"] is True
+    assert got["pairNeedFor"] == "doing:connected/seated"
+    assert got["pairNeedMsg"] == "Changing this needs a write voucher (a desk vouch)."
+    assert "svc-tr-pair-need" in got["byPair"]
     assert got["beforeState"] == got["afterState"]
     assert 'data-tr-compress="1"' in got["byPair"]
 
@@ -660,6 +673,8 @@ def test_flip_pair_success_repaints_from_response():
         fetch_js="async () => ({ ok: true, status: 200, json: async () => (" + json.dumps(resp) + ") })",
     )
     assert got["errorHidden"] is True
+    assert got["pairNeed"] is False
+    assert got["pairNeedMsg"] == ""
     pairs = {e["pair"]: e["compress"] for e in got["state"]}
     assert pairs["doing:connected/seated"] is False
     assert pairs["hold:held/held"] is True
@@ -670,3 +685,75 @@ def test_flip_pair_success_repaints_from_response():
     assert 'data-tr-pair="doing:connected/seated"' in got["byPair"]
     assert 'data-tr-compress="0"' in got["byPair"]
 
+
+def test_pair_need_clears_on_window_switch():
+    """Inline refusal under a pair clears when the window buttons repaint."""
+    body = """
+  api.paintFromPacket();
+  let threw = false;
+  try { await api.flipPair('doing:connected/seated', false); }
+  catch (e) { threw = true; }
+  const mid = snap();
+  api.setSinceUi('24h');
+  api.clearPairNeed();
+  api.paintFromPacket();
+  const after = snap();
+  after.threw = threw;
+  after.midNeed = mid.pairNeed;
+  after.midFor = mid.pairNeedFor;
+  process.stdout.write(JSON.stringify(after));
+"""
+    got = _run_async_paint(
+        BOOK,
+        body,
+        fetch_js="async () => ({ ok: false, status: 403, json: async () => ({ error: 'admin required' }) })",
+    )
+    assert got["threw"] is True
+    assert got["midNeed"] is True
+    assert got["midFor"] == "doing:connected/seated"
+    assert got["pairNeed"] is False
+    assert got["pairNeedMsg"] == ""
+    assert got["since"] == "24h"
+
+
+def test_pair_need_clears_on_success_after_refuse():
+    """A later successful flip clears the inline refusal under the row."""
+    body = """
+  api.paintFromPacket();
+  let firstThrew = false;
+  try { await api.flipPair('doing:connected/seated', false); }
+  catch (e) { firstThrew = true; }
+  const mid = snap();
+  await api.flipPair('hold:free/held', true);
+  const after = snap();
+  after.firstThrew = firstThrew;
+  after.midNeed = mid.pairNeed;
+  after.midFor = mid.pairNeedFor;
+  process.stdout.write(JSON.stringify(after));
+"""
+    resp = {
+        "mode": "compress",
+        "pairs": ["doing:connected/seated", "hold:free/held", "hold:held/held"],
+        "pairs_raw": "doing:connected/seated,hold:free/held,hold:held/held",
+        "default_pairs": "doing:seated/connected,hold:free/held,hold:held/held",
+        "note": "ok",
+    }
+    fetch_js = (
+        "(function () {"
+        "  let n = 0;"
+        "  return async () => {"
+        "    n += 1;"
+        "    if (n === 1) return { ok: false, status: 403, json: async () => ({ error: 'admin required' }) };"
+        "    return { ok: true, status: 200, json: async () => ("
+        + json.dumps(resp)
+        + ") };"
+        "  };"
+        "})()"
+    )
+    got = _run_async_paint(BOOK, body, fetch_js=fetch_js)
+    assert got["firstThrew"] is True
+    assert got["midNeed"] is True
+    assert got["midFor"] == "doing:connected/seated"
+    assert got["pairNeed"] is False
+    assert got["pairNeedMsg"] == ""
+    assert got["errorHidden"] is True
