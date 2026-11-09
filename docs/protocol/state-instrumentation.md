@@ -6,6 +6,9 @@ State map for card 1001 children (0.8.6). Sync: `origin/main` `ce115f8`.
 
 **Rule:** one durable server event per protocol transition.
 
+
+**Card 1098 (compress):** two-state cycles (default `doing:seated/connected` sit/unsit, `hold:free/held`, and same-state `hold:held/held` refreshes) share one `transition` row with count `n` (default 1). Odd `n` = still at original `to_state`; even `n` = back at `from_state`. Office `transition_mode=compress|capture` and `transition_pairs` live in `config.toml` (Admin pane). Capture keeps every flip. The old `activity.n` count is gone; this transition count replaces it for these cycles.
+
 **0.8.6 plan (letter 4317 / 980-plan.md):** feature events land in shared `transition` (card **1022**); performance/health in metric stream (**1023**); opt-in `share.transitions` (**1024**) and `share.metrics` separate; emitters **980/981/982/970/1002**; desk score writes out (**1021**); `seat.doing_id` drop after 970 (**1025**).
 
 **Design layers:** *current* = shipped 0.8.5 at `ce115f8`. *0.8.6 target, per plan* (plan today): (a) doing comes only from tw (970), never a hand-set `--doing` column - optional context is tw flags only (title, `--card`); (b) a desk may run several tw tasks at once, each with its own doing lifecycle - `seat.doing_id` single pointer and D6 supersede are current-only; (c) score stays an activity, but desks no longer write it - the server writes every score from real state changes (new card score-read-only under 1001). Findings 1019/1020 stay on score.
@@ -219,7 +222,7 @@ Seat states D1-D3/D11 remain desk-level (join/connect), not per-task.
 | Tsk5 | active/waiting | failed | tw exit ≠0 / child crash | tw end + reason=failed | **970** |
 | Tsk6 | active/waiting | stale | process gone, no end | **none today** | **970 / 1018 per task** |
 | Tsk7 | * | cleared | reset/retire desk | clear all tasks | **970** |
-| Tsk8 | waiting↔waiting | cycle | task A waits on B waits on A (desks or tasks) | **none** (self-wait only today) | **970 / 1017 per task** |
+| Tsk8 | waiting<->waiting | cycle | task A waits on B waits on A (desks or tasks) | **none** (self-wait only today) | **970 / 1017 per task** |
 | - | - | - | **D6 supersede** | n/a | **dropped in target** (current-only) |
 
 Concurrent start: Tsk1 on slot 2 while slot 1 is active - **allowed in target**; forbidden/implicitly serialized by D6 in current.
@@ -318,7 +321,7 @@ Desk-side publish paths to revisit for score-read-only are listed for the build 
 
 ---
 
-## Liveness findings ↔ transitions
+## Liveness findings <-> transitions
 
 | Card | Finding | Transition gap |
 |------|---------|----------------|

@@ -473,6 +473,7 @@ CREATE TABLE IF NOT EXISTS transition (
   role          ENUM('sender','recipient','actor','holder','waiter','office','other') NOT NULL DEFAULT 'actor',
   join_key      VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NULL,
   meta          JSON NULL,                     -- small and capped; no text, names or hosts
+  n             INT UNSIGNED NOT NULL DEFAULT 1,  -- card 1098: compress cycle count (odd=at to_state, even=at from_state)
   PRIMARY KEY (id),
   KEY idx_type_id_at (activity_type, activity_id, at),
   KEY idx_desk_type_at (desk_id, activity_type, at),
