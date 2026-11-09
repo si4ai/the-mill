@@ -364,21 +364,21 @@
       svcTrClearPairNeed();
       var msg = esc(svcTrWriteNeedMsg());
       var key = esc(pair || "");
-      var note = '<tr class="svc-tr-pair-need" data-tr-pair-need="' + key + '">'
+      var row = '<tr class="svc-tr-pair-need" data-tr-pair-need="' + key + '">'
         + '<td colspan="6"><p class="svc-note svc-tr-error svc-tr-pair-need-msg">' + msg + "</p></td></tr>";
       var marker = 'data-tr-pair-row="' + key + '"';
       var html = String(host.innerHTML || "");
       var i = html.indexOf(marker);
       if (i < 0) {
-        host.innerHTML = html + note;
+        host.innerHTML = html + row;
         return;
       }
       var close = html.indexOf("</tr>", i);
       if (close < 0) {
-        host.innerHTML = html + note;
+        host.innerHTML = html + row;
         return;
       }
-      host.innerHTML = html.slice(0, close + 5) + note + html.slice(close + 5);
+      host.innerHTML = html.slice(0, close + 5) + row + html.slice(close + 5);
     }
     function svcTrApplyWriteGate() {
       var can = svcTrCanWrite();

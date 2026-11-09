@@ -35,7 +35,10 @@ def arm(monkeypatch, *, armed: dict[str, tuple[str, str]] | None = None) -> None
         return table.get(desk)
 
     monkeypatch.setattr("agent_coord.server.records.join.wake_target", target)
-    monkeypatch.setattr("agent_coord.server.records.push.pending", lambda cn, desk: 0)
+    # Card 1098 item 5c empty-skip: a wake POST needs waiting work. Real emit/fanout
+    # put a row first so pending >= 1; unit tests that expect a POST need the same.
+    # Empty-skip cases mock pending=0 themselves (see test_wake_owed_real_1098).
+    monkeypatch.setattr("agent_coord.server.records.push.pending", lambda cn, desk: 1)
     monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, desk: False)
     monkeypatch.setattr(wake, "desk_roster", lambda cn, desk: "")
 

@@ -49,7 +49,7 @@ def test_push_arrival_has_from():
 def test_full_letter_has_to_list():
     out = public_mail(_row(), [{"desk": "builder", "receipt": 1}, {"desk": "wall-ui", "receipt": 0}])
     assert out["to"] == ["builder", "wall-ui"]
-    assert out["mail_tos"] == [{"deskId": "builder", "receipt": 1}, {"deskId": "wall-ui", "receipt": 0}]
+    assert out["mail_tos"] == [{"deskId": "builder", "receipt": 1, "opened": None}, {"deskId": "wall-ui", "receipt": 0}]
 
 
 def test_given_mail_tos_objects_give_the_same_to():
