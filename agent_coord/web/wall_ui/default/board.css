@@ -2069,6 +2069,13 @@ div.here-doing { overflow: visible; white-space: normal; text-overflow: clip; }
 }
 
 /* card 1098: Book tab transitions + Alerts wake jump */
+/* hide empty analysis sections so no blank bars show */
+#wall-service #svc-tr-by-type-wrap[hidden],
+#wall-service #svc-tr-by-pair-wrap[hidden],
+#wall-service #svc-tr-stats[hidden],
+#wall-service #svc-tr-mode-line[hidden],
+#wall-service #svc-tr-mode-hint[hidden],
+#wall-service #svc-tr-note[hidden] { display: none !important; }
 #wall-service .svc-tr-block { margin: .35rem 0 .95rem; }
 #wall-service .svc-tr-mode,
 #wall-service .svc-tr-since {

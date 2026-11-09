@@ -102,7 +102,7 @@
         ["Checkout", ver.checkout ? glanceSafe(ver.checkout) : "this process is the installed pack"],
         ["Skew", skew],
       ]);
-      /* card 1098: wake-health row (filled after lazy admin fetch; empty when no session). */
+      /* card 1098: wake-health row from book.transition (glance packet; no Admin). */
       html += '<div id="svc-wake-alert" class="svc-wake-alert" hidden></div>';
       return html;
     }
@@ -275,10 +275,8 @@
       });
       return html;
     }
-    /* card 1098: shared lazy Admin transition fetch (Book + Alerts wake). */
+    /* card 1098: Book transitions + Alerts wake from glance book.transition (no Admin read). */
     var _svcTrSince = "";
-    var _svcTrCache = { at: 0, since: null, row: null, err: null, inflight: null };
-    var SVC_TR_CACHE_MS = 60000;
 
     function svcTrNum(v) {
       var n = Number(v);
@@ -322,19 +320,54 @@
           + esc(glanceCount(nLive)) + " names, " + esc(glanceCount(nRet)) + " retired</p>";
       }
       const touched = b.activity_touched_last_hour;
-      html += '<p class="svc-note" data-svc-book="touched">'
-        + "touched last hour: " + esc(glanceNum(touched)) + "</p>";
+      let touchedN = null;
+      if (typeof touched === "number" && Number.isFinite(touched)) touchedN = touched;
+      else if (touched && touched.stored === true && touched.value != null) {
+        const n = Number(touched.value);
+        if (Number.isFinite(n)) touchedN = n;
+      }
+      if (touchedN != null) {
+        html += '<p class="svc-note" data-svc-book="touched">'
+          + "touched last hour: " + esc(String(touchedN)) + "</p>";
+      }
       return html;
+    }
+    function svcTrPacket() {
+      return (_svcPacket && _svcPacket.book && _svcPacket.book.transition) || null;
+    }
+    function svcTrWindowKey(since) {
+      return (since === "24h" || since === "7d") ? since : "all";
+    }
+    function svcTrWindow(tr, since) {
+      var wins = (tr && tr.windows) || {};
+      return wins[svcTrWindowKey(since)] || null;
+    }
+    function svcTrCanWrite() {
+      if (typeof wallHumanReadonly === "function" && wallHumanReadonly()) return false;
+      return true;
+    }
+    function svcTrApplyWriteGate() {
+      var can = svcTrCanWrite();
+      ["svc-tr-compress", "svc-tr-capture"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.disabled = !can;
+      });
+      var hint = document.getElementById("svc-tr-mode-hint");
+      if (hint) {
+        hint.hidden = !!can;
+        hint.textContent = can ? "" : "sign in as Admin to change";
+      }
     }
     function svcBookTransitionsShellHtml() {
       return ''
         + '<h3 class="svc-h">Transition rows: compress or capture</h3>'
         + '<div id="svc-tr-block" class="svc-tr-block" data-svc-tr="1">'
-        + '<p class="svc-note" id="svc-tr-mode-line">Mode: ...</p>'
-        + '<div class="svc-tr-mode" role="group" aria-label="Transition rows: compress or capture">'
+        + '<p class="svc-note" id="svc-tr-mode-line" hidden></p>'
+        + '<div id="svc-tr-mode-wrap" class="svc-tr-mode" role="group" aria-label="Transition rows: compress or capture">'
         + '<button type="button" id="svc-tr-compress" class="on" aria-pressed="true" title="compress cycles (config transition_mode)">compress</button>'
         + '<button type="button" id="svc-tr-capture" aria-pressed="false" title="capture every flip (config transition_mode)">capture</button>'
         + '</div>'
+        + '<p class="svc-note" id="svc-tr-mode-hint" hidden></p>'
         + '<div class="svc-tr-since" role="group" aria-label="last 24h / 7d / all">'
         + '<button type="button" id="svc-tr-since-24h" data-tr-since="24h" aria-pressed="false">last 24h</button>'
         + '<button type="button" id="svc-tr-since-7d" data-tr-since="7d" aria-pressed="false">7d</button>'
@@ -342,20 +375,16 @@
         + '<button type="button" id="svc-tr-refresh">refresh</button>'
         + '</div>'
         + '<p class="svc-note svc-tr-error" id="svc-tr-error" hidden></p>'
-        + '<p class="svc-note" id="svc-tr-wait">loading transition analysis...</p>'
-        + '<div id="svc-tr-stats" class="svc-note"></div>'
-        + '<div class="svc-tr-label">by type</div>'
-        + '<div id="svc-tr-by-type"></div>'
-        + '<div class="svc-tr-label">by pair</div>'
-        + '<div id="svc-tr-by-pair"></div>'
+        + '<div id="svc-tr-stats" class="svc-note" hidden></div>'
+        + '<div id="svc-tr-by-type-wrap" hidden><div class="svc-tr-label">by type</div><div id="svc-tr-by-type"></div></div>'
+        + '<div id="svc-tr-by-pair-wrap" hidden><div class="svc-tr-label">by pair</div><div id="svc-tr-by-pair"></div></div>'
         + '<div id="svc-tr-wake" class="svc-tr-wake" hidden><div class="svc-tr-label">wake health</div><dl id="svc-tr-wake-body"></dl></div>'
-        + '<p class="svc-note" id="svc-tr-note"></p>'
+        + '<p class="svc-note" id="svc-tr-note" hidden></p>'
         + '</div>';
     }
     function svcTrHtmlByType(analysis) {
       var a = analysis || {};
       var rows = a.by_type || [];
-      if (a.error && !rows.length) return "";
       if (!rows.length) return '<p class="svc-note">no transition rows yet</p>';
       var body = rows.map(function (r) {
         var saved = svcTrSaved(r);
@@ -436,53 +465,77 @@
       });
     }
     function svcTrSetModeUi(mode) {
-      var isCapture = String(mode || "") === "capture";
+      var m = String(mode || "");
+      var isKnown = (m === "compress" || m === "capture");
+      var isCapture = m === "capture";
       var compress = document.getElementById("svc-tr-compress");
       var capture = document.getElementById("svc-tr-capture");
       if (compress) {
-        compress.classList.toggle("on", !isCapture);
-        compress.setAttribute("aria-pressed", isCapture ? "false" : "true");
+        compress.classList.toggle("on", isKnown ? !isCapture : true);
+        compress.setAttribute("aria-pressed", (isKnown && !isCapture) ? "true" : "false");
       }
       if (capture) {
-        capture.classList.toggle("on", isCapture);
-        capture.setAttribute("aria-pressed", isCapture ? "true" : "false");
+        capture.classList.toggle("on", isKnown ? isCapture : false);
+        capture.setAttribute("aria-pressed", (isKnown && isCapture) ? "true" : "false");
       }
       var line = document.getElementById("svc-tr-mode-line");
-      if (line) line.textContent = "Mode: " + (isCapture ? "capture" : "compress");
-    }
-    function svcTrPaintAnalysis(row) {
-      row = row || {};
-      var a = row.analysis || {};
-      svcTrSetModeUi(row.mode || "compress");
-      if (Object.prototype.hasOwnProperty.call(a, "since")) svcTrSetSinceUi(a.since);
-      else svcTrSetSinceUi(_svcTrSince);
-      var wait = document.getElementById("svc-tr-wait");
-      if (wait) wait.hidden = true;
-      var err = document.getElementById("svc-tr-error");
-      if (err) {
-        if (a.error) {
-          err.hidden = false;
-          err.textContent = String(a.error);
+      if (line) {
+        if (isKnown) {
+          line.hidden = false;
+          line.textContent = "Mode: " + m;
         } else {
-          err.hidden = true;
-          err.textContent = "";
+          line.hidden = true;
+          line.textContent = "";
         }
       }
+      var modeWrap = document.getElementById("svc-tr-mode-wrap");
+      if (modeWrap) modeWrap.hidden = false;
+    }
+    function svcTrClearAnalysis() {
       var stats = document.getElementById("svc-tr-stats");
-      if (stats) {
-        if (a.error && !(a.by_type || []).length) stats.textContent = "analysis unavailable";
-        else {
-          var saved = (a.saved_rows != null) ? svcTrNum(a.saved_rows) : Math.max(0, svcTrNum(a.total_events) - svcTrNum(a.total_rows));
-          stats.textContent = (a.total_rows || 0) + " rows / " + (a.total_events || 0) + " events (saved " + saved + ")";
-        }
-      }
+      if (stats) { stats.hidden = true; stats.textContent = ""; }
+      ["svc-tr-by-type-wrap", "svc-tr-by-pair-wrap"].forEach(function (id) {
+        var wrap = document.getElementById(id);
+        if (wrap) wrap.hidden = true;
+      });
       var byType = document.getElementById("svc-tr-by-type");
-      if (byType) byType.innerHTML = svcTrHtmlByType(a);
+      if (byType) byType.innerHTML = "";
       var byPair = document.getElementById("svc-tr-by-pair");
-      if (byPair) byPair.innerHTML = svcTrHtmlByPair(a);
+      if (byPair) byPair.innerHTML = "";
       var wakeWrap = document.getElementById("svc-tr-wake");
       var wakeBody = document.getElementById("svc-tr-wake-body");
-      var wakeHtml = svcTrHtmlWake(a.wake);
+      if (wakeWrap) wakeWrap.hidden = true;
+      if (wakeBody) wakeBody.innerHTML = "";
+      var note = document.getElementById("svc-tr-note");
+      if (note) { note.hidden = true; note.textContent = ""; }
+      var err = document.getElementById("svc-tr-error");
+      if (err) { err.hidden = true; err.textContent = ""; }
+    }
+    function svcTrPaintWindow(win) {
+      win = win || {};
+      var stats = document.getElementById("svc-tr-stats");
+      if (stats) {
+        var saved = (win.saved_rows != null) ? svcTrNum(win.saved_rows) : Math.max(0, svcTrNum(win.total_events) - svcTrNum(win.total_rows));
+        stats.hidden = false;
+        stats.textContent = (win.total_rows || 0) + " rows / " + (win.total_events || 0) + " events (saved " + saved + ")";
+      }
+      var byTypeHtml = svcTrHtmlByType(win);
+      var byTypeWrap = document.getElementById("svc-tr-by-type-wrap");
+      var byType = document.getElementById("svc-tr-by-type");
+      if (byTypeWrap && byType) {
+        byType.innerHTML = byTypeHtml;
+        byTypeWrap.hidden = !byTypeHtml;
+      }
+      var byPairHtml = svcTrHtmlByPair(win);
+      var byPairWrap = document.getElementById("svc-tr-by-pair-wrap");
+      var byPair = document.getElementById("svc-tr-by-pair");
+      if (byPairWrap && byPair) {
+        byPair.innerHTML = byPairHtml;
+        byPairWrap.hidden = !byPairHtml;
+      }
+      var wakeWrap = document.getElementById("svc-tr-wake");
+      var wakeBody = document.getElementById("svc-tr-wake-body");
+      var wakeHtml = svcTrHtmlWake(win.wake);
       if (wakeWrap && wakeBody) {
         if (wakeHtml) {
           wakeWrap.hidden = false;
@@ -492,32 +545,46 @@
           wakeBody.innerHTML = "";
         }
       }
-      var note = document.getElementById("svc-tr-note");
-      if (note) note.textContent = row.note || "";
-      /* keep write controls usable when analysis.error (Gardener). */
-      ["svc-tr-compress", "svc-tr-capture"].forEach(function (id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        var ro = typeof wallHumanReadonly === "function" && wallHumanReadonly();
-        el.disabled = !!ro;
-      });
-    }
-    function svcTrShowNeedAdmin(msg) {
-      var wait = document.getElementById("svc-tr-wait");
-      if (wait) wait.hidden = true;
       var err = document.getElementById("svc-tr-error");
-      if (err) {
-        err.hidden = false;
-        err.textContent = msg || "admin session needed";
-      }
-      var line = document.getElementById("svc-tr-mode-line");
-      if (line && line.textContent.indexOf("...") >= 0) line.textContent = "Mode: (unknown)";
+      if (err) { err.hidden = true; err.textContent = ""; }
+      var note = document.getElementById("svc-tr-note");
+      if (note) { note.hidden = true; note.textContent = ""; }
     }
-    function svcPaintWakeAlertFromCache() {
+    function svcTrPaintFromPacket() {
+      if (!document.getElementById("svc-tr-block")) return;
+      var tr = svcTrPacket();
+      svcTrSetSinceUi(_svcTrSince);
+      if (!tr) {
+        svcTrSetModeUi("");
+        svcTrApplyWriteGate();
+        svcTrClearAnalysis();
+        var stats0 = document.getElementById("svc-tr-stats");
+        if (stats0) {
+          stats0.hidden = false;
+          stats0.textContent = "window unavailable";
+        }
+        return;
+      }
+      svcTrSetModeUi(tr.mode || "");
+      svcTrApplyWriteGate();
+      var win = svcTrWindow(tr, _svcTrSince);
+      if (!win || win.stored === false) {
+        svcTrClearAnalysis();
+        var stats = document.getElementById("svc-tr-stats");
+        if (stats) {
+          stats.hidden = false;
+          stats.textContent = "window unavailable";
+        }
+        return;
+      }
+      svcTrPaintWindow(win);
+    }
+    function svcPaintWakeAlertFromPacket() {
       var box = document.getElementById("svc-wake-alert");
       if (!box) return;
-      var row = _svcTrCache.row;
-      var wake = row && row.analysis && row.analysis.wake;
+      var tr = svcTrPacket();
+      var win = svcTrWindow(tr, ""); /* Alerts summary uses the all window. */
+      var wake = (win && win.stored !== false) ? win.wake : null;
       var html = svcWakeAlertHtml(wake);
       if (!html) {
         box.hidden = true;
@@ -533,14 +600,13 @@
         paintWallService();
       });
     }
-    async function svcAdminTransition(extra) {
-      /* Same door/Admin session cookie as seat_count / invite pane; body owner is not proof. */
+    async function svcAdminTransitionWrite(extra) {
+      /* Gated Admin write only (mode/pairs). Reads come from the glance packet. */
       var human = "";
       var desk = "";
       try { human = localStorage.getItem("factory-human") || ""; } catch (eH) {}
       try { desk = localStorage.getItem("factory-desk") || localStorage.getItem("AGENT_COORD_OWNER") || ""; } catch (eD) {}
       var body = Object.assign({ action: "transition", owner: human || desk || "wall" }, extra || {});
-      if (_svcTrSince) body.since = _svcTrSince;
       var r = await fetch("/api/admin/invites", {
         method: "POST",
         credentials: "same-origin",
@@ -557,63 +623,11 @@
       }
       return data;
     }
-    function svcTrCacheFresh(since) {
-      var want = (since === "24h" || since === "7d") ? since : "";
-      if (!_svcTrCache.row) return false;
-      if (_svcTrCache.since !== want) return false;
-      if (_svcTrCache.err) return false;
-      return (Date.now() - (_svcTrCache.at || 0)) < SVC_TR_CACHE_MS;
-    }
-    async function svcEnsureTransition(force) {
-      var want = _svcTrSince || "";
-      if (!force && svcTrCacheFresh(want)) return _svcTrCache.row;
-      if (_svcTrCache.inflight) return _svcTrCache.inflight;
-      _svcTrCache.inflight = (async function () {
-        try {
-          var row = await svcAdminTransition();
-          _svcTrCache = { at: Date.now(), since: want, row: row, err: null, inflight: null };
-          return row;
-        } catch (e) {
-          _svcTrCache = { at: Date.now(), since: want, row: null, err: e, inflight: null };
-          throw e;
-        }
-      })();
-      return _svcTrCache.inflight;
-    }
-    function svcIsAdminNeeded(err) {
-      var msg = String((err && err.message) || err || "").toLowerCase();
-      return msg.indexOf("admin") >= 0 || msg.indexOf("required") >= 0 || (err && err.status === 400);
-    }
-    async function svcLoadBookTransitions(force) {
-      if (!document.getElementById("svc-tr-block")) return;
-      try {
-        var row = await svcEnsureTransition(!!force);
-        svcTrPaintAnalysis(row);
-      } catch (e) {
-        if (svcIsAdminNeeded(e)) svcTrShowNeedAdmin("admin session needed");
-        else svcTrShowNeedAdmin(String((e && e.message) || e));
-      }
-    }
-    async function svcLoadWakeAlert() {
-      if (_svcSection !== "alerts") return;
-      if (svcTrCacheFresh(_svcTrSince || "")) {
-        svcPaintWakeAlertFromCache();
-        return;
-      }
-      try {
-        await svcEnsureTransition(false);
-        if (_svcSection === "alerts") svcPaintWakeAlertFromCache();
-      } catch (e) {
-        /* no admin session: show nothing rather than a placeholder (Gardener). */
-        var box = document.getElementById("svc-wake-alert");
-        if (box) { box.hidden = true; box.innerHTML = ""; }
-      }
-    }
     function svcWireBookTransitions() {
       if (!document.getElementById("svc-tr-block")) return;
       function setSince(v) {
         svcTrSetSinceUi(v);
-        svcLoadBookTransitions(true);
+        svcTrPaintFromPacket();
       }
       var b24 = document.getElementById("svc-tr-since-24h");
       var b7 = document.getElementById("svc-tr-since-7d");
@@ -622,26 +636,30 @@
       if (b24) b24.addEventListener("click", function () { setSince("24h"); });
       if (b7) b7.addEventListener("click", function () { setSince("7d"); });
       if (ball) ball.addEventListener("click", function () { setSince(""); });
-      if (bref) bref.addEventListener("click", function () { svcLoadBookTransitions(true); });
+      if (bref) bref.addEventListener("click", function () { svcTrPaintFromPacket(); });
       async function setMode(mode) {
-        if (typeof wallHumanReadonly === "function" && wallHumanReadonly()) return;
+        if (!svcTrCanWrite()) return;
+        var err = document.getElementById("svc-tr-error");
         try {
-          var row = await svcAdminTransition({ mode: mode });
-          _svcTrCache = { at: Date.now(), since: _svcTrSince || "", row: row, err: null, inflight: null };
-          svcTrPaintAnalysis(row);
+          var row = await svcAdminTransitionWrite({ mode: mode });
+          if (_svcPacket && _svcPacket.book) {
+            var tr = _svcPacket.book.transition || (_svcPacket.book.transition = { mode: "", pairs: [], windows: {} });
+            if (row && row.mode) tr.mode = row.mode;
+            else tr.mode = mode;
+          }
+          svcTrPaintFromPacket();
         } catch (e) {
-          svcTrShowNeedAdmin(String((e && e.message) || e));
+          if (err) {
+            err.hidden = false;
+            err.textContent = String((e && e.message) || e);
+          }
         }
       }
       var bc = document.getElementById("svc-tr-compress");
       var ba = document.getElementById("svc-tr-capture");
       if (bc) bc.addEventListener("click", function () { setMode("compress"); });
       if (ba) ba.addEventListener("click", function () { setMode("capture"); });
-      var ro = typeof wallHumanReadonly === "function" && wallHumanReadonly();
-      if (bc) bc.disabled = !!ro;
-      if (ba) ba.disabled = !!ro;
-      svcTrSetSinceUi(_svcTrSince);
-      svcLoadBookTransitions(false);
+      svcTrPaintFromPacket();
     }
     function paintWallService() {
       const body = document.getElementById("wall-service-body");
@@ -661,7 +679,7 @@
       else html = '<p class="svc-wait">No reading.</p>';
       body.innerHTML = html;
       if (_svcSection === "book") svcWireBookTransitions();
-      if (_svcSection === "alerts") svcLoadWakeAlert();
+      if (_svcSection === "alerts") svcPaintWakeAlertFromPacket();
     }
     /* test hooks (card 1098 Book / wake). */
     var WallServiceBook = {
@@ -672,11 +690,15 @@
       htmlWake: svcTrHtmlWake,
       wakeAlertHtml: svcWakeAlertHtml,
       wakeCounts: svcTrWakeCounts,
-      paintAnalysis: svcTrPaintAnalysis,
+      paintFromPacket: svcTrPaintFromPacket,
+      paintWindow: svcTrPaintWindow,
+      clearAnalysis: svcTrClearAnalysis,
+      setModeUi: svcTrSetModeUi,
       setSinceUi: svcTrSetSinceUi,
+      applyWriteGate: svcTrApplyWriteGate,
+      paintWakeAlert: svcPaintWakeAlertFromPacket,
       getSince: function () { return _svcTrSince; },
-      cache: function () { return _svcTrCache; },
-      resetCache: function () { _svcTrCache = { at: 0, since: null, row: null, err: null, inflight: null }; }
+      windowKey: svcTrWindowKey
     };
     try { window.WallServiceBook = WallServiceBook; } catch (eW) {}
 var WALL_UI_DEFAULT_SERVICE_PAINT = "WALL_UI_DEFAULT_SERVICE_PAINT";
