@@ -197,7 +197,7 @@ def test_build_reads_counts_and_hides_the_canary(monkeypatch):
     assert packet["book"]["seats_here"] == 2
     assert packet["book"]["promises_held"] == 1
     assert packet["book"]["admin"] == ["grok-tui"]
-    assert set(packet["book"]["transition"]) == {"mode", "pairs", "windows"}
+    assert set(packet["book"]["transition"]) == {"mode", "pairs", "pairs_state", "windows"}
     assert "error" not in json.dumps(packet["book"]["transition"])
     assert packet["book"]["routines"]["watch"]["mill_span"] is True
     assert packet["book"]["routines"]["watch"]["mill_between"] is True

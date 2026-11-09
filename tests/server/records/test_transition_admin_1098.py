@@ -272,7 +272,7 @@ def test_glance_block_marks_failed_windows_stored_false_without_error_key():
             raise RuntimeError("no book")
 
     out = ta.glance_block(Boom())
-    assert set(out) == {"mode", "pairs", "windows"}
+    assert set(out) == {"mode", "pairs", "pairs_state", "windows"}
     assert out["mode"] in ("compress", "capture")
     assert set(out["windows"]) == {"all", "24h", "7d"}
     for win in out["windows"].values():
@@ -290,3 +290,16 @@ def test_glance_block_matches_analysis_for_each_window(cn, monkeypatch):
         assert got.pop("stored") is True
         assert got == want
         assert "error" not in got
+
+
+def test_pairs_state_lists_defaults_and_marks_switched_off_pairs(monkeypatch):
+    monkeypatch.setenv("AGENT_COORD_TRANSITION_PAIRS", "hold:free/held,doing:seated/connected")
+    rows = {r["pair"]: r for r in ta.pairs_state()}
+    assert rows["hold:free/held"]["compress"] is True
+    assert rows["doing:connected/seated"]["compress"] is True
+    # default pair left off the list still gets a row, switched off
+    assert rows["hold:held/held"]["compress"] is False
+    monkeypatch.setenv("AGENT_COORD_TRANSITION_PAIRS", "doing:seated/connected,x:a/b")
+    rows = {r["pair"]: r for r in ta.pairs_state()}
+    assert rows["x:a/b"]["compress"] is True
+    assert rows["hold:free/held"]["compress"] is False

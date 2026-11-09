@@ -254,4 +254,43 @@ def glance_block(cn) -> dict[str, Any]:
         else:
             got["stored"] = True
             windows[key] = got
-    return {"mode": cfg["mode"], "pairs": cfg["pairs"], "windows": windows}
+    return {
+        "mode": cfg["mode"],
+        "pairs": cfg["pairs"],
+        "pairs_state": pairs_state(),
+        "windows": windows,
+    }
+
+
+def pairs_state() -> list[dict[str, Any]]:
+    """Every default pair plus any configured pair, with whether it compresses.
+
+    A pair on the configured list compresses; a pair off it writes every flip.
+    A switched-off default pair still gets a row so the Wall can show a toggle.
+    """
+    from agent_coord.config import DEFAULT_TRANSITION_PAIRS, transition_pairs
+
+    def parse(raw: str) -> set[tuple[str, frozenset[str]]]:
+        out: set[tuple[str, frozenset[str]]] = set()
+        for part in raw.split(","):
+            typ, _, rest = part.strip().partition(":")
+            a, _, b = rest.partition("/")
+            typ, a, b = typ.strip().lower(), a.strip().lower(), b.strip().lower()
+            if typ and a and b:
+                out.add((typ, frozenset({a, b})))
+        return out
+
+    on = set(transition_pairs())
+    rows = []
+    for typ, states in sorted(on | parse(DEFAULT_TRANSITION_PAIRS), key=lambda x: (x[0], sorted(x[1]))):
+        a, b = _pair_ends(states)
+        rows.append(
+            {
+                "pair": f"{typ}:{a}/{b}",
+                "activity_type": typ,
+                "from_state": a,
+                "to_state": b,
+                "compress": (typ, states) in on,
+            }
+        )
+    return rows
