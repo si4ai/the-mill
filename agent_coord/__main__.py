@@ -669,6 +669,12 @@ def _build_parser() -> MillArgumentParser:
         metavar="ROOM",
         help="open a new room with this name (a room that exists is refused; reply to it instead)",
     )
+    m.add_argument(
+        "--receipt",
+        action="store_true",
+        default=False,
+        help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
+    )
 
     rp = sub.add_parser(
         "reply",
@@ -696,6 +702,12 @@ def _build_parser() -> MillArgumentParser:
         default="",
         dest="roster",
         help="replying desk's sender roster; default as on send",
+    )
+    rp.add_argument(
+        "--receipt",
+        action="store_true",
+        default=False,
+        help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
     )
 
     mt = sub.add_parser(

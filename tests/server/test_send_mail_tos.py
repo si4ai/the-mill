@@ -137,4 +137,5 @@ def test_public_mail_tos_shape_stable():
         {"desk": "a", "roster": "builder", "receipt": 1, "opened": "x"},
     ]
     tos = rec_mail.public_mail_tos(rows)
-    assert tos == [{"deskId": "a", "receipt": 1}]
+    # Card 1093: receipt dests carry opened so the Wall chip can clear.
+    assert tos == [{"deskId": "a", "receipt": 1, "opened": "x"}]

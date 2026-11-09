@@ -9,7 +9,7 @@ mail pure decision rules used by the default Wall pack:
 - agent-unread + open human_required = Needs attention (ACCEPTANCE-MAIL-ATTENTION-DEFAULT,
   ACCEPTANCE-MAIL-HUMAN-REQUIRED, ACCEPTANCE-MAIL-DUAL-READ)
 - GRAPH dst+src scoping (ACCEPTANCE-MAIL-DST-SRC-BROWSER) - no auto-pick src
-- lean MAIL adapters (sender + mail_tos + receipt; no opened on cast) - Loop-3 Wall rooms
+- lean MAIL adapters (sender + mail_tos + receipt; opened on receipt dests for HR clear) - Loop-3 Wall rooms
 
 Default pack paint still lives in `agent_coord/wall_ui/default/board.html` (and
 `static/board.html` sync). **board.html must call-equivalent** these helpers
@@ -123,13 +123,15 @@ def mail_tos(m: Mapping[str, Any] | None) -> list[dict[str, Any]]:
             desk = _name_text(t.get("deskId") if t.get("deskId") not in (None, "") else t.get("desk"))
             if not desk:
                 continue
-            out.append(
-                {
-                    "deskId": desk,
-                    "roster": t.get("roster") if t.get("roster") not in ("", None) else None,
-                    "receipt": int(t.get("receipt") or 0),
-                }
-            )
+            entry = {
+                "deskId": desk,
+                "roster": t.get("roster") if t.get("roster") not in ("", None) else None,
+                "receipt": int(t.get("receipt") or 0),
+            }
+            # Card 1093: opened rides the cast for receipt dests so the HR chip can clear.
+            if "opened" in t:
+                entry["opened"] = t.get("opened")
+            out.append(entry)
         return out
     raw_dst = m.get("dst")
     if isinstance(raw_dst, str) and "," in raw_dst:
@@ -519,7 +521,10 @@ def mail_wall_unread(m: Mapping[str, Any] | None) -> bool:
 
 
 def mail_msg_human_required_open(m: Mapping[str, Any] | None) -> bool:
-    """HR open: legacy flags, or lean mail_tos.receipt==1 (public cast; no opened)."""
+    """HR open: legacy flags, or an unopened receipt dest (card 1093).
+
+    Clears once every receipt=1 dest has opened (mark/reply/thread/Wall mark_read).
+    """
     if not m:
         return False
     if m.get("human_required_cleared") or m.get("human_acked") or m.get("human_required_done"):
@@ -529,8 +534,12 @@ def mail_msg_human_required_open(m: Mapping[str, Any] | None) -> bool:
         return False
     if bool(m.get("human_required") or m.get("needs_human")):
         return True
-    # Lean: receipt on dest = human_required (set outside mill send; send has no flag for it).
-    return any(int(t.get("receipt") or 0) == 1 for t in mail_tos(m))
+    # Lean: receipt=1 is Needs human until that dest opens. opened on the cast
+    # (public_mail_tos for receipt dests) lets the chip clear.
+    receipt_dests = [t for t in mail_tos(m) if int(t.get("receipt") or 0) == 1]
+    if not receipt_dests:
+        return False
+    return any(t.get("opened") in (None, "", 0, False) for t in receipt_dests)
 
 
 def mail_msg_agent_unread(m: Mapping[str, Any] | None) -> bool:

@@ -1,4 +1,7 @@
-"""#254 follow-up: send and reply have no --human-required; receipt is never set by send."""
+"""#254 follow-up: send and reply have no --human-required; human_required never sets receipt.
+
+Card 1093 adds --receipt as the way to set mail_to.receipt=1. human_required stays dropped.
+"""
 from __future__ import annotations
 
 from types import SimpleNamespace
