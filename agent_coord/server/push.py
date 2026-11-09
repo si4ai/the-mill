@@ -677,17 +677,9 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
     outcome = "queued"
     keys = _desk_room_keys(desk)
     sitting = any(k in HUB.rooms for k in keys)
-    # Receipt revision: unopened receipt is a real miss even as a room copy.
-    # Fold unify: item 4 wake_reason_for_dest already forces addressed for receipt.
-    receipt_owed = False
-    if kind == "mail" and mid and reason != "addressed":
-        try:
-            from agent_coord.server.records import mail as rec_mail
-
-            receipt_owed = rec_mail.receipt_pending_for(cn, who, mid)
-        except Exception:
-            receipt_owed = False
-    real_miss = reason == "addressed" or receipt_owed or kind in ("hint", "receipt")
+    # Receipt dests arrive as reason=addressed via mail_push.wake_reason_for_dest
+    # (card 1093); no per-letter receipt override needed.
+    real_miss = reason == "addressed" or kind in ("hint", "receipt")
     if sitting:
         try:
             _notify_rooms(keys or [desk], stamp_mill(live), row=(who, rid))
@@ -713,7 +705,7 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
                     desk,
                     live,
                     hint_id=mid,
-                    reason="addressed" if receipt_owed else reason,
+                    reason=reason,
                     room=room,
                     wake_id=rid,
                 )

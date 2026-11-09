@@ -1263,8 +1263,7 @@ def post_desk(
         return "none"
     # Card 1098 item 5c: skip empty wakes before they spend an LLM turn.
     # tw.event frames carry watch_id and are exempt (no queue row).
-    # Fold unify: counts_as_waiting / has_unopened_receipt live in mail_push
-    # (same names as item 4); keep one copy at fold.
+    # counts_as_waiting / has_unopened_receipt live in mail_push (card 1093).
     if not frame.get("watch_id"):
         try:
             from agent_coord.server import mail_push as mp
@@ -1287,20 +1286,11 @@ def post_desk(
         except Exception:
             pass
     if reason == ROOM and rec_join.wake_state(cn, desk).get("wake_on") == ADDRESSED:
-        # #628: this desk wakes for addressed items only. Receipt revision:
-        # an unopened receipt letter is never quieted by --wake-on.
-        # Fold unify: item 4 wake_reason_for_dest already forces addressed.
-        receipt_force = False
-        if mid:
-            try:
-                from agent_coord.server.records import mail as rec_mail
-
-                receipt_force = rec_mail.receipt_pending_for(cn, desk, mid)
-            except Exception:
-                receipt_force = False
-        if not receipt_force:
-            _wake_log(desk, frame, hint_id, "skipped reason=room-only")
-            return "skipped"
+        # #628: this desk wakes for addressed items only. Receipt dests arrive
+        # as reason=addressed via mail_push.wake_reason_for_dest (card 1093),
+        # so they never hit this room-only skip.
+        _wake_log(desk, frame, hint_id, "skipped reason=room-only")
+        return "skipped"
     if _coalesced(desk, frame, hint_id, reason, room):
         # A wake already went out and its lease is live: skip the checks and the DNS
         # lookup. Checked and recorded in one lock hold (F144a, card 887).
