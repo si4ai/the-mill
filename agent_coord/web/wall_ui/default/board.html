@@ -482,20 +482,38 @@
 
         <section class="admin-panel" id="admin-transition-panel" aria-label="Transition instrumentation">
           <h3>TRANSITIONS</h3>
-          <p class="note">Compress two-state cycles (sit/unsit, hold free/held) into one row with count <code>n</code>. Odd <code>n</code> = at to_state; even = at from_state. Capture keeps every flip.</p>
-          <dl id="admin-transition-body">
-            <dt>Mode</dt><dd id="admin-tr-mode">...</dd>
-            <dt>Pairs</dt><dd id="admin-tr-pairs">...</dd>
-            <dt>Rows / events</dt><dd id="admin-tr-stats">...</dd>
-          </dl>
-          <div class="admin-actions admin-full-only">
-            <button type="button" id="admin-tr-compress" title="Compress cycles (default)">Compress</button>
-            <button type="button" id="admin-tr-capture" title="Capture every transition row">Capture</button>
-            <input id="admin-tr-pairs-input" placeholder="doing:seated/connected,hold:free/held,hold:held/held" size="42" />
-            <button type="button" id="admin-tr-save-pairs">save pairs</button>
-            <button type="button" id="admin-tr-refresh">refresh</button>
+          <p class="note">compress = two-state cycles share one row with a count <code>n</code> (odd = at to_state; even = at from_state). capture = every flip is its own row (full timeline). pairs left off write every flip.</p>
+          <div class="admin-tr-mode admin-full-only" role="group" aria-label="compress or capture">
+            <button type="button" id="admin-tr-compress" class="on" aria-pressed="true" title="compress cycles (default)">
+              compress
+              <span class="admin-tr-hint">two-state cycles share one row with a count n</span>
+            </button>
+            <button type="button" id="admin-tr-capture" aria-pressed="false" title="capture every transition row">
+              capture
+              <span class="admin-tr-hint">every flip is its own row (full timeline)</span>
+            </button>
           </div>
-          <div id="admin-tr-compressed" class="body note"></div>
+          <div class="admin-tr-pairs-block">
+            <div class="admin-tr-label">pairs</div>
+            <div id="admin-tr-chips" class="admin-tr-chips" aria-live="polite"></div>
+            <div class="admin-actions admin-full-only">
+              <input id="admin-tr-pair-add" placeholder="type:a/b" size="22" autocomplete="off" />
+              <button type="button" id="admin-tr-add-pair">add</button>
+              <button type="button" id="admin-tr-reset-pairs">reset to default</button>
+              <button type="button" id="admin-tr-save-pairs">save pairs</button>
+              <button type="button" id="admin-tr-refresh">refresh</button>
+            </div>
+            <input type="hidden" id="admin-tr-pairs-input" value="" />
+          </div>
+          <p class="note admin-tr-error" id="admin-tr-error" hidden></p>
+          <div id="admin-tr-stats" class="admin-tr-stats body note">...</div>
+          <div id="admin-tr-by-type" class="admin-tr-table-wrap"></div>
+          <div id="admin-tr-by-pair" class="admin-tr-table-wrap"></div>
+          <div id="admin-tr-compressed" class="admin-tr-table-wrap"></div>
+          <div id="admin-tr-wake" class="admin-tr-wake" hidden>
+            <div class="admin-tr-label">wake health</div>
+            <dl id="admin-tr-wake-body"></dl>
+          </div>
           <p class="note" id="admin-tr-note"></p>
         </section>
 
@@ -644,7 +662,7 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow329"></script>
+  <script defer src="/lib/lazy.js?v=wow332"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
@@ -728,6 +746,6 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow326"></script>
+<script defer src="/boot.js?v=wow333"></script>
 </body>
 </html>

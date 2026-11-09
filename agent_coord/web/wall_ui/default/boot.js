@@ -7816,7 +7816,7 @@
     }
     function wallEnsureAdminInvites() {
       if (typeof wallEnsureModule === "function") return wallEnsureModule("adminInvite");
-      if (typeof wallLoadScript === "function") return wallLoadScript("/admin/invite.js?v=wow281");
+      if (typeof wallLoadScript === "function") return wallLoadScript("/admin/invite.js?v=wow330");
       return Promise.resolve();
     }
     function wallLoadAdminInvitesLazy() {

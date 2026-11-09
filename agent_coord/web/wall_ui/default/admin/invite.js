@@ -113,56 +113,271 @@ async function loadAdminInvites() {
   }
 
 
+  /* card 1098: compress/capture switch, pair chips, analysis tables */
+  var _trPairs = [];
+  var _trDefaultPairs = "doing:seated/connected,hold:free/held,hold:held/held";
+  var _trBusy = false;
+
+  function trJoinPairs(pairs) {
+    return (pairs || []).map(function (p) { return String(p || "").trim(); }).filter(Boolean).join(",");
+  }
+
+  function trSplitPairs(raw) {
+    return String(raw || "").split(",").map(function (p) { return p.trim(); }).filter(Boolean);
+  }
+
+  function trNum(v) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function trTypeSaved(row) {
+    if (row && row.saved_rows != null && row.saved_rows !== "") return Math.max(0, trNum(row.saved_rows));
+    return Math.max(0, trNum(row && row.events) - trNum(row && row.rows));
+  }
+
+  function trSharePct(saved, events) {
+    var e = trNum(events);
+    if (e <= 0) return "0%";
+    return (Math.round((1000 * trNum(saved)) / e) / 10) + "%";
+  }
+
+  function trSyncPairsInput() {
+    var input = document.getElementById("admin-tr-pairs-input");
+    if (input) input.value = trJoinPairs(_trPairs);
+  }
+
+  function trSetBusy(on) {
+    _trBusy = !!on;
+    ["admin-tr-compress", "admin-tr-capture", "admin-tr-save-pairs", "admin-tr-refresh", "admin-tr-add-pair", "admin-tr-reset-pairs"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.disabled = _trBusy;
+    });
+    var add = document.getElementById("admin-tr-pair-add");
+    if (add) add.disabled = _trBusy;
+  }
+
+  function trSetModeUi(mode) {
+    var compress = document.getElementById("admin-tr-compress");
+    var capture = document.getElementById("admin-tr-capture");
+    var isCapture = String(mode || "") === "capture";
+    if (compress) {
+      compress.classList.toggle("on", !isCapture);
+      compress.setAttribute("aria-pressed", isCapture ? "false" : "true");
+    }
+    if (capture) {
+      capture.classList.toggle("on", isCapture);
+      capture.setAttribute("aria-pressed", isCapture ? "true" : "false");
+    }
+  }
+
+  function trHtmlChips(pairs) {
+    var list = pairs || [];
+    if (!list.length) return '<span class="admin-tr-empty">no pairs (every flip writes its own row)</span>';
+    return list.map(function (p, i) {
+      return '<span class="admin-tr-chip"><code>' + esc(p) + '</code>'
+        + '<button type="button" class="admin-tr-chip-x" data-tr-rm="' + i + '" aria-label="remove pair">x</button></span>';
+    }).join("");
+  }
+
+  function trPaintChips() {
+    var el = document.getElementById("admin-tr-chips");
+    if (!el) return;
+    el.innerHTML = trHtmlChips(_trPairs);
+    el.querySelectorAll("[data-tr-rm]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (_trBusy) return;
+        var i = Number(btn.getAttribute("data-tr-rm"));
+        if (!Number.isFinite(i)) return;
+        _trPairs = _trPairs.filter(function (_p, idx) { return idx !== i; });
+        trSyncPairsInput();
+        trPaintChips();
+      });
+    });
+    trSyncPairsInput();
+  }
+
+  function trHtmlByType(analysis) {
+    var a = analysis || {};
+    var rows = a.by_type || [];
+    if (a.error && !rows.length) return "";
+    if (!rows.length) return '<p class="note admin-tr-empty">no transition rows yet</p>';
+    var totalRows = 0, totalEvents = 0, totalSaved = 0;
+    var body = rows.map(function (r) {
+      var saved = trTypeSaved(r);
+      var events = trNum(r.events);
+      var rr = trNum(r.rows);
+      totalRows += rr;
+      totalEvents += events;
+      totalSaved += saved;
+      return "<tr><td><code>" + esc(r.activity_type || "") + "</code></td>"
+        + "<td>" + esc(String(rr)) + "</td>"
+        + "<td>" + esc(String(events)) + "</td>"
+        + "<td>" + esc(String(saved)) + "</td>"
+        + "<td>" + esc(trSharePct(saved, events)) + "</td></tr>";
+    }).join("");
+    var savedAll = (a.saved_rows != null && a.saved_rows !== "") ? Math.max(0, trNum(a.saved_rows)) : totalSaved;
+    var rowsAll = (a.total_rows != null) ? trNum(a.total_rows) : totalRows;
+    var eventsAll = (a.total_events != null) ? trNum(a.total_events) : totalEvents;
+    return '<table class="admin-tr-table" data-table="admin-tr-by-type"><thead><tr>'
+      + "<th>type</th><th>rows</th><th>events</th><th>saved</th><th>share</th>"
+      + "</tr></thead><tbody>" + body + "</tbody><tfoot><tr>"
+      + "<td>total</td>"
+      + "<td>" + esc(String(rowsAll)) + "</td>"
+      + "<td>" + esc(String(eventsAll)) + "</td>"
+      + "<td>" + esc(String(savedAll)) + "</td>"
+      + "<td>" + esc(trSharePct(savedAll, eventsAll)) + "</td>"
+      + "</tr></tfoot></table>";
+  }
+
+  function trHtmlByPair(analysis) {
+    var list = (analysis && analysis.by_pair) || null;
+    if (!list) return "";
+    if (!list.length) return '<p class="note admin-tr-empty">no configured pair rows</p>';
+    var body = list.map(function (r) {
+      var saved = trTypeSaved(r);
+      return "<tr><td><code>" + esc(r.activity_type || "") + "</code></td>"
+        + "<td>" + esc(r.from_state || "") + " -&gt; " + esc(r.to_state || "") + "</td>"
+        + "<td>" + esc(String(trNum(r.rows))) + "</td>"
+        + "<td>" + esc(String(trNum(r.events))) + "</td>"
+        + "<td>" + esc(String(saved)) + "</td></tr>";
+    }).join("");
+    return '<div class="admin-tr-label">by pair</div>'
+      + '<table class="admin-tr-table" data-table="admin-tr-by-pair"><thead><tr>'
+      + "<th>type</th><th>from -&gt; to</th><th>rows</th><th>events</th><th>saved</th>"
+      + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  function trHtmlCompressed(analysis) {
+    var top = (analysis && analysis.top_compressed) || [];
+    if (!top.length) return '<p class="note admin-tr-empty">no compressed rows yet</p>';
+    var body = top.map(function (r) {
+      return "<tr><td><code>" + esc(r.activity_type || "") + "</code></td>"
+        + "<td>" + esc(r.from_state || "") + " -&gt; " + esc(r.to_state || "") + "</td>"
+        + "<td>" + esc(String(trNum(r.n))) + "</td>"
+        + "<td>" + esc(r.at || "") + "</td></tr>";
+    }).join("");
+    return '<div class="admin-tr-label">compressed</div>'
+      + '<table class="admin-tr-table" data-table="admin-tr-compressed"><thead><tr>'
+      + "<th>type</th><th>from -&gt; to</th><th>n</th><th>at</th>"
+      + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  function trHtmlWake(wake) {
+    if (!wake || typeof wake !== "object") return "";
+    var keys = Object.keys(wake);
+    if (!keys.length) return "";
+    return keys.map(function (k) {
+      return "<dt>" + esc(k) + "</dt><dd>" + esc(String(wake[k])) + "</dd>";
+    }).join("");
+  }
+
+  function trHtmlStats(analysis) {
+    var a = analysis || {};
+    if (a.error && !(a.by_type || []).length) {
+      return "analysis unavailable";
+    }
+    var saved = (a.saved_rows != null) ? trNum(a.saved_rows) : Math.max(0, trNum(a.total_events) - trNum(a.total_rows));
+    return (a.total_rows || 0) + " rows / " + (a.total_events || 0) + " events (saved " + saved + ")";
+  }
+
+  function adminPaintTransitions(row) {
+    row = row || {};
+    var a = row.analysis || {};
+    trSetModeUi(row.mode || "compress");
+    if (Array.isArray(row.pairs)) _trPairs = row.pairs.slice();
+    else if (row.pairs_raw) _trPairs = trSplitPairs(row.pairs_raw);
+    if (row.default_pairs) _trDefaultPairs = String(row.default_pairs);
+    trPaintChips();
+    var err = document.getElementById("admin-tr-error");
+    if (err) {
+      if (a.error) {
+        err.hidden = false;
+        err.textContent = String(a.error);
+      } else {
+        err.hidden = true;
+        err.textContent = "";
+      }
+    }
+    var statsEl = document.getElementById("admin-tr-stats");
+    if (statsEl) statsEl.textContent = trHtmlStats(a);
+    var byType = document.getElementById("admin-tr-by-type");
+    if (byType) byType.innerHTML = trHtmlByType(a);
+    var byPair = document.getElementById("admin-tr-by-pair");
+    if (byPair) byPair.innerHTML = trHtmlByPair(a);
+    var listEl = document.getElementById("admin-tr-compressed");
+    if (listEl) listEl.innerHTML = trHtmlCompressed(a);
+    var wakeWrap = document.getElementById("admin-tr-wake");
+    var wakeBody = document.getElementById("admin-tr-wake-body");
+    var wakeHtml = trHtmlWake(a.wake);
+    if (wakeWrap && wakeBody) {
+      if (wakeHtml) {
+        wakeWrap.hidden = false;
+        wakeBody.innerHTML = wakeHtml;
+      } else {
+        wakeWrap.hidden = true;
+        wakeBody.innerHTML = "";
+      }
+    }
+    var noteEl = document.getElementById("admin-tr-note");
+    if (noteEl) noteEl.textContent = row.note || "";
+  }
+
   async function adminLoadTransitions() {
     try {
+      trSetBusy(true);
       const row = await adminPost({ action: "transition" });
-      const modeEl = document.getElementById("admin-tr-mode");
-      const pairsEl = document.getElementById("admin-tr-pairs");
-      const statsEl = document.getElementById("admin-tr-stats");
-      const noteEl = document.getElementById("admin-tr-note");
-      const listEl = document.getElementById("admin-tr-compressed");
-      const input = document.getElementById("admin-tr-pairs-input");
-      if (modeEl) modeEl.textContent = row.mode || "...";
-      if (pairsEl) pairsEl.textContent = (row.pairs || []).join(", ") || "(none)";
-      if (input && row.pairs_raw) input.value = row.pairs_raw;
-      const a = row.analysis || {};
-      if (statsEl) {
-        if (a.error) statsEl.textContent = "unavailable: " + a.error;
-        else statsEl.textContent = (a.total_rows || 0) + " rows / " + (a.total_events || 0) + " events (saved " + (a.saved_rows || 0) + ")";
-      }
-      if (listEl) {
-        const top = a.top_compressed || [];
-        listEl.textContent = top.length
-          ? ("compressed: " + top.map(r => r.activity_type + " " + r.from_state + "->" + r.to_state + " n=" + r.n).join("; "))
-          : "no compressed rows yet";
-      }
-      if (noteEl) noteEl.textContent = row.note || "";
+      adminPaintTransitions(row);
     } catch (e) {
       const noteEl = document.getElementById("admin-tr-note");
       if (noteEl) noteEl.textContent = String(e && e.message || e);
+    } finally {
+      trSetBusy(false);
     }
   }
 
   async function adminSetTransitionMode(mode) {
     try {
-      await adminPost({ action: "transition", mode: mode });
-      await adminLoadTransitions();
+      trSetBusy(true);
+      const row = await adminPost({ action: "transition", mode: mode });
+      adminPaintTransitions(row);
     } catch (e) {
       const noteEl = document.getElementById("admin-tr-note");
       if (noteEl) noteEl.textContent = String(e && e.message || e);
+    } finally {
+      trSetBusy(false);
     }
   }
 
   async function adminSaveTransitionPairs() {
-    const input = document.getElementById("admin-tr-pairs-input");
-    const pairs = (input && input.value) || "";
+    const pairs = trJoinPairs(_trPairs);
     try {
-      await adminPost({ action: "transition", pairs: pairs });
-      await adminLoadTransitions();
+      trSetBusy(true);
+      const row = await adminPost({ action: "transition", pairs: pairs });
+      adminPaintTransitions(row);
     } catch (e) {
       const noteEl = document.getElementById("admin-tr-note");
       if (noteEl) noteEl.textContent = String(e && e.message || e);
+    } finally {
+      trSetBusy(false);
     }
+  }
+
+  function adminAddTransitionPair() {
+    if (_trBusy) return;
+    var input = document.getElementById("admin-tr-pair-add");
+    var raw = input && input.value || "";
+    var p = String(raw).trim();
+    if (!p) return;
+    if (_trPairs.indexOf(p) < 0) _trPairs.push(p);
+    if (input) input.value = "";
+    trPaintChips();
+  }
+
+  function adminResetTransitionPairs() {
+    if (_trBusy) return;
+    _trPairs = trSplitPairs(_trDefaultPairs);
+    trPaintChips();
   }
 
   async function adminSetLan(on) {
@@ -237,6 +452,14 @@ async function loadAdminInvites() {
     if (trSave) trSave.addEventListener("click", function () { adminSaveTransitionPairs(); });
     var trRefresh = document.getElementById("admin-tr-refresh");
     if (trRefresh) trRefresh.addEventListener("click", function () { adminLoadTransitions(); });
+    var trAdd = document.getElementById("admin-tr-add-pair");
+    if (trAdd) trAdd.addEventListener("click", function () { adminAddTransitionPair(); });
+    var trReset = document.getElementById("admin-tr-reset-pairs");
+    if (trReset) trReset.addEventListener("click", function () { adminResetTransitionPairs(); });
+    var trAddInput = document.getElementById("admin-tr-pair-add");
+    if (trAddInput) trAddInput.addEventListener("keydown", function (ev) {
+      if (ev && ev.key === "Enter") { ev.preventDefault(); adminAddTransitionPair(); }
+    });
     var netRefresh = document.getElementById("admin-net-refresh");
     if (netRefresh) netRefresh.addEventListener("click", function () { loadAdminInvites(); });
     var mint = document.getElementById("admin-mint");
@@ -254,6 +477,17 @@ async function loadAdminInvites() {
     wire: wire,
     load: loadAdminInvites,
     ensureAndLoad: ensureAndLoad,
+    paintTransitions: adminPaintTransitions,
+    joinPairs: trJoinPairs,
+    splitPairs: trSplitPairs,
+    typeSaved: trTypeSaved,
+    sharePct: trSharePct,
+    htmlByType: trHtmlByType,
+    htmlByPair: trHtmlByPair,
+    htmlCompressed: trHtmlCompressed,
+    htmlWake: trHtmlWake,
+    htmlChips: trHtmlChips,
+    htmlStats: trHtmlStats,
     marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
   };
   global.WALL_UI_DEFAULT_ADMIN_INVITE = "WALL_UI_DEFAULT_ADMIN_INVITE";

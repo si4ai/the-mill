@@ -653,6 +653,51 @@
       border: 1px solid var(--edge); border-radius: 999px; padding: .1rem .45rem; color: var(--dim); font-size: 11px;
     }
     #pane-admin #admin-mint-note { color: var(--cyan); font-size: 12px; margin: .35rem 0; word-break: break-all; }
+
+/* admin transition pane: mode switch, pair chips, analysis tables (card 1098) */
+#pane-admin .admin-tr-mode {
+  display: flex; flex-direction: column; gap: .3rem; margin: .35rem 0 .55rem;
+}
+#pane-admin .admin-tr-mode button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .1rem;
+  background: var(--well); color: var(--dim); border: 1px solid var(--edge);
+  padding: .35rem .55rem; cursor: pointer; font: inherit; text-align: left;
+}
+#pane-admin .admin-tr-mode button.on {
+  color: var(--amber); border-color: var(--amber); background: var(--shop-2);
+}
+#pane-admin .admin-tr-mode button:disabled { opacity: .45; cursor: not-allowed; }
+#pane-admin .admin-tr-hint { color: var(--dim); font-size: 11px; letter-spacing: 0; font-weight: 400; }
+#pane-admin .admin-tr-label {
+  color: var(--dim); font-size: 11px; letter-spacing: .08em; margin: .45rem 0 .25rem;
+}
+#pane-admin .admin-tr-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .2rem 0 .35rem; min-height: 1.4rem; }
+#pane-admin .admin-tr-chip {
+  display: inline-flex; align-items: center; gap: .25rem;
+  border: 1px solid var(--edge); border-radius: 999px; padding: .1rem .35rem .1rem .45rem;
+  background: var(--well); font-size: 11px;
+}
+#pane-admin .admin-tr-chip code { color: var(--ink); }
+#pane-admin .admin-tr-chip-x {
+  background: transparent; border: 0; color: var(--dim); cursor: pointer;
+  padding: 0 .15rem; font: inherit; line-height: 1;
+}
+#pane-admin .admin-tr-chip-x:hover { color: var(--amber); }
+#pane-admin .admin-tr-empty { color: var(--dim); font-size: 11px; }
+#pane-admin .admin-tr-error { color: var(--amber); }
+#pane-admin .admin-tr-stats { margin: .35rem 0; }
+#pane-admin .admin-tr-table-wrap { margin: .35rem 0 .55rem; overflow: auto; }
+#pane-admin table.admin-tr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#pane-admin table.admin-tr-table th,
+#pane-admin table.admin-tr-table td {
+  text-align: left; padding: .22rem .3rem; border-bottom: 1px solid #1a2430; vertical-align: top;
+}
+#pane-admin table.admin-tr-table th { color: var(--dim); font-weight: 600; letter-spacing: .06em; }
+#pane-admin table.admin-tr-table tfoot td { color: var(--cyan); font-weight: 600; }
+#pane-admin .admin-tr-wake { margin: .45rem 0; border-top: 1px solid var(--edge); padding-top: .35rem; }
+#pane-admin .admin-tr-wake dt { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
+#pane-admin .admin-tr-wake dd { margin: 0 0 .35rem; font-size: 12px; }
+
     #pane-score.on { min-height: 0; overflow: hidden; }
     #pane-score section { overflow: hidden; height: auto; }
     #pane-score .body { overflow: auto; }
