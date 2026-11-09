@@ -33,6 +33,45 @@ def insert(
     )
 
 
+def receipt_pending_for(cn, desk: str, mail_id: int) -> bool:
+    """True when this desk's mail_to row for mail_id has receipt=1 and opened NULL.
+
+    Card 1098 item 5 self-contained per-letter check (emit owed / post_desk
+    room-quiet). Desk-level empty-skip uses mail_push.has_unopened_receipt.
+    At fold: emit owed path -> item 4 wake_reason_for_dest (receipt dests are
+    already addressed); post_desk room-quiet -> same; desk-level ->
+    mail_push.has_unopened_receipt.
+    """
+    who = _stored(desk)
+    mid = int(mail_id or 0)
+    if not who or mid <= 0:
+        return False
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT 1 FROM mail_to t"
+            " JOIN name d ON d.id = t.desk_id AND d.type = 'desk' AND d.name = %s"
+            " WHERE t.type = 'mail' AND t.id = %s AND t.receipt = 1 AND t.opened IS NULL"
+            " LIMIT 1",
+            (who, mid),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        # MagicMock cn yields a truthy row whose int() is 1; require a real scalar.
+        val = row[0]
+        if not isinstance(val, (int, str, bytes, bytearray)):
+            return False
+        try:
+            return int(val) == 1
+        except (TypeError, ValueError):
+            return False
+    except Exception:
+        return False
+    finally:
+        cur.close()
+
+
 def update(cn, mail_id: int, desk: str, dst: str | None = None, body: str | None = None) -> list[dict]:
     from agent_coord.server.records.name import bare
 

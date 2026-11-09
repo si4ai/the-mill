@@ -2089,6 +2089,23 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             ma.emit_answered(c._cn, mail_id=int(mail_id), desk_id=int(did))
         except Exception:
             pass
+        # Card 1098 item 5b: auto wake-done after answer when nothing addressed waits.
+        try:
+            from agent_coord.server.records.db import after_commit
+
+            desk = self_bare
+
+            def _auto():
+                try:
+                    from agent_coord.server import wake as wake_mod
+
+                    wake_mod.auto_done(c._cn, desk)
+                except Exception:
+                    pass
+
+            after_commit(c._cn, _auto)
+        except Exception:
+            pass
     if isinstance(rec, dict):
         rec["replied_to"] = mail_id
         if skipped:
@@ -4168,6 +4185,23 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         did = ma.desk_id_for(c._cn, who) or 0
         for mid in ids:
             ma.emit_mark(c._cn, mail_id=int(mid), desk_id=int(did))
+    except Exception:
+        pass
+    # Card 1098 item 5b: auto wake-done when the lease's letters are all picked up.
+    try:
+        from agent_coord.server.records.db import after_commit
+
+        desk = who
+
+        def _auto():
+            try:
+                from agent_coord.server import wake as wake_mod
+
+                wake_mod.auto_done(c._cn, desk)
+            except Exception:
+                pass
+
+        after_commit(c._cn, _auto)
     except Exception:
         pass
     return {"ok": True, "state": "handled", "ids": ids}

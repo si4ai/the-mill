@@ -354,3 +354,99 @@ def test_useful_wake_transition_marks_wasted_zero(cn) -> None:
     if isinstance(meta, str):
         meta = json.loads(meta)
     assert meta.get("wasted") == 0
+
+
+def test_mark_lease_stores_wake_row_id_and_meta_fields(monkeypatch) -> None:
+    """Card 1098 item 5: W9 activity_id is the wake row id; meta carries pending0/auto."""
+    lines: list[str] = []
+
+    def fake_perf(op: str, ms: float = 0.0, **kv):
+        lines.append(" ".join([f"op={op}"] + [f"{k}={v}" for k, v in kv.items()]))
+
+    monkeypatch.setattr("agent_coord.server.push.perf_log", fake_perf)
+    ww.mark_lease("w5", trigger="other", wake_id=555001, pending0=2, addressed=1, kind="mail")
+    out = ww.finish_lease("w5")
+    assert out is not None and out["wasted"] is True
+    # unit path has no cn; stamp carried wake_id for the SQL path tested below
+
+
+@pytest.mark.sql
+def test_w9_attaches_to_wake_row_id(cn) -> None:
+    from tests.server.records.conftest import admin_desk, seed_names
+    from agent_coord.server.records import push as rec_push
+
+    seed_names(cn, ("ww1098", "roster"), ("ww1098d", "desk"))
+    cur = cn.cursor()
+    cur.execute("SELECT id FROM name WHERE type='desk' AND name='ww1098d'")
+    desk_id = int(cur.fetchone()[0])
+    cur.close()
+    wid = rec_push.row_id(rec_push.put(cn, "ww1098d", "hint", {"type": "todo", "id": 1}, "queued"))
+    cn.commit()
+    ww.reset_for_tests()
+    ww.mark_lease("ww1098d", trigger="other", wake_id=wid, pending0=1, addressed=1, kind="hint")
+    out = ww.finish_lease("ww1098d", cn=cn, desk_id=desk_id)
+    assert out is not None
+    cn.commit()
+    cur = cn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT activity_id, meta FROM transition"
+        " WHERE activity_type='wake' AND reason='wake_done' AND activity_id=%s"
+        " ORDER BY id DESC LIMIT 1",
+        (wid,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    assert row is not None and int(row["activity_id"]) == wid
+    import json
+    meta = row["meta"]
+    if isinstance(meta, (bytes, bytearray)):
+        meta = meta.decode()
+    if isinstance(meta, str):
+        meta = json.loads(meta)
+    assert meta.get("pending0") == 1
+    assert meta.get("addressed") == 1
+    assert meta.get("kind") == "hint"
+    assert meta.get("auto") == 0
+
+
+def test_auto_done_on_mark_when_lease_clear(monkeypatch) -> None:
+    """mark of the only lease letter with nothing addressed pending -> W9 auto=1."""
+    from agent_coord.server import wake as wake_mod
+
+    lines: list[str] = []
+    monkeypatch.setattr("agent_coord.server.push.perf_log", lambda *a, **k: lines.append(a))
+    wake_mod.gate_clear("auto-d")
+    # simulate a live lease with one mail
+    import time
+    with wake_mod._GATE_LOCK:
+        wake_mod._GATE["auto-d"] = time.monotonic()
+        wake_mod._EPOCH["auto-d"] = "tok"
+        wake_mod._LEASE_MAIL["auto-d"] = {42}
+    ww.reset_for_tests()
+    ww.mark_lease("auto-d", trigger="other", wake_id=9001, kind="mail", addressed=1)
+    monkeypatch.setattr(wake_mod, "mail_picked_up", lambda cn, d, mid: mid == 42)
+    monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, d: False)
+    monkeypatch.setattr("agent_coord.server.mail_push.has_unopened_receipt", lambda cn, d: False)
+    got = wake_mod.auto_done(object(), "auto-d")
+    assert got in ("none", "sent", "sitting", "stale")
+    snap = ww.desk_snapshot("auto-d")
+    assert snap["wakes"] == 1
+    # second explicit wake-done is stale/no-op
+    assert wake_mod.lease_done(None, "auto-d") in ("stale", "none")
+
+
+def test_auto_done_skips_when_addressed_still_waits(monkeypatch) -> None:
+    from agent_coord.server import wake as wake_mod
+    import time
+
+    wake_mod.gate_clear("auto-w")
+    with wake_mod._GATE_LOCK:
+        wake_mod._GATE["auto-w"] = time.monotonic()
+        wake_mod._EPOCH["auto-w"] = "tok"
+        wake_mod._LEASE_MAIL["auto-w"] = {7}
+    ww.reset_for_tests()
+    ww.mark_lease("auto-w", trigger="other", wake_id=9002)
+    monkeypatch.setattr(wake_mod, "mail_picked_up", lambda cn, d, mid: True)
+    monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, d: True)
+    assert wake_mod.auto_done(object(), "auto-w") == ""
+    assert ww.desk_snapshot("auto-w")["wakes"] == 0  # lease not finished

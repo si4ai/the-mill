@@ -119,7 +119,6 @@ def _room_name(cn, mail_id: int) -> str | None:
         return None
     return name if name and not is_hidden_tree(name) else None
 
-
 def wake_reason_for_dest(row: dict, room_members: set[str]) -> str:
     """Wake reason for one mail_to row.
 
@@ -150,8 +149,8 @@ def has_unopened_receipt(cn, desk: str) -> bool:
     Item 5's empty-wake skip and owed/ring paths must treat this as waiting work
     until the dest opens (mark/reply/thread) or the letter expires.
     """
-    from agent_coord.server.records.name import bare, get as name_get
     from agent_coord.const import CONST_DESK
+    from agent_coord.server.records.name import bare, get as name_get
 
     who = bare(str(desk or "").strip(), CONST_DESK)
     if not who:
@@ -167,7 +166,17 @@ def has_unopened_receipt(cn, desk: str) -> bool:
             " AND t.opened IS NULL LIMIT 1",
             (int(did),),
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+        if not row:
+            return False
+        # MagicMock cn yields a truthy row whose int() is 1; require a real scalar.
+        val = row[0]
+        if not isinstance(val, (int, str, bytes, bytearray)):
+            return False
+        try:
+            return int(val) == 1
+        except (TypeError, ValueError):
+            return False
     except Exception:
         return False
     finally:

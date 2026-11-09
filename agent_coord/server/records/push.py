@@ -291,10 +291,12 @@ def row_id(got) -> int:
 
 
 def mark(cn, rid: int, outcome: str) -> int:
-    """#832: set a missed row's outcome (sent or error). 0 when the row is gone.
-    Emit and fanout put a row as missed before the live send; a send that reached a
-    socket marks it sent. A row already taken by a sync is left alone (cmd_push_mark)."""
-    if int(rid or 0) <= 0 or outcome not in ("sent", "error"):
+    """#832 / card 1098 item 5: set a queued|missed row's outcome.
+
+    Put starts rows as queued. A real miss (addressed, no live socket) marks
+    missed (owed). A live send marks sent. error stays for a raised live send.
+    A row already taken by a sync is left alone (cmd_push_mark)."""
+    if int(rid or 0) <= 0 or outcome not in ("sent", "error", "missed"):
         return 0
     rows = call(cn, "cmd_push_mark", [int(rid), outcome])
     return int((rows[0].get("marked") if rows else 0) or 0)

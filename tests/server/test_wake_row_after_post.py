@@ -13,8 +13,9 @@ Wanted: the letter reaches the woken desk, or the desk is rung again. The
 receiver answers 2xx and starts the desk's real connect; a barrier holds the
 row write until that connect has its sync, so the order is forced, not timed.
 
-Fixed: the row is put first, as missed, and a live send that reaches a socket marks
-it sent; the last socket leaving with rows still missed rings the desk again.
+Fixed: the row is put first as queued (card 1098 item 5); a real miss marks missed
+(owed); a live send that reaches a socket marks it sent; the last socket leaving
+with rows still missed rings the desk again.
 
 SPIN W07: last socket leaves before the row or broadcast; item must not strand.
 """
@@ -306,18 +307,22 @@ def test_desk_that_leaves_before_its_live_frame_is_rung(wall, book, monkeypatch)
 
 
 def test_mark_and_waiting(book) -> None:
-    """#832: a row goes in missed; mark sets sent or error once; waiting names the
-    newest hint or letter not had live (receipts never ring)."""
-    rid = rec_push.row_id(rec_push.put(book, D1, "mail", {"kind": "mail", "id": 801}, "missed"))
+    """#832 / card 1098 item 5: put as queued; mark sets missed/sent/error;
+    waiting names the newest hint or letter not had live (receipts never ring)."""
+    rid = rec_push.row_id(rec_push.put(book, D1, "mail", {"kind": "mail", "id": 801}, "queued"))
     book.commit()
-    assert rid > 0 and rec_push.waiting(book, D1)["payload"]["id"] == 801
+    assert rid > 0
+    assert rec_push.waiting(book, D1) is None  # queued is not yet owed
+    assert rec_push.mark(book, rid, "missed") == 1  # real miss
+    book.commit()
+    assert rec_push.waiting(book, D1)["payload"]["id"] == 801
     assert rec_push.mark(book, rid, "sent") == 1
     assert rec_push.waiting(book, D1) is None
-    assert rec_push.mark(book, rid, "error") == 0  # only a missed row changes
+    assert rec_push.mark(book, rid, "error") == 0  # only queued|missed changes
     rec_push.put(book, D1, "receipt", {"kind": "receipt", "id": 802}, "missed")
     book.commit()
     assert rec_push.waiting(book, D1) is None
-    rid = rec_push.row_id(rec_push.put(book, D1, "hint", {"kind": "hint", "type": "todo", "id": 9}, "missed"))
+    rid = rec_push.row_id(rec_push.put(book, D1, "hint", {"kind": "hint", "type": "todo", "id": 9}, "queued"))
     book.commit()
     assert rec_push.mark(book, rid, "error") == 1
     assert rec_push.waiting(book, D1)["id"] == rid  # a raised live send still waits

@@ -224,7 +224,7 @@ def _off_loop(fn, *args) -> None:
 
 
 def _settle_row(desk: str, rid: int, delivered: bool) -> None:
-    """#832: mark a live-sent row sent, or ring when its frame reached no socket."""
+    """#832 / card 1098 item 5: mark a live-sent row sent, or owed+ring on a real miss."""
     try:
         from agent_coord.server.book import Book
         from agent_coord.server.records import push as rec_push
@@ -233,6 +233,8 @@ def _settle_row(desk: str, rid: int, delivered: bool) -> None:
             if delivered:
                 rec_push.mark(c._cn, rid, "sent")
             else:
+                # Row was put as queued; flip to missed (owed) then ring.
+                rec_push.mark(c._cn, rid, "missed")
                 ring_waiting(c._cn, desk, "unsent")
     except Exception as e:
         _bc_log(f"push settle err desk={desk} err={type(e).__name__}")
@@ -283,7 +285,10 @@ def ring_waiting(cn, desk: str, why: str) -> str:
         frame[FIELD] = letter_key(num, desk)
     else:
         frame[FIELD] = hint_key(str(frame.get("type") or ""), num, desk)
-    return post_desk(cn, desk, stamp_mill(frame), hint_id=num, reason=reason, ring=why)
+    wake_id = int(row["id"]) if row else 0
+    return post_desk(
+        cn, desk, stamp_mill(frame), hint_id=num, reason=reason, ring=why, wake_id=wake_id
+    )
 
 
 def _ws_gone(ws: Any) -> bool:
@@ -533,12 +538,11 @@ def fanout(
                 }
                 from agent_coord.server.records import push as rec_push
 
-                # #832: the row goes in first, as missed, so a sync at any later point
-                # (the woken desk's connect included) hands it over. A live send that
-                # reaches a socket marks it sent.
+                # #832 / card 1098 item 5: row goes in first as queued. A real miss
+                # (not sitting) flips queued->missed (owed); a live send marks sent.
                 rid = 0
                 try:
-                    rid = rec_push.row_id(rec_push.put(cn, desk, "hint", report, "missed"))
+                    rid = rec_push.row_id(rec_push.put(cn, desk, "hint", report, "queued"))
                 except Exception as e:
                     _bc_log(f"push log err desk={desk} kind=hint err={e}")
                 sitting = any(k in HUB.rooms for k in keys)
@@ -550,10 +554,14 @@ def fanout(
                         _mark_error(cn, rid)
                         _bc_log(f"fanout notify err desk={desk} err={e}")
                 elif mode == "webhook" and url:
-                    # #618: a doorbell, one per desk per window. The hint is already queued as
-                    # missed, so the woken desk's connect sync hands it over and its chain walks it.
+                    # Real miss: owed hop, then doorbell. Connect sync still hands it over.
                     try:
-                        got = post_desk(cn, desk, payload, hint_id=int(id))
+                        if rid:
+                            rec_push.mark(cn, rid, "missed")
+                    except Exception as e:
+                        _bc_log(f"push mark err desk={desk} kind=hint err={type(e).__name__}")
+                    try:
+                        got = post_desk(cn, desk, payload, hint_id=int(id), wake_id=rid)
                     except Exception as e:
                         got = "error"
                         _bc_log(f"webhook desk={desk} id={id} err={type(e).__name__}")
@@ -564,6 +572,11 @@ def fanout(
                     # post_desk logged this desk's wake line (#625).
                 else:
                     n_miss += 1
+                    try:
+                        if rid:
+                            rec_push.mark(cn, rid, "missed")
+                    except Exception as e:
+                        _bc_log(f"push mark err desk={desk} kind=hint err={type(e).__name__}")
                     _bc_log(f"fanout miss desk={desk} type={type} id={id} hint={hint} mode={mode}")
             except Exception as e:
                 _bc_log(f"fanout row err type={type} id={id} err={e}")
@@ -628,9 +641,10 @@ def _mark_error(cn, rid: int) -> None:
 def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", room: str | None = None) -> str:
     """Hand one async item to a sitting socket, and keep it for the sync report.
 
-    outcome is sent, missed, or error (deferred inside a #818 request transaction). The book row is what a later mill sync returns.
-    The live frame carries an idempotency key. The stored row does not: connect
-    drain picking up that key is a later change.
+    Card 1098 item 5: put as queued first. Return is sent | missed | error | queued
+    (deferred inside a #818 request transaction). Addressed (or receipt-pending)
+    with no live socket flips queued->missed (owed) before the wake POST. A room
+    copy that is not sitting stays queued until sync (no owed hop, no POST).
     """
     from agent_coord.server.mill_json import stamp_mill
     from agent_coord.server.poke_key import FIELD, letter_key, receipt_key
@@ -654,18 +668,26 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
         # #627: kept on the stored row only, so a later wake knows the burst
         # held no addressed item; take() drops it before the sync.
         frame[rec_push.WAKE_REASON] = "room"
-    # #832: the row goes in first, as missed. A sync at any later point (the woken
-    # desk's connect included) hands it over; a live send that reaches a socket
-    # marks it sent. Before, the row was written after the wake POST, so a desk
-    # woken fast enough synced before the row existed and was not woken again.
+    # #832 / card 1098 item 5: row goes in first as queued so a fast sync finds it.
     rid = 0
     try:
-        rid = rec_push.row_id(rec_push.put(cn, desk, kind, frame, "missed"))
+        rid = rec_push.row_id(rec_push.put(cn, desk, kind, frame, "queued"))
     except Exception as e:
         _bc_log(f"push log err desk={desk} kind={kind} err={e}")
-    outcome = "missed"
+    outcome = "queued"
     keys = _desk_room_keys(desk)
     sitting = any(k in HUB.rooms for k in keys)
+    # Receipt revision: unopened receipt is a real miss even as a room copy.
+    # Fold unify: item 4 wake_reason_for_dest already forces addressed for receipt.
+    receipt_owed = False
+    if kind == "mail" and mid and reason != "addressed":
+        try:
+            from agent_coord.server.records import mail as rec_mail
+
+            receipt_owed = rec_mail.receipt_pending_for(cn, who, mid)
+        except Exception:
+            receipt_owed = False
+    real_miss = reason == "addressed" or receipt_owed or kind in ("hint", "receipt")
     if sitting:
         try:
             _notify_rooms(keys or [desk], stamp_mill(live), row=(who, rid))
@@ -674,15 +696,30 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
             outcome = "error"
             _mark_error(cn, rid)
             _bc_log(f"push notify err desk={desk} kind={kind} err={e}")
-    elif kind == "mail":
-        # #618: a letter rings an armed desk's webhook too. The letter text never
-        # rides the POST; the row is already queued, so the connect sync hands it over.
+    elif real_miss:
+        # Real miss: owed hop, then ring an armed desk for mail/receipt.
         try:
-            from agent_coord.server.wake import post_desk
-
-            post_desk(cn, desk, live, hint_id=mid, reason=reason, room=room)
+            if rid:
+                rec_push.mark(cn, rid, "missed")
         except Exception as e:
-            _bc_log(f"webhook desk={desk} kind=mail err={type(e).__name__}")
+            _bc_log(f"push mark err desk={desk} kind={kind} err={type(e).__name__}")
+        outcome = "missed"
+        if kind in ("mail", "receipt"):
+            try:
+                from agent_coord.server.wake import post_desk
+
+                post_desk(
+                    cn,
+                    desk,
+                    live,
+                    hint_id=mid,
+                    reason="addressed" if receipt_owed else reason,
+                    room=room,
+                    wake_id=rid,
+                )
+            except Exception as e:
+                _bc_log(f"webhook desk={desk} kind={kind} err={type(e).__name__}")
+    # else: room copy, not sitting - stays queued until sync; no owed, no POST.
     return outcome
 
 

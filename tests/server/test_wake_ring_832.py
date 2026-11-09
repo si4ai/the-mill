@@ -115,5 +115,6 @@ def test_settle_marks_sent_or_rings(monkeypatch) -> None:
     monkeypatch.setattr(push, "ring_waiting", lambda cn, d, why: rings.append((d, why)) or "sent")
     push._settle_row("DESK_one", 9, True)
     push._settle_row("DESK_one", 9, False)
-    assert marks == [(9, "sent")] and rings == [("DESK_one", "unsent")]
+    # Card 1098 item 5: undelivered settle marks missed (owed) then rings.
+    assert marks == [(9, "sent"), (9, "missed")] and rings == [("DESK_one", "unsent")]
 

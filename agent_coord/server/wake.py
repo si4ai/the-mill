@@ -866,6 +866,42 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
         return "error"
 
 
+def auto_done(cn, desk: str) -> str:
+    """Card 1098 item 5: end the lease when mark/answer cleared its waiting work.
+
+    Fires only when the desk has a live lease, every letter in that lease is
+    picked up, nothing addressed waits, and no unopened receipt remains.
+    Tags W9 meta auto=1. Returns lease_done's result, or "" when not applicable.
+    """
+    d = str(desk or "").strip()
+    if not d:
+        return ""
+    with _GATE_LOCK:
+        if d not in _GATE:
+            return ""
+        mails = set(_LEASE_MAIL.get(d) or ())
+    for mid in mails:
+        if not mail_picked_up(cn, d, int(mid)):
+            return ""
+    try:
+        from agent_coord.server import mail_push as mp
+        from agent_coord.server.records import push as rec_push
+
+        if rec_push.pending_addressed(cn, d):
+            return ""
+        if mp.has_unopened_receipt(cn, d):
+            return ""
+    except Exception:
+        return ""
+    try:
+        from agent_coord.server import wasted_wake
+
+        wasted_wake.tag_auto(d)
+    except Exception:
+        pass
+    return lease_done(cn, d, note="", lease="")
+
+
 def _wake_log(desk: str, frame: dict[str, Any], hint_id: int | None, outcome: str) -> None:
     """One line per desk per wake attempt (#625). Never the URL, its host, or the key
     (the same rule as the webhook fail line; mill connect shows the host)."""
@@ -1191,6 +1227,7 @@ def post_desk(
     trailing: str = "",
     ring: str = "",
     pending_count: int = 0,
+    wake_id: int = 0,
 ) -> str:
     """Wake an armed desk that is not sitting.
 
@@ -1224,11 +1261,46 @@ def post_desk(
     if mid and mail_picked_up(cn, desk, mid):
         _wake_log(desk, frame, hint_id, "none reason=picked-up")
         return "none"
+    # Card 1098 item 5c: skip empty wakes before they spend an LLM turn.
+    # tw.event frames carry watch_id and are exempt (no queue row).
+    # Fold unify: counts_as_waiting / has_unopened_receipt live in mail_push
+    # (same names as item 4); keep one copy at fold.
+    if not frame.get("watch_id"):
+        try:
+            from agent_coord.server import mail_push as mp
+            from agent_coord.server.records import push as rec_push
+            from agent_coord.server.push import unread_mail_frames
+
+            pending0 = rec_push.pending(cn, desk)
+            unread = [
+                f
+                for f in unread_mail_frames(cn, desk)
+                if not mail_picked_up(cn, desk, int(f.get("id") or 0))
+            ]
+            if not mp.counts_as_waiting(
+                pending=pending0,
+                unread=bool(unread),
+                unopened_receipt=mp.has_unopened_receipt(cn, desk),
+            ):
+                _wake_log(desk, frame, hint_id, "skipped reason=empty")
+                return "skipped"
+        except Exception:
+            pass
     if reason == ROOM and rec_join.wake_state(cn, desk).get("wake_on") == ADDRESSED:
-        # #628: this desk wakes for addressed items only. The item still waits in
-        # the queue for its next connect; no window is taken.
-        _wake_log(desk, frame, hint_id, "skipped reason=room-only")
-        return "skipped"
+        # #628: this desk wakes for addressed items only. Receipt revision:
+        # an unopened receipt letter is never quieted by --wake-on.
+        # Fold unify: item 4 wake_reason_for_dest already forces addressed.
+        receipt_force = False
+        if mid:
+            try:
+                from agent_coord.server.records import mail as rec_mail
+
+                receipt_force = rec_mail.receipt_pending_for(cn, desk, mid)
+            except Exception:
+                receipt_force = False
+        if not receipt_force:
+            _wake_log(desk, frame, hint_id, "skipped reason=room-only")
+            return "skipped"
     if _coalesced(desk, frame, hint_id, reason, room):
         # A wake already went out and its lease is live: skip the checks and the DNS
         # lookup. Checked and recorded in one lock hold (F144a, card 887).
@@ -1303,7 +1375,17 @@ def post_desk(
             tag_name = wasted_wake.classify_trigger(
                 frame=frame, reason=reason, opened=opened, ring=ring, trailing=trailing
             )
-            wasted_wake.mark_lease(desk, trigger=tag_name, wake_id=int(hint_id) if hint_id is not None else 0)
+            kind_s = "tw" if frame.get("watch_id") else str(frame.get("kind") or "hint").strip().lower()
+            if kind_s not in ("mail", "hint", "receipt", "tw"):
+                kind_s = "hint"
+            wasted_wake.mark_lease(
+                desk,
+                trigger=tag_name,
+                wake_id=int(wake_id or 0),
+                pending0=int(pending or 0),
+                addressed=1 if reason == ADDRESSED else 0,
+                kind=kind_s,
+            )
         except Exception:
             pass
         try:
