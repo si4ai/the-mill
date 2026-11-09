@@ -303,3 +303,17 @@ def test_pairs_state_lists_defaults_and_marks_switched_off_pairs(monkeypatch):
     rows = {r["pair"]: r for r in ta.pairs_state()}
     assert rows["x:a/b"]["compress"] is True
     assert rows["hold:free/held"]["compress"] is False
+
+
+def test_all_pairs_off_persists_as_none(tmp_path, monkeypatch):
+    """An empty pair list means every pair captures; it must not read back as defaults."""
+    from agent_coord import config
+
+    monkeypatch.delenv("AGENT_COORD_TRANSITION_PAIRS", raising=False)
+    cfg = tmp_path / "config.toml"
+    monkeypatch.setenv("AGENT_COORD_CONFIG", str(cfg))
+    config.set_transition_compress(pairs="")
+    assert config.transition_pairs() == frozenset()
+    assert all(r["compress"] is False for r in ta.pairs_state())
+    config.set_transition_compress(pairs="hold:free/held")
+    assert len(config.transition_pairs()) == 1
