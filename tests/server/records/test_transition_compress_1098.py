@@ -9,7 +9,8 @@ from agent_coord.server import transition as tr
 from agent_coord.server.transition_enums import ActivityType, Reason, State
 from tests.server.records.conftest import admin_desk
 
-pytestmark = pytest.mark.sql
+# Per-test sql marks: the config/admin test runs without MySQL, so the
+# precheck's `-m "not sql"` targeted run still selects a test.
 
 
 def _q(cn, sql, args=()):
@@ -50,6 +51,7 @@ def _rows_for(cn, activity_type: str, activity_id: int):
     )
 
 
+@pytest.mark.sql
 def test_compress_sit_unsit_one_row_n_even_odd(cn, monkeypatch):
     """F-row: seated->connected then connected->seated updates one row n=2; odd/even hold."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
@@ -118,6 +120,7 @@ def test_compress_sit_unsit_one_row_n_even_odd(cn, monkeypatch):
     assert int(rows[0][4]) == 3  # odd => at connected again
 
 
+@pytest.mark.sql
 def test_pair_not_in_config_inserts_every_row(cn, monkeypatch):
     """Pair left off the compress list still writes every flip."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
@@ -153,6 +156,7 @@ def test_pair_not_in_config_inserts_every_row(cn, monkeypatch):
     assert int(rows[0][4]) == 1 and int(rows[1][4]) == 1
 
 
+@pytest.mark.sql
 def test_capture_mode_inserts_every_row(cn, monkeypatch):
     """capture mode keeps the full timeline even for default pairs."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "capture")
@@ -190,6 +194,7 @@ def test_capture_mode_inserts_every_row(cn, monkeypatch):
     assert len(rows) == 2
 
 
+@pytest.mark.sql
 def test_hold_free_held_compresses(cn, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
     monkeypatch.setenv(
@@ -230,6 +235,7 @@ def test_hold_free_held_compresses(cn, monkeypatch):
     assert int(rows[0][4]) == 2
 
 
+@pytest.mark.sql
 def test_same_state_refresh_compresses(cn, monkeypatch):
     """Consecutive A->A refreshes share one row and bump n (default pairs)."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
@@ -259,6 +265,7 @@ def test_same_state_refresh_compresses(cn, monkeypatch):
     assert int(rows[0][4]) == 3
 
 
+@pytest.mark.sql
 def test_transition_n_column_exists(cn):
     rows = _q(
         cn,
@@ -271,6 +278,7 @@ def test_transition_n_column_exists(cn):
     assert str(rows[0][2]).split(".")[0] in ("1", "'1'")
 
 
+@pytest.mark.sql
 def test_compress_path_durable_without_caller_commit(cn, monkeypatch):
     """Compress UPDATE must survive pool-style rollback (no later caller commit)."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
@@ -304,6 +312,7 @@ def test_compress_path_durable_without_caller_commit(cn, monkeypatch):
     assert int(rows[0][4]) == 2, f"disconnect bump lost: {rows!r}"
 
 
+@pytest.mark.sql
 def test_parity_rejects_same_direction_while_odd(cn, monkeypatch):
     """Two connects in a row must not bump n while effective state is still connected."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
@@ -336,6 +345,7 @@ def test_parity_rejects_same_direction_while_odd(cn, monkeypatch):
     assert int(rows[0][4]) == 1 and int(rows[1][4]) == 1
 
 
+@pytest.mark.sql
 def test_compress_requires_matching_desk_id(cn, monkeypatch):
     """A hold cycle across desks keeps each holder: compress only when desk matches."""
     monkeypatch.setenv("AGENT_COORD_TRANSITION_MODE", "compress")
