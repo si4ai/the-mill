@@ -34,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_pack as cp  # noqa: E402
+import docs_only  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
@@ -196,19 +197,6 @@ def is_dependabot(obj: dict) -> bool:
     return login == "dependabot[bot]" or login.startswith("dependabot")
 
 
-def is_docs_only_paths(paths: list[str] | None) -> bool:
-    """Same rule as tools/docs_only.py: every path is LICENSE or a .md, none under tests/."""
-    if not paths:
-        return False
-    for path in paths:
-        raw = path.encode("utf-8") if isinstance(path, str) else path
-        if raw.startswith(b"tests/"):
-            return False
-        if raw != b"LICENSE" and not raw.endswith(b".md"):
-            return False
-    return True
-
-
 def changelog_section_present(body: str) -> bool:
     """True when ## Changelog exists and has at least one non-empty line."""
     if not body:
@@ -243,20 +231,6 @@ def changelog_hint(
     return CHANGELOG_HINT
 
 
-def pull_paths_from_event(event: dict) -> list[str] | None:
-    """Best-effort path list from a pull_request event payload, if present."""
-    files = event.get("pull_request_files") or event.get("files")
-    if not isinstance(files, list) or not files:
-        return None
-    paths: list[str] = []
-    for item in files:
-        if isinstance(item, str):
-            paths.append(item)
-        elif isinstance(item, dict) and item.get("filename"):
-            paths.append(str(item["filename"]))
-    return paths or None
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] not in ("event", "sweep", "file") or (argv[0] == "file" and len(argv) < 2):
@@ -284,8 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             event = {}
         pr = event.get("pull_request") or {}
-        paths = pull_paths_from_event(event)
-        exempt = is_dependabot(pr) or is_docs_only_paths(paths)
+        # The event carries no file list: diff base...head like ci.yml's detect_docs_only.
+        exempt = is_dependabot(pr) or docs_only.skip_pytest("pull_request", event)
         hint = changelog_hint(pr.get("body") or "", exempt=exempt)
         if hint:
             print(hint)
