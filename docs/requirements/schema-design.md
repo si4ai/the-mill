@@ -175,3 +175,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 11. Transition catalog edges
 
 Allowed edges live in `transition_edge` (seeded to match `transition_enums.ALLOWED_TRANSITIONS`). Card 1111 adds `wake` `error` -> `retry_armed` / `wake_retry` so a webhook failure that arms retry can be written after `missed` -> `error` / `wake_fail`. Existing books get the row from migrate (`_ensure_wake_retry_edge`). No new columns.
+
+## 12. Wake ids come from wake's own AUTO_INCREMENT
+
+Card 1113. A wake is written payload first, the same way mail and todo are (#216): `wake.id` is AUTO_INCREMENT, and the activity row takes `LAST_INSERT_ID()`. The old allocator (MAX(id) + 1 under the named lock `mill_wake_alloc`, released before commit) gave two puts the same id when one transaction was still open or read from an older snapshot (1062, so a wake was lost). An error between GET_LOCK and RELEASE_LOCK also left the lock on the session. `fk_wake_activity` is dropped, because the wake row now comes before its activity row; the tables.sql header already says no payload table has an FK to activity. There is no new table. Existing books get the change from migrate (`_ensure_wake_auto_id`), which also moves the counter past every wake id in activity: rollup deletes wake rows but keeps their activity rows, and those ids must never come back.

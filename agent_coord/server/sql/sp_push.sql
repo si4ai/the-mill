@@ -20,7 +20,7 @@ BEGIN
   DECLARE v_state VARCHAR(32);
   DECLARE v_cause_type VARCHAR(16);
   DECLARE v_cause_id BIGINT UNSIGNED;
-  DECLARE v_route VARCHAR(32);
+  DECLARE v_route VARCHAR(512);
   DECLARE v_hint_type VARCHAR(32);
   DECLARE v_payload_id BIGINT UNSIGNED;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
@@ -36,13 +36,19 @@ BEGIN
   -- Initial delivery state (compat); lifecycle also uses queued/taken via transitions.
   SET v_state = p_outcome;
   -- card 1111: fill cause_type/cause_id/route when the payload names a letter or typed item.
+  -- Card 1113: "id": null is no id (CAST of 'null' raised 1292 and the wake was lost). The key is
+  -- dropped from the stored payload, so later reads of payload.id never cast 'null'.
+  IF JSON_TYPE(JSON_EXTRACT(p_payload, '$.id')) = 'NULL' THEN
+    SET p_payload = JSON_REMOVE(p_payload, '$.id');
+  END IF;
   SET v_payload_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.id')) AS UNSIGNED);
   IF v_payload_id IS NULL OR v_payload_id = 0 THEN
     SET v_payload_id = NULL;
   END IF;
   SET v_route = NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.route')), 'null'), '');
+  -- Card 1113: refused, never cut (a cut route can collide with another or misroute).
   IF v_route IS NOT NULL AND CHAR_LENGTH(v_route) > 32 THEN
-    SET v_route = LEFT(v_route, 32);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: route is over 32 characters; nothing stored';
   END IF;
   IF p_kind IN ('mail', 'receipt') THEN
     SET v_cause_type = 'mail';
@@ -55,16 +61,15 @@ BEGIN
     SET v_cause_id = v_payload_id;
   END IF;
 
-  IF GET_LOCK('mill_wake_alloc', 10) <> 1 THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: wake id lock';
-  END IF;
-  SELECT IFNULL(MAX(id), 0) + 1 INTO v_id FROM activity WHERE type = 'wake';
+  -- Card 1113: payload first (#216), as mail and todo: wake.id is AUTO_INCREMENT and LAST_INSERT_ID() is
+  -- the id. MAX(id) + 1 under a named lock released before commit gave two puts one id (1062, a lost
+  -- wake), and an error between GET_LOCK and RELEASE_LOCK kept the lock on the session.
+  INSERT INTO wake (type, desk_id, cause, state, payload, cause_type, cause_id, route)
+  VALUES ('wake', v_desk, p_kind, v_state, p_payload, v_cause_type, v_cause_id, v_route);
+  SET v_id = LAST_INSERT_ID();
   -- activity.desk_id = 0 (System); wake.desk_id = target desk
   INSERT INTO activity (type, id, desk_id, roster_id, act)
   VALUES ('wake', v_id, 0, 1, 'ring');
-  INSERT INTO wake (id, type, desk_id, cause, state, payload, cause_type, cause_id, route)
-  VALUES (v_id, 'wake', v_desk, p_kind, v_state, p_payload, v_cause_type, v_cause_id, v_route);
-  DO RELEASE_LOCK('mill_wake_alloc');
 
   -- Seed transitions: none -> queued -> outcome state (when not already queued)
   INSERT IGNORE INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
@@ -220,15 +225,10 @@ BEGIN
     read_loop: LOOP
       FETCH cur INTO d, n_hint, n_mail, n_receipt, n_missed, n_error, w_start;
       IF done THEN LEAVE read_loop; END IF;
-      IF GET_LOCK('mill_wake_alloc', 10) <> 1 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: wake id lock';
-      END IF;
-      SELECT IFNULL(MAX(id), 0) + 1 INTO v_id FROM activity WHERE type = 'wake';
-      INSERT INTO activity (type, id, desk_id, roster_id, act)
-      VALUES ('wake', v_id, 0, 1, 'ring');
-      INSERT INTO wake (id, type, desk_id, cause, state, payload)
+      -- Card 1113: payload first, as mill_push_put.
+      INSERT INTO wake (type, desk_id, cause, state, payload)
       VALUES (
-        v_id, 'wake', d, 'expired', 'missed',
+        'wake', d, 'expired', 'missed',
         JSON_OBJECT(
           'window_start', DATE_FORMAT(w_start, '%Y-%m-%d %H:%i:%s.%f'),
           'window_end', DATE_FORMAT(v_cut, '%Y-%m-%d %H:%i:%s.%f'),
@@ -239,7 +239,9 @@ BEGIN
           'error', n_error
         )
       );
-      DO RELEASE_LOCK('mill_wake_alloc');
+      SET v_id = LAST_INSERT_ID();
+      INSERT INTO activity (type, id, desk_id, roster_id, act)
+      VALUES ('wake', v_id, 0, 1, 'ring');
     END LOOP;
     CLOSE cur;
   END;
