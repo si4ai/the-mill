@@ -307,7 +307,8 @@ def closes(d, wid=None):
 def test_r1_reconcile_closes_unlisted_keeps_listed_ignores_unknown(desk):
     d = desk()
     fill(d, 4)
-    d.event("w1", "stall", cause="quiet")
+    d.event("w1", "stall", cause="quiet")  # this stall wakes; reconcile must not
+    pings = len(d.pings)
     reply = d.reconcile(["w0", "w1", "ghost"])
     assert reply["ok"] is True and reply["desk"] == d.name
     assert sorted(reply["closed"]) == ["w2", "w3"]
@@ -320,7 +321,7 @@ def test_r1_reconcile_closes_unlisted_keeps_listed_ignores_unknown(desk):
     assert closes(d, "w0") == [] and closes(d, "w1") == []
     assert d.edges("ghost") == []  # unknown ids are never created
     assert len(d.tasks()) == 4
-    assert d.pings == []  # reconcile wakes no one
+    assert len(d.pings) == pings  # reconcile wakes no one
 
 
 @pytest.mark.sql
