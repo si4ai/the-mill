@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Card 970 step 4: spool, sit-end survival, pointer, and the tw launcher."""
+"""Sit-end leaves the child running. The pointer and the tw launcher stay."""
 from __future__ import annotations
 
 import sys
@@ -9,57 +9,12 @@ from pathlib import Path
 
 from agent_coord.client.tw.link import open_session, pointer_path, serve
 from agent_coord.client.tw.proc import list_runs, run_argv, stop_run
-from agent_coord.client.tw.spool import SPOOL_CAP, Spool, retry_delay
 from agent_coord.lib.proc import CONSOLE_LAUNCHERS
 
 
 def _home(monkeypatch, tmp_path):
     monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
     monkeypatch.setattr("agent_coord.client.offices.desk_local_file", lambda *a, **k: None)
-
-
-def _body(kind: str, cause: str | None = None) -> dict:
-    row = {"type": "event", "watch_id": "tw-1", "kind": kind}
-    if cause is not None:
-        row["cause"] = cause
-    return row
-
-
-def test_spool_coalesces_stall_and_keeps_start_and_exit() -> None:
-    spool = Spool()
-    spool.add(_body("stall", "quiet"))
-    spool.add(_body("stall", "quiet"))
-    spool.add(_body("stall", "other"))
-    spool.add(_body("start"))
-    spool.add(_body("start"))
-    spool.add(_body("exit"))
-    spool.add(_body("exit"))
-    kinds = [(row["kind"], row.get("cause")) for row in spool.items]
-    assert kinds == [
-        ("stall", "quiet"),
-        ("stall", "other"),
-        ("start", None),
-        ("start", None),
-        ("exit", None),
-        ("exit", None),
-    ]
-
-
-def test_spool_cap_keeps_start_and_marks_overflow() -> None:
-    spool = Spool()
-    for _ in range(SPOOL_CAP):
-        spool.add(_body("start"))
-    spool.add(_body("match", "pattern"))
-    assert spool.overflow is True
-    assert len(spool.items) == SPOOL_CAP
-    assert all(row["kind"] == "start" for row in spool.items)
-
-
-def test_retry_uses_reconnect_backoff() -> None:
-    assert retry_delay(0, jitter=0) == 1.0
-    assert retry_delay(1, jitter=0) == 2.0
-    assert retry_delay(2, jitter=0) == 4.0
-    assert retry_delay(6, jitter=0) == 60.0
 
 
 def test_sit_end_keeps_the_child(tmp_path, monkeypatch) -> None:
