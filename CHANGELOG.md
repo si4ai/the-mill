@@ -11,6 +11,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- card 1113: renaming cards from several sessions at once, or renaming a card while noting it, no longer deadlocks; rename takes the desk's seat lock before the card, as every card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys and fails on a shared-to-exclusive lock upgrade; a no-database test runs it and lists the known lock-order cycles
+
 - card 1113: one desk filing cards from several sessions at once no longer deadlocks; the todo insert takes the desk's seat lock before its insert, and the concurrent-insert test no longer retries
 
 - card 1111: webhook failures write wake_fail (and wake_retry when a retry is armed); wake edges use the woken desk; new wake rows fill cause_type and cause_id

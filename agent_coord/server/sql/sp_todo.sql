@@ -579,6 +579,11 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such desk';
   END IF;
+  -- Lock order (card 1113): the renaming desk's seat, then the card, as every card write does. The
+  -- UPDATE below sets updated_id, whose FK check takes a shared lock on that seat row, and
+  -- mill_doing_move then wants it exclusive; with the card first, a note on the card waited the other way.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
   IF v_proj IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such card';
