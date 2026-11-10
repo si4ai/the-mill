@@ -11,6 +11,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- tests: the perf test's no-performance_schema user is one per xdist worker (another worker's teardown dropped the shared user mid-test, 1045 in CI)
+
 - card 1113: wake, mail, join, plan, score and status procedures no longer deadlock or lock what they only read: wake marks, hand-backs and takes lock the wake rows exclusive (by primary key, or by desk index for a take) before the transition copy; mail delete and edit take the desk's seat, then the letter; mail delete finds its wake rows by a plain read and locks only those (the payload filter has no index); the joined-seat check locks the seat first; plan detach and remove read the item's tree rows without a shared lock; score delete and retire and name purge take the desk's seat first; `mill_doing_now` and recipient remove read their lists into values, so a status read holds no row locks. The lock-order check's open list is empty
 - card 1113: card writes by one desk from several sessions no longer deadlock: rename, delete, retire and reclaim take the desk's seat lock, then the card, before any read of the card, as every other card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys (FK checks, INSERT ... SELECT, and routine IF EXISTS / SET subqueries count as shared locks) and fails on a shared-to-exclusive upgrade; a no-database test runs it, lists the known open findings, and fails on new ones
 
