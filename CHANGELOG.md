@@ -11,6 +11,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- card 1113: a deadlock or lock wait inside the soft score step of claim, pass, card write or doing is raised, no longer swallowed (it had returned success after InnoDB rolled the move back); a wake row is written first and takes its id from `wake.id` AUTO_INCREMENT (as mail and todo; `fk_wake_activity` dropped) instead of MAX(id)+1 under a named lock released before commit (duplicate ids, lost wakes, and a lock left on the session after an error); a wake payload with "id": null is stored with no id; a route over 32 characters is refused with a clear message
+
 - card 1113: the perf test's no-performance_schema user is one per xdist worker (another worker's teardown dropped the shared user mid-test, 1045 in CI)
 
 - card 1113: wake, mail, join, plan, score and status procedures no longer deadlock or lock what they only read: wake marks, hand-backs and takes lock the wake rows exclusive (by primary key, or by desk index for a take) before the transition copy; mail delete and edit take the desk's seat, then the letter; mail delete finds its wake rows by a plain read and locks only those (the payload filter has no index); the joined-seat check locks the seat first; plan detach and remove read the item's tree rows without a shared lock; score delete and retire and name purge take the desk's seat first; `mill_doing_now` and recipient remove read their lists into values, so a status read holds no row locks. The lock-order check's open list is empty

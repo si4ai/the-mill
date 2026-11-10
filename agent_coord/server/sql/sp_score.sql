@@ -787,6 +787,9 @@ BEGIN
   -- Soft: swallow so a card move never fails for score. Never ROLLBACK the
   -- caller's @mill_req_tx; only end a transaction this call started.
   DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_fail = 1;
+  -- Card 1113: except a deadlock or lock wait timeout. The caller's transaction is gone (1213)
+  -- or the row is still held (1205); the caller must fail, not report its move as done.
+  DECLARE EXIT HANDLER FOR 1213, 1205 RESIGNAL;
   IF p_roster_id IS NULL OR p_roster_id = 0 THEN
     SET v_id = NULL;
   ELSE
