@@ -64,6 +64,18 @@ python tools/check_sql.py --sql path/to/agent_coord/server/sql
 
 Exit 1 when a pack routine is missing. Extra live routines are listed and do not fail the check. It does not apply SQL.
 
+## sql_lock_order.py
+
+List each stored procedure's row locks in order and flag lock-order risks (card 1113). No database: it reads the pack SQL, takes the foreign keys from `tables.sql`, and inlines CALLs. An INSERT or an FK-column UPDATE takes a shared lock on the parent row; FOR UPDATE, UPDATE and DELETE take an exclusive one.
+
+```bash
+python tools/sql_lock_order.py                     # upgrades only
+python tools/sql_lock_order.py --cycles            # also table-order cycles between procedures
+python tools/sql_lock_order.py --proc mill_todo_rename   # one procedure's locks
+```
+
+Exit 1 when a procedure takes a shared lock on a row and later an exclusive lock on the same row (two sessions doing that deadlock). Cycles are hints; `tests/server/test_sql_lock_order_1113.py` lists the known ones.
+
 ## book_shape.py
 
 Compare a book's schema with a fresh install (card 840). Build a fresh book with `migrate.ensure` on an empty database, then name both: the fresh one and the book to check, such as a throwaway copy of an office dump after ensure. It reads the information schema only (tables, columns and enum values, indexes, foreign keys, triggers, routine bodies) and prints part names, never rows.
