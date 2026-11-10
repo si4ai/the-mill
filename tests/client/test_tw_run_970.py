@@ -8,7 +8,7 @@ import time
 
 from agent_coord.client.route_chain import load_routes
 from agent_coord.client.tw.link import serve
-from agent_coord.client.tw.proc import list_runs, run_argv, stop_run
+from agent_coord.client.tw.proc import _finish_event, list_runs, run_argv, stop_run
 
 
 def _home(monkeypatch, tmp_path):
@@ -170,6 +170,13 @@ def test_exit_code_one_is_one(tmp_path, monkeypatch) -> None:
         assert exits and exits[-1].get("exit_code") == 1
     finally:
         link.close()
+
+
+def test_outside_signal_is_a_crash_and_a_stop_stays_an_exit() -> None:
+    assert _finish_event(-15, stopped=True, crashed=False) == (-15, "exit", "stopped")
+    assert _finish_event(-15, stopped=False, crashed=False) == (143, "crash", "killed")
+    assert _finish_event(1, stopped=False, crashed=False) == (1, "exit", None)
+    assert _finish_event(0, stopped=False, crashed=True) == (0, "crash", "killed")
 
 
 def test_stop_flag_exit_has_cause_stopped(tmp_path, monkeypatch) -> None:

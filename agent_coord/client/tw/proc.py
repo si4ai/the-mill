@@ -577,6 +577,23 @@ def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int],
                     pass
 
 
+def _finish_event(
+    code: int, *, stopped: bool, crashed: bool
+) -> tuple[int, str, str | None]:
+    """exit code, kind, and cause for a run that has ended.
+
+    a stop stays an exit. the signal from that stop is not a crash.
+    an outside signal is a crash, and the code is 128 plus the signal
+    so tw does not exit with only the low 8 bits.
+    """
+    signaled = code < 0 and not stopped
+    if signaled:
+        code = 128 + ((-code) & 127)
+    if crashed or signaled:
+        return code, "crash", "killed"
+    return code, "exit", "stopped" if stopped else None
+
+
 def _event_body(
     watch_id: str,
     kind: str,
@@ -898,23 +915,12 @@ def run_argv(
         if code is None:
             code = 1
         code = int(code)
-        # a signal death is negative. recording it as a plain exit and
-        # returning it makes tw itself exit with the low 8 bits (15 -> 241).
-        signaled = code < 0
-        if signaled:
-            code = 128 + ((-code) & 127)
-        if crashed or signaled:
-            body = _event_body(
-                watch_id, "crash", proc.pid, cause="killed", exit_code=code
-            )
-        else:
-            body = _event_body(
-                watch_id,
-                "exit",
-                proc.pid,
-                exit_code=code,
-                cause="stopped" if stopped else None,
-            )
+        code, kind_name, cause = _finish_event(
+            code, stopped=stopped, crashed=crashed
+        )
+        body = _event_body(
+            watch_id, kind_name, proc.pid, cause=cause, exit_code=code
+        )
         body["stdout_bytes"] = stdout_bytes
         body["stderr_bytes"] = stderr_bytes
         body["log"] = True
