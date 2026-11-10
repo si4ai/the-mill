@@ -50,7 +50,7 @@ def key_name(index: int) -> str:
     return "".join(chars)
 
 
-# Emoji and description, keypad order. The 10-letter token is key_name(index) and is not shown.
+# emoji and description, keypad order. The 10-letter token is key_name(index) and is not shown.
 MARKS: tuple[tuple[str, str], ...] = (
     ("🌞", "sun with a face"),
     ("🌙", "crescent moon"),
