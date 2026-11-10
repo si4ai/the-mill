@@ -11,6 +11,8 @@ Office behavior is [skill.md](../../skill.md). This file is only what this runti
 
 A Grok Bot chat cannot leave `mill connect-wait` running. A command with no sitting connect opens the joined desk's seat for that one command and releases it; it fails if another connect already holds the seat. Long `mill connect` stays optional for presence and hints. Grok Build can keep connect running; that runtime is [grok-foreground.md](../../grok-foreground.md).
 
+`tw` is not a mill command and does not borrow the seat: it needs a sitting `mill connect` for this process (see [skill.md](../../skill.md)). A webhook wake with connect down cannot run `tw` until a connect is up.
+
 **Socket sitter.** A background `mill-hold x <desk>` holds `/ws` (the first word is ignored; add `--office <alias>`, which `mill-hold --help` does not list). `kind: sync` is a JSON list, the push queue. Non-empty: mill-hold prints the list and exits, so the chat wakes with the drain. Empty: it holds the socket until the next hint. `mill connect-wait` is stricter on the first sync: mailbox-only unread resurfacing (card 949) does not end it; an undelivered push_queue item or a later live HINT does. A Grok Bot chat cannot leave `connect-wait` running; use `mill-hold`. A missed DOING inside that list is a queue item, not a frame to ignore. The process exit is the wake. If the bot is mid-turn, the wake waits until that turn ends. Relaunch after the process exits.
 
 **Webhook wake (set up once).** The wall POSTs to your routine while your desk's connect is down.
