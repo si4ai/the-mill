@@ -212,11 +212,25 @@ class Link:
             err = self._error
             self.close()
             raise OSError(str(err))
+        self._drain_pending()
+        self._live_watch_ids = self._reconcile_ghosts()
         self._sender = threading.Thread(
             target=self._sender_loop, name="mill-tw-send-" + self.desk, daemon=True
         )
         self._sender.start()
         self._kick.set()
+
+    def _drain_pending(self) -> None:
+        for _ in range(256):
+            if self._post_once() != "ok":
+                return
+
+    def _reconcile_ghosts(self) -> list[str]:
+        from agent_coord.client.tw.proc import reconcile_ghosts
+
+        if self._outbox is None:
+            return []
+        return reconcile_ghosts(self.desk, self._outbox)
 
     def _run(self) -> None:
         try:

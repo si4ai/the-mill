@@ -77,6 +77,72 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _windows_image(pid: int) -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(32768)
+        buf = ctypes.create_unicode_buffer(size.value)
+        kernel.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        ok = kernel.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+        if not ok:
+            return ""
+        return os.path.basename(buf.value)
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def _linux_image(pid: int) -> str:
+    try:
+        return os.path.basename(os.readlink("/proc/%s/exe" % pid))
+    except OSError:
+        return ""
+
+
+def _darwin_image(pid: int) -> str:
+    import ctypes
+
+    try:
+        lib = ctypes.CDLL("libproc.dylib", use_errno=True)
+    except OSError:
+        return ""
+    buf = ctypes.create_string_buffer(4096)
+    lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    lib.proc_pidpath.restype = ctypes.c_int
+    n = lib.proc_pidpath(int(pid), buf, 4096)
+    if n <= 0:
+        return ""
+    return os.path.basename(buf.value[:n].decode("utf-8", "replace"))
+
+
+def _image_name(pid: int) -> str:
+    if pid <= 0:
+        return ""
+    if os.name == "nt":
+        return _windows_image(pid)
+    if sys.platform == "darwin":
+        return _darwin_image(pid)
+    return _linux_image(pid)
+
+
+def _still_tw(pid: int) -> bool:
+    """The pid is alive and the program name is tw."""
+    if pid <= 0 or not _alive(pid):
+        return False
+    return _image_name(pid).lower() in {"tw", "tw.exe"}
+
+
 def _end(pid: int) -> None:
     if pid <= 0:
         return
@@ -112,6 +178,9 @@ def _reclaim_lost(desk: str) -> None:
             continue
         tw_pid = int(row.get("tw_pid") or 0)
         if tw_pid and not _alive(tw_pid):
+            if row.get("start") and row.get("exit_code") is None:
+                kept[watch_id] = row
+                continue
             changed = True
             continue
         kept[watch_id] = row
@@ -130,6 +199,8 @@ def list_runs(desk: str) -> list[dict[str, Any]]:
         pid = int(row.get("pid") or 0)
         finished = row.get("state") == "finished"
         if not finished and not _alive(pid):
+            if row.get("start") and row.get("exit_code") is None:
+                kept[watch_id] = row
             continue
         kept[watch_id] = row
         item: dict[str, Any] = {
@@ -221,6 +292,60 @@ def _drop(desk: str, watch_id: str) -> None:
     if watch_id in runs:
         runs.pop(watch_id, None)
         _save(desk, runs)
+
+
+def reconcile_ghosts(desk: str, outbox) -> list[str]:
+    """A started run with no exit whose tw pid is gone or reused.
+
+    Records a lost crash on the run and in the hop file. Returns watch ids
+    that are still live. The host list stays unsent until its call is named.
+    """
+    runs = _load(desk)
+    now = _ts_ms()
+    live: list[str] = []
+    changed = False
+    for watch_id, row in list(runs.items()):
+        if not isinstance(row, dict):
+            continue
+        if row.get("state") == "finished" or row.get("exit_code") is not None:
+            continue
+        if not row.get("start") or row.get("reconciled"):
+            continue
+        tw_pid = int(row.get("tw_pid") or 0)
+        if _still_tw(tw_pid):
+            live.append(watch_id)
+            continue
+        body = {
+            "watch_id": watch_id,
+            "kind": "crash",
+            "cause": "lost",
+            "exit_code": 1,
+            "ts_ms": now,
+        }
+        try:
+            outbox.add(body)
+        except OSError:
+            continue
+        fresh = dict(row)
+        fresh["state"] = "finished"
+        fresh["exit_code"] = 1
+        fresh["cause"] = "lost"
+        fresh["ts_ms"] = now
+        fresh["reconciled"] = True
+        fresh["tw_pid"] = 0
+        runs.pop(watch_id, None)
+        runs[watch_id] = fresh
+        changed = True
+    if changed:
+        finished = [
+            key
+            for key, item in runs.items()
+            if isinstance(item, dict) and item.get("state") == "finished"
+        ]
+        for key in finished[:-20]:
+            runs.pop(key, None)
+        _save(desk, runs)
+    return live
 
 
 def _store_finished(desk: str, watch_id: str, row: dict[str, Any]) -> None:
