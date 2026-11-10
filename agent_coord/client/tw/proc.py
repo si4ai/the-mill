@@ -162,6 +162,8 @@ def stop_run(desk: str, watch_id: str) -> int:
     row = runs.get(wid)
     if not isinstance(row, dict):
         return 1
+    if row.get("state") == "finished":
+        return 0
     row["stop"] = True
     runs[wid] = row
     _save(desk, runs)
@@ -213,6 +215,7 @@ def _drop(desk: str, watch_id: str) -> None:
 def _store_finished(desk: str, watch_id: str, row: dict[str, Any]) -> None:
     """Keep a finished run so list and status can show its exit."""
     runs = _load(desk)
+    runs.pop(watch_id, None)
     runs[watch_id] = row
     finished = [
         key
