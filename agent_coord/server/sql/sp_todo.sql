@@ -39,8 +39,13 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
+  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
+  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
-  -- Then the activity row (the timeline; todo has no FK to it). No lock, no catalog read.
+  -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
@@ -88,8 +93,13 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
+  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
+  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
-  -- Then the activity row (the timeline; todo has no FK to it). No lock, no catalog read.
+  -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();

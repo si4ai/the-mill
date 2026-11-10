@@ -91,6 +91,9 @@ def test_insert_sources_are_payload_first() -> None:
         put = body.index(f"CALL mill_activity_put('{table}', v_id")
         assert ins < lid < put, name
         assert f"INSERT INTO {table} (id," not in body
+        if table == "todo":
+            # Card 1113: the seat lock comes before the FK-checked insert (no S-to-X upgrade).
+            assert body.index("FROM seat WHERE desk_id = v_desk FOR UPDATE") < ins, name
 
 def test_no_writer_turns_fk_checks_off() -> None:
     for name in ("sp_mail.sql", "sp_todo.sql", "sp_join.sql", "sp_hold.sql", "sp_score.sql", "tables.sql"):
@@ -221,66 +224,49 @@ def test_attached_places_its_own_id_on_the_tree(cn) -> None:
     rgt = _n(cn, "SELECT rgt FROM tree WHERE type='mail' AND id=%s", (root,))
     assert lft < _n(cn, "SELECT lft FROM tree WHERE type='todo' AND id=%s", (c2,)) < rgt
 
-def _is_deadlock(exc: BaseException) -> bool:
-    """InnoDB 1213 under parallel CI load (xdist + this test's own threads)."""
-    errno = getattr(exc, "errno", None)
-    if errno == 1213:
-        return True
-    args = getattr(exc, "args", ())
-    return bool(args and args[0] == 1213)
-
 def test_concurrent_inserts_get_distinct_ids_without_office_lock(cn) -> None:
     # Hold the Office row the #205 allocator used to lock. Inserts must not wait on it.
-    # Up to two retries when InnoDB deadlocks under xdist load (cards 944, 1011).
-    last_errs: list[BaseException] = []
+    # One desk files mail and cards from four sessions at once. Card 1113: no whole-race
+    # retry; the todo insert takes the desk's seat before its FK check, so no deadlock.
+    blocker = _direct()
+    bcur = blocker.cursor()
+    bcur.execute("START TRANSACTION")
+    bcur.execute("SELECT id FROM name WHERE id = 1 FOR UPDATE")
+    bcur.fetchall()
     ids: dict[str, list[int]] = {"mail": [], "todo": []}
-    for attempt in range(3):  # deadlocks under shared-schema load; retry twice
-        blocker = _direct()
-        bcur = blocker.cursor()
-        bcur.execute("START TRANSACTION")
-        bcur.execute("SELECT id FROM name WHERE id = 1 FOR UPDATE")
-        bcur.fetchall()
-        ids = {"mail": [], "todo": []}
-        errs: list[BaseException] = []
-        lock = threading.Lock()
+    errs: list[BaseException] = []
+    lock = threading.Lock()
 
-        def work(i: int) -> None:
-            c = None
-            try:
-                c = _direct()
-                cur = c.cursor()
-                cur.execute("SET SESSION innodb_lock_wait_timeout = 3")
-                cur.close()
-                for j in range(5):
-                    m = int(rec_mail.insert(c, "unit", "a", "b", f"race {i}.{j}")[0]["id"])
-                    t = int(rec_todo.insert(c, "unit", "a", "open", f"race {i}.{j}")[0]["id"])
-                    with lock:
-                        ids["mail"].append(m)
-                        ids["todo"].append(t)
-            except BaseException as e:  # noqa: BLE001
-                errs.append(e)
-            finally:
-                if c is not None:
-                    c.close()
-
-        threads = [threading.Thread(target=work, args=(i,)) for i in range(4)]
+    def work(i: int) -> None:
+        c = None
         try:
-            for th in threads:
-                th.start()
-            for th in threads:
-                th.join(60)
+            c = _direct()
+            cur = c.cursor()
+            cur.execute("SET SESSION innodb_lock_wait_timeout = 3")
+            cur.close()
+            for j in range(5):
+                m = int(rec_mail.insert(c, "unit", "a", "b", f"race {i}.{j}")[0]["id"])
+                t = int(rec_todo.insert(c, "unit", "a", "open", f"race {i}.{j}")[0]["id"])
+                with lock:
+                    ids["mail"].append(m)
+                    ids["todo"].append(t)
+        except BaseException as e:  # noqa: BLE001
+            errs.append(e)
         finally:
-            blocker.rollback()
-            bcur.close()
-            blocker.close()
-        last_errs = errs
-        if not errs:
-            break
-        # Card 1011: allow two retries (attempt 0 and 1) so seed 181202869 can clear.
-        if attempt < 2 and errs and all(_is_deadlock(e) for e in errs):
-            continue
-        break
-    assert not last_errs, last_errs
+            if c is not None:
+                c.close()
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(4)]
+    try:
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(60)
+    finally:
+        blocker.rollback()
+        bcur.close()
+        blocker.close()
+    assert not errs, errs
     cn.commit()  # end this connection's read snapshot so the other sessions' rows show
     for kind in ("mail", "todo"):
         got = ids[kind]
