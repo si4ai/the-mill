@@ -379,7 +379,8 @@ BEGIN
   SELECT ROW_COUNT() AS marked;
 END //
 
--- Today only: a missed row becomes p_outcome (sent, hint, expired).
+-- Card 1098 item 5: queued|missed row becomes p_outcome (sent, missed, error).
+-- queued->missed is the real-miss owed hop; queued->sent is a live delivery.
 CREATE PROCEDURE cmd_push_mark(
   IN p_push    BIGINT UNSIGNED,
   IN p_outcome VARCHAR(8)
@@ -387,10 +388,14 @@ CREATE PROCEDURE cmd_push_mark(
 BEGIN
   INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
   SELECT 'wake', id, state, p_outcome,
-         CASE p_outcome WHEN 'sent' THEN 'wake_sent' ELSE 'wake_fail' END,
+         CASE p_outcome
+           WHEN 'sent' THEN 'wake_sent'
+           WHEN 'missed' THEN 'wake_owed'
+           ELSE 'wake_fail'
+         END,
          0, 'office'
-    FROM wake WHERE id = p_push AND type = 'wake' AND state = 'missed';
-  UPDATE wake SET state = p_outcome WHERE id = p_push AND type = 'wake' AND state = 'missed';
+    FROM wake WHERE id = p_push AND type = 'wake' AND state IN ('queued', 'missed');
+  UPDATE wake SET state = p_outcome WHERE id = p_push AND type = 'wake' AND state IN ('queued', 'missed');
   SELECT ROW_COUNT() AS marked;
 END //
 

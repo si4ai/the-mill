@@ -20,7 +20,7 @@ Prefer a project for req/offer/onboard cards; optional recruiting intake role on
 **Hired / onboarded** - two day-one artifacts, one spine:
 
 1. **Hired** - requisition filled: interview loop complete, offer cleared via
-   **human_required**, outcome recorded (ATS updated outside mill).
+   `--receipt`, outcome recorded (ATS updated outside mill).
 2. **Onboarded** - onboarding checklist complete: each owner slice claimed and
    `pass`ed (access, equipment, training, paperwork pointers).
 
@@ -34,13 +34,13 @@ On the desk **before** advance/offer/onboard (else `note` gap + `send` / `waitin
 - **Req identity** - role, ATS/req id, hiring manager (`create todo` parent + `detail` link)
 - **Candidate pointer** - ATS id / policy-safe label (minimize PII)
 - **Loop plan** - interviewers as child `create todo`s; `assign` / `claim`
-- Before offer: debrief decision + offer approver path (**human_required**)
+- Before offer: debrief decision + offer approver path (`send` / `reply` **`--receipt`**)
 
 **Onboarded**
 - **Hire confirmed** - start date / filled-req link (else waiting_on)
 - **Checklist + owners** - child `create todo` per item; `assign` / `claim` per owner
 
-Not inputs: paste full resumes/SSN into mill, skip human_required when required,
+Not inputs: paste full resumes/SSN into mill, skip `--receipt` when required,
 replace ATS/HRIS, invent recruiting CLI commands.
 
 ## Lingo -> mill
@@ -55,7 +55,7 @@ replace ATS/HRIS, invent recruiting CLI commands.
 | hiring manager / recruiter | `assign` / `claim` / `send` |
 | advance / reject | `note` decision + next `assign` (or park) |
 | drop the claim | `unclaim` |
-| offer | **human_required** + `send` approver + `note` outcome |
+| offer | **`--receipt`** + `send` approver + `note` outcome |
 | onboarding | checklist `create todo`s + `claim` / `assign` per owner |
 | blocked (approver / candidate / IT / legal) | waiting_on + `send` / `note` |
 | escalate | `send` legal/finance/IT (optional their `create todo`) |
@@ -80,14 +80,14 @@ replace ATS/HRIS, invent recruiting CLI commands.
 ## Must-not
 - Bypass mill-desk HINT routing.
 - Replace ATS/HRIS/e-sign/background-check SoR - link paths; minimize PII.
-- Skip human_required on offer if office requires it.
+- Skip `--receipt` on offer if office requires it.
 - Invent mill commands for recruiting slang (`offer`, `advance`, `loop`, `debrief` as CLI).
 - Teach `open` / `yield` / bare `create` / `done`.
 - Confuse `drop` (hold) with `unclaim`. A hiring KPI is a score row. Interview notes are `note`.
 - Own legal clearance or finance approval.
 
 ## Done looks like
-- **Hired:** loop noted; offer human_required cleared; outcome recorded; ATS
+- **Hired:** loop noted; offer `--receipt` opened; outcome recorded; ATS
   updated outside mill; req card `pass`ed or clean waiting_on/parked; onboarding
   kickoff mailed/todos assigned on accept.
 - **Onboarded:** checklist children `pass`ed (or explicit parked leftovers);

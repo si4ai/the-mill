@@ -25,7 +25,7 @@ BEGIN
   IF p_kind NOT IN ('hint', 'mail', 'receipt') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: kind';
   END IF;
-  IF p_outcome NOT IN ('sent', 'missed', 'error') THEN
+  IF p_outcome NOT IN ('sent', 'missed', 'error', 'queued') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: outcome';
   END IF;
   -- Initial delivery state (compat); lifecycle also uses queued/taken via transitions.

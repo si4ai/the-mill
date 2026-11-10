@@ -48,6 +48,7 @@ send to_desk
 send body_file
 send roster
 send name
+send receipt
 send office
 send yes
 send doing
@@ -57,6 +58,7 @@ reply mail_id
 reply body_file
 reply to_desk
 reply roster
+reply receipt
 reply office
 reply yes
 reply doing

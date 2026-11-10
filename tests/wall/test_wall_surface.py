@@ -44,9 +44,9 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow326",
-    "board.css": "wow325",
-    "lazy.js": "wow329",
+    "boot.js": "wow337",
+    "board.css": "wow341",
+    "lazy.js": "wow341",
     "shell.css": "wow270",
     "shell-early.js": "wow283",
     "theme.css": "wow165",
@@ -56,14 +56,14 @@ HTML_PINS = {
 LAZY_PINS = (
     "/glossary/glossary.js?v=wow285",
     "/floor/map-paint.js?v=wow320",
-    "/admin/invite.js?v=wow281",
+    "/admin/invite.js?v=wow334",
     "/mail/mail-paint.js?v=wow322",
     "/score/score-paint.js?v=wow323",
     "/floor/floor-paint.js?v=wow323",
     "/todo/todo-paint.js?v=wow322",
     "/doing/doing-paint.js?v=wow324",
     "/session/desk-paint.js?v=wow321",
-    "/session/service-paint.js?v=wow321",
+    "/session/service-paint.js?v=wow341",
     "/lists/lists-paint.js?v=wow321",
     "/admin/mint-paint.js?v=wow322",
     "/doing/doing.css?v=wow324",
@@ -72,7 +72,7 @@ LAZY_PINS = (
     "/todo/todo.js?v=wow320",
     "/mail/mail.css?v=wow318",
     "/score/score.css?v=wow321",
-    "/todo/todo.css?v=wow321",
+    "/todo/todo.css?v=wow335",
 )
 PERF_PIN = "/lib/perf.js?v=wow164"
 

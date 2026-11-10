@@ -8,8 +8,9 @@ hold_release, room_or_fyi_mail, rering_handled, version_notice, other.
 
 Emits ``op=wake.done`` (wasted=0|1) on mill-perf for score_tick; also ``op=wake.wasted`` when wasted.
 On 0.8.6 also writes a W9 feature transition (lease_live->idle / wake_done) with meta
-{wasted, trigger} only - no bodies/names/hosts. Keeps per-desk and per-office counts
-for mill score. Does not change wake behavior (card 949 rules stay on hold).
+{wasted, trigger, pending0, addressed, kind, auto} - no bodies/names/hosts. Card 1098
+item 5: wake_id is the wake row id; auto=1 marks auto wake-done on mark/answer.
+Keeps per-desk and per-office counts for mill score.
 """
 from __future__ import annotations
 
@@ -101,15 +102,45 @@ def classify_trigger(
     return "other"
 
 
-def mark_lease(desk: str, *, trigger: str = "other", wake_id: int | None = None) -> None:
+def mark_lease(
+    desk: str,
+    *,
+    trigger: str = "other",
+    wake_id: int | None = None,
+    pending0: int = 0,
+    addressed: int = 0,
+    kind: str = "",
+    auto: int = 0,
+) -> None:
     """Start (or reset) the desk's wake-lease tracker when a wake POST goes out."""
     who = _who(desk)
     if not who:
         return
     tag = trigger if trigger in TRIGGERS else "other"
     wid = int(wake_id or 0)
+    k = str(kind or "").strip().lower()[:16]
     with _lock:
-        _leases[who] = {"trigger": tag, "acted": False, "stamped": False, "wake_id": wid}
+        _leases[who] = {
+            "trigger": tag,
+            "acted": False,
+            "stamped": False,
+            "wake_id": wid,
+            "pending0": int(pending0 or 0),
+            "addressed": 1 if int(addressed or 0) else 0,
+            "kind": k,
+            "auto": 1 if int(auto or 0) else 0,
+        }
+
+
+def tag_auto(desk: str) -> None:
+    """Mark the live lease so its W9 meta carries auto=1 (card 1098 item 5)."""
+    who = _who(desk)
+    if not who:
+        return
+    with _lock:
+        row = _leases.get(who)
+        if row and not row.get("stamped"):
+            row["auto"] = 1
 
 
 def clear_lease(desk: str) -> None:
@@ -187,6 +218,10 @@ def finish_lease(
             "wakes": int(desk_row["wakes"]),
             "wasted_n": int(desk_row["wasted"]),
             "wake_id": wake_id,
+            "pending0": int(row.get("pending0") or 0),
+            "addressed": 1 if int(row.get("addressed") or 0) else 0,
+            "kind": str(row.get("kind") or ""),
+            "auto": 1 if int(row.get("auto") or 0) else 0,
         }
     if stamp is None:
         return None
@@ -227,22 +262,58 @@ def finish_lease(
                 from agent_coord.server import mail_activity as ma
 
                 did = int(ma.desk_id_for(cn, who) or 0)
-            wid = int(stamp.get("wake_id") or 0) or 1
-            # Existing activity + transition tables only (no DDL). Ensure wake
-            # activity row so fk_transition_activity is satisfied.
-            db_call(
-                cn,
-                "mill_activity_put",
-                [
-                    "wake",
-                    wid,
-                    datetime.now(timezone.utc).replace(tzinfo=None),
-                    did if did > 0 else None,
-                    1,
-                    "create",
-                    None,
-                ],
-            )
+            wid = int(stamp.get("wake_id") or 0)
+            if wid <= 0:
+                # Card 1098 item 5: prefer the desk's newest wake row over phantom id 1.
+                cur = cn.cursor()
+                try:
+                    if did > 0:
+                        cur.execute(
+                            "SELECT MAX(id) FROM wake WHERE desk_id = %s",
+                            (did,),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT MAX(w.id) FROM wake w"
+                            " JOIN name d ON d.id = w.desk_id AND d.type = 'desk' AND d.name = %s",
+                            (who,),
+                        )
+                    row = cur.fetchone()
+                    wid = int((row or [0])[0] or 0)
+                except Exception:
+                    wid = 0
+                finally:
+                    cur.close()
+            if wid <= 0:
+                wid = 1
+            # Existing activity + transition tables only (no DDL). When the wake
+            # row already exists its activity row does too; skip mill_activity_put
+            # so we do not plant phantom wake activities at mail ids.
+            cur = cn.cursor()
+            try:
+                cur.execute(
+                    "SELECT 1 FROM activity WHERE type = 'wake' AND id = %s LIMIT 1",
+                    (wid,),
+                )
+                has_activity = cur.fetchone() is not None
+            except Exception:
+                has_activity = False
+            finally:
+                cur.close()
+            if not has_activity:
+                db_call(
+                    cn,
+                    "mill_activity_put",
+                    [
+                        "wake",
+                        wid,
+                        datetime.now(timezone.utc).replace(tzinfo=None),
+                        did if did > 0 else None,
+                        1,
+                        "create",
+                        None,
+                    ],
+                )
             tr.put(
                 cn,
                 activity_type=ActivityType.wake,
@@ -253,7 +324,14 @@ def finish_lease(
                 desk_id=did,
                 role="actor",
                 join_key=f"wake-lease:{did}:{wid}",
-                meta={"wasted": 1 if stamp["wasted"] else 0, "trigger": stamp["trigger"]},
+                meta={
+                    "wasted": 1 if stamp["wasted"] else 0,
+                    "trigger": stamp["trigger"],
+                    "pending0": int(stamp.get("pending0") or 0),
+                    "addressed": int(stamp.get("addressed") or 0),
+                    "kind": str(stamp.get("kind") or ""),
+                    "auto": int(stamp.get("auto") or 0),
+                },
             )
         except Exception:
             # Instrumentation must not break wake-done.

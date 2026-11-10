@@ -47,12 +47,11 @@ def _letter(room_only):
 
 
 def test_addressed_desk_skips_a_room_only_letter_and_it_still_queues(desk):
+    # Card 1098 item 5: room copy not sitting stays queued - no POST, no owed hop.
     _letter({"away"})
     assert desk.posts == []
-    assert [ln for ln in desk.lines if ln.startswith("webhook ")] == [
-        "webhook desk=away kind=mail id=6280 wake=skipped reason=room-only"
-    ]
-    assert [r["id"] for r in desk.q.rows] == [6280] and desk.q.rows[0]["outcome"] == "missed"
+    assert [ln for ln in desk.lines if ln.startswith("webhook ")] == []
+    assert [r["id"] for r in desk.q.rows] == [6280] and desk.q.rows[0]["outcome"] == "queued"
 
 
 def test_addressed_desk_still_wakes_for_a_named_letter_and_a_hint(desk):
@@ -70,9 +69,11 @@ def test_a_skipped_room_item_takes_no_window(desk):
 
 
 def test_wake_on_all_wakes_for_room_letters(desk):
+    # Card 1098 item 5 / Q5.2: room copies stay quiet even for wake_on=all.
     desk.state["wake_on"] = "all"
     _letter({"away"})
-    assert len(desk.posts) == 1 and desk.posts[0]["wake"]["reason"] == "room"
+    assert desk.posts == []
+    assert desk.q.rows[0]["outcome"] == "queued"
 
 
 class _Join:

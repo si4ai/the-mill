@@ -93,7 +93,7 @@ def test_finished_or_failed_frees_a_slot_for_a_new_watch(desk, end, extra):
     assert d.event("w0", end, **extra)["ok"] is True
     # The refused start retries on reconnect and is now born.
     assert d.event("late", "start")["ok"] is True
-    assert [e["reason"] for e in d.edges("late")] == ["tw_start"]
+    assert [e["reason"] for e in d.edges("late")] == ["tw_start", "score_point"]
     assert len(d.tasks()) == 9
     assert d.event("another", "start")["code"] == "cap"
 
@@ -131,7 +131,9 @@ def test_retried_start_of_waiting_watch_at_cap_is_a_noop(desk):
     assert d.event("w3", "start")["ok"] is True
     assert len(d.edges("w3")) == n and len(d.pings) == w and len(d.tasks()) == 8
     assert d.event("w3", "exit", exit_code=1)["ok"] is True
-    assert d.edges("w3")[-1]["reason"] == "tw_failed" and len(d.pings) == w + 1
+    reasons = [e["reason"] for e in d.edges("w3")]
+    assert "tw_failed" in reasons and reasons[-1] == "score_point"
+    assert len(d.pings) == w + 1
 
 
 def test_concurrent_starts_at_seven_live_birth_only_one(desk, cn):

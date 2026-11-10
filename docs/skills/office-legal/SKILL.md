@@ -32,7 +32,7 @@ On the desk **before** clear/withhold (else `note` gap + `send` / `waiting_on`):
 - **Gated action** - ship / sign / close / publish; name dependent cards if known
 - **Owner** - `claim` / `assign`
 - When redlining shared doc: ready to `hold` / `drop` the doc station
-- When **clearing**: **human_required** signatory/authority before Pass-equivalent mail
+- When **clearing**: `send` / `reply` `--receipt` to the signatory/authority before Pass-equivalent mail
 - When escalate: counsel/specialist dest for `send`
 
 Not inputs: "just approve" with no pointer; silent chat greenlight; full contract
@@ -44,10 +44,10 @@ body dumped into mill as SoR.
 | review request | `inbox` / `create todo` -> `claim` / `assign` |
 | contract (pointer) | todo `detail` / `note` link; **CLM SoR outside** |
 | redline / exclusive edit | `hold` / `drop` on doc station (+ `note`) |
-| approval / clear authority | `human_required` (+ `assign` / `send` as needed) |
+| approval / clear authority | `send` / `reply` `--receipt` (+ `assign` as needed) |
 | escalate to counsel | `send` (optional `assign`) |
 | hold / block ship / withhold | waiting_on on eng/sales card + `send`/`note` reason (**!=** mill `hold`) |
-| clear / approve | `human_required` -> `send` Pass-equivalent -> unlock dependents -> legal `pass` |
+| clear / approve | `--receipt` -> `send` Pass-equivalent -> unlock dependents -> legal `pass` |
 | opinion | `note` and/or `send` memo/link |
 | audit trail | `send` + `note` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
@@ -65,7 +65,7 @@ body dumped into mill as SoR.
 | Research | Diligence facts before clear |
 | Marketing | Publish/embargo legal review |
 | Counsel desk | Escalate to counsel |
-| Asker / human signatory | human_required clear; redline questions |
+| Asker / human signatory | `--receipt` clear; redline questions |
 
 ## Must-not
 - Bypass mill-desk HINT routing.
@@ -74,10 +74,10 @@ body dumped into mill as SoR.
 - Invent mill commands for legal slang (`clear`, `withhold`, `redline`, `escalate` as CLI).
 - Teach `open` / `yield` / bare `create` / `done`.
 - Confuse `drop` (hold) with `unclaim`; confuse legal "hold" (block ship) with mill `hold`.
-- Skip `human_required` on clear when office requires it.
+- Skip `--receipt` on clear when office requires it.
 - Own eng ship, CRM stages, or finance ledger.
 
 ## Done looks like
-- Clear or withhold mailed; human_required satisfied on clear; dependents
+- Clear or withhold mailed; `--receipt` opened on clear; dependents
   unlocked or still waiting_on with owner; legal card `pass`ed or clean
   waiting_on - never silent open forever.

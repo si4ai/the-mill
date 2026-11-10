@@ -204,6 +204,58 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
             measures["wait_by_cause"] = json.dumps(waits, sort_keys=True)
         if to_state in (tr.State.finished, tr.State.failed):
             measures["end_reason"] = reason.value
+        # Card 1098: last_run lives in the score ledger with one score transition
+        # per start/exit/crash (S1 none->live, S3b live->live). Stall/resume skip.
+        if kind in ("start", "exit", "crash"):
+            if kind == "start":
+                phase = "start"
+                last = "active"
+            elif to_state == tr.State.finished:
+                phase = "finished"
+                last = "finished"
+            else:
+                phase = "failed"
+                last = "failed"
+            measures["last_run"] = last
+            score_meta: dict[str, Any] = {
+                "watch_id": meta.get("watch_id"),
+                "phase": phase,
+            }
+            if "exit_code" in meta:
+                score_meta["exit_code"] = meta["exit_code"]
+            if meta.get("cause"):
+                score_meta["cause"] = meta["cause"]
+            if "end_reason" in measures:
+                score_meta["end_reason"] = measures["end_reason"]
+            for dwell_key in ("dwell_active_ms", "dwell_waiting_ms"):
+                if dwell_key in measures:
+                    score_meta[dwell_key] = measures[dwell_key]
+            score_rows = score.upsert(
+                cn, "Office", desk, "doing.task.last_run", str(last)
+            )
+            score_id = int(score_rows[0]["id"])
+            cur = cn.cursor(dictionary=True)
+            try:
+                cur.execute(
+                    "SELECT 1 FROM transition"
+                    " WHERE activity_type=%s AND activity_id=%s"
+                    " ORDER BY at DESC LIMIT 1",
+                    (tr.ActivityType.score.value, score_id),
+                )
+                prior = cur.fetchone() is not None
+            finally:
+                cur.close()
+            tr.put(
+                cn,
+                activity_type=tr.ActivityType.score,
+                activity_id=score_id,
+                from_state=tr.State.live if prior else tr.State.none,
+                to_state=tr.State.live,
+                reason=tr.Reason.score_point,
+                desk_id=row["desk_id"],
+                join_key=key,
+                meta=score_meta,
+            )
     else:
         # Overflow/retry are metrics, never Tsk8 or any other transition.
         measures = {}
@@ -212,5 +264,7 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
         if kind == "retry" and outcome == "give_up":
             measures["retry_give_up_n"] = 1
     for name, value in measures.items():
+        if name == "last_run":
+            continue  # already upserted above with the score transition
         score.upsert(cn, "Office", desk, "doing.task." + name, str(value))
     return "wrote" if kind in mapped else "metric"

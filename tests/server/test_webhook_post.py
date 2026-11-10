@@ -2,7 +2,8 @@
 """Desk webhook POST: 8s, the desk's own key in the auth headers (#618).
 
 A success is one try. A failed POST retries once when the body has idem.
-The hint row stays missed either way, so the next connect sync hands it over.
+The hint row is put queued then marked missed on a real miss (card 1098 item 5),
+so the next connect sync hands it over.
 """
 from __future__ import annotations
 
@@ -114,7 +115,7 @@ def test_fanout_desk_not_armed_does_not_post(monkeypatch) -> None:
     rows = [{"desk": "DESK_away", "hint": None, "delivery_mode": "webhook", "endpoint_url": "x"}]
     _fanout(rows, sitting=set(), urlopen=urlopen, outcomes=outcomes)
     assert seen == []
-    assert outcomes == ["missed"]
+    assert outcomes == ["queued"]
 
 
 def test_sitting_desk_does_not_post(monkeypatch) -> None:
@@ -184,7 +185,7 @@ def test_fanout_webhook_http_error_stays_missed(monkeypatch, caplog, tmp_path) -
     with caplog.at_level("INFO", logger="mill.push"):
         notified = _fanout([_away_row()], sitting=set(), urlopen=urlopen, outcomes=outcomes)
     assert notified == []
-    assert outcomes == ["missed"]
+    assert outcomes == ["queued"]
     line = _fail_lines(caplog)
     assert "status=503" in line
     assert "desk=DESK_away" in line
@@ -205,7 +206,7 @@ def test_fanout_webhook_timeout_stays_missed(monkeypatch, caplog, tmp_path) -> N
     with caplog.at_level("INFO", logger="mill.push"):
         notified = _fanout([_away_row()], sitting=set(), urlopen=urlopen, outcomes=outcomes)
     assert notified == []
-    assert outcomes == ["missed"]
+    assert outcomes == ["queued"]
     line = _fail_lines(caplog)
     assert "err=TimeoutError" in line
     assert "desk=DESK_away" in line

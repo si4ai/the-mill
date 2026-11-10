@@ -1576,8 +1576,9 @@ def _h_send(
     warnings: list[str] = []
     parent_t = str(body.get("parent_type") or body.get("type_a") or "")
     parent_id = int(body.get("parent_id") or body.get("id_a") or 0)
-    # #254 follow-up: send has no --human-required; receipt is never set here.
-    receipt = 0
+    # Card 1093: --receipt sets mail_to.receipt=1 on every dest of this letter.
+    # human_required remains dropped (#254); it never sets receipt.
+    receipt = 1 if body.get("receipt") is True else 0
     sender_roster = _stored(body.get("roster"))
     _check_roster(c._cn, "send", sender_roster)
     if not str(body.get("project") or "").strip():
@@ -1803,6 +1804,15 @@ def _h_send(
         rec["room"] = True
     if warnings:
         rec["warnings"] = warnings
+    if receipt:
+        n_dest = len(dest_rows)
+        notes.append(
+            f"receipt: {n_dest} desk(s) will be woken; you get a receipt when each opens"
+        )
+        if n_dest > 8:
+            notes.append(
+                f"receipt: {n_dest} desks woken; a room copy without --receipt stays quiet"
+            )
     if notes:
         rec["note"] = "; ".join(notes)
     if skipped:
@@ -2063,6 +2073,9 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     # Optional override of letter sender roster (--roster)
     if body.get("roster") is not None and str(body.get("roster") or "").strip():
         b["roster"] = body.get("roster")
+    # Card 1093: reply --receipt applies to every dest of the new letter.
+    if body.get("receipt") is True:
+        b["receipt"] = True
     rec = _h_send(c, b, project, owner, room_only={d for d in dest_set if d not in named})
     # The parent is handled for the desk who answered it. The new letter is not (#195).
     if self_bare:
@@ -2074,6 +2087,23 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
             did = ma.desk_id_for(c._cn, self_bare) or 0
             ma.emit_answered(c._cn, mail_id=int(mail_id), desk_id=int(did))
+        except Exception:
+            pass
+        # Card 1098 item 5b: auto wake-done after answer when nothing addressed waits.
+        try:
+            from agent_coord.server.records.db import after_commit
+
+            desk = self_bare
+
+            def _auto():
+                try:
+                    from agent_coord.server import wake as wake_mod
+
+                    wake_mod.auto_done(c._cn, desk)
+                except Exception:
+                    pass
+
+            after_commit(c._cn, _auto)
         except Exception:
             pass
     if isinstance(rec, dict):
@@ -4155,6 +4185,23 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         did = ma.desk_id_for(c._cn, who) or 0
         for mid in ids:
             ma.emit_mark(c._cn, mail_id=int(mid), desk_id=int(did))
+    except Exception:
+        pass
+    # Card 1098 item 5b: auto wake-done when the lease's letters are all picked up.
+    try:
+        from agent_coord.server.records.db import after_commit
+
+        desk = who
+
+        def _auto():
+            try:
+                from agent_coord.server import wake as wake_mod
+
+                wake_mod.auto_done(c._cn, desk)
+            except Exception:
+                pass
+
+        after_commit(c._cn, _auto)
     except Exception:
         pass
     return {"ok": True, "state": "handled", "ids": ids}

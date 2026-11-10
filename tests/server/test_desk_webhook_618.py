@@ -243,25 +243,40 @@ def test_redactor_knows_the_routine_key_family() -> None:
 # --- coalescing and the sync -------------------------------------------------
 
 class _Queue:
-    """In-memory wake: put appends, take returns and clears (mill_push_take)."""
+    """In-memory wake: put appends, take returns and clears (mill_push_take).
+
+    Card 1098 item 5: put returns a row id and mark flips queued->missed|sent|error
+    so replay_items (outcome==missed) still sees real misses.
+    """
 
     def __init__(self):
         self.rows: list[dict] = []
+        self._next_id = 1
 
     def install(self, monkeypatch):
         from agent_coord.server.records import push as rec_push
 
         def put(cn, desk, cause, payload, outcome):
-            self.rows.append(dict(payload, kind=cause, outcome=outcome, _desk=desk))
-            return []
+            rid = self._next_id
+            self._next_id += 1
+            self.rows.append(dict(payload, kind=cause, outcome=outcome, _desk=desk, _id=rid))
+            return [{"id": rid}]
 
         def take(cn, desk):
-            got = [{k: v for k, v in r.items() if k != "_desk"} for r in self.rows if r["_desk"] == desk]
+            got = [{k: v for k, v in r.items() if k not in ("_desk", "_id")} for r in self.rows if r["_desk"] == desk]
             self.rows = [r for r in self.rows if r["_desk"] != desk]
             return got
 
+        def mark(cn, rid, outcome):
+            for r in self.rows:
+                if int(r.get("_id") or 0) == int(rid or 0) and r.get("outcome") in ("queued", "missed"):
+                    r["outcome"] = outcome
+                    return 1
+            return 0
+
         monkeypatch.setattr(rec_push, "put", put)
         monkeypatch.setattr(rec_push, "take", take)
+        monkeypatch.setattr(rec_push, "mark", mark)
         monkeypatch.setattr(rec_push, "pending", lambda cn, desk: len([r for r in self.rows if r["_desk"] == desk]))
         monkeypatch.setattr(rec_push, "pending_addressed", lambda cn, desk: any(
             r["_desk"] == desk and r.get("wake_reason") != "room" for r in self.rows))
@@ -299,7 +314,7 @@ def test_a_burst_of_ten_hints_rings_once_and_the_sync_has_all_ten(monkeypatch) -
         assert "mill connect -r away" in body["wake"]["next"]
         frame = push.connect_sync_frame(cn, "away")
         assert [r["id"] for r in frame["sync"]] == list(range(6180, 6190))
-        assert {r["outcome"] for r in frame["sync"]} == {"missed"}
+        assert {r["outcome"] for r in frame["sync"]} == {"missed"}  # item 5: put queued then mark missed
         assert frame["wake"] == f"webhook armed (host {HOOK_HOST})"
         # F144: the sync does not end the wake lease; the next hint waits for done.
         _hint(cn, 6190)

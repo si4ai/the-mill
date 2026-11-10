@@ -28,7 +28,7 @@ second day-one products. Major SEV / runtime outage -> hand off office-ops.
 ## Inputs
 On the desk **before** triage resolve (else `note` gap + `send` / `waiting_on`):
 - **Ticket identity** - what broke or what was asked (`create todo` need + detail)
-- **Reporter path** - who to unblock; reply desk or human_required channel
+- **Reporter path** - who to unblock; reply desk or `--receipt` channel
 - **Forge URL** - required in detail when report came from GitLab/GitHub Issue
 - Strong: priority (impactxurgency) text; incident vs request vs bug classification
   (bug -> `label ... bug`)
@@ -45,7 +45,7 @@ ITSM/forge database into mill.
 | drop the claim | `unclaim` |
 | priority (impactxurgency) | todo `detail` (text) |
 | workaround / progress diary | `note` |
-| need more info | `send` reporter / human_required + `waiting_on` |
+| need more info | `send` reporter / `--receipt` + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |
 | duplicate | `note` canonical + `pass` |
 | resolve / close | `pass` when user unblocked **or** fix owned elsewhere |

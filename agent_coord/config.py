@@ -187,7 +187,9 @@ def set_transition_compress(
             raise ValueError("transition_mode must be compress or capture")
         data["transition_mode"] = m
     if pairs is not None:
-        data["transition_pairs"] = str(pairs).strip()
+        # settings() treats an empty value as unset (back to the defaults), so
+        # "every pair off" is stored as the word none.
+        data["transition_pairs"] = str(pairs).strip() or "none"
     # keep other live settings from env-backed file merge
     cur = settings(path)
     for k, v in cur.items():

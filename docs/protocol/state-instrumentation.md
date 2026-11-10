@@ -7,7 +7,9 @@ State map for card 1001 children (0.8.6). Sync: `origin/main` `ce115f8`.
 **Rule:** one durable server event per protocol transition.
 
 
-**Card 1098 (compress):** two-state cycles (default `doing:seated/connected` sit/unsit, `hold:free/held`, and same-state `hold:held/held` refreshes) share one `transition` row with count `n` (default 1). Odd `n` = still at original `to_state`; even `n` = back at `from_state`. Office `transition_mode=compress|capture` and `transition_pairs` live in `config.toml` (Admin pane). Capture keeps every flip. The old `activity.n` count is gone; this transition count replaces it for these cycles.
+**Card 1098 (compress):** two-state cycles (default `doing:seated/connected` sit/unsit, `hold:free/held`, and same-state `hold:held/held` refreshes) share one `transition` row with count `n` (default 1). Odd `n` = still at original `to_state`; even `n` = back at `from_state`. Office `transition_mode=compress|capture` and `transition_pairs` live in the wall's `config.toml` (Admin pane), so they are per office host and an office is limited to one host for now; several hosts would need a shared store. The Book transition analysis is a read: it comes from the glance packet with no Admin session; only changing the mode or pairs is a gated write. Capture keeps every flip. The old `activity.n` count is gone; this transition count replaces it for these cycles.
+
+**Card 1098 (admin transition pane):** Admin POST `{action:"transition"}` returns `compress_packet` plus `analysis`. Optional `since` (`24h`|`7d`) windows `transition.at` (and `mail_to.created` for receipt counts). Shape: `total_rows`/`total_events`/`saved_rows`; `by_type[]` `{activity_type,rows,events,saved_rows}`; `by_pair[]` `{activity_type,from_state,to_state,rows,events,saved_rows}` for every configured compress pair (zero-fire included); `top_compressed[]`; `wake[]` `{label,value}` (queued/sent/missed/done/auto_done/receipt_unopened/receipt_opened from real rows). `analysis.error` is the only failure signal. wall-ui renders; empty-skip is log-only and not in `wake[]` yet.
 
 **0.8.6 plan (letter 4317 / 980-plan.md):** feature events land in shared `transition` (card **1022**); performance/health in metric stream (**1023**); opt-in `share.transitions` (**1024**) and `share.metrics` separate; emitters **980/981/982/970/1002**; desk score writes out (**1021**); `seat.doing_id` drop after 970 (**1025**).
 
@@ -136,7 +138,7 @@ Letter: **none -> live -> deleted**. Per recipient (`mail_to`): **unread -> hand
 |-------|---------|-------|-------|
 | refused (size) | yes (error to client) | **no counter/event** | **980** |
 | truncated into store | no (refused) | n/a | keep refusing; still emit hit count |
-| receipt pushed | code path exists; CLI send forces receipt=0 | `push_receipt` `sp_opened.sql:41` | 980 if receipts enabled |
+| receipt pushed | `--receipt` on send/reply; first open pushes one receipt | `push_receipt` `sp_opened.sql:41` | 980 |
 | never-answered | derivable | `mail_to.opened` null / no reply child | **980** |
 | re-rings | wake path | wake logs | **980** + **1002** |
 
@@ -226,6 +228,8 @@ Seat states D1-D3/D11 remain desk-level (join/connect), not per-task.
 | - | - | - | **D6 supersede** | n/a | **dropped in target** (current-only) |
 
 Concurrent start: Tsk1 on slot 2 while slot 1 is active - **allowed in target**; forbidden/implicitly serialized by D6 in current.
+
+**0.8.10 / card 1098 item 3:** `tw` also writes one `activity.type=score` transition on start, finish, and fail (`meta.phase` = `start` / `finished` / `failed`; reason `score_point`).
 
 Counts (0.8.6 target, per task): **7 task states, 8 transitions** (+ 4 seat transitions shared). Gaps: all tw durable events; cycle detect; stale auto-clear.
 

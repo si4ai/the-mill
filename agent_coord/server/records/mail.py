@@ -422,16 +422,21 @@ def ids_for_desk(cn, mail_ids: list[int], desk: str) -> list[int]:
 
 
 def public_mail_tos(dest_rows: list[dict]) -> list[dict]:
-    """Agent-facing mail_to cast: [{deskId, receipt}, ...]. No ids / opened.
+    """Agent-facing mail_to cast: [{deskId, receipt}, ...] (+ opened when receipt=1).
 
     mail_to has no roster column; roster lives on the letter (mail.roster_id).
+    Card 1093: receipt dests carry opened so the Wall HR chip clears once opened.
     """
     out: list[dict] = []
     for r in dest_rows or []:
         desk = str(r.get("desk") or "").strip()
         if not desk:
             continue
-        out.append({"deskId": desk, "receipt": int(r.get("receipt") or 0)})
+        receipt = int(r.get("receipt") or 0)
+        entry: dict = {"deskId": desk, "receipt": receipt}
+        if receipt == 1:
+            entry["opened"] = r.get("opened")
+        out.append(entry)
     return out
 
 

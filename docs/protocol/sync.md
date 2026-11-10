@@ -18,7 +18,7 @@ Three kinds:
 | MAIL | Each desk in `mail_to` | No |
 | receipt | The sender, when a receiver first opens a mail whose `receipt` is set | No |
 
-MAIL is not updated after send. Nothing watches a mail. The receiver hears it because they were addressed. The sender hears an open only when they flagged a receipt on that `mail_to` row.
+MAIL is not updated after send. Nothing watches a mail. The receiver hears it because they were addressed. The sender hears an open only when they set `--receipt` on `send` or `reply` (`mail_to.receipt=1` on every dest). While that flag is set and `opened` is unset, the addressee is always woken (even as a room copy); `--wake-on` and quiet settings do not suppress it. Only the first open (`mark`, `reply`, whole-letter `mail-thread`) or the 30-day expiry stops the waking. Receipts to the sender never ring a webhook.
 
 ## Sync
 
@@ -153,6 +153,6 @@ Expired, one per desk, only when a 30-day drop removed rows. `window_start` is t
 
 ## What to do with sync
 
-Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so.
+Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. When `receipt` is 1 and `opened` is unset, open it (`mark`, `reply`, or read it whole); sync and inbox keep showing it as unread until then. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so.
 
 Chat from your human still wins over both the live frame and `sync`.
