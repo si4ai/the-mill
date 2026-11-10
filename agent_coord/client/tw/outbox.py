@@ -61,7 +61,8 @@ class Outbox:
                 wake INTEGER,
                 counts TEXT,
                 desk TEXT,
-                card INTEGER
+                card INTEGER,
+                at TEXT
             )
             """
         )
@@ -83,9 +84,9 @@ class Outbox:
             cur = self._db.execute(
                 """
                 INSERT INTO hop (
-                    watch_id, kind, cause, exit_code, wake, counts, desk, card
+                    watch_id, kind, cause, exit_code, wake, counts, desk, card, at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(body.get("watch_id") or ""),
@@ -96,6 +97,7 @@ class Outbox:
                     json.dumps(counts) if isinstance(counts, dict) else None,
                     desk,
                     card,
+                    body.get("at") if isinstance(body.get("at"), str) and body.get("at") else None,
                 ),
             )
             self._db.commit()
@@ -105,7 +107,7 @@ class Outbox:
         with self._lock:
             row = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, at
                 FROM hop ORDER BY id LIMIT 1
                 """
             ).fetchone()
@@ -117,7 +119,7 @@ class Outbox:
         with self._lock:
             rows = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, at
                 FROM hop ORDER BY id
                 """
             ).fetchall()
@@ -152,6 +154,8 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
         body["wake"] = False
     if isinstance(item.get("counts"), dict):
         body["counts"] = item["counts"]
+    if isinstance(item.get("at"), str) and item.get("at"):
+        body["at"] = item["at"]
     return body
 
 

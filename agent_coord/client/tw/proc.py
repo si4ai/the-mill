@@ -2,6 +2,7 @@
 """Run a command against the sitting link. Doing stays server-side."""
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import subprocess
@@ -18,6 +19,10 @@ from agent_coord.client.tw.link import _desk, open_session, pointer_path
 def runs_path(desk: str):
     pointer = pointer_path(_desk(desk))
     return pointer.with_name(pointer.name + ".runs.json")
+
+
+def _utc_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def log_file(desk: str, watch_id: str) -> Path:
@@ -131,6 +136,28 @@ def list_runs(desk: str) -> list[dict[str, Any]]:
         rows.append(item)
     if kept != runs:
         _save(desk, kept)
+    return rows
+
+
+def running_runs(desk: str) -> list[dict[str, Any]]:
+    """Runs still going. The pid here is tw's pid, the one a stop would signal."""
+    stored = _load(desk)
+    rows: list[dict[str, Any]] = []
+    for row in list_runs(desk):
+        if row.get("exit_code") is not None:
+            continue
+        full = stored.get(row["watch_id"])
+        if not isinstance(full, dict):
+            continue
+        rows.append(
+            {
+                "watch_id": row["watch_id"],
+                "tw_pid": int(full.get("tw_pid") or 0),
+                "command": list(full.get("argv") or row.get("argv") or []),
+                "start": str(full.get("start") or ""),
+                "log": str(full.get("log") or ""),
+            }
+        )
     return rows
 
 
@@ -539,6 +566,7 @@ def run_argv(
         )
         for pump in pumps:
             pump.start()
+        observed = _utc_now()
         runs = _load(who)
         runs[watch_id] = {
             "pid": proc.pid,
@@ -546,6 +574,7 @@ def run_argv(
             "stop": False,
             "tw_pid": os.getpid(),
             "log": str(target),
+            "start": observed,
         }
         _save(who, runs)
         started = True
@@ -580,7 +609,9 @@ def run_argv(
                 return False
             return isinstance(reply, dict) and reply.get("ok") is True
 
-        _send(_event_body(watch_id, "start", proc.pid))
+        start_body = _event_body(watch_id, "start", proc.pid)
+        start_body["at"] = observed
+        _send(start_body)
         stopped = False
         crashed = False
         while proc.poll() is None:
@@ -643,6 +674,7 @@ def run_argv(
         body["stdout_bytes"] = stdout_bytes
         body["stderr_bytes"] = stderr_bytes
         body["log"] = True
+        body["at"] = _utc_now()
         _send(body)
         finished = {
             "pid": proc.pid,

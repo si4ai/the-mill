@@ -359,7 +359,7 @@ class Link:
         # Write the hop, ack, then the sender posts it. argv and streams stay here.
         wid = _watch_id(msg)
         body: dict[str, Any] = {}
-        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
+        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts", "at"):
             if key in msg:
                 body[key] = msg[key]
         if msg.get("wake") is False:
