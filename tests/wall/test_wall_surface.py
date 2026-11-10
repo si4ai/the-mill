@@ -9,8 +9,9 @@ stylelint, eslint, and html-validate are the tools/wall-validators package.
 Install from the repo root: npm ci --prefix tools/wall-validators
 A copy already on PATH is used when that directory has no node_modules.
 Node.js itself is required. If it is not on PATH, the test fails and names Node.js.
-The Node range is package.json engines (html-validate needs fs.globSync: ^22.22 or
->=24.8); npm ci refuses an older Node and the validators fail naming the range (#610).
+The Node range is package.json engines (stylelint 18 needs ^22.22.2 or
+^24.15.0 or >=26.0.0; html-validate allows a slightly wider range); npm ci refuses
+an older Node and the validators fail naming the range (#610).
 The wall files are the checkout that contains this test, wherever it sits.
 """
 from __future__ import annotations
@@ -377,7 +378,7 @@ def test_html_validate_board():
 
 # #610: html-validate needs fs.globSync (Node 22). The package declares the Node
 # range in engines, npm ci refuses an older Node, and the validators name it.
-ENGINES = "^22.22.0 || >=24.8.0"
+ENGINES = "^22.22.2 || ^24.15.0 || >=26.0.0"
 
 
 def test_validators_declare_the_node_range():
@@ -388,8 +389,9 @@ def test_validators_declare_the_node_range():
 
 
 @pytest.mark.parametrize("ver,ok", [
-    ("v20.19.2", False), ("v22.21.9", False), ("v22.22.0", True), ("v23.11.0", False),
-    ("v24.7.9", False), ("v24.8.0", True), ("v24.21.0", True), ("v26.0.0", True),
+    ("v20.19.2", False), ("v22.22.1", False), ("v22.22.2", True), ("v23.11.0", False),
+    ("v24.14.9", False), ("v24.15.0", True), ("v24.21.0", True), ("v25.0.0", False),
+    ("v26.0.0", True),
 ])
 def test_node_range(ver, ok):
     assert _node_in_range(ver, ENGINES) is ok
