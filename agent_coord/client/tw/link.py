@@ -369,6 +369,12 @@ class Link:
         ok = isinstance(got, dict) and got.get("ok") is True
         if not ok:
             self.marks.append("tw.event")
+            code = got.get("code") if isinstance(got, dict) else None
+            if code == "cap":
+                return protocol.reply(False, "cap", wid or None, code="cap")
+            text = str(got.get("msg") or "") if isinstance(got, dict) else ""
+            if code == "busy" or "busy" in text.casefold():
+                return protocol.reply(False, "busy", wid or None, code="busy")
             return protocol.reply(False, "hop failed", wid or None)
         if wid:
             peer.watch_ids.add(wid)

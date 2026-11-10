@@ -18,17 +18,19 @@ def _down(*_a, **_k):
     raise OSError("down")
 
 
-def test_no_sit_spools_start_then_exit(tmp_path, monkeypatch) -> None:
+def test_no_sit_runs_nothing(tmp_path, monkeypatch, capsys) -> None:
     _home(monkeypatch, tmp_path)
     monkeypatch.setattr("agent_coord.client.tw.proc.open_session", _down)
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", _down)
+    marker = tmp_path / "ran.txt"
     code = run_argv(
         "tw-spool",
-        [sys.executable, "-c", "import sys; sys.exit(0)"],
+        [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('x')", str(marker)],
     )
-    assert code == 0
-    kinds = [item["kind"] for item in load_durable("tw-spool")]
-    assert kinds == ["start", "exit"]
+    assert code == 1
+    assert not marker.exists()
+    assert load_durable("tw-spool") == []
+    assert capsys.readouterr().err.strip() == "mill connect tw-spool"
 
 
 def test_link_start_replays_once_in_order(tmp_path, monkeypatch) -> None:
@@ -63,7 +65,7 @@ def test_link_start_replays_once_in_order(tmp_path, monkeypatch) -> None:
         again.close()
 
 
-def test_http_fallback_sends_start_before_exit(tmp_path, monkeypatch) -> None:
+def test_no_sit_does_not_post(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
     hops: list[dict] = []
 
@@ -77,9 +79,8 @@ def test_http_fallback_sends_start_before_exit(tmp_path, monkeypatch) -> None:
         "tw-order",
         [sys.executable, "-c", "import sys; sys.exit(0)"],
     )
-    assert code == 0
-    kinds = [item["kind"] for item in hops if item.get("verb") == "tw.event"]
-    assert kinds == ["start", "exit"]
+    assert code == 1
+    assert hops == []
     assert load_durable("tw-order") == []
 
 
@@ -205,6 +206,7 @@ def test_exit_after_a_cap_drop_is_not_kept(tmp_path, monkeypatch, capsys) -> Non
 
 def test_list_and_status_replay_once(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    from agent_coord.client.tw.link import serve
     from agent_coord.client.tw.proc import query_status
 
     hops: list[dict] = []
@@ -214,20 +216,23 @@ def test_list_and_status_replay_once(tmp_path, monkeypatch) -> None:
         return {"ok": True, "result": {"done": "noop"}}
 
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", ok)
-    monkeypatch.setattr("agent_coord.client.tw.proc.open_session", _down)
-    append_hop("tw-pass", {"watch_id": "tw-d", "kind": "start", "pid": 5})
-    assert list_runs("tw-pass") == []
-    assert [item["kind"] for item in hops] == ["start"]
-    assert hops[0]["counts"]["replay"] == 1
-    assert load_durable("tw-pass") == []
-    hops.clear()
-    append_hop(
-        "tw-pass",
-        {"watch_id": "tw-d", "kind": "exit", "pid": 5, "exit_code": 0},
-    )
-    query_status("tw-pass")
-    assert [item["kind"] for item in hops] == ["exit"]
-    assert load_durable("tw-pass") == []
+    link = serve("tw-pass")
+    try:
+        append_hop("tw-pass", {"watch_id": "tw-d", "kind": "start", "pid": 5})
+        assert list_runs("tw-pass") == []
+        assert [item["kind"] for item in hops] == ["start"]
+        assert hops[0]["counts"]["replay"] == 1
+        assert load_durable("tw-pass") == []
+        hops.clear()
+        append_hop(
+            "tw-pass",
+            {"watch_id": "tw-d", "kind": "exit", "pid": 5, "exit_code": 0},
+        )
+        query_status("tw-pass")
+        assert [item["kind"] for item in hops] == ["exit"]
+        assert load_durable("tw-pass") == []
+    finally:
+        link.close()
 
 
 def test_replay_transport_error_keeps_the_sit(tmp_path, monkeypatch) -> None:

@@ -123,12 +123,11 @@ def _reclaim_lost(desk: str) -> None:
         tw_pid = int(row.get("tw_pid") or 0)
         if tw_pid and not _alive(tw_pid):
             crash = {"watch_id": watch_id, "kind": "crash", "cause": "lost"}
-            if not _http_event(crash):
-                append_hop(desk, crash)
-                print(
-                    "%s spooled; replays on next mill connect" % watch_id,
-                    file=sys.stderr,
-                )
+            append_hop(desk, crash)
+            print(
+                "%s spooled; replays on next mill connect" % watch_id,
+                file=sys.stderr,
+            )
             changed = True
             continue
         kept[watch_id] = row
@@ -137,8 +136,8 @@ def _reclaim_lost(desk: str) -> None:
 
 
 def list_runs(desk: str) -> list[dict[str, Any]]:
-    replay(desk)
     _reclaim_lost(desk)
+    replay(desk)
     runs = _load(desk)
     kept: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -458,7 +457,6 @@ def run_argv(
     steps: list[list[str]] | None = None,
 ) -> int:
     who = _desk(desk)
-    replay(who)
     _reclaim_lost(who)
     if steps is None:
         if not argv or any(not isinstance(part, str) or part == "" for part in argv):
@@ -484,20 +482,25 @@ def run_argv(
     try:
         try:
             session = open_session(who)
+        except OSError:
+            print("mill connect %s" % who, file=sys.stderr)
+            return 1
+        replay(who)
+        try:
             registered = session.request(
                 {"type": "register", "key": watch_id, "argv": steps[0]}
             )
-            if not (isinstance(registered, dict) and registered.get("ok") is True):
-                return 1
         except OSError:
-            if session is not None:
-                try:
-                    session.close()
-                except OSError:
-                    pass
+            try:
+                session.close()
+            except OSError:
+                pass
             session = None
             next_try = time.monotonic() + retry_delay(0)
             attempt = 1
+        else:
+            if not (isinstance(registered, dict) and registered.get("ok") is True):
+                return 1
         lock = threading.Lock()
         counters = {"stdout": 0, "stderr": 0}
         texts: list[str] = []

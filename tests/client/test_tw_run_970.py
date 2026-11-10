@@ -197,7 +197,7 @@ def test_stop_flag_exit_has_cause_stopped(tmp_path, monkeypatch) -> None:
         link.close()
 
 
-def test_no_link_at_exit_posts_once_via_http(tmp_path, monkeypatch) -> None:
+def test_no_link_at_exit_posts_once_via_http(tmp_path, monkeypatch, capsys) -> None:
     _home(monkeypatch, tmp_path)
     hops: list[dict] = []
 
@@ -210,11 +210,9 @@ def test_no_link_at_exit_posts_once_via_http(tmp_path, monkeypatch) -> None:
         lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
     )
     code = run_argv("tw-offline", ["true"])
-    assert code == 0
-    exits = [h for h in hops if h.get("verb") == "tw.event" and h.get("kind") == "exit"]
-    assert len(exits) == 1
-    assert exits[0].get("exit_code") == 0
-    assert exits[0].get("watch_id")
+    assert code == 1
+    assert hops == []
+    assert capsys.readouterr().err.strip() == "mill connect tw-offline"
 
 
 def test_dead_tw_pid_sends_crash_lost_and_drops(tmp_path, monkeypatch) -> None:
@@ -239,8 +237,12 @@ def test_dead_tw_pid_sends_crash_lost_and_drops(tmp_path, monkeypatch) -> None:
         },
     )
     assert list_runs("tw-lost") == []
-    crashes = [h for h in hops if h.get("verb") == "tw.event" and h.get("kind") == "crash"]
+    assert hops == []
+    from agent_coord.client.tw.spool import load_durable
+
+    crashes = load_durable("tw-lost")
     assert len(crashes) == 1
+    assert crashes[0].get("kind") == "crash"
     assert crashes[0].get("cause") == "lost"
     assert crashes[0].get("watch_id") == "tw-deadbeef"
     path = runs_path("tw-lost")

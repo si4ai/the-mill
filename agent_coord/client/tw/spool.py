@@ -204,43 +204,74 @@ def _outcome(got: Any) -> str:
     return "down"
 
 
+def _frame(item: dict[str, Any]) -> dict[str, Any]:
+    body = _wire(item)
+    body["type"] = "event"
+    body.pop("verb", None)
+    return body
+
+
+def _session_outcome(got: Any) -> str:
+    if not isinstance(got, dict):
+        return "down"
+    if got.get("ok") is True:
+        return "ok"
+    code = str(got.get("code") or "")
+    msg = str(got.get("msg") or "")
+    if code == "cap" or msg == "cap":
+        return "cap"
+    if code == "busy" or msg == "busy":
+        return "busy"
+    return "down"
+
+
 def replay(desk: str) -> None:
-    """Send the durable file once, in order. A transport error keeps the rest."""
+    """Send the durable file once over a sitting link. No sit keeps the file."""
     items, dropped = _load_raw(desk)
     if not items:
         return
-    from agent_coord.client.http import mill_http_call
+    try:
+        from agent_coord.client.tw.link import open_session
 
+        session = open_session(desk)
+    except OSError:
+        return
     changed = False
     index = 0
-    while index < len(items):
-        item = items[index]
-        wid = _watch(item)
-        if _kind(item) == "exit" and wid in dropped and not _open_in(items, wid):
-            items.pop(index)
-            changed = True
-            continue
+    try:
+        while index < len(items):
+            item = items[index]
+            wid = _watch(item)
+            if _kind(item) == "exit" and wid in dropped and not _open_in(items, wid):
+                items.pop(index)
+                changed = True
+                continue
+            try:
+                outcome = _session_outcome(session.request(_frame(item)))
+            except OSError:
+                outcome = "down"
+            if outcome == "ok":
+                items.pop(index)
+                changed = True
+                continue
+            if outcome == "cap":
+                items = [row for row in items if _watch(row) != wid]
+                if wid and wid not in dropped:
+                    dropped.append(wid)
+                    print("tw: %s dropped; spool cap" % wid, file=sys.stderr)
+                changed = True
+                index = 0
+                continue
+            if wid and outcome != "busy":
+                print(
+                    "%s spooled; replays on next mill connect" % wid,
+                    file=sys.stderr,
+                )
+            break
+    finally:
+        if changed:
+            _save_raw(desk, items, dropped)
         try:
-            outcome = _outcome(mill_http_call(_wire(item)))
-        except Exception:
-            outcome = "down"
-        if outcome == "ok":
-            items.pop(index)
-            changed = True
-            continue
-        if outcome == "cap":
-            items = [row for row in items if _watch(row) != wid]
-            if wid and wid not in dropped:
-                dropped.append(wid)
-                print("tw: %s dropped; spool cap" % wid, file=sys.stderr)
-            changed = True
-            index = 0
-            continue
-        if wid:
-            print(
-                "%s spooled; replays on next mill connect" % wid,
-                file=sys.stderr,
-            )
-        break
-    if changed:
-        _save_raw(desk, items, dropped)
+            session.close()
+        except OSError:
+            pass
