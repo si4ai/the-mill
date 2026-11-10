@@ -11,7 +11,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
-- card 1113: renaming cards from several sessions at once, or renaming a card while noting it, no longer deadlocks; rename takes the desk's seat lock before the card, as every card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys and fails on a shared-to-exclusive lock upgrade; a no-database test runs it and lists the known lock-order cycles
+- card 1113: card writes by one desk from several sessions no longer deadlock: rename, delete, retire and reclaim take the desk's seat lock, then the card, before any read of the card, as every other card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys (FK checks, INSERT ... SELECT, and routine IF EXISTS / SET subqueries count as shared locks) and fails on a shared-to-exclusive upgrade; a no-database test runs it, lists the known open findings, and fails on new ones
 
 - card 1113: one desk filing cards from several sessions at once no longer deadlocks; the todo insert takes the desk's seat lock before its insert, and the concurrent-insert test no longer retries
 

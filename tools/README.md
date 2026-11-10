@@ -66,7 +66,7 @@ Exit 1 when a pack routine is missing. Extra live routines are listed and do not
 
 ## sql_lock_order.py
 
-List each stored procedure's row locks in order and flag lock-order risks (card 1113). No database: it reads the pack SQL, takes the foreign keys from `tables.sql`, and inlines CALLs. An INSERT or an FK-column UPDATE takes a shared lock on the parent row; FOR UPDATE, UPDATE and DELETE take an exclusive one.
+List each stored procedure's row locks in order and flag lock-order risks (card 1113). No database: it reads the pack SQL, takes the foreign keys and primary keys from `tables.sql`, and inlines CALLs. An INSERT or an FK-column UPDATE takes a shared lock on the parent's referenced index; INSERT ... SELECT, DML subqueries, and a routine's IF EXISTS (SELECT ...) or SET x = (SELECT ...) take shared locks on what they read (a plain SELECT ... INTO does not); FOR UPDATE, UPDATE and DELETE take exclusive ones.
 
 ```bash
 python tools/sql_lock_order.py                     # upgrades only

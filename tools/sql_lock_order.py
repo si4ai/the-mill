@@ -4,18 +4,24 @@ Reads the pack SQL, no database. For every procedure it lists the row locks the
 statements take, in order, with CALLs and MILL_NAME_* functions inlined:
 
 - an INSERT, or an UPDATE that sets a foreign-key column, takes a shared (S)
-  lock on the parent row (InnoDB's FK check). The FKs come from tables.sql.
+  lock on the parent row's referenced index (InnoDB's FK check). The FKs and
+  primary keys come from tables.sql.
+- INSERT ... SELECT, a subquery in UPDATE or DELETE, and a routine's IF/ELSEIF
+  condition or SET x = (SELECT ...) read with S locks (seen in
+  performance_schema.data_locks); a plain SELECT ... INTO is a consistent read.
 - SELECT ... FOR UPDATE, UPDATE and DELETE take an exclusive (X) lock on the
   rows they name.
 
 A row is told apart by the expression that names it (v_desk, p_id, ...), with
 CALL arguments put in for the callee's parameters. Two findings:
 
-- upgrade: one procedure takes S on a parent row and later X on the same row
-  (same table, same key) without holding X first. Two sessions doing that on
-  one row deadlock (1213): each holds S and waits for X.
-- cycle: across procedures, the table order of exclusive-held locks forms a
-  cycle (table A then B in one procedure, B then A in another).
+- upgrade: one procedure takes S on a row and later X on the same row and
+  index record (same table, same key) without holding X first. Two sessions
+  doing that on one row deadlock (1213): each holds S and waits for X. An S
+  read under an X already held on its item (todo, mail, hold, score by id) or
+  its plan (name row of tree.name_id) is covered.
+- cycle: across procedures, table A then B in one and B then A in another,
+  with conflicting modes at both tables (table level, so a hint).
 
 Usage: python tools/sql_lock_order.py [--sql DIR] [--proc NAME] [--cycles]
 Exit 1 when any procedure has an upgrade.
@@ -49,6 +55,7 @@ class Lock:
     mode: str  # "S" or "X"
     table: str
     key: str  # normalized expression naming the row, or UNKNOWN
+    idx: str  # the index record: "PRIMARY" or "u:<cols>" (an FK check locks the referenced index)
     where: str  # proc:line of the statement that takes it
     why: str  # "fk child.col", "for update", "update", "delete"
 
@@ -146,6 +153,17 @@ def load_fks(sql: Path) -> list[Fk]:
     return fks
 
 
+def load_pks(sql: Path) -> dict[str, tuple[str, ...]]:
+    text = strip_comments((sql / "tables.sql").read_text(encoding="utf-8"))
+    pks: dict[str, tuple[str, ...]] = {}
+    for m in re.finditer(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(" + ID + r")`?\s*\(", text, re.I):
+        body = text[m.end() - 1:_paren(text, m.end() - 1)]
+        pm = re.search(r"PRIMARY\s+KEY\s*\(([^)]*)\)", body, re.I)
+        if pm:
+            pks[m.group(1).lower()] = tuple(norm(c) for c in pm.group(1).split(","))
+    return pks
+
+
 def load_procs(sql: Path) -> dict[str, Proc]:
     procs: dict[str, Proc] = {}
     for path in sorted(sql.glob("*.sql")):
@@ -177,7 +195,19 @@ def load_procs(sql: Path) -> dict[str, Proc]:
                 ln = line0 + (proc.body.count("\n", 0, idx) if idx >= 0 else 0)
                 if idx >= 0:
                     pos = idx + len(st)
-                st = _lead(" ".join(st.split()))
+                st = " ".join(st.split())
+                # IF/ELSEIF/WHILE conditions read with shared locks inside a routine (seen in
+                # performance_schema.data_locks); keep them as a READ step before the statement.
+                while True:
+                    cm = re.match(r"(?:IF|ELSEIF|WHILE)\b(.*?)\b(?:THEN|DO)\b\s*", st, re.I)
+                    if cm:
+                        proc.stmts.append((ln, "READ " + cm.group(1)))
+                        st = st[cm.end():]
+                        continue
+                    nxt = _lead(st)
+                    if nxt == st:
+                        break
+                    st = nxt
                 if st:
                     proc.stmts.append((ln, st))
             procs[name.lower()] = proc  # a later file wins, as the apply order loads them
@@ -213,14 +243,22 @@ def _assigned(st: str) -> list[str]:
 
 
 def _where_key(where: str, alias: str | None, col: str) -> str:
+    """The row a WHERE names: the key column's value, else the first `col = value` (as col=value)."""
     pat = r"(?:\b" + re.escape(alias) + r"\.|(?<![.\w]))" if alias else r"(?<![.\w])"
-    m = re.search(pat + re.escape(col) + r"\s*=\s*([^\s=]+(?:\([^)]*\))?)", where, re.I)
-    return norm(m.group(1)) if m else UNKNOWN
+    val = r"\s*=\s*([^\s=()]+(?:\([^)]*\))?)"
+    m = re.search(pat + re.escape(col) + val, where, re.I)
+    if m:
+        return norm(m.group(1))
+    m = re.search(pat + r"(" + ID + r")" + val, where, re.I)
+    if m and not re.fullmatch(r"'.*'|\d+", m.group(2)):
+        return f"{m.group(1).lower()}={norm(m.group(2))}"
+    return UNKNOWN
 
 
 class Analyzer:
     def __init__(self, sql: Path = SQL):
         self.fks = load_fks(sql)
+        self.pks = load_pks(sql)
         self.procs = load_procs(sql)
         self.parents = {f.parent for f in self.fks}
         self.keycol: dict[str, str] = {}
@@ -232,17 +270,31 @@ class Analyzer:
     def key_col(self, table: str) -> str:
         return self.keycol.get(table, "id")
 
+    def idx_of(self, table: str, cols: tuple[str, ...]) -> str:
+        return "PRIMARY" if set(cols) == set(self.pks.get(table, ("id",))) else "u:" + ",".join(sorted(cols))
+
+    def idx_where(self, table: str, wh: str, alias: str | None, key: str = "") -> str:
+        """The index a WHERE finds the row by: the primary key when it names every PK column."""
+        if "=" in key:
+            return self.idx_of(table, (key.split("=", 1)[0],))
+        pre = r"(?:\b" + re.escape(alias) + r"\.|(?<![.\w]))" if alias else r"(?<![.\w])"
+        pk = self.pks.get(table, ("id",))
+        if all(re.search(pre + re.escape(c) + r"\s*=", wh, re.I) for c in pk):
+            return "PRIMARY"
+        return self.idx_of(table, (self.key_col(table),))
+
     def _fk_locks(self, table: str, colvals: dict[str, str], where: str, why: str) -> list[Lock]:
         out = []
         for f in self.fks:
-            if f.child != table or not all(c in colvals for c in f.cols):
+            if f.child != table or not any(c in colvals for c in f.cols):
                 continue
-            # The row key is the value of the FK column that maps to the parent's key column.
+            # The row key is the value of the FK column that maps to the parent's key column
+            # (a column left out, such as a generated kind, still gets checked).
             kc = self.key_col(f.parent)
-            val = colvals[f.cols[f.pcols.index(kc)]] if kc in f.pcols else colvals[f.cols[0]]
+            val = colvals.get(f.cols[f.pcols.index(kc)] if kc in f.pcols else f.cols[0], UNKNOWN)
             if val in ("null",):
                 continue
-            out.append(Lock("S", f.parent, val, where, f"{why} {table}.{','.join(f.cols)}"))
+            out.append(Lock("S", f.parent, val, self.idx_of(f.parent, f.pcols), where, f"{why} {table}.{','.join(f.cols)}"))
         return out
 
     def stmt_locks(self, proc: Proc, ln: int, st: str, depth: int) -> list[Lock]:
@@ -255,6 +307,9 @@ class Analyzer:
             if fn is not None and fn.is_fn and not u.startswith("CREATE"):
                 args = split_top(st[fm.end():_paren(st, fm.end() - 1) - 1])
                 locks += self._inline(fn, args, depth)
+        if re.match(r"(?:READ|SET)\b", st, re.I):
+            # A condition, or SET x = (SELECT ...): its subqueries take shared locks in a routine.
+            return locks + self._sub_locks(st, where)
         m = re.match(r"CALL\s+(" + ID + r")\s*\(", st, re.I)
         if m:
             callee = self.procs.get(m.group(1).lower())
@@ -274,9 +329,13 @@ class Analyzer:
                 colvals = dict(zip(cols, vals))
             else:
                 colvals = {c: UNKNOWN for c in cols}
+                # INSERT ... SELECT reads its source rows with shared locks (REPEATABLE READ).
+                sm = re.search(r"\bFROM\s+(.*?)(?:\bWHERE\b(.*?))?(?:\bORDER\s+BY\b.*|\bLIMIT\b.*)?$", rest, re.I)
+                if sm:
+                    locks += self._from_locks(sm.group(1), sm.group(2) or "", "S", where, "insert-select")
             locks += self._fk_locks(table, colvals, where, "fk")
             if re.search(r"ON\s+DUPLICATE\s+KEY\s+UPDATE", st, re.I):
-                locks.append(Lock("X", table, UNKNOWN, where, "upsert"))
+                locks.append(Lock("X", table, UNKNOWN, "PRIMARY", where, "upsert"))
             return locks
         m = re.match(r"UPDATE\s+`?(" + ID + r")`?(?:\s+(?!SET\b)(" + ID + r"))?\s+(JOIN\b.*?\s)?SET\s+(.*)$", st, re.I)
         if m:
@@ -288,9 +347,10 @@ class Analyzer:
                     k, v = a.split("=", 1)
                     sets[norm(k.split(".")[-1])] = norm(v)
             wh = setw[1] if len(setw) > 1 else ""
-            key = UNKNOWN if m.group(3) else _where_key(wh, alias, self.key_col(table))
+            key = _where_key(wh, alias, self.key_col(table))
+            locks += self._sub_locks(wh, where)
             # Lock the row first (the update reads it), then the FK check on a changed FK column.
-            locks.append(Lock("X", table, key, where, "update"))
+            locks.append(Lock("X", table, key, self.idx_where(table, wh, alias, key), where, "update"))
             changed = {c: v for c, v in sets.items() if v != c}
             for f in self.fks:
                 if f.child != table or not any(c in changed for c in f.cols):
@@ -298,25 +358,45 @@ class Analyzer:
                 kc = self.key_col(f.parent)
                 val = changed.get(f.cols[f.pcols.index(kc)] if kc in f.pcols else f.cols[0], UNKNOWN)
                 if val != "null":
-                    locks.append(Lock("S", f.parent, val, where, f"fk(update) {table}.{','.join(f.cols)}"))
+                    locks.append(Lock("S", f.parent, val, self.idx_of(f.parent, f.pcols), where,
+                                      f"fk(update) {table}.{','.join(f.cols)}"))
             return locks
-        m = re.match(r"DELETE\s+FROM\s+`?(" + ID + r")`?(?:\s+(" + ID + r"))?\s*(?:WHERE\s+(.*))?$", st, re.I)
+        m = re.match(r"DELETE\s+(?:" + ID + r"\s+)?FROM\s+`?(" + ID + r")`?(?:\s+(?!WHERE\b)(" + ID + r"))?.*?(?:\bWHERE\s+(.*))?$", st, re.I)
         if m:
             table = m.group(1).lower()
-            locks.append(Lock("X", table, _where_key(m.group(3) or "", None, self.key_col(table)), where, "delete"))
+            wh = m.group(3) or ""
+            key = _where_key(wh, None, self.key_col(table))
+            locks += self._sub_locks(wh, where)
+            locks.append(Lock("X", table, key, self.idx_where(table, wh, None, key), where, "delete"))
             return locks
         if re.search(r"\bFOR\s+UPDATE\s*$", st, re.I) and re.match(r"SELECT\b", st, re.I):
             fm = re.search(r"\bFROM\s+(.*?)(?:\bWHERE\b(.*?))?(?:\bORDER\s+BY\b.*|\bLIMIT\b.*|\bFOR\s+UPDATE\s*)$", st, re.I)
             if fm:
-                src, wh = fm.group(1), fm.group(2) or ""
-                for tm in re.finditer(r"(?:^|\bJOIN\s+)`?(" + ID + r")`?(?:\s+(?:AS\s+)?(?!JOIN\b|ON\b|LEFT\b|WHERE\b)(" + ID + r"))?", src.strip(), re.I):
-                    table = tm.group(1).lower()
-                    if table.upper() in ("LEFT", "INNER", "RIGHT"):
-                        continue
-                    alias = tm.group(2)
-                    locks.append(Lock("X", table, _where_key(wh, alias, self.key_col(table)), where, "for update"))
+                locks += self._from_locks(fm.group(1), fm.group(2) or "", "X", where, "for update")
             return locks
         return locks
+
+    def _from_locks(self, src: str, wh: str, mode: str, where: str, why: str) -> list[Lock]:
+        """One lock per table in a FROM ... JOIN list (not JSON_TABLE), keyed from the WHERE."""
+        out = []
+        for tm in re.finditer(r"(?:^|\bJOIN\s+)`?(" + ID + r")`?(?:\s+(?:AS\s+)?(?!JOIN\b|ON\b|LEFT\b|WHERE\b)(" + ID + r"))?",
+                              src.strip(), re.I):
+            table = tm.group(1).lower()
+            if table.upper() in ("LEFT", "INNER", "RIGHT", "JSON_TABLE"):
+                continue
+            key = _where_key(wh, tm.group(2), self.key_col(table))
+            out.append(Lock(mode, table, key, self.idx_where(table, wh, tm.group(2), key), where, why))
+        return out
+
+    def _sub_locks(self, wh: str, where: str) -> list[Lock]:
+        """A subquery in a DML WHERE, an IF condition or a SET reads its tables with shared locks."""
+        out = []
+        for sm in re.finditer(r"\(\s*SELECT\b", wh, re.I):
+            sub = wh[sm.start() + 1:_paren(wh, sm.start()) - 1]
+            fm = re.search(r"\bFROM\s+(.*?)(?:\bWHERE\b(.*?))?(?:\bGROUP\s+BY\b.*|\bORDER\s+BY\b.*|\bLIMIT\b.*)?$", sub, re.I)
+            if fm:
+                out += self._from_locks(fm.group(1), fm.group(2) or "", "S", where, "subquery")
+        return out
 
     def _fk_cols(self, child: str, parent: str) -> set[str]:
         return {c for f in self.fks if f.child == child and f.parent == parent for c in f.cols}
@@ -328,7 +408,7 @@ class Analyzer:
         out = []
         for lk in self.locks(callee.name, depth + 1):
             key = sub.get(lk.key, lk.key if lk.key == UNKNOWN or not re.fullmatch(r"[pv]_\w+", lk.key) else f"{callee.name.lower()}.{lk.key}")
-            out.append(Lock(lk.mode, lk.table, key, f"{lk.where} via {callee.name}", lk.why))
+            out.append(Lock(lk.mode, lk.table, key, lk.idx, f"{lk.where} via {callee.name}", lk.why))
         return out
 
     def locks(self, name: str, depth: int = 0) -> list[Lock]:
@@ -345,7 +425,7 @@ class Analyzer:
             for lk in self.stmt_locks(proc, ln, st, depth):
                 key = alias.get(lk.key, lk.key)
                 if not key.startswith(NEW):  # a row this transaction inserted is already its own
-                    out.append(Lock(lk.mode, lk.table, key, lk.where, lk.why))
+                    out.append(Lock(lk.mode, lk.table, key, lk.idx, lk.where, lk.why))
             im = re.match(r"INSERT\s+(?:IGNORE\s+)?INTO\s+`?(" + ID + r")`?", st, re.I)
             if im:
                 last_new = NEW + im.group(1).lower()
@@ -377,44 +457,91 @@ class Analyzer:
         return out
 
     def upgrades(self, name: str) -> list[tuple[Lock, Lock]]:
-        """(S, later X) pairs on the same parent row with no X held before the S."""
+        """(S, later X) pairs on the same index record with no X held on that row before the S.
+
+        X locks the record by the index it searches plus the primary key, so it meets an
+        FK S lock when the S is on the primary key or on the index the X searched by.
+        """
         found = []
         held_x: set[tuple[str, str]] = set()
-        s_held: dict[tuple[str, str], Lock] = {}
+        s_held: dict[tuple[str, str], list[Lock]] = {}
         for lk in self.locks(name):
             rk = (lk.table, lk.key)
             if lk.mode == "X":
-                if lk.key != UNKNOWN and rk in s_held and rk not in held_x:
-                    found.append((s_held[rk], lk))
+                if lk.key != UNKNOWN and rk not in held_x:
+                    hit = [s for s in s_held.get(rk, []) if s.idx in ("PRIMARY", lk.idx)]
+                    if hit:
+                        found.append((hit[0], lk))
                 held_x.add(rk)
-            elif lk.key != UNKNOWN and rk not in held_x:
-                s_held.setdefault(rk, lk)
+            elif lk.key != UNKNOWN and rk not in held_x and not self._covered(lk, held_x):
+                s_held.setdefault(rk, []).append(lk)
         return found
+
+    def _covered(self, lk: Lock, held_x: set[tuple[str, str]]) -> bool:
+        """A shared read taken while this procedure already holds X on the item it belongs to.
+
+        Assumption (the mill's lock order, F183): an item's rows (tree, watcher, activity) are
+        written under the item's own row lock (todo, mail, hold, score by id), and a plan's tree
+        rows under the plan's name row. So an X on todo[k] covers an S on tree[k], and an X on
+        name[v] covers an S on tree[name_id=v] (tree.name_id references name).
+        """
+        val = lk.key.split("=", 1)[1] if "=" in lk.key else lk.key
+        col = lk.key.split("=", 1)[0] if "=" in lk.key else self.key_col(lk.table)
+        for t, k in held_x:
+            if k != val or t == lk.table:
+                continue
+            if "=" not in lk.key and t in ("todo", "mail", "hold", "score"):
+                return True
+            if any(f.child == lk.table and f.parent == t and col in f.cols for f in self.fks):
+                return True
+        return False
 
     def writers(self) -> list[str]:
         return [p.name for p in self.procs.values() if not p.is_fn and self.locks(p.name)]
 
-    def order_edges(self) -> dict[tuple[str, str], list[str]]:
-        """Table A -> B when a procedure holds X on A and then asks for X on B."""
-        edges: dict[tuple[str, str], list[str]] = {}
+    @staticmethod
+    def conflict(a: Lock, b: Lock) -> bool:
+        """Two locks on one row conflict unless both are shared and when their index records meet
+        (an X locks the record by its search index and by the primary key)."""
+        if a.mode == "S" and b.mode == "S":
+            return False
+        if a.mode == "X" and b.mode == "X":
+            return True
+        s, x = (a, b) if a.mode == "S" else (b, a)
+        return s.idx in ("PRIMARY", x.idx)
+
+    def order_edges(self) -> dict[tuple[str, str], list[tuple[str, Lock, Lock]]]:
+        """Table A -> B when a procedure holds a lock on A and then asks for one on B."""
+        edges: dict[tuple[str, str], list[tuple[str, Lock, Lock]]] = {}
         for name in self.writers():
-            seen: list[str] = []
-            held: set[tuple[str, str]] = set()
+            held: dict[str, list[Lock]] = {}
+            have: set[tuple[str, str, str]] = set()
             for lk in self.locks(name):
-                if lk.mode != "X" or lk.key == UNKNOWN or (lk.table, lk.key) in held:
+                if lk.key == UNKNOWN or (lk.table, lk.key, lk.mode) in have or (lk.table, lk.key, "X") in have:
                     continue
-                held.add((lk.table, lk.key))
-                for a in seen:
-                    if a != lk.table:
-                        edges.setdefault((a, lk.table), []).append(name)
-                if lk.table not in seen:
-                    seen.append(lk.table)
+                have.add((lk.table, lk.key, lk.mode))
+                for t, hs in held.items():
+                    if t != lk.table:
+                        edges.setdefault((t, lk.table), []).append((name, hs[0], lk))
+                held.setdefault(lk.table, []).append(lk)
         return edges
 
     def cycles(self) -> list[tuple[str, str, list[str], list[str]]]:
+        """Two-table cycles where, at each table, the asked-for lock conflicts with the held one."""
         e = self.order_edges()
-        return sorted((a, b, sorted(set(e[(a, b)])), sorted(set(e[(b, a)])))
-                      for (a, b) in e if a < b and (b, a) in e)
+        out = []
+        for (a, b), fwd in e.items():
+            if a >= b or (b, a) not in e:
+                continue
+            p, q = set(), set()
+            for n1, h1, r1 in fwd:  # n1 holds a (h1), asks b (r1)
+                for n2, h2, r2 in e[(b, a)]:  # n2 holds b (h2), asks a (r2)
+                    if self.conflict(r1, h2) and self.conflict(r2, h1):
+                        p.add(n1)
+                        q.add(n2)
+            if p:
+                out.append((a, b, sorted(p), sorted(q)))
+        return sorted(out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -429,10 +556,10 @@ def main(argv: list[str] | None = None) -> int:
     for n in names:
         if a.proc:
             for lk in an.locks(n):
-                print(f"  {lk.mode} {lk.table}[{lk.key}] {lk.why} @ {lk.where}")
+                print(f"  {lk.mode} {lk.table}[{lk.key}] {lk.idx} {lk.why} @ {lk.where}")
         for s, x in an.upgrades(n):
             bad += 1
-            print(f"UPGRADE {n}: S {s.table}[{s.key}] ({s.why} @ {s.where}) then X ({x.why} @ {x.where})")
+            print(f"UPGRADE {n}: S {s.table}[{s.key}] {s.idx} ({s.why} @ {s.where}) then X {x.idx} ({x.why} @ {x.where})")
     if a.cycles:
         for t1, t2, p, q in an.cycles():
             print(f"CYCLE {t1} -> {t2}: {', '.join(p)}; {t2} -> {t1}: {', '.join(q)}")

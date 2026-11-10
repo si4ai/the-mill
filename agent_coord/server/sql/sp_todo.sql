@@ -325,6 +325,7 @@ BEGIN
   DECLARE v_created DATETIME(6);
   DECLARE v_bytes INT UNSIGNED;
   DECLARE v_has INT;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -332,6 +333,14 @@ BEGIN
   END;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
+  -- Lock order (card 1113): the stamped desk's seat, then the card, before any read of the card
+  -- (IF EXISTS in a routine takes a shared lock). The tombstone insert's FK check takes a shared
+  -- lock on that seat; a note holds the seat and waits for the card. SELECT ... INTO is a plain read.
+  SET v_seat = NULL;
+  SELECT desk_id INTO v_seat FROM activity WHERE type = 'todo' AND id = p_id;
+  SET v_seat = IFNULL(v_seat, MILL_NAME_GET('desk', p_desk));
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_seat FOR UPDATE;
+  SELECT id INTO v_seat FROM todo WHERE id = p_id FOR UPDATE;
   IF EXISTS (SELECT 1 FROM todo WHERE id = p_id) THEN
     SET v_desk = NULL;
     SET v_has = 0;
@@ -379,6 +388,7 @@ CREATE PROCEDURE mill_todo_retire(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -389,6 +399,9 @@ BEGIN
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_proj = NULL;
+  -- Lock order (card 1113): the desk's seat before the card; the activity and updated_id FK checks
+  -- below take a shared lock on that seat, and a note holds the seat while it waits for the card.
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
   IF v_proj IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'retire todo: no such card';
@@ -414,6 +427,7 @@ CREATE PROCEDURE mill_todo_reclaim(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -425,6 +439,10 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'reclaim todo: no such desk';
   END IF;
+  -- Lock order (card 1113): the desk's seat before the card; the activity and updated_id FK checks
+  -- below take a shared lock on that seat, and a note holds the seat while it waits for the card.
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SELECT id INTO v_seat FROM todo WHERE id = p_id FOR UPDATE;
   IF NOT EXISTS (SELECT 1 FROM todo t
                    JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NOT NULL
                   WHERE t.id = p_id) THEN

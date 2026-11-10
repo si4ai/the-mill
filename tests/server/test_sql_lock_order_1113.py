@@ -4,27 +4,52 @@ No database. The FK parents come from tables.sql. A procedure that takes a share
 lock on a parent row (an INSERT, or an UPDATE of an FK column) and later locks that
 row FOR UPDATE (or updates it) is an S-to-X upgrade: two sessions on one row deadlock.
 Lock-order cycles between procedures are listed; only the known ones below may stay.
+A routine's IF EXISTS (SELECT ...), SET x = (SELECT ...), INSERT ... SELECT and DML subqueries
+read with shared locks (performance_schema.data_locks); a plain SELECT ... INTO does not.
 """
 from __future__ import annotations
 
 import re
 import shutil
+import warnings
 from pathlib import Path
+
+import pytest
 
 from tools.sql_lock_order import SQL, Analyzer, load_fks
 
-# Table-order cycles the check reports today; each is on different rows or a follow-up.
-# A new cycle fails this test: lock seat (or the row both sides share) first instead.
-KNOWN_CYCLES = {
-    # Attach a card under a parent (activity row, then the plan's name row) vs delete or
-    # retire of a mail or score (plan name row, then the item's activity row). Same rows
-    # only when the parent is deleted while a card is filed under it. Card 1113 follow-up.
-    ("activity", "name"),
-    ("activity", "tree"),
-    # join_upsert locks the desk's name, then the seat, then roster and role names (other
-    # name rows); insert_attached and retire lock seat, then a plan or the same desk's name.
-    ("name", "seat"),
+# Open upgrades outside the card procedures (card 1113, second PR: wake, mail, join, tree,
+# score). Listed so they stay visible as warnings; a new one still fails. Empty when fixed.
+_WAKE = "card 1113 PR B: wake transition copy (shared) then update"
+_SEAT = "card 1113 PR B: IF EXISTS on the seat (shared in a routine) then update the seat"
+_TREE = "card 1113 PR B: IF EXISTS on the item's tree rows, then the plan lock and tree FOR UPDATE"
+KNOWN_OPEN_UPGRADES = {
+    "cmd_push_mark": _WAKE, "cmd_push_put_back": _WAKE, "cmd_push_sent": _WAKE, "mill_push_take": _WAKE,
+    "mill_join_connect": _SEAT, "mill_join_delete": _SEAT, "mill_join_touch": _SEAT,
+    "mill_join_wake_arm": _SEAT, "mill_join_wake_off": _SEAT,
+    "mill_mail_update": "card 1113 PR B: IF EXISTS on the letter then update it",
+    "mill_mail_delete": "card 1113 PR B: letter and tree reads then delete",
+    "mill_score_delete": _TREE, "mill_score_retire": _TREE, "mill_tree_detach": _TREE, "mill_tree_remove": _TREE,
 }
+
+# Two-table cycles at table level (most are on different rows); card 1113 PR B reviews each.
+# A new cycle fails this test.
+KNOWN_CYCLES = {
+    ("activity", "name"), ("activity", "score"), ("activity", "seat"), ("activity", "tree"),
+    ("activity", "watcher"), ("hold", "seat"), ("mail", "name"), ("mail", "tree"),
+    ("member", "name"), ("name", "seat"), ("name", "tree"), ("name", "watcher"),
+    ("score", "seat"), ("seat", "tree"), ("seat", "watcher"),
+    # Card writes take the acting desk's seat first (checked below); this cycle is another
+    # desk's seat (volunteer or asker FK) asked for after the card.
+    ("seat", "todo"),
+}
+
+# Card procedures: the acting desk's seat must come before the card row (F183).
+CARD_PROCS = (
+    "mill_todo_insert", "mill_todo_insert_attached", "mill_todo_write", "mill_todo_update",
+    "mill_todo_rename", "mill_todo_delete", "mill_todo_retire", "mill_todo_reclaim",
+    "cmd_claim", "cmd_unclaim", "cmd_pass",
+)
 
 
 def test_fk_parents_come_from_the_schema() -> None:
@@ -36,17 +61,41 @@ def test_fk_parents_come_from_the_schema() -> None:
     assert {f.parent for f in fks} >= {"seat", "name", "activity", "mail", "doing", "score"}
 
 
-def test_no_procedure_upgrades_a_shared_fk_lock() -> None:
+def test_no_procedure_upgrades_a_shared_lock() -> None:
     an = Analyzer()
     found = {n: an.upgrades(n) for n in an.writers()}
     bad = {n: [(s.table, s.key, s.where, x.where) for s, x in u] for n, u in found.items() if u}
-    assert not bad, bad
+    for n in sorted(set(bad) & set(KNOWN_OPEN_UPGRADES)):
+        warnings.warn(f"known open lock upgrade: {n} ({KNOWN_OPEN_UPGRADES[n]})", stacklevel=1)
+    new = {n: v for n, v in bad.items() if n not in KNOWN_OPEN_UPGRADES}
+    assert not new, new
+    assert not any(n.startswith(("mill_todo_", "cmd_claim", "cmd_unclaim", "cmd_pass")) for n in bad), bad
+
+
+def test_insert_select_and_subquery_reads_are_shared_locks() -> None:
+    an = Analyzer()
+    take = [(lk.mode, lk.table, lk.why) for lk in an.locks("mill_push_take")]
+    assert ("S", "wake", "insert-select") in take
+    node = [(lk.mode, lk.table, lk.why) for lk in an.locks("mill_mail_to_node_delete")]
+    assert ("S", "tree", "subquery") in node
 
 
 def test_lock_order_cycles_are_only_the_known_ones() -> None:
     got = {(a, b) for a, b, _p, _q in Analyzer().cycles()}
     assert got <= KNOWN_CYCLES, got - KNOWN_CYCLES
-    assert ("seat", "todo") not in got  # every card write: seat, then card
+
+
+def _seat_before_card(an: Analyzer, name: str) -> bool:
+    locks = an.locks(name)
+    seat = next((i for i, lk in enumerate(locks) if lk.table == "seat" and lk.mode == "X"), None)
+    card = next((i for i, lk in enumerate(locks) if lk.table == "todo"), None)
+    return card is None or (seat is not None and seat < card)
+
+
+def test_card_procedures_lock_the_desk_seat_before_the_card() -> None:
+    an = Analyzer()
+    late = [n for n in CARD_PROCS if not _seat_before_card(an, n)]
+    assert not late, late
 
 
 def _planted(tmp_path: Path, file: str, old: str, new: str) -> Analyzer:
@@ -80,4 +129,15 @@ def test_check_flags_rename_without_its_seat_lock(tmp_path: Path) -> None:
     an = _planted(tmp_path, "sp_todo.sql", SEAT_LOCK + card, card)
     ups = an.upgrades("mill_todo_rename")
     assert ups and ups[0][0].table == "seat" and "todo.updated_id" in ups[0][0].why, ups
-    assert ("seat", "todo") in {(a, b) for a, b, _p, _q in an.cycles()}
+    assert not _seat_before_card(an, "mill_todo_rename")
+
+
+@pytest.mark.parametrize("proc,old", [
+    ("mill_todo_delete", "  SELECT id INTO v_seat FROM seat WHERE desk_id = v_seat FOR UPDATE;\n"
+                         "  SELECT id INTO v_seat FROM todo WHERE id = p_id FOR UPDATE;\n  IF EXISTS (SELECT 1 FROM todo"),
+    ("mill_todo_retire", "  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk FOR UPDATE;\n  SELECT roster_id INTO v_proj"),
+])
+def test_check_flags_a_card_write_without_its_seat_lock(tmp_path: Path, proc: str, old: str) -> None:
+    # The planted error is the procedure as it was before card 1113: the card, then the seat FK.
+    an = _planted(tmp_path, "sp_todo.sql", old, old.rsplit("\n", 1)[1])
+    assert not _seat_before_card(an, proc)

@@ -54,7 +54,11 @@ def _proc(c, name: str, args: list) -> None:
         cur.close()
 
 
-def _race(work) -> list[BaseException]:
+def _lock_error(e: BaseException) -> bool:
+    return getattr(e, "errno", None) in (1213, 1205)
+
+
+def _race(work, *, keep=lambda e: True) -> list[BaseException]:
     errs: list[BaseException] = []
 
     def run(i: int) -> None:
@@ -66,7 +70,8 @@ def _race(work) -> list[BaseException]:
             cur.close()
             work(c, i)
         except BaseException as e:  # noqa: BLE001
-            errs.append(e)
+            if keep(e):
+                errs.append(e)
         finally:
             if c is not None:
                 c.close()
@@ -120,4 +125,54 @@ def test_rename_and_note_on_one_card_by_one_desk_without_deadlock(cn) -> None:
                 _proc(c, "mill_todo_update", [cid, "a", "", "", json.dumps({"need_id": f"mx-{cid}", "note": f"{i}.{j}"})])
 
     errs = _race(work)
+    assert not errs, errs
+
+
+def test_delete_and_note_on_one_card_by_one_desk_without_deadlock(cn) -> None:
+    # Delete dropped the card's watchers, then the card, with no seat lock; a note locks seat,
+    # then the card, then writes watchers. A note on a card already deleted is refused (fine);
+    # only a deadlock or lock wait fails the race.
+    ids = [int(rec_todo.insert(cn, "unit", "a", "open", json.dumps({"need_id": f"dl-{k}"}))[0]["id"])
+           for k in range(PER * 2)]
+    cn.commit()
+
+    def work(c, i: int) -> None:
+        for j, cid in enumerate(ids):
+            try:
+                if i < 2:
+                    if j % 2 == i:
+                        _proc(c, "mill_todo_delete", [cid, "a"])
+                else:
+                    _proc(c, "mill_todo_update", [cid, "a", "", "", json.dumps({"need_id": f"dl-{j}", "n": i})])
+            except Exception as e:  # noqa: BLE001
+                if _lock_error(e):
+                    raise
+                c.rollback()
+
+    errs = _race(work, keep=_lock_error)
+    assert not errs, errs
+
+
+def test_retire_reclaim_and_note_on_one_card_by_one_desk_without_deadlock(cn) -> None:
+    # Retire and reclaim locked the card, then their FK checks took a shared lock on the seat;
+    # a note holds the seat and waits for the card.
+    ids = [int(rec_todo.insert(cn, "unit", "a", "open", json.dumps({"need_id": f"rr-{k}"}))[0]["id"])
+           for k in range(PER * 2)]
+    cn.commit()
+
+    def work(c, i: int) -> None:
+        for j, cid in enumerate(ids):
+            try:
+                if i < 2:
+                    if j % 2 == i:
+                        _proc(c, "mill_todo_retire", [cid, "a"])
+                        _proc(c, "mill_todo_reclaim", [cid, "a"])
+                else:
+                    _proc(c, "mill_todo_update", [cid, "a", "", "", json.dumps({"need_id": f"rr-{j}", "n": i})])
+            except Exception as e:  # noqa: BLE001
+                if _lock_error(e):
+                    raise
+                c.rollback()
+
+    errs = _race(work, keep=_lock_error)
     assert not errs, errs
