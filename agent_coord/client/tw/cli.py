@@ -59,19 +59,22 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            print(
-                "%s %s %s %s"
-                % (
-                    row.get("watch_id") or "",
-                    row.get("pid") or 0,
-                    row.get("stdout_bytes") or 0,
-                    row.get("stderr_bytes") or 0,
-                )
+            line = "%s %s %s %s" % (
+                row.get("watch_id") or "",
+                row.get("pid") or 0,
+                row.get("stdout_bytes") or 0,
+                row.get("stderr_bytes") or 0,
             )
+            if row.get("exit_code") is not None:
+                line = "%s %s" % (line, row.get("exit_code"))
+            print(line)
         return 0
     if args.cmd == "list":
         for row in list_runs(args.desk):
-            print("%s %s" % (row["watch_id"], row["pid"]))
+            if row.get("exit_code") is not None:
+                print("%s %s %s" % (row["watch_id"], row["pid"], row["exit_code"]))
+            else:
+                print("%s %s" % (row["watch_id"], row["pid"]))
         return 0
     if args.cmd == "stop":
         return stop_run(args.desk, args.watch_id)

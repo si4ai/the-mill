@@ -110,6 +110,9 @@ def _reclaim_lost(desk: str) -> None:
         if not isinstance(row, dict):
             changed = True
             continue
+        if row.get("state") == "finished":
+            kept[watch_id] = row
+            continue
         tw_pid = int(row.get("tw_pid") or 0)
         if tw_pid and not _alive(tw_pid):
             ok = _http_event(
@@ -130,24 +133,26 @@ def _reclaim_lost(desk: str) -> None:
 def list_runs(desk: str) -> list[dict[str, Any]]:
     _reclaim_lost(desk)
     runs = _load(desk)
-    live: dict[str, dict[str, Any]] = {}
+    kept: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     for watch_id, row in runs.items():
         if not isinstance(row, dict):
             continue
         pid = int(row.get("pid") or 0)
-        if not _alive(pid):
+        finished = row.get("state") == "finished"
+        if not finished and not _alive(pid):
             continue
-        live[watch_id] = row
-        rows.append(
-            {
-                "watch_id": watch_id,
-                "pid": pid,
-                "argv": list(row.get("argv") or []),
-            }
-        )
-    if live != runs:
-        _save(desk, live)
+        kept[watch_id] = row
+        item: dict[str, Any] = {
+            "watch_id": watch_id,
+            "pid": pid,
+            "argv": list(row.get("argv") or []),
+        }
+        if finished:
+            item["exit_code"] = row.get("exit_code")
+        rows.append(item)
+    if kept != runs:
+        _save(desk, kept)
     return rows
 
 
@@ -157,6 +162,8 @@ def stop_run(desk: str, watch_id: str) -> int:
     row = runs.get(wid)
     if not isinstance(row, dict):
         return 1
+    if row.get("state") == "finished":
+        return 0
     row["stop"] = True
     runs[wid] = row
     _save(desk, runs)
@@ -205,6 +212,21 @@ def _drop(desk: str, watch_id: str) -> None:
         _save(desk, runs)
 
 
+def _store_finished(desk: str, watch_id: str, row: dict[str, Any]) -> None:
+    """Keep a finished run so list and status can show its exit."""
+    runs = _load(desk)
+    runs.pop(watch_id, None)
+    runs[watch_id] = row
+    finished = [
+        key
+        for key, item in runs.items()
+        if isinstance(item, dict) and item.get("state") == "finished"
+    ]
+    for key in finished[:-20]:
+        runs.pop(key, None)
+    _save(desk, runs)
+
+
 def _live_snapshot(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "watch_id": row["watch_id"],
@@ -223,6 +245,20 @@ def _local_status(desk: str, watch_id: str | None) -> dict[str, Any] | None:
     rows: list[dict[str, Any]] = []
     for row in list_runs(desk):
         if watch_id and row["watch_id"] != watch_id:
+            continue
+        if row.get("exit_code") is not None:
+            rows.append(
+                {
+                    "watch_id": row["watch_id"],
+                    "pid": int(row["pid"]),
+                    "kind": "exit",
+                    "exit_code": row["exit_code"],
+                    "stdout_bytes": 0,
+                    "stderr_bytes": 0,
+                    "log": False,
+                    "sample": {},
+                }
+            )
             continue
         rows.append(_live_snapshot(row))
     if watch_id:
@@ -428,6 +464,7 @@ def run_argv(
     ):
         return 2
     watch_id = "tw-" + uuid.uuid4().hex[:16]
+    finished: dict[str, Any] | None = None
     session: Any = None
     attempt = 0
     next_try = 0.0
@@ -471,7 +508,7 @@ def run_argv(
             pumps.append(
                 threading.Thread(
                     target=_pump,
-                    args=(proc.stderr, None, "stderr", lock, counters),
+                    args=(proc.stderr, sink, "stderr", lock, counters),
                     daemon=True,
                 )
             )
@@ -661,6 +698,14 @@ def run_argv(
         _hop(exit_body)
         if session is not None and spool.items and time.monotonic() >= next_try:
             _flush()
+        finished = {
+            "pid": procs[0].pid,
+            "argv": steps[0],
+            "stop": False,
+            "tw_pid": 0,
+            "state": "finished",
+            "exit_code": code,
+        }
         # Durable fallback when the link was down at exit (card 1098).
         if any(
             str(item.get("kind") or "") == "exit"
@@ -688,7 +733,10 @@ def run_argv(
             pump.join(1)
         if sink is not None:
             sink.close()
-        _drop(who, watch_id)
+        if finished is not None:
+            _store_finished(who, watch_id, finished)
+        else:
+            _drop(who, watch_id)
         if session is not None:
             try:
                 session.close()
