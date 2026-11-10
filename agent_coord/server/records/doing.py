@@ -99,22 +99,40 @@ def live_tasks(cn, desk_id: int) -> int:
         cur.close()
 
 
-# Card 1090 step 4: a live task row whose latest hop is older than this is
-# stale. Swept only when a start would hit TASK_CAP (one tw_stale edge each).
+# Card 1090 step 4: a live task row is stale once its desk has been offline
+# (no connected seat) this long. A connected desk's rows are never stale, at
+# any age. Swept only when a start would hit TASK_CAP (one tw_stale edge each).
 STALE_AFTER_S = 24 * 3600
 CAP_HINT_N = 3
+
+# Offline since: seat.time_disconnect (mill_join_socket p_up=0, or a reset);
+# a never-connected seat counts from seat.created. NULL while the seat is
+# alive (the sp_floor_scope / seat_connected rule). Seat stamps use MILL_NOW().
+_SEAT_OFFLINE_S = (
+    "IF(j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
+    " OR j.time_connect >= j.time_disconnect), NULL,"
+    " TIMESTAMPDIFF(SECOND, COALESCE(j.time_disconnect, j.created), MILL_NOW()))"
+)
+_TASK_LIVE = (
+    "g.act='task' AND NOT EXISTS ("
+    "SELECT 1 FROM transition e WHERE e.activity_type='doing' AND e.activity_id=g.id"
+    " AND e.to_state IN (" + ", ".join(f"'{x}'" for x in _TASK_TERMINAL) + "))"
+)
 
 
 def _live_task_ages(cn, desk_id: int) -> list[dict[str, Any]]:
     """The desk's live act=task rows, oldest latest hop first, with that hop's
-    effective state (card 1098 compress: even n means back at from_state)."""
+    effective state (card 1098 compress: even n means back at from_state) and
+    offline_s: seconds the desk has been offline, None while it is connected."""
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
             "SELECT g.id, t.join_key,"
             " IF(MOD(t.n, 2) = 1, t.to_state, t.from_state) AS state,"
-            " TIMESTAMPDIFF(SECOND, t.at, UTC_TIMESTAMP(6)) AS age_s"
-            " FROM doing g JOIN transition t ON t.id = ("
+            " TIMESTAMPDIFF(SECOND, t.at, UTC_TIMESTAMP(6)) AS age_s,"
+            f" {_SEAT_OFFLINE_S} AS offline_s"
+            " FROM doing g LEFT JOIN seat j ON j.desk_id = g.desk_id"
+            " JOIN transition t ON t.id = ("
             "  SELECT MAX(l.id) FROM transition l"
             "   WHERE l.activity_type='doing' AND l.activity_id=g.id)"
             " WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
@@ -129,24 +147,26 @@ def _live_task_ages(cn, desk_id: int) -> list[dict[str, Any]]:
 
 
 def sweep_stale_tasks(cn, desk_id: int) -> int:
-    """Close the desk's live task rows idle longer than STALE_AFTER_S.
+    """Close the desk's live task rows once the desk is offline STALE_AFTER_S.
 
     Runs inside the caller's request tx, under the seat lock mill_doing_task
-    took. Each swept row gets one tw_stale edge (meta cause=sweep, age_s).
+    took. Each swept row gets one tw_stale edge (meta cause=sweep, age_s,
+    offline_s). A connected desk sweeps nothing.
     Returns how many rows it closed.
     """
     from agent_coord.server import transition as tr
 
     n = 0
     for r in _live_task_ages(cn, desk_id):
-        if int(r["age_s"]) < STALE_AFTER_S or r["state"] not in ("active", "waiting"):
+        off = r["offline_s"]
+        if off is None or int(off) < STALE_AFTER_S or r["state"] not in ("active", "waiting"):
             continue
         key = str(r["join_key"])
         tr.put(cn, activity_type=tr.ActivityType.doing, activity_id=int(r["id"]),
                from_state=tr.State(r["state"]), to_state=tr.State.stale,
                reason=tr.Reason.tw_stale, desk_id=desk_id, join_key=key,
                meta={"watch_id": key.split(":", 2)[-1], "cause": "sweep",
-                     "age_s": int(r["age_s"])})
+                     "age_s": int(r["age_s"]), "offline_s": int(off)})
         n += 1
     return n
 
@@ -169,7 +189,7 @@ def cap_msg(oldest: list[tuple[str, int]]) -> str:
         return msg
     named = ", ".join(f"{w} ({_age(a)})" for w, a in oldest[:CAP_HINT_N])
     return (f"{msg}; oldest: {named}; end one with tw stop, or it is swept"
-            f" after {_age(STALE_AFTER_S)} idle")
+            f" after the desk is offline {_age(STALE_AFTER_S)}")
 
 
 def cap_hint(cn, desk: str) -> str:
@@ -188,6 +208,32 @@ def cap_hint(cn, desk: str) -> str:
     oldest = [(str(r["join_key"]).split(":", 2)[-1], int(r["age_s"]))
               for r in _live_task_ages(cn, int(got[0]))]
     return cap_msg(oldest)
+
+
+# Card 1090 step 4 health fact: offline desks still holding live tw rows.
+# Read-only, no params; glance runs it through its own _q.
+OFFLINE_TASKS_SQL = (
+    f"SELECT n.name, {_SEAT_OFFLINE_S} AS offline_s, COUNT(*) AS live_n"
+    " FROM doing g JOIN seat j ON j.desk_id = g.desk_id"
+    " JOIN name n ON n.id = g.desk_id AND n.type = 'desk'"
+    f" WHERE {_TASK_LIVE}"
+    " GROUP BY n.name, j.time_connect, j.time_disconnect, j.created"
+    f" HAVING offline_s IS NOT NULL ORDER BY offline_s DESC, n.name"
+    " /* glance:tw-offline */"
+)
+
+
+def offline_tasks(rows) -> list[dict[str, Any]]:
+    """Shape OFFLINE_TASKS_SQL rows: a fact per desk, never a gate."""
+    out = []
+    for name, off, live in rows or []:
+        try:
+            off_s, live_n = max(0, int(off)), int(live)
+        except (TypeError, ValueError):
+            continue
+        out.append({"desk": str(name or ""), "offline_s": off_s, "offline": _age(off_s),
+                    "live_n": live_n, "sweepable": off_s >= STALE_AFTER_S})
+    return out
 
 
 def task_rows(cn, desks: list[str]) -> list[dict[str, Any]]:
@@ -282,16 +328,24 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
             cur.close()
         measures: dict[str, Any] = {}
         waits: dict[str, int] = {}
-        previous = row["created"]
+        previous, prev_ts = row["created"], None
         for event in events:
+            emeta = json.loads(event["meta"]) if event["meta"] else {}
+            ts = emeta.get("ts_ms") if isinstance(emeta, dict) else None
+            ts = ts if isinstance(ts, int) and not isinstance(ts, bool) else None
             state_name = event["from_state"]
             if state_name in ("idle", "active", "waiting"):
                 name = f"dwell_{state_name}_ms"
-                elapsed = max(0, (event["at"] - previous).total_seconds() * 1000)
+                # Card 1090: tw's own stamps when both hops carry one (a spool
+                # replay arrives late); host receive time otherwise.
+                if ts is not None and prev_ts is not None:
+                    elapsed = max(0, ts - prev_ts)
+                else:
+                    elapsed = max(0, (event["at"] - previous).total_seconds() * 1000)
                 measures[name] = measures.get(name, 0) + elapsed
-            previous = event["at"]
+            previous, prev_ts = event["at"], ts
             if event["reason"] == "tw_wait":
-                cause = json.loads(event["meta"]).get("cause")
+                cause = emeta.get("cause")
                 if cause:
                     waits[cause] = waits.get(cause, 0) + 1
         if waits:

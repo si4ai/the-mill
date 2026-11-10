@@ -4346,6 +4346,12 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
         if not isinstance(code, int) or isinstance(code, bool):
             raise CoordError("tw.event: exit_code must be an integer")
         meta["exit_code"] = code
+    ts_ms = clean.get("ts_ms")
+    if ts_ms is not None:
+        # Card 1090: tw's own clock (epoch ms) at the event; dwell uses it, not host receive time.
+        if not isinstance(ts_ms, int) or isinstance(ts_ms, bool) or ts_ms < 0:
+            raise CoordError("tw.event: ts_ms must be a non-negative integer")
+        meta["ts_ms"] = ts_ms
     counts = clean.get("counts")
     if counts is not None:
         if not isinstance(counts, dict) or any(
