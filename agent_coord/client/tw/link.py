@@ -191,6 +191,7 @@ class Link:
         self._sender: threading.Thread | None = None
         self._kick = threading.Event()
         self._down_marked = False
+        self._reconcile_body: dict[str, Any] | None = None
 
     def start(self) -> None:
         from agent_coord.client.tw.outbox import Outbox, outbox_path
@@ -234,10 +235,34 @@ class Link:
         return reconcile_ghosts(self.desk, self._outbox)
 
     def _post_reconcile(self, live: list[str]) -> None:
-        """One session hop. An over-long list is not sent, so none of the ids are dropped."""
+        """one session hop once this process can see a sitting bridge.
+
+        An over-long list is not sent, so none of the ids are dropped.
+        A second socket before the sit exists consumes connect-wait's
+        only frame, and that wait never returns.
+        """
         if len(live) > 256:
             return
-        body = {"verb": "tw.reconcile", "live": [str(item) for item in live]}
+        self._reconcile_body = {
+            "verb": "tw.reconcile",
+            "live": [str(item) for item in live],
+        }
+        self._flush_reconcile()
+
+    def _hop_can_send(self) -> bool:
+        from agent_coord.client.seat.status import look
+
+        try:
+            return look().kind == "sitting"
+        except Exception:
+            return False
+
+    def _flush_reconcile(self) -> None:
+        with self._send_lock:
+            body = self._reconcile_body
+            if body is None or not self._hop_can_send():
+                return
+            self._reconcile_body = None
         try:
             got = self._call(body)
         except Exception:
@@ -436,6 +461,7 @@ class Link:
 
     def _sender_loop(self) -> None:
         while not self._stop.is_set():
+            self._flush_reconcile()
             try:
                 result = self._post_once()
             except Exception:

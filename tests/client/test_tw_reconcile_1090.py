@@ -14,6 +14,13 @@ def _home(monkeypatch, tmp_path):
     monkeypatch.setattr("agent_coord.client.offices.desk_local_file", lambda *a, **k: None)
 
 
+def _sitting(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
+    )
+
+
 def _row(**extra):
     row = {
         "pid": 2147483646,
@@ -42,6 +49,7 @@ def test_list_keeps_a_started_ghost(tmp_path, monkeypatch) -> None:
 
 def test_dead_wrapper_is_a_lost_crash_after_drain(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    _sitting(monkeypatch)
     hops: list[dict] = []
 
     def ok(body):
@@ -84,6 +92,7 @@ def test_dead_wrapper_is_a_lost_crash_after_drain(tmp_path, monkeypatch) -> None
 
 def test_reused_pid_is_not_the_wrapper(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    _sitting(monkeypatch)
     hops: list[dict] = []
     monkeypatch.setattr(
         "agent_coord.client.http.mill_http_call",
@@ -106,6 +115,7 @@ def test_reused_pid_is_not_the_wrapper(tmp_path, monkeypatch) -> None:
 
 def test_a_row_without_start_is_not_reconciled(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    _sitting(monkeypatch)
     hops: list[dict] = []
     monkeypatch.setattr(
         "agent_coord.client.http.mill_http_call",
@@ -135,6 +145,7 @@ def test_a_row_without_start_is_not_reconciled(tmp_path, monkeypatch) -> None:
 
 def test_too_many_live_ids_are_not_sent(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    _sitting(monkeypatch)
     hops: list[dict] = []
     monkeypatch.setattr(
         "agent_coord.client.http.mill_http_call",

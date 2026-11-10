@@ -174,6 +174,10 @@ def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
         return {"ok": True, "result": {"ok": True}}
 
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", fake_http)
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
+    )
     link = serve("tw-hop")
     session = Session(link)
     try:
@@ -243,6 +247,10 @@ def test_bad_line_and_unknown_type_do_not_hop(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         "agent_coord.client.http.mill_http_call",
         lambda body: hops.append(body) or {"ok": True, "result": {"ok": True}},
+    )
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
     )
     link = serve("tw-nohop")
     session = Session(link)

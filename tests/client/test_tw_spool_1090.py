@@ -62,6 +62,10 @@ def test_no_sit_does_not_post(tmp_path, monkeypatch) -> None:
 
 def test_connect_drains_leftovers_in_order(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
+    )
     hops: list[dict] = []
 
     def ok(body):
