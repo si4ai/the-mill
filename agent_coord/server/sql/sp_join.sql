@@ -47,7 +47,7 @@ BEGIN
     SELECT created INTO v_prev_at FROM doing WHERE id = v_prev;
   END IF;
   INSERT INTO doing (created, desk_id, roster_id, text, act)
-  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), LEFT(IFNULL(p_text, ''), 512), IF(IFNULL(p_text, '') = '', 'clear', 'focus'));
+  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), IFNULL(p_text, ''), IF(IFNULL(p_text, '') = '', 'clear', 'focus'));
   SET p_id = LAST_INSERT_ID();
   IF v_prev IS NULL OR p_ts > v_prev_at OR (p_ts = v_prev_at AND p_id > v_prev) THEN
     UPDATE seat SET doing_id = p_id, updated = updated WHERE desk_id = p_desk;

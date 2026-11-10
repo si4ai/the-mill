@@ -160,6 +160,9 @@ BEGIN
     BEGIN
       SET @mill_req_tx = v_saved;
     END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     SELECT roster_id INTO v_rid FROM todo WHERE id = p_card;
     CALL mill_card_score_event(v_rid, 'claimed', NULL, NULL, NULL, NULL, NULL);
@@ -319,6 +322,9 @@ BEGIN
           @mill_card_score_actual = NULL, @mill_card_score_doing = NULL,
           @mill_card_score_now = NULL;
     END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     IF @mill_card_score_kind IS NOT NULL THEN
       CALL mill_card_score_event(

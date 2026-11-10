@@ -182,6 +182,9 @@ BEGIN
     DECLARE v_mins INT DEFAULT NULL;
     DECLARE v_saved INT DEFAULT @mill_req_tx;
     DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     SELECT g.id, g.on_type, g.on_id, g.created, g.text, g.act
       INTO v_prev, v_pon, v_pid, v_pct, v_ptxt, v_pact
