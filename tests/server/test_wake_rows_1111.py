@@ -215,3 +215,47 @@ def test_post_desk_retryable_fail_writes_retry_armed(cn, monkeypatch) -> None:
     assert retries[0]["to_state"] == "retry_armed"
     assert int(retries[0]["desk_id"]) == did
     assert _wake_row(cn, wid)["state"] == "retry_armed"
+
+def test_retry_armed_row_is_visible_to_waiting(cn, monkeypatch) -> None:
+    """#832 ring_waiting still sees a hint whose POST failed and armed retry."""
+    _seed(cn)
+    wid = rec_push.row_id(
+        rec_push.put(cn, DESK, "hint", {"kind": "hint", "type": "todo", "id": 991}, "missed")
+    )
+    cn.commit()
+    arm(monkeypatch)
+    monkeypatch.setattr(wake_mod, "_schedule", lambda *a, **k: None)
+    wake_mod.gate_clear(DESK)
+    with opener(_http(503)):
+        assert (
+            wake_mod.post_desk(
+                cn,
+                DESK,
+                {"kind": "hint", "type": "todo", "id": 991, "idem": "todo:991:ww1111d"},
+                hint_id=991,
+                wake_id=wid,
+            )
+            == "error"
+        )
+    cn.commit()
+    assert _wake_row(cn, wid)["state"] == "retry_armed"
+    got = rec_push.waiting(cn, DESK)
+    assert got is not None
+    assert int(got["id"]) == wid
+
+
+def test_post_without_wake_row_does_not_stamp_other_row(cn, monkeypatch) -> None:
+    """A POST with no wake row (wake_id=0, tw.event) must not stamp another row."""
+    _seed(cn)
+    wid = rec_push.row_id(rec_push.put(cn, DESK, "mail", {"kind": "mail", "id": 5501}, "missed"))
+    cn.commit()
+    arm(monkeypatch)
+    monkeypatch.setattr(wake_mod, "_schedule", lambda *a, **k: None)
+    wake_mod.gate_clear(DESK)
+    with opener(_http(400)):
+        assert wake_mod.post_desk(cn, DESK, {"kind": "tw", "event": "exit", "task": 7}) == "error"
+    cn.commit()
+    row = _wake_row(cn, wid)
+    assert row["state"] == "missed"
+    assert not any(e["reason"] in ("wake_fail", "wake_retry") for e in _edges(cn, wid))
+

@@ -277,7 +277,7 @@ def fold_hints(items: list[dict]) -> list[dict]:
 _WAITING_SQL = (
     "SELECT p.id, p.cause AS kind, p.payload FROM wake p"
     " WHERE p.desk_id = MILL_NAME_GET('desk', %s)"
-    " AND p.state IN ('missed', 'error') AND p.cause IN ('hint', 'mail') AND p.state <> 'taken'"
+    " AND p.state IN ('missed', 'error', 'retry_armed') AND p.cause IN ('hint', 'mail') AND p.state <> 'taken'"
     " ORDER BY p.id DESC LIMIT 1"
 )
 

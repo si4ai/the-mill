@@ -151,7 +151,7 @@ BEGIN
                CAST(SUM(cause = 'mail') AS UNSIGNED) AS n_mail,
                CAST(SUM(cause = 'receipt') AS UNSIGNED) AS n_receipt,
                CAST(SUM(state = 'missed') AS UNSIGNED) AS n_missed,
-               CAST(SUM(state = 'error') AS UNSIGNED) AS n_error,
+               CAST(SUM(state IN ('error', 'retry_armed')) AS UNSIGNED) AS n_error,
                MIN(created) AS w_start
           FROM wake
          WHERE created < v_cut
@@ -200,7 +200,7 @@ BEGIN
                  CAST(SUM(cause = 'mail') AS UNSIGNED) AS n_mail,
                  CAST(SUM(cause = 'receipt') AS UNSIGNED) AS n_receipt,
                  CAST(SUM(state = 'missed') AS UNSIGNED) AS n_missed,
-                 CAST(SUM(state = 'error') AS UNSIGNED) AS n_error,
+                 CAST(SUM(state IN ('error', 'retry_armed')) AS UNSIGNED) AS n_error,
                  MIN(created) AS w_start
             FROM wake
            WHERE created < v_cut

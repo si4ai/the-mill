@@ -1237,29 +1237,22 @@ def _fail_why(status: int | None, err: str) -> str:
 
 
 def _wake_row_for_fail(cn, desk: str, wake_id: int) -> tuple[int, str, int] | None:
-    """(id, state, desk_id) for the row to stamp, or None."""
+    """(id, state, desk_id) for the named wake row, or None.
+
+    A POST with no wake row (wake_id=0: tw.event stall/exit/crash, trailing)
+    writes no row state. desk is kept so callers can pass the woken desk.
+    """
     if cn is None:
+        return None
+    wid = int(wake_id or 0)
+    if wid <= 0 or not str(desk or "").strip():
         return None
     cur = cn.cursor()
     try:
-        wid = int(wake_id or 0)
-        if wid > 0:
-            cur.execute(
-                "SELECT id, state, desk_id FROM wake WHERE id = %s AND type = 'wake'",
-                (wid,),
-            )
-        else:
-            from agent_coord.server import mail_activity as ma
-
-            did = int(ma.desk_id_for(cn, desk) or 0)
-            if did <= 0:
-                return None
-            cur.execute(
-                "SELECT id, state, desk_id FROM wake"
-                " WHERE desk_id = %s AND type = 'wake' AND state IN ('queued', 'missed')"
-                " ORDER BY id DESC LIMIT 1",
-                (did,),
-            )
+        cur.execute(
+            "SELECT id, state, desk_id FROM wake WHERE id = %s AND type = 'wake'",
+            (wid,),
+        )
         row = cur.fetchone()
         if not row:
             return None
