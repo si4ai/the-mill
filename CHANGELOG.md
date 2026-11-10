@@ -20,8 +20,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 1098 / admin book pane: admin window selector, by-pair table, wake health; book tab type table, transitions block, wake-health alerts (#373)
 - card 1098 / docs: `--receipt` and the tw score note, plus the single-host config.toml limit (#373)
 - card 1098 / sql: `sp_cmd.sql` and `sp_push.sql` reload via migrate (#371, #373)
-- cards 1095 / 1097: tw status without a sit; join and connect write the desk pointer (#370)
-- pack skill.md: tw habit with `--log FILE` (#368, #369)
+- card 1095 / card 1097: tw status without a sit; join and connect write the desk pointer (#370)
+- card 970 / pack skill.md: tw habit with `--log FILE` (#368, #369)
 
 ## Last changes
 
