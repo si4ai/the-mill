@@ -97,7 +97,7 @@ def _rev_parse(head: str, cwd: Path = ROOT) -> str:
 
 
 def check_changelog(path: Path, base_text: str = "") -> list[Finding]:
-    """New bullets cite a card (not only a PR); shipped version heads have dates."""
+    """Unreleased bullets cite a card; Last-changes shipped heads have dates."""
     text = path.read_text(encoding="utf-8")
     findings: list[Finding] = []
     section = ""
@@ -111,29 +111,29 @@ def check_changelog(path: Path, base_text: str = "") -> list[Finding]:
             section = m.group(1)
             under_shipped = False
             continue
-        if section == "Last changes":
-            sm = SHIPPED_HEAD.match(ln.strip())
-            if sm:
-                under_shipped = True
-                shipped_name = sm.group(1)
-                shipped_line = i
-                shipped_dated = bool(sm.group(2))
-                if not shipped_dated:
-                    findings.append(
-                        Finding(
-                            path.as_posix() if path.is_absolute() else str(path),
-                            i,
-                            "changelog-date",
-                            f"shipped heading {shipped_name} needs a date",
-                        )
+        sm = SHIPPED_HEAD.match(ln.strip())
+        if sm and section in ("New changes", "Last changes"):
+            under_shipped = True
+            shipped_name = sm.group(1)
+            shipped_line = i
+            shipped_dated = bool(sm.group(2))
+            if section == "Last changes" and not shipped_dated:
+                findings.append(
+                    Finding(
+                        path.as_posix() if path.is_absolute() else str(path),
+                        i,
+                        "changelog-date",
+                        f"shipped heading {shipped_name} needs a date",
                     )
-                continue
+                )
+            continue
         if not ln.strip().startswith("- "):
             continue
-        # flag PR-only cites on any bullet under New changes / TBD (unreleased)
-        if section in ("New changes", "TBD (upcoming)") or (
-            section == "Last changes" and under_shipped
-        ):
+        # Unreleased bullets (TBD, or New changes above the current version
+        # heading) must cite a card. Feature PRs do not edit CHANGELOG.md;
+        # bullets under a dated shipped heading are written at bump time and
+        # may be a dependabot title or "Reverts #N" without a card cite.
+        if section in ("New changes", "TBD (upcoming)") and not under_shipped:
             has_pr = bool(PR_CITE.search(ln))
             has_card = bool(CARD_CITE.search(ln))
             if has_pr and not has_card:
@@ -145,20 +145,16 @@ def check_changelog(path: Path, base_text: str = "") -> list[Finding]:
                         "cite card N, not only a PR number",
                     )
                 )
-            # new lines under a dated shipped heading in Last are fine; under New
-            # without a card is also wrong when the bullet is brand new vs base
-            if section in ("New changes", "TBD (upcoming)") and not has_card and ln.strip().startswith("- "):
-                # only when the line is new vs base (or base empty = all new)
+            elif not has_card and ln.strip().startswith("- "):
                 if not base_text or ln not in base_text:
-                    if not has_pr:  # already flagged PR-only above; still need a card
-                        findings.append(
-                            Finding(
-                                path.as_posix() if path.is_absolute() else str(path),
-                                i,
-                                "changelog-card",
-                                "unreleased bullet must cite card N",
-                            )
+                    findings.append(
+                        Finding(
+                            path.as_posix() if path.is_absolute() else str(path),
+                            i,
+                            "changelog-card",
+                            "unreleased bullet must cite card N",
                         )
+                    )
     return findings
 
 

@@ -38,6 +38,12 @@ the gh merge wrapper should refuse a self-merge (card 1035).
 4. The loop lead merges the card branch into the release branch (merge
    commit).
 
+Card PRs do not edit `CHANGELOG.md`. At the version bump on the release
+branch, `python tools/changelog_generate.py --version X.Y.Z --date YYYY-MM-DD`
+collects each folded card PR's one-line `## Changelog` section (and any
+card PRs that already squash-merged to `main` in the same window). It
+skips the release PR itself and dedupes by PR number. See [BUILD.md](BUILD.md).
+
 ## Release PR to main
 
 1. Open (or update) the `release/X.Y.Z` PR against `main`.

@@ -237,3 +237,52 @@ def test_bot_authored_body_with_email_still_fails(tmp_path: Path) -> None:
     assert who not in res.stderr + res.stdout
     assert "zorbin" not in res.stderr + res.stdout
 
+
+def test_missing_changelog_section_hints_and_does_not_fail(tmp_path: Path) -> None:
+    body = "## summary\n\nwhat changed\n\n## claims\n\nclaim 1\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 90, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" in res.stdout
+    assert "0 hits" in res.stdout
+
+
+def test_empty_changelog_section_hints(tmp_path: Path) -> None:
+    body = "## summary\n\nx\n\n## Changelog\n\n## claims\n\ny\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 91, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" in res.stdout
+
+
+def test_present_changelog_section_has_no_hint(tmp_path: Path) -> None:
+    body = "## summary\n\nx\n\n## Changelog\n\ncard 1120: generate the changelog at bump\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 92, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout
+
+
+def test_dependabot_is_exempt_from_changelog_hint(tmp_path: Path) -> None:
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 375,
+            "title": "bump stylelint from 17.16.0 to 18.0.0",
+            "body": "Bumps stylelint.",
+            "user": {"type": "Bot", "login": "dependabot[bot]"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout
+
+
+def test_docs_only_is_exempt_from_changelog_hint(tmp_path: Path) -> None:
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {
+            "pull_request": {"number": 93, "title": "#1 Docs", "body": "docs only"},
+            "pull_request_files": [{"filename": "docs/dev/BUILD.md"}, {"filename": "README.md"}],
+        },
+    )
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout

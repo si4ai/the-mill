@@ -316,7 +316,7 @@ DESK_WORD_ALLOWLIST = frozenset(
         "book", "both", "branch", "bridge", "brief", "briefed",
         "briefings", "briefs", "build", "builder", "bump", "but",
         "by", "cache", "call", "card", "cards", "change",
-        "changes", "check", "cherry", "claim", "claims", "class",
+        "changes", "changelog", "check", "cherry", "claim", "claims", "class",
         "clean", "client", "clip", "close", "code", "cold",
         "column", "columns", "commit", "commits", "compare", "conflict",
         "conflicts", "connect", "connection", "correct", "count", "counts",

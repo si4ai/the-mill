@@ -102,6 +102,8 @@ duplicates, validity, and jobs that must run together rather than be split.
 | `pytest_no_sql` | Required wrapper: success if docs-only skip, or if `pytest_no_sql_run` succeeded |
 | `pytest_no_sql_run` | The actual tests that do not need the book; skipped on docs-only |
 | `precheck` | PR prechecks |
+| `pr_text` | PR and issue text hygiene; hints (does not fail) when a PR body is missing a one-line `## Changelog` section; Dependabot and docs-only PRs are exempt |
+| `changelog_generate` | At version bump, builds the current CHANGELOG section from card PRs since the last tag (squash-to-main and release-fold) |
 | `mill_cli_smoke` | CLI smoke; also runs `check_doc_commands` and `check_skill_copy --installed` |
 | `build_pack` | Build the install pack |
 | `check_pack` | Pack hygiene and commit scan |
