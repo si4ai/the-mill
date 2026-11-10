@@ -101,14 +101,29 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
 
 
 def test_score_failure_never_blocks_claim(cn):
-    """cmd_claim wraps the cards score write so a missing SP cannot refuse claim."""
+    """A score step that fails (here: its procedure is missing) never refuses the claim (card 955).
+
+    Card 1113: behavior, not a source check. A deadlock in the step is not swallowed; that case is
+    tests/server/records/test_score_step_and_wake_id_1113.py.
+    """
     from pathlib import Path as P
 
-    sql = (P(__file__).resolve().parents[3] / "agent_coord/server/sql/sp_cmd.sql").read_text()
-    assert "mill_card_score_event" in sql
-    assert "CONTINUE HANDLER FOR SQLEXCEPTION" in sql
+    from agent_coord.install.migrate import split_script
+
     book, asker, vol = _open_claim(cn, "kpi-955-guard")
-    got = rpc._h_claim(book, {"need": "kpi-955-guard"}, "unit", vol)
+    sql = (P(__file__).resolve().parents[3] / "agent_coord/server/sql/sp_score.sql").read_text()
+    create = [st for st in split_script(sql)
+              if st.strip().lower().startswith("create procedure mill_card_score_event(")]
+    assert len(create) == 1
+    cur = cn.cursor()
+    cur.execute("DROP PROCEDURE IF EXISTS mill_card_score_event")
+    cn.commit()
+    try:
+        got = rpc._h_claim(book, {"need": "kpi-955-guard"}, "unit", vol)
+    finally:
+        cur.execute(create[0])
+        cn.commit()
+        cur.close()
     assert got["status"] == "claimed"
     hit = rec_todo.find(cn, "unit", "kpi-955-guard")
     assert hit["status"] == "claimed"

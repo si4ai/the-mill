@@ -283,6 +283,9 @@ BEGIN
   BEGIN
     DECLARE v_saved INT DEFAULT @mill_req_tx;
     DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     IF p_body IS NOT NULL
        AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
