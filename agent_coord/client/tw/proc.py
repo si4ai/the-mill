@@ -14,7 +14,14 @@ from typing import Any
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
 from agent_coord.client.tw.notice import Notices
 from agent_coord.client.tw.sample import take
-from agent_coord.client.tw.spool import Spool, retry_delay
+from agent_coord.client.tw.spool import (
+    Spool,
+    append_hop,
+    load_durable,
+    remove_hops,
+    replay,
+    retry_delay,
+)
 
 
 def runs_path(desk: str):
@@ -115,12 +122,11 @@ def _reclaim_lost(desk: str) -> None:
             continue
         tw_pid = int(row.get("tw_pid") or 0)
         if tw_pid and not _alive(tw_pid):
-            ok = _http_event(
-                {"watch_id": watch_id, "kind": "crash", "cause": "lost"}
-            )
-            if not ok:
+            crash = {"watch_id": watch_id, "kind": "crash", "cause": "lost"}
+            if not _http_event(crash):
+                append_hop(desk, crash)
                 print(
-                    f"tw: lost run {watch_id} not recorded; mill connected shows it active",
+                    "%s spooled; replays on next mill connect" % watch_id,
                     file=sys.stderr,
                 )
             changed = True
@@ -131,6 +137,7 @@ def _reclaim_lost(desk: str) -> None:
 
 
 def list_runs(desk: str) -> list[dict[str, Any]]:
+    replay(desk)
     _reclaim_lost(desk)
     runs = _load(desk)
     kept: dict[str, dict[str, Any]] = {}
@@ -285,6 +292,7 @@ def _status_miss(reply: Any) -> bool:
 
 def query_status(desk: str, watch_id: str | None = None) -> dict[str, Any]:
     who = _desk(desk)
+    replay(who)
     local = _local_status(who, watch_id)
     try:
         session = open_session(who)
@@ -450,6 +458,7 @@ def run_argv(
     steps: list[list[str]] | None = None,
 ) -> int:
     who = _desk(desk)
+    replay(who)
     _reclaim_lost(who)
     if steps is None:
         if not argv or any(not isinstance(part, str) or part == "" for part in argv):
@@ -539,22 +548,26 @@ def run_argv(
             next_try = time.monotonic() + retry_delay(attempt)
             attempt += 1
 
+        def _keep(body: dict[str, Any]) -> None:
+            spool.add(body)
+            append_hop(who, body)
+
         def _hop(body: dict[str, Any]) -> None:
             nonlocal attempt
             if session is None:
-                spool.add(body)
+                _keep(body)
                 return
             try:
                 reply = session.request(body)
             except OSError:
-                spool.add(body)
+                _keep(body)
                 _lose()
                 _backoff()
                 return
             if isinstance(reply, dict) and reply.get("ok") is True:
                 attempt = 0
                 return
-            spool.add(body)
+            _keep(body)
             _backoff()
 
         def _flush() -> None:
@@ -572,20 +585,28 @@ def run_argv(
                     )
                 )
             pending = spool.drain()
+            sent: list[dict[str, Any]] = []
             for index, body in enumerate(pending):
                 try:
                     reply = session.request(body)
                 except OSError:
+                    if sent:
+                        remove_hops(who, sent)
                     for rest in pending[index:]:
                         spool.add(rest)
                     _lose()
                     _backoff()
                     return
                 if not (isinstance(reply, dict) and reply.get("ok") is True):
+                    if sent:
+                        remove_hops(who, sent)
                     for rest in pending[index:]:
                         spool.add(rest)
                     _backoff()
                     return
+                sent.append(body)
+            if sent:
+                remove_hops(who, sent)
             attempt = 0
 
         def _reconnect() -> None:
@@ -683,6 +704,7 @@ def run_argv(
             break
         if code == 0 and last.returncode not in (0, None):
             code = int(last.returncode)
+        replay(who)
         if session is None:
             _reconnect()
         if session is not None:
@@ -698,6 +720,25 @@ def run_argv(
         _hop(exit_body)
         if session is not None and spool.items and time.monotonic() >= next_try:
             _flush()
+        replay(who)
+        kept = {
+            (
+                str(item.get("watch_id") or ""),
+                str(item.get("kind") or ""),
+                str(item.get("cause") or ""),
+            )
+            for item in load_durable(who)
+        }
+        spool.items[:] = [
+            body
+            for body in spool.items
+            if (
+                str(body.get("watch_id") or ""),
+                str(body.get("kind") or ""),
+                str(body.get("cause") or ""),
+            )
+            in kept
+        ]
         finished = {
             "pid": procs[0].pid,
             "argv": steps[0],
@@ -706,26 +747,6 @@ def run_argv(
             "state": "finished",
             "exit_code": code,
         }
-        # Durable fallback when the link was down at exit (card 1098).
-        if any(
-            str(item.get("kind") or "") == "exit"
-            and str(item.get("watch_id") or "") == watch_id
-            for item in spool.items
-        ):
-            if not _http_event(exit_body):
-                print(
-                    "tw: exit not recorded (link down); mill connected shows it active",
-                    file=sys.stderr,
-                )
-            else:
-                spool.items[:] = [
-                    item
-                    for item in spool.items
-                    if not (
-                        str(item.get("kind") or "") == "exit"
-                        and str(item.get("watch_id") or "") == watch_id
-                    )
-                ]
         return code
     finally:
         _end_all(procs)

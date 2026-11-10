@@ -203,6 +203,12 @@ class Link:
             err = self._error
             self.close()
             raise OSError(str(err))
+        try:
+            from agent_coord.client.tw.spool import replay
+
+            replay(self.desk)
+        except Exception:
+            return
 
     def _run(self) -> None:
         try:

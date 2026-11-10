@@ -145,8 +145,12 @@ def main() -> int:
     if not mill:
         print("mill not on PATH", file=sys.stderr)
         return 1
+    tw = shutil.which("tw")
+    if not tw:
+        print("tw not on PATH", file=sys.stderr)
+        return 1
     smoke(mill)
-    print(f"ok mill-cli-smoke {mill}")
+    print(f"ok mill-cli-smoke {mill} {tw}")
     return 0
 
 
