@@ -172,3 +172,68 @@ def test_comment_name_token_stays_on_generic_rules(tmp_path: Path) -> None:
         {"issue": {"number": 5}, "comment": {"id": 99, "body": f"thanks {who}"}},
     )
     assert res.returncode == 0, res.stderr
+
+
+def test_bot_authored_body_skips_name_token(tmp_path: Path) -> None:
+    """Card 1103: a bot-authored PR title and body skip the name-token rule, with a note."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 374,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "Bot"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert "personal name token" not in res.stderr
+    assert who not in res.stderr + res.stdout
+    assert "0 hits" in res.stdout
+
+
+def test_human_authored_body_still_flags_name_token(tmp_path: Path) -> None:
+    """A human (user.type User) title and body still take the name-token rule."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 272,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "User"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #272 body:2: personal name token" in res.stderr
+    assert "name-token rule skipped" not in res.stdout + res.stderr
+    assert who not in res.stderr + res.stdout
+
+
+def test_bot_authored_body_with_email_still_fails(tmp_path: Path) -> None:
+    """Skipping the name-token rule does not skip address, home-path, email, or credential rules."""
+    who = _who()
+    body = f"ok\nsee {EMAIL}\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 377,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "Bot"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #377 body:2: email outside placeholder domains" in res.stderr
+    assert "personal name token" not in res.stderr
+    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert EMAIL not in res.stderr + res.stdout
+    assert who not in res.stderr + res.stdout
+    assert "zorbin" not in res.stderr + res.stdout
+
