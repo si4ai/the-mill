@@ -11,6 +11,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- card 1113: one desk filing cards from several sessions at once no longer deadlocks; the todo insert takes the desk's seat lock before its insert, and the concurrent-insert test no longer retries
+
 - card 1111: webhook failures write wake_fail (and wake_retry when a retry is armed); wake edges use the woken desk; new wake rows fill cause_type and cause_id
 
 - card 1111: retry_armed stays visible to ring_waiting; a POST with no wake row writes no row state; expire-marker error tallies include retry_armed
