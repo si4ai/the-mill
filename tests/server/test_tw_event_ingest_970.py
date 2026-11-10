@@ -189,6 +189,7 @@ def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
         assert got["type"] == "reply"
         assert got["ok"] is True
         assert got["watch_id"] == "w9"
+        assert link.drain() == "empty"
         assert len(hops) == 1
         assert hops[0]["verb"] == "tw.event"
         assert hops[0]["watch_id"] == "w9"
@@ -216,8 +217,9 @@ def test_link_hop_failure_marks_and_keeps_sit(tmp_path, monkeypatch) -> None:
     try:
         got = session.request({"type": "event", "watch_id": "w2", "kind": "stall"})
         assert got["type"] == "reply"
-        assert got["ok"] is False
-        assert got["msg"] == "hop failed"
+        assert got["ok"] is True
+        assert link.drain() == "down"
+        assert link._outbox is not None and link._outbox.peek() is not None
         assert "tw.event" in link.marks
         # sit stays up: another local frame still works
         bad = session.request({"type": "nope"})

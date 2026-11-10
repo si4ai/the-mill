@@ -1,108 +1,64 @@
 # -*- coding: utf-8 -*-
-"""tw run, tw list, tw stop, tw status."""
+"""tw CMD ARGS. The desk is the sitting connect, not a flag."""
 from __future__ import annotations
 
-import argparse
-import json
 import sys
-from pathlib import Path
 
-from agent_coord.client.tw.proc import list_runs, query_status, run_argv, stop_run
+from agent_coord.client.tw.proc import list_runs, run_argv
+
+_HELP = """\
+usage: tw CMD ARGS
+       tw
+       tw --help
+       tw --version
+
+run CMD while this process shares a parent with a sitting connect.
+one stderr line at start is the watch id, this pid, and the log path.
+the command output passes through and is copied to the log.
+tw exits with the command exit code.
+with no arguments, list this desk's runs.
+--help and --version are the only flags, and only when they are the whole command.
+"""
 
 
-def _recipe(path: str) -> list[list[str]]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not data:
-        raise ValueError("recipe required")
-    steps: list[list[str]] = []
-    for item in data:
-        if not isinstance(item, list) or not item:
-            raise ValueError("recipe required")
-        if any(not isinstance(part, str) or part == "" for part in item):
-            raise ValueError("recipe required")
-        steps.append(list(item))
-    return steps
+def _sitting() -> str:
+    from agent_coord.client.tokens import resolve_desk_owner
+
+    return (resolve_desk_owner("") or "").strip()
+
+
+def _recipe() -> None:
+    from agent_coord.client.session_errors import bridge_hint
+
+    print(bridge_hint(), file=sys.stderr)
+
+
+def _print_runs(desk: str) -> int:
+    for row in list_runs(desk):
+        if row.get("exit_code") is not None:
+            print("%s %s %s" % (row["watch_id"], row["pid"], row["exit_code"]))
+        else:
+            print("%s %s" % (row["watch_id"], row["pid"]))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="tw")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    run = sub.add_parser("run")
-    run.add_argument("--desk", required=True)
-    run.add_argument("--log", default=None)
-    run.add_argument("--pattern", default=None)
-    run.add_argument("--quiet", type=float, default=30.0)
-    run.add_argument("--no-wake", action="store_true")
-    run.add_argument("--recipe", default=None)
-    run.add_argument("cmd_argv", nargs=argparse.REMAINDER)
-
-    listed = sub.add_parser("list")
-    listed.add_argument("--desk", required=True)
-
-    stop = sub.add_parser("stop")
-    stop.add_argument("--desk", required=True)
-    stop.add_argument("watch_id")
-
-    status = sub.add_parser("status")
-    status.add_argument("--desk", required=True)
-    status.add_argument("watch_id", nargs="?")
-
-    args = parser.parse_args(argv)
-    if args.cmd == "status":
-        reply = query_status(args.desk, args.watch_id)
-        if not isinstance(reply, dict) or reply.get("ok") is not True:
-            print("missing" if not isinstance(reply, dict) else reply.get("msg") or "missing", file=sys.stderr)
-            return 1
-        snap = reply.get("snapshot")
-        rows = snap if isinstance(snap, list) else [snap]
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            line = "%s %s %s %s" % (
-                row.get("watch_id") or "",
-                row.get("pid") or 0,
-                row.get("stdout_bytes") or 0,
-                row.get("stderr_bytes") or 0,
-            )
-            if row.get("exit_code") is not None:
-                line = "%s %s" % (line, row.get("exit_code"))
-            print(line)
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args == ["--help"]:
+        print(_HELP, end="")
         return 0
-    if args.cmd == "list":
-        for row in list_runs(args.desk):
-            if row.get("exit_code") is not None:
-                print("%s %s %s" % (row["watch_id"], row["pid"], row["exit_code"]))
-            else:
-                print("%s %s" % (row["watch_id"], row["pid"]))
+    if args == ["--version"]:
+        from agent_coord.install.packver import package_version
+
+        print(package_version())
         return 0
-    if args.cmd == "stop":
-        return stop_run(args.desk, args.watch_id)
-    cmd_argv = list(args.cmd_argv)
-    if cmd_argv and cmd_argv[0] == "--":
-        cmd_argv = cmd_argv[1:]
-    steps = None
-    if args.recipe:
-        if cmd_argv:
-            print("argv required", file=sys.stderr)
-            return 2
-        try:
-            steps = _recipe(args.recipe)
-        except (OSError, ValueError):
-            print("argv required", file=sys.stderr)
-            return 2
-    elif not cmd_argv:
-        print("argv required", file=sys.stderr)
-        return 2
-    return run_argv(
-        args.desk,
-        cmd_argv,
-        log_path=args.log,
-        pattern=args.pattern,
-        quiet_s=args.quiet,
-        no_wake=args.no_wake,
-        steps=steps,
-    )
+    who = _sitting()
+    if not who:
+        _recipe()
+        return 1
+    if not args:
+        return _print_runs(who)
+    return run_argv(who, args, arm_forward=True)
 
 
 if __name__ == "__main__":

@@ -184,9 +184,17 @@ class Link:
         self._peers_lock = threading.Lock()
         self._route_lock = threading.Lock()
         self._snap_lock = threading.Lock()
+        self._send_lock = threading.Lock()
         self._snapshots: dict[str, dict[str, Any]] = {}
+        self._outbox = None
+        self._sender: threading.Thread | None = None
+        self._kick = threading.Event()
+        self._down_marked = False
 
     def start(self) -> None:
+        from agent_coord.client.tw.outbox import Outbox, outbox_path
+
+        self._outbox = Outbox(outbox_path(self.desk))
         path = pointer_path(self.desk)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(kind() + " " + self._transport.address + "\n", encoding="utf-8")
@@ -203,12 +211,11 @@ class Link:
             err = self._error
             self.close()
             raise OSError(str(err))
-        try:
-            from agent_coord.client.tw.spool import replay
-
-            replay(self.desk)
-        except Exception:
-            return
+        self._sender = threading.Thread(
+            target=self._sender_loop, name="mill-tw-send-" + self.desk, daemon=True
+        )
+        self._sender.start()
+        self._kick.set()
 
     def _run(self) -> None:
         try:
@@ -281,6 +288,8 @@ class Link:
                 for wid in list(peer.watch_ids):
                     if self._by_watch.get(wid) is peer:
                         self._by_watch.pop(wid, None)
+            if not self._stop.is_set():
+                self._note_crash(peer)
             peer.done.set()
 
     def _serve(self, peer: _Peer) -> None:
@@ -347,11 +356,9 @@ class Link:
         return protocol.reply(True, "registered")
 
     def _event(self, peer: _Peer, msg: dict[str, Any]) -> dict[str, Any]:
-        # Hop before ok (letter 4618). Doing scores stay server-side; this slice
-        # only posts tw.event and writes no doing / tw_* row itself.
-        # argv/title/pattern stay on the desk (letter 4621); hop body omits them.
+        # Write the hop, ack, then the sender posts it. argv and streams stay here.
         wid = _watch_id(msg)
-        body: dict[str, Any] = {"verb": "tw.event"}
+        body: dict[str, Any] = {}
         for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
             if key in msg:
                 body[key] = msg[key]
@@ -359,29 +366,91 @@ class Link:
             body["wake"] = False
         if wid and "watch_id" not in body:
             body["watch_id"] = wid
-        try:
-            from agent_coord.client.http import mill_http_call
-
-            got = mill_http_call(body)
-        except Exception:
+        if self._outbox is None:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)
-        ok = isinstance(got, dict) and got.get("ok") is True
-        if not ok:
+        try:
+            self._outbox.add(body)
+        except OSError:
             self.marks.append("tw.event")
-            code = got.get("code") if isinstance(got, dict) else None
-            if code == "cap":
-                return protocol.reply(False, "cap", wid or None, code="cap")
-            text = str(got.get("msg") or "") if isinstance(got, dict) else ""
-            if code == "busy" or "busy" in text.casefold():
-                return protocol.reply(False, "busy", wid or None, code="busy")
             return protocol.reply(False, "hop failed", wid or None)
         if wid:
             peer.watch_ids.add(wid)
             with self._peers_lock:
                 self._by_watch[wid] = peer
             self._remember(wid, msg)
+        self._kick.set()
         return protocol.reply(True, "accepted", wid or None)
+
+    def _call(self, body: dict[str, Any]) -> Any:
+        from agent_coord.client.http import mill_http_call
+
+        return mill_http_call(body)
+
+    def _post_once(self) -> str:
+        if self._outbox is None:
+            return "empty"
+        from agent_coord.client.tw.outbox import send_pending
+
+        with self._send_lock:
+            result = send_pending(self._outbox, self._call)
+        if result == "down":
+            if not self._down_marked:
+                self.marks.append("tw.event")
+                self._down_marked = True
+        elif result == "ok":
+            self._down_marked = False
+        return result
+
+    def _sender_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                result = self._post_once()
+            except Exception:
+                result = "down"
+            if self._stop.is_set():
+                return
+            if result == "ok":
+                continue
+            if result == "empty":
+                self._kick.wait(0.5)
+                self._kick.clear()
+                continue
+            if self._stop.wait(0.25):
+                return
+
+    def drain(self, limit: int = 32) -> str:
+        """Send queued hops until one stays or the file is empty."""
+        last = "empty"
+        for _ in range(max(1, limit)):
+            last = self._post_once()
+            if last != "ok":
+                return last
+        return last
+
+    def _note_crash(self, peer: _Peer) -> None:
+        if self._outbox is None:
+            return
+        noted = False
+        for wid in list(peer.watch_ids):
+            with self._snap_lock:
+                row = self._snapshots.get(wid)
+                kind_name = str(row.get("kind") or "") if isinstance(row, dict) else ""
+            if kind_name in ("exit", "crash"):
+                continue
+            try:
+                self._outbox.add({"watch_id": wid, "kind": "crash", "cause": "lost"})
+            except OSError:
+                self.marks.append("tw.event")
+                continue
+            noted = True
+            if isinstance(row, dict):
+                with self._snap_lock:
+                    row["kind"] = "crash"
+                    if row.get("exit_code") is None:
+                        row["exit_code"] = 1
+        if noted:
+            self._kick.set()
 
     def _sample(self, msg: dict[str, Any]) -> dict[str, Any]:
         # Local buffer only. stdout, stderr, log, and sample do not hop.
@@ -496,6 +565,15 @@ class Link:
             self._thread.join(2.0)
         for peer in peers:
             peer.done.wait(0.5)
+        self._kick.set()
+        if self._sender is not None:
+            self._sender.join(2.0)
+        if self._outbox is not None:
+            try:
+                self._outbox.close()
+            except Exception:
+                pass
+            self._outbox = None
         try:
             pointer_path(self.desk).unlink()
         except OSError:

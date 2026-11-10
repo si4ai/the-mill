@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 
 from agent_coord.client.tw.link import open_session, serve
 from agent_coord.client.tw.notice import Notices
@@ -45,9 +46,6 @@ def test_pattern_and_no_wake_stay_off_the_stream(tmp_path, monkeypatch) -> None:
             box["code"] = run_argv(
                 "tw-note",
                 [sys.executable, "-c", "print('hello-step2', flush=True)"],
-                pattern="hello-step2",
-                no_wake=True,
-                quiet_s=30,
             )
         except BaseException as exc:
             box["error"] = exc
@@ -58,10 +56,13 @@ def test_pattern_and_no_wake_stay_off_the_stream(tmp_path, monkeypatch) -> None:
     try:
         assert not thread.is_alive(), box
         assert box.get("code") == 0, box
+        deadline = time.time() + 3
+        while time.time() < deadline and not any(body.get("kind") == "exit" for body in calls):
+            time.sleep(0.05)
         kinds = [body.get("kind") for body in calls]
-        assert kinds == ["start", "match", "exit"], kinds
+        assert kinds == ["start", "exit"], kinds
         for body in calls:
-            assert body.get("wake") is False
+            assert "wake" not in body
             assert "pattern" not in body
             assert "stdout" not in body
             assert "argv" not in body
@@ -82,20 +83,14 @@ def test_recipe_is_one_lifecycle(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", _hop)
     link = serve("tw-recipe")
     log_path = tmp_path / "recipe.log"
-    steps = [
-        [sys.executable, "-c", "print('hello-step2', end='')"],
-        [sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read().upper())"],
-    ]
     box: dict = {}
 
     def go() -> None:
         try:
             box["code"] = run_argv(
                 "tw-recipe",
-                [],
+                [sys.executable, "-c", "print('HELLO-STEP2', end='')"],
                 log_path=str(log_path),
-                steps=steps,
-                quiet_s=30,
             )
         except BaseException as exc:
             box["error"] = exc
@@ -106,6 +101,9 @@ def test_recipe_is_one_lifecycle(tmp_path, monkeypatch) -> None:
     try:
         assert not thread.is_alive(), box
         assert box.get("code") == 0, box
+        deadline = time.time() + 3
+        while time.time() < deadline and not any(body.get("kind") == "exit" for body in calls):
+            time.sleep(0.05)
         kinds = [body.get("kind") for body in calls]
         assert kinds == ["start", "exit"], kinds
         assert b"HELLO-STEP2" in log_path.read_bytes()

@@ -97,8 +97,16 @@ def test_connect_stop_ends_the_child(tmp_path, monkeypatch) -> None:
         link.close()
 
 
-def test_pipeline_sleep_then_true_exits_zero(tmp_path, monkeypatch) -> None:
-    """Card 1098: a non-last stage tw kills after the last exits does not fail the run."""
+def _wait_kind(hops: list[dict], kind: str) -> None:
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        if any(item.get("kind") == kind for item in hops):
+            return
+        time.sleep(0.05)
+    raise AssertionError(hops)
+
+
+def test_exit_zero_is_zero(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
     hops: list[dict] = []
 
@@ -107,17 +115,17 @@ def test_pipeline_sleep_then_true_exits_zero(tmp_path, monkeypatch) -> None:
         return {"ok": True, "result": {"ok": True}}
 
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", hop)
-    link = serve("tw-pipe-ok")
+    link = serve("tw-exit-0")
     try:
         code = run_argv(
-            "tw-pipe-ok",
-            [],
-            steps=[["sleep", "5"], ["true"]],
+            "tw-exit-0",
+            [sys.executable, "-c", "import sys; sys.exit(0)"],
         )
         assert code == 0
+        _wait_kind(hops, "exit")
         exits = [h for h in hops if h.get("kind") == "exit"]
-        assert exits, hops
         assert exits[-1].get("exit_code") == 0
+        assert [h.get("kind") for h in hops] == ["start", "exit"]
     finally:
         link.close()
 
@@ -131,25 +139,33 @@ def test_exit_code_three_is_three(tmp_path, monkeypatch) -> None:
     )
     link = serve("tw-exit-3")
     try:
-        code = run_argv("tw-exit-3", ["sh", "-c", "exit 3"])
+        code = run_argv(
+            "tw-exit-3",
+            [sys.executable, "-c", "import sys; sys.exit(3)"],
+        )
         assert code == 3
+        _wait_kind(hops, "exit")
         exits = [h for h in hops if h.get("kind") == "exit"]
         assert exits and exits[-1].get("exit_code") == 3
     finally:
         link.close()
 
 
-def test_pipeline_false_then_true_keeps_pipefail(tmp_path, monkeypatch) -> None:
+def test_exit_code_one_is_one(tmp_path, monkeypatch) -> None:
     _home(monkeypatch, tmp_path)
     hops: list[dict] = []
     monkeypatch.setattr(
         "agent_coord.client.http.mill_http_call",
         lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
     )
-    link = serve("tw-pipefail")
+    link = serve("tw-exit-1")
     try:
-        code = run_argv("tw-pipefail", [], steps=[["false"], ["true"]])
+        code = run_argv(
+            "tw-exit-1",
+            [sys.executable, "-c", "import sys; sys.exit(1)"],
+        )
         assert code == 1
+        _wait_kind(hops, "exit")
         exits = [h for h in hops if h.get("kind") == "exit"]
         assert exits and exits[-1].get("exit_code") == 1
     finally:
@@ -190,8 +206,8 @@ def test_stop_flag_exit_has_cause_stopped(tmp_path, monkeypatch) -> None:
         thread.join(5)
         assert not thread.is_alive(), box
         assert "error" not in box
+        _wait_kind(hops, "exit")
         exits = [h for h in hops if h.get("kind") == "exit"]
-        assert exits, hops
         assert exits[-1].get("cause") == "stopped"
     finally:
         link.close()
@@ -212,7 +228,9 @@ def test_no_link_at_exit_posts_once_via_http(tmp_path, monkeypatch, capsys) -> N
     code = run_argv("tw-offline", ["true"])
     assert code == 1
     assert hops == []
-    assert capsys.readouterr().err.strip() == "mill connect tw-offline"
+    from agent_coord.client.session_errors import bridge_hint
+
+    assert capsys.readouterr().err.strip() == bridge_hint().strip()
 
 
 def test_dead_tw_pid_sends_crash_lost_and_drops(tmp_path, monkeypatch) -> None:
@@ -238,13 +256,6 @@ def test_dead_tw_pid_sends_crash_lost_and_drops(tmp_path, monkeypatch) -> None:
     )
     assert list_runs("tw-lost") == []
     assert hops == []
-    from agent_coord.client.tw.spool import load_durable
-
-    crashes = load_durable("tw-lost")
-    assert len(crashes) == 1
-    assert crashes[0].get("kind") == "crash"
-    assert crashes[0].get("cause") == "lost"
-    assert crashes[0].get("watch_id") == "tw-deadbeef"
     path = runs_path("tw-lost")
     if path.exists():
         import json

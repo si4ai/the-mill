@@ -138,7 +138,9 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         assert got["watch_id"] == "w1"
         assert got["msg"] == "accepted"
         assert calls == []
-        assert list(tmp_path.rglob("*")) == before
+        extra = [p for p in tmp_path.rglob("*") if p not in before]
+        assert all(".hops.sqlite" in p.name for p in extra)
+        assert link.drain() == "empty"
         assert len(hops) == 1
         assert hops[0]["verb"] == "tw.event"
         assert hops[0]["watch_id"] == "w1"
@@ -180,6 +182,7 @@ def test_event_hop_leaves_stream_and_sample_on_the_desk(tmp_path, monkeypatch) -
             })
         )
         assert got["ok"] is True
+        assert link.drain() == "empty"
         assert len(hops) == 1
         hop = hops[0]
         assert hop == {
