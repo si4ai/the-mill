@@ -20,6 +20,12 @@ def native_path(path: Path) -> None:
     _reject(str(path))
 
 
+def _ts_ms(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 def outbox_path(desk: str) -> Path:
     from agent_coord.client.tw.link import _desk, pointer_path
 
@@ -62,7 +68,7 @@ class Outbox:
                 counts TEXT,
                 desk TEXT,
                 card INTEGER,
-                at TEXT
+                ts_ms INTEGER
             )
             """
         )
@@ -84,7 +90,7 @@ class Outbox:
             cur = self._db.execute(
                 """
                 INSERT INTO hop (
-                    watch_id, kind, cause, exit_code, wake, counts, desk, card, at
+                    watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -97,7 +103,7 @@ class Outbox:
                     json.dumps(counts) if isinstance(counts, dict) else None,
                     desk,
                     card,
-                    body.get("at") if isinstance(body.get("at"), str) and body.get("at") else None,
+                    _ts_ms(body.get("ts_ms")),
                 ),
             )
             self._db.commit()
@@ -107,7 +113,7 @@ class Outbox:
         with self._lock:
             row = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, at
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
                 FROM hop ORDER BY id LIMIT 1
                 """
             ).fetchone()
@@ -119,7 +125,7 @@ class Outbox:
         with self._lock:
             rows = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, at
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
                 FROM hop ORDER BY id
                 """
             ).fetchall()
@@ -154,8 +160,9 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
         body["wake"] = False
     if isinstance(item.get("counts"), dict):
         body["counts"] = item["counts"]
-    if isinstance(item.get("at"), str) and item.get("at"):
-        body["at"] = item["at"]
+    ts_ms = _ts_ms(item.get("ts_ms"))
+    if ts_ms is not None:
+        body["ts_ms"] = ts_ms
     return body
 
 

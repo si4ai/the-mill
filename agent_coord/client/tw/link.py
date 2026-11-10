@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -359,9 +360,12 @@ class Link:
         # Write the hop, ack, then the sender posts it. argv and streams stay here.
         wid = _watch_id(msg)
         body: dict[str, Any] = {}
-        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts", "at"):
+        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
             if key in msg:
                 body[key] = msg[key]
+        ts_ms = msg.get("ts_ms")
+        if isinstance(ts_ms, int) and not isinstance(ts_ms, bool) and ts_ms >= 0:
+            body["ts_ms"] = ts_ms
         if msg.get("wake") is False:
             body["wake"] = False
         if wid and "watch_id" not in body:
@@ -439,7 +443,14 @@ class Link:
             if kind_name in ("exit", "crash"):
                 continue
             try:
-                self._outbox.add({"watch_id": wid, "kind": "crash", "cause": "lost"})
+                self._outbox.add(
+                    {
+                        "watch_id": wid,
+                        "kind": "crash",
+                        "cause": "lost",
+                        "ts_ms": time.time_ns() // 1_000_000,
+                    }
+                )
             except OSError:
                 self.marks.append("tw.event")
                 continue

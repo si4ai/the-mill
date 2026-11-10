@@ -95,10 +95,10 @@ def test_desk_and_card_round_trip_without_the_row_id(tmp_path) -> None:
         box.close()
 
 
-def test_at_is_sent_unchanged(tmp_path) -> None:
+def test_ts_ms_is_sent_unchanged(tmp_path) -> None:
     box = Outbox(tmp_path / "desk.hops.sqlite")
     try:
-        box.add({"watch_id": "tw-a", "kind": "start", "at": "2026-11-10T06:00:00Z"})
+        box.add({"watch_id": "tw-a", "kind": "start", "ts_ms": 1762754400000})
         sent: list[dict] = []
 
         def ok(body):
@@ -106,6 +106,7 @@ def test_at_is_sent_unchanged(tmp_path) -> None:
             return {"ok": True}
 
         assert send_pending(box, ok) == "ok"
-        assert sent[0]["at"] == "2026-11-10T06:00:00Z"
+        assert sent[0]["ts_ms"] == 1762754400000
+        assert "at" not in sent[0]
     finally:
         box.close()

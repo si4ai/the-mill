@@ -21,8 +21,14 @@ def runs_path(desk: str):
     return pointer.with_name(pointer.name + ".runs.json")
 
 
-def _utc_now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _ts_ms() -> int:
+    return time.time_ns() // 1_000_000
+
+
+def _iso(ms: int) -> str:
+    return datetime.datetime.fromtimestamp(
+        ms / 1000.0, datetime.timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def log_file(desk: str, watch_id: str) -> Path:
@@ -360,6 +366,7 @@ def _event_body(
         msg["cause"] = cause
     if exit_code is not None:
         msg["exit_code"] = exit_code
+    msg["ts_ms"] = _ts_ms()
     return msg
 
 
@@ -566,7 +573,8 @@ def run_argv(
         )
         for pump in pumps:
             pump.start()
-        observed = _utc_now()
+        observed_ms = _ts_ms()
+        observed = _iso(observed_ms)
         runs = _load(who)
         runs[watch_id] = {
             "pid": proc.pid,
@@ -610,7 +618,7 @@ def run_argv(
             return isinstance(reply, dict) and reply.get("ok") is True
 
         start_body = _event_body(watch_id, "start", proc.pid)
-        start_body["at"] = observed
+        start_body["ts_ms"] = observed_ms
         _send(start_body)
         stopped = False
         crashed = False
@@ -674,7 +682,6 @@ def run_argv(
         body["stdout_bytes"] = stdout_bytes
         body["stderr_bytes"] = stderr_bytes
         body["log"] = True
-        body["at"] = _utc_now()
         _send(body)
         finished = {
             "pid": proc.pid,
