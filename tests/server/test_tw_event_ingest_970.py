@@ -190,13 +190,17 @@ def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
         assert got["ok"] is True
         assert got["watch_id"] == "w9"
         assert link.drain() == "empty"
-        assert len(hops) == 1
-        assert hops[0]["verb"] == "tw.event"
-        assert hops[0]["watch_id"] == "w9"
-        assert hops[0]["kind"] == "start"
-        assert "argv" not in hops[0]
-        assert "title" not in hops[0]
-        assert "pattern" not in hops[0]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert len(events) == 1
+        assert events[0]["verb"] == "tw.event"
+        assert events[0]["watch_id"] == "w9"
+        assert events[0]["kind"] == "start"
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": []}
+        ]
+        assert "argv" not in events[0]
+        assert "title" not in events[0]
+        assert "pattern" not in events[0]
     finally:
         session.close()
         link.close()
@@ -248,7 +252,7 @@ def test_bad_line_and_unknown_type_do_not_hop(tmp_path, monkeypatch) -> None:
         assert bad["ok"] is False
         unk = session.request({"type": "nope"})
         assert unk["ok"] is False
-        assert hops == []
+        assert hops == [{"verb": "tw.reconcile", "live": []}]
     finally:
         session.close()
         link.close()

@@ -214,6 +214,7 @@ class Link:
             raise OSError(str(err))
         self._drain_pending()
         self._live_watch_ids = self._reconcile_ghosts()
+        self._post_reconcile(self._live_watch_ids)
         self._sender = threading.Thread(
             target=self._sender_loop, name="mill-tw-send-" + self.desk, daemon=True
         )
@@ -231,6 +232,19 @@ class Link:
         if self._outbox is None:
             return []
         return reconcile_ghosts(self.desk, self._outbox)
+
+    def _post_reconcile(self, live: list[str]) -> None:
+        """One session hop. An over-long list is not sent, so none of the ids are dropped."""
+        if len(live) > 256:
+            return
+        body = {"verb": "tw.reconcile", "live": [str(item) for item in live]}
+        try:
+            got = self._call(body)
+        except Exception:
+            self.marks.append("tw.reconcile")
+            return
+        if not (isinstance(got, dict) and got.get("ok") is True):
+            self.marks.append("tw.reconcile")
 
     def _run(self) -> None:
         try:

@@ -125,7 +125,7 @@ def test_exit_zero_is_zero(tmp_path, monkeypatch) -> None:
         _wait_kind(hops, "exit")
         exits = [h for h in hops if h.get("kind") == "exit"]
         assert exits[-1].get("exit_code") == 0
-        assert [h.get("kind") for h in hops] == ["start", "exit"]
+        assert [h.get("kind") for h in hops if h.get("verb") == "tw.event"] == ["start", "exit"]
     finally:
         link.close()
 

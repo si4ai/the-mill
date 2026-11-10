@@ -59,7 +59,7 @@ def test_pattern_and_no_wake_stay_off_the_stream(tmp_path, monkeypatch) -> None:
         deadline = time.time() + 3
         while time.time() < deadline and not any(body.get("kind") == "exit" for body in calls):
             time.sleep(0.05)
-        kinds = [body.get("kind") for body in calls]
+        kinds = [body.get("kind") for body in calls if body.get("verb") == "tw.event"]
         assert kinds == ["start", "exit"], kinds
         for body in calls:
             assert "wake" not in body
@@ -104,7 +104,7 @@ def test_recipe_is_one_lifecycle(tmp_path, monkeypatch) -> None:
         deadline = time.time() + 3
         while time.time() < deadline and not any(body.get("kind") == "exit" for body in calls):
             time.sleep(0.05)
-        kinds = [body.get("kind") for body in calls]
+        kinds = [body.get("kind") for body in calls if body.get("verb") == "tw.event"]
         assert kinds == ["start", "exit"], kinds
         assert b"HELLO-STEP2" in log_path.read_bytes()
     finally:

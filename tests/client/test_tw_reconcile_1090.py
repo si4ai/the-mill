@@ -57,8 +57,12 @@ def test_dead_wrapper_is_a_lost_crash_after_drain(tmp_path, monkeypatch) -> None
     link = serve("tw-ghost")
     try:
         assert link.drain() == "empty"
-        assert [item["kind"] for item in hops] == ["start", "crash"]
-        crash = hops[1]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert [item["kind"] for item in events] == ["start", "crash"]
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": ["tw-live"]}
+        ]
+        crash = events[1]
         assert crash["cause"] == "lost"
         assert crash["watch_id"] == "tw-ghost"
         assert crash["exit_code"] == 1
@@ -89,7 +93,11 @@ def test_reused_pid_is_not_the_wrapper(tmp_path, monkeypatch) -> None:
     link = serve("tw-reuse")
     try:
         assert link.drain() == "empty"
-        assert [item["kind"] for item in hops] == ["crash"]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert [item["kind"] for item in events] == ["crash"]
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": []}
+        ]
         assert _load("tw-reuse")["tw-reuse"]["reconciled"] is True
         assert link._live_watch_ids == []
     finally:
@@ -117,7 +125,30 @@ def test_a_row_without_start_is_not_reconciled(tmp_path, monkeypatch) -> None:
     link = serve("tw-plain")
     try:
         assert link.drain() == "empty"
-        assert hops == []
+        assert hops == [{"verb": "tw.reconcile", "live": []}]
+        assert "desk" not in hops[0]
+        assert "wake" not in hops[0]
         assert _load("tw-plain")["tw-plain"].get("reconciled") is not True
+    finally:
+        link.close()
+
+
+def test_too_many_live_ids_are_not_sent(tmp_path, monkeypatch) -> None:
+    _home(monkeypatch, tmp_path)
+    hops: list[dict] = []
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
+    )
+    live = ["tw-%d" % i for i in range(257)]
+    monkeypatch.setattr(
+        "agent_coord.client.tw.proc.reconcile_ghosts",
+        lambda desk, box: list(live),
+    )
+    link = serve("tw-cap")
+    try:
+        assert link.drain() == "empty"
+        assert hops == []
+        assert link._live_watch_ids == live
     finally:
         link.close()

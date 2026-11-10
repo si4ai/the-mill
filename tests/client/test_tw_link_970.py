@@ -141,12 +141,13 @@ def test_event_is_accepted_without_writing_doing(tmp_path, monkeypatch) -> None:
         extra = [p for p in tmp_path.rglob("*") if p not in before]
         assert all(".hops.sqlite" in p.name for p in extra)
         assert link.drain() == "empty"
-        assert len(hops) == 1
-        assert hops[0]["verb"] == "tw.event"
-        assert hops[0]["watch_id"] == "w1"
-        assert "argv" not in hops[0]
-        assert "title" not in hops[0]
-        assert "pattern" not in hops[0]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert len(events) == 1
+        assert events[0]["verb"] == "tw.event"
+        assert events[0]["watch_id"] == "w1"
+        assert "argv" not in events[0]
+        assert "title" not in events[0]
+        assert "pattern" not in events[0]
     finally:
         session.close()
         link.close()
@@ -183,8 +184,9 @@ def test_event_hop_leaves_stream_and_sample_on_the_desk(tmp_path, monkeypatch) -
         )
         assert got["ok"] is True
         assert link.drain() == "empty"
-        assert len(hops) == 1
-        hop = hops[0]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert len(events) == 1
+        hop = events[0]
         assert hop == {
             "verb": "tw.event",
             "watch_id": "w5",

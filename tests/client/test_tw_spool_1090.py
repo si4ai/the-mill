@@ -76,7 +76,11 @@ def test_connect_drains_leftovers_in_order(tmp_path, monkeypatch) -> None:
     link = serve("tw-replay")
     try:
         assert link.drain() == "empty"
-        assert [item["kind"] for item in hops] == ["start", "exit"]
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert [item["kind"] for item in events] == ["start", "exit"]
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": []}
+        ]
         assert "id" not in hops[0]
         assert hops[0].get("counts") is None
         assert link._outbox is not None and link._outbox.peek() is None
@@ -86,7 +90,7 @@ def test_connect_drains_leftovers_in_order(tmp_path, monkeypatch) -> None:
     again = serve("tw-replay")
     try:
         assert again.drain() == "empty"
-        assert hops == []
+        assert hops == [{"verb": "tw.reconcile", "live": []}]
     finally:
         again.close()
 
@@ -208,14 +212,14 @@ def test_mid_run_loss_prints_once_and_keeps_the_child(tmp_path, monkeypatch, cap
         assert thread.is_alive(), box
         rows = list_runs("tw-mid")
         assert rows
-        assert [item.get("kind") for item in hops] == ["start"]
+        assert [item.get("kind") for item in hops if item.get("verb") == "tw.event"] == ["start"]
         assert stop_run("tw-mid", rows[0]["watch_id"]) == 0
         thread.join(5)
         assert not thread.is_alive(), box
         assert "error" not in box
         err = capsys.readouterr().err
         assert err.count(bridge_hint().strip()) == 1
-        assert [item.get("kind") for item in hops] == ["start"]
+        assert [item.get("kind") for item in hops if item.get("verb") == "tw.event"] == ["start"]
     finally:
         if thread.is_alive():
             rows = list_runs("tw-mid")

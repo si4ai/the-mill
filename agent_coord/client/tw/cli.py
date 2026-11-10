@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""tw CMD ARGS. The desk is the sitting connect, not a flag."""
+"""tw CMD ARGS. End a run by killing the printed pid (taskkill on windows). The desk is the sitting connect, not a flag."""
 from __future__ import annotations
 
 import json
