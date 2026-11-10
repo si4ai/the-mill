@@ -2099,7 +2099,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 try:
                     from agent_coord.server import wake as wake_mod
 
-                    wake_mod.auto_done(c._cn, desk)
+                    wake_mod.auto_done(c._cn, desk, command="reply")
                 except Exception:
                     pass
 
@@ -4197,7 +4197,7 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             try:
                 from agent_coord.server import wake as wake_mod
 
-                wake_mod.auto_done(c._cn, desk)
+                wake_mod.auto_done(c._cn, desk, command="mark")
             except Exception:
                 pass
 
@@ -4346,6 +4346,12 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
         if not isinstance(code, int) or isinstance(code, bool):
             raise CoordError("tw.event: exit_code must be an integer")
         meta["exit_code"] = code
+    ts_ms = clean.get("ts_ms")
+    if ts_ms is not None:
+        # Card 1090: tw's own clock (epoch ms) at the event; dwell uses it, not host receive time.
+        if not isinstance(ts_ms, int) or isinstance(ts_ms, bool) or ts_ms < 0:
+            raise CoordError("tw.event: ts_ms must be a non-negative integer")
+        meta["ts_ms"] = ts_ms
     counts = clean.get("counts")
     if counts is not None:
         if not isinstance(counts, dict) or any(
@@ -4360,8 +4366,7 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
         done = doing.task_event(c._cn, desk, meta, outcome=str(clean.get("outcome") or ""))
         if done == "cap":
             # Step 4: the only ok:false reply; no row, no transition, no wake.
-            return {"ok": False, "code": "cap",
-                    "msg": f"tw.event: desk already has {doing.TASK_CAP} live tasks"}
+            return {"ok": False, "code": "cap", "msg": doing.cap_hint(c._cn, desk)}
         if (clean.get("wake") is not False and kind in ("stall", "match", "exit", "crash")
                 and done != "noop"):
             after_commit(c._cn, lambda: wake.post_desk(c._cn, desk, dict(meta)))
@@ -4371,8 +4376,35 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
 
 
 
+def _h_tw_reconcile(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 1090: connect reports its live watch ids on start; the host closes
+    the calling desk's other live task rows as crashed (cause reconcile)."""
+    from agent_coord.server.records import doing
+    from agent_coord.server.records.db import in_request_tx, request_tx
+    from agent_coord.server.records.name import bare
+
+    if not owner:
+        raise CoordError("tw.reconcile: owner required")
+    raw = body.get("live")
+    if not isinstance(raw, list):
+        raise CoordError("tw.reconcile: live must be a list of watch ids (an empty list closes all)")
+    if len(raw) > doing.RECONCILE_MAX:
+        raise CoordError(f"tw.reconcile: at most {doing.RECONCILE_MAX} watch ids")
+    ids: list[str] = []
+    for w in raw:
+        if not isinstance(w, str) or not w.strip() or not w.isascii() or len(w) > 64:
+            raise CoordError("tw.reconcile: each watch id must be a non-empty ascii string")
+        ids.append(w.strip())
+    desk = bare(owner, CONST_DESK)
+
+    def run():
+        return {"ok": True, "desk": desk, **doing.reconcile_tasks(c._cn, desk, ids)}
+
+    return run() if in_request_tx(c._cn) else request_tx(c._cn, run)
+
+
 # Sitting-session hops that are not skill.md WALL verbs (card 970).
-SESSION_HOPS = frozenset({"tw.event"})
+SESSION_HOPS = frozenset({"tw.event", "tw.reconcile"})
 
 HANDLERS = {
     "wake-done": _h_wake_done,
@@ -4423,6 +4455,7 @@ HANDLERS = {
     "trail": _h_trail,
     "probe-delete": _h_probe_delete,
     "tw.event": _h_tw_event,
+    "tw.reconcile": _h_tw_reconcile,
 }
 
 

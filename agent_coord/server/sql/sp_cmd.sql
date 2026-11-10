@@ -160,6 +160,9 @@ BEGIN
     BEGIN
       SET @mill_req_tx = v_saved;
     END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     SELECT roster_id INTO v_rid FROM todo WHERE id = p_card;
     CALL mill_card_score_event(v_rid, 'claimed', NULL, NULL, NULL, NULL, NULL);
@@ -319,6 +322,9 @@ BEGIN
           @mill_card_score_actual = NULL, @mill_card_score_doing = NULL,
           @mill_card_score_now = NULL;
     END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     IF @mill_card_score_kind IS NOT NULL THEN
       CALL mill_card_score_event(
@@ -372,8 +378,14 @@ CREATE PROCEDURE cmd_push_put_back(
   IN p_payload JSON
 )
 BEGIN
+  DECLARE v_lock INT;
+  -- Lock order (card 1113): the wake row exclusive first, by primary key (type, id), as every wake
+  -- write does. The INSERT ... SELECT below reads it with a shared lock and the UPDATE then wants
+  -- it exclusive; two callers on one row deadlocked. A lookup by idx_id locks that index before
+  -- the primary key, the reverse of mill_push_take's scan by desk.
+  SELECT COUNT(*) INTO v_lock FROM wake WHERE type = 'wake' AND id = p_push FOR UPDATE;
   INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-  SELECT 'wake', id, state, 'missed', 'wake_owed', 0, 'office'
+  SELECT 'wake', id, state, 'missed', 'wake_owed', desk_id, 'office'
     FROM wake WHERE id = p_push AND type = 'wake' AND state = 'sent';
   UPDATE wake SET state = 'missed', payload = p_payload WHERE id = p_push AND type = 'wake' AND state = 'sent';
   SELECT ROW_COUNT() AS marked;
@@ -386,6 +398,9 @@ CREATE PROCEDURE cmd_push_mark(
   IN p_outcome VARCHAR(8)
 )
 BEGIN
+  DECLARE v_lock INT;
+  -- Lock order (card 1113): the wake row exclusive before the shared copy into transition.
+  SELECT COUNT(*) INTO v_lock FROM wake WHERE type = 'wake' AND id = p_push FOR UPDATE;
   INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
   SELECT 'wake', id, state, p_outcome,
          CASE p_outcome
@@ -393,7 +408,7 @@ BEGIN
            WHEN 'missed' THEN 'wake_owed'
            ELSE 'wake_fail'
          END,
-         0, 'office'
+         desk_id, 'office'
     FROM wake WHERE id = p_push AND type = 'wake' AND state IN ('queued', 'missed');
   UPDATE wake SET state = p_outcome WHERE id = p_push AND type = 'wake' AND state IN ('queued', 'missed');
   SELECT ROW_COUNT() AS marked;
@@ -405,9 +420,15 @@ CREATE PROCEDURE cmd_push_sent(
   IN p_ids  JSON
 )
 BEGIN
+  DECLARE v_lock INT;
+  -- Lock order (card 1113): this desk's named wake rows exclusive, by primary key (type, id),
+  -- before the shared copy into transition.
+  SELECT COUNT(*) INTO v_lock FROM wake p
+    JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON p.type = 'wake' AND p.id = j.id
+   WHERE p.desk_id = p_desk FOR UPDATE OF p;
   -- card 1022: hand-back marks taken; rows stay; write transition (F-transition-table)
   INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-  SELECT 'wake', p.id, p.state, 'taken', 'wake_deliver', 0, 'office'
+  SELECT 'wake', p.id, p.state, 'taken', 'wake_deliver', p.desk_id, 'office'
     FROM wake p
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = p.id
    WHERE p.desk_id = p_desk AND p.type = 'wake' AND p.state <> 'taken';

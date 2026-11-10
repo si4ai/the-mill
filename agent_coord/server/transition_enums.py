@@ -201,6 +201,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_fail),  # W4a
         (ActivityType.wake, State.unread_owed, State.lease_live, Reason.wake_fail),  # W4b
         (ActivityType.wake, State.fail, State.retry_armed, Reason.wake_retry),  # W5
+        (ActivityType.wake, State.error, State.retry_armed, Reason.wake_retry),  # W5c card 1111
         (ActivityType.wake, State.retry_armed, State.drained, Reason.wake_drain),  # W6a
         (ActivityType.wake, State.retry_armed, State.idle, Reason.wake_drain),  # W6b
         (ActivityType.wake, State.lease_live, State.trail, Reason.wake_trail),  # W7

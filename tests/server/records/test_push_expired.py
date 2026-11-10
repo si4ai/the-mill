@@ -277,3 +277,35 @@ def test_second_expire_window_after_take_gets_new_marker(cn) -> None:
     assert "second-mail" not in _blob(take2[0])
     assert "second-hint" not in _blob(take2[0])
 
+def test_expire_counts_retry_armed_in_error(cn) -> None:
+    """Expire-marker error tally includes retry_armed rows, not only state=error."""
+    away = _desk(cn, "push-expire-retry-armed")
+    other = _desk(cn, "push-expire-retry-armed-other")
+    rid = _push(cn, "push-expire-retry-armed", away, "mail", "error", 40, {"id": 8, "body": "old-retry"})
+    cur = cn.cursor()
+    try:
+        cur.execute("UPDATE wake SET state = 'retry_armed' WHERE id = %s", (rid,))
+        cn.commit()
+    finally:
+        cur.close()
+    _push(cn, "push-expire-retry-armed-other", other, "hint", "sent", 1, {"type": "todo", "id": 3})
+    rec_push.expire(cn)
+    queued = _rows(cn, away)
+    assert [row["kind"] for row in queued] == ["expired"]
+    assert int(queued[0]["payload"]["error"]) == 1
+    assert int(queued[0]["payload"]["mail"]) == 1
+    assert int(queued[0]["payload"]["missed"]) == 0
+    # later window uses the UPDATE path; a second retry_armed row must add in
+    rid2 = _push(cn, "push-expire-retry-armed", away, "hint", "error", 40, {"type": "todo", "id": 9, "body": "old-retry-2"})
+    cur = cn.cursor()
+    try:
+        cur.execute("UPDATE wake SET state = 'retry_armed' WHERE id = %s", (rid2,))
+        cn.commit()
+    finally:
+        cur.close()
+    rec_push.expire(cn)
+    again = _rows(cn, away)
+    assert int(again[0]["payload"]["error"]) == 2
+    assert int(again[0]["payload"]["hint"]) == 1
+    assert int(again[0]["payload"]["mail"]) == 1
+

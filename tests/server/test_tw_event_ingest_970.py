@@ -174,6 +174,10 @@ def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
         return {"ok": True, "result": {"ok": True}}
 
     monkeypatch.setattr("agent_coord.client.http.mill_http_call", fake_http)
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
+    )
     link = serve("tw-hop")
     session = Session(link)
     try:
@@ -189,13 +193,18 @@ def test_link_hops_before_ok(tmp_path, monkeypatch) -> None:
         assert got["type"] == "reply"
         assert got["ok"] is True
         assert got["watch_id"] == "w9"
-        assert len(hops) == 1
-        assert hops[0]["verb"] == "tw.event"
-        assert hops[0]["watch_id"] == "w9"
-        assert hops[0]["kind"] == "start"
-        assert "argv" not in hops[0]
-        assert "title" not in hops[0]
-        assert "pattern" not in hops[0]
+        assert link.drain() == "empty"
+        events = [item for item in hops if item.get("verb") == "tw.event"]
+        assert len(events) == 1
+        assert events[0]["verb"] == "tw.event"
+        assert events[0]["watch_id"] == "w9"
+        assert events[0]["kind"] == "start"
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": []}
+        ]
+        assert "argv" not in events[0]
+        assert "title" not in events[0]
+        assert "pattern" not in events[0]
     finally:
         session.close()
         link.close()
@@ -216,8 +225,9 @@ def test_link_hop_failure_marks_and_keeps_sit(tmp_path, monkeypatch) -> None:
     try:
         got = session.request({"type": "event", "watch_id": "w2", "kind": "stall"})
         assert got["type"] == "reply"
-        assert got["ok"] is False
-        assert got["msg"] == "hop failed"
+        assert got["ok"] is True
+        assert link.drain() == "down"
+        assert link._outbox is not None and link._outbox.peek() is not None
         assert "tw.event" in link.marks
         # sit stays up: another local frame still works
         bad = session.request({"type": "nope"})
@@ -238,6 +248,10 @@ def test_bad_line_and_unknown_type_do_not_hop(tmp_path, monkeypatch) -> None:
         "agent_coord.client.http.mill_http_call",
         lambda body: hops.append(body) or {"ok": True, "result": {"ok": True}},
     )
+    monkeypatch.setattr(
+        "agent_coord.client.seat.status.look",
+        lambda *args, **kwargs: type("_s", (), {"kind": "sitting"})(),
+    )
     link = serve("tw-nohop")
     session = Session(link)
     try:
@@ -246,7 +260,7 @@ def test_bad_line_and_unknown_type_do_not_hop(tmp_path, monkeypatch) -> None:
         assert bad["ok"] is False
         unk = session.request({"type": "nope"})
         assert unk["ok"] is False
-        assert hops == []
+        assert hops == [{"verb": "tw.reconcile", "live": []}]
     finally:
         session.close()
         link.close()

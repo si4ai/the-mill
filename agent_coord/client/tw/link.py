@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -184,9 +185,18 @@ class Link:
         self._peers_lock = threading.Lock()
         self._route_lock = threading.Lock()
         self._snap_lock = threading.Lock()
+        self._send_lock = threading.Lock()
         self._snapshots: dict[str, dict[str, Any]] = {}
+        self._outbox = None
+        self._sender: threading.Thread | None = None
+        self._kick = threading.Event()
+        self._down_marked = False
+        self._reconcile_body: dict[str, Any] | None = None
 
     def start(self) -> None:
+        from agent_coord.client.tw.outbox import Outbox, outbox_path
+
+        self._outbox = Outbox(outbox_path(self.desk))
         path = pointer_path(self.desk)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(kind() + " " + self._transport.address + "\n", encoding="utf-8")
@@ -203,6 +213,74 @@ class Link:
             err = self._error
             self.close()
             raise OSError(str(err))
+        self._drain_pending()
+        self._live_watch_ids = self._reconcile_ghosts()
+        self._post_reconcile(self._live_watch_ids)
+        self._sender = threading.Thread(
+            target=self._sender_loop, name="mill-tw-send-" + self.desk, daemon=True
+        )
+        self._sender.start()
+        self._kick.set()
+
+    def _drain_pending(self) -> None:
+        for _ in range(256):
+            if self._post_once() != "ok":
+                return
+
+    def _reconcile_ghosts(self) -> list[str]:
+        from agent_coord.client.tw.proc import reconcile_ghosts
+
+        if self._outbox is None:
+            return []
+        return reconcile_ghosts(self.desk, self._outbox)
+
+    def _post_reconcile(self, live: list[str]) -> None:
+        """one session hop once this process can see a sitting bridge.
+
+        An over-long list is not sent, so none of the ids are dropped.
+        A second socket before the sit exists consumes connect-wait's
+        only frame, and that wait never returns.
+        """
+        if len(live) > 256:
+            return
+        self._reconcile_body = {
+            "verb": "tw.reconcile",
+            "live": [str(item) for item in live],
+        }
+        self._flush_reconcile()
+
+    def _hop_can_send(self) -> bool:
+        """true once a sit bridge is visible, or when connect has not opened the link yet.
+
+        connect sets the before-sit flag, then opens this link, then sits.
+        a hop in that gap would borrow a second socket.
+        """
+        from agent_coord.client.http import link_before_sit
+        from agent_coord.client.seat.status import look
+
+        try:
+            if look().kind == "sitting":
+                return True
+        except Exception:
+            return False
+        try:
+            return not link_before_sit()
+        except Exception:
+            return False
+
+    def _flush_reconcile(self) -> None:
+        with self._send_lock:
+            body = self._reconcile_body
+            if body is None or not self._hop_can_send():
+                return
+            self._reconcile_body = None
+        try:
+            got = self._call(body)
+        except Exception:
+            self.marks.append("tw.reconcile")
+            return
+        if not (isinstance(got, dict) and got.get("ok") is True):
+            self.marks.append("tw.reconcile")
 
     def _run(self) -> None:
         try:
@@ -275,6 +353,8 @@ class Link:
                 for wid in list(peer.watch_ids):
                     if self._by_watch.get(wid) is peer:
                         self._by_watch.pop(wid, None)
+            if not self._stop.is_set():
+                self._note_crash(peer)
             peer.done.set()
 
     def _serve(self, peer: _Peer) -> None:
@@ -341,27 +421,25 @@ class Link:
         return protocol.reply(True, "registered")
 
     def _event(self, peer: _Peer, msg: dict[str, Any]) -> dict[str, Any]:
-        # Hop before ok (letter 4618). Doing scores stay server-side; this slice
-        # only posts tw.event and writes no doing / tw_* row itself.
-        # argv/title/pattern stay on the desk (letter 4621); hop body omits them.
+        # Write the hop, ack, then the sender posts it. argv and streams stay here.
         wid = _watch_id(msg)
-        body: dict[str, Any] = {"verb": "tw.event"}
+        body: dict[str, Any] = {}
         for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
             if key in msg:
                 body[key] = msg[key]
+        ts_ms = msg.get("ts_ms")
+        if isinstance(ts_ms, int) and not isinstance(ts_ms, bool) and ts_ms >= 0:
+            body["ts_ms"] = ts_ms
         if msg.get("wake") is False:
             body["wake"] = False
         if wid and "watch_id" not in body:
             body["watch_id"] = wid
-        try:
-            from agent_coord.client.http import mill_http_call
-
-            got = mill_http_call(body)
-        except Exception:
+        if self._outbox is None:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)
-        ok = isinstance(got, dict) and got.get("ok") is True
-        if not ok:
+        try:
+            self._outbox.add(body)
+        except OSError:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)
         if wid:
@@ -369,7 +447,92 @@ class Link:
             with self._peers_lock:
                 self._by_watch[wid] = peer
             self._remember(wid, msg)
+        self._kick.set()
         return protocol.reply(True, "accepted", wid or None)
+
+    def _call(self, body: dict[str, Any]) -> Any:
+        from agent_coord.client.http import mill_http_call
+
+        return mill_http_call(body)
+
+    def _post_once(self) -> str:
+        if self._outbox is None:
+            return "empty"
+        if not self._hop_can_send():
+            return "wait"
+        from agent_coord.client.tw.outbox import send_pending
+
+        with self._send_lock:
+            result = send_pending(self._outbox, self._call)
+        if result == "down":
+            if not self._down_marked:
+                self.marks.append("tw.event")
+                self._down_marked = True
+        elif result == "ok":
+            self._down_marked = False
+        return result
+
+    def _sender_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                result = self._post_once()
+            except Exception:
+                result = "down"
+            if self._stop.is_set():
+                return
+            if result == "ok":
+                continue
+            # events first, then the reconcile list, so a lost crash is not late.
+            self._flush_reconcile()
+            if result in ("empty", "wait"):
+                self._kick.wait(0.5)
+                self._kick.clear()
+                continue
+            if self._stop.wait(0.25):
+                return
+
+    def drain(self, limit: int = 32) -> str:
+        """Send queued hops until one stays or the file is empty."""
+        last = "empty"
+        for _ in range(max(1, limit)):
+            last = self._post_once()
+            if last != "ok":
+                return last
+        return last
+
+    def _note_crash(self, peer: _Peer) -> None:
+        if self._outbox is None:
+            return
+        noted = False
+        for wid in list(peer.watch_ids):
+            with self._snap_lock:
+                row = self._snapshots.get(wid)
+                kind_name = str(row.get("kind") or "") if isinstance(row, dict) else ""
+            if kind_name in ("exit", "crash"):
+                continue
+            try:
+                box = self._outbox
+                if box is None:
+                    return
+                box.add(
+                    {
+                        "watch_id": wid,
+                        "kind": "crash",
+                        "cause": "lost",
+                        "ts_ms": time.time_ns() // 1_000_000,
+                    }
+                )
+            except Exception:
+                self.marks.append("tw.event")
+                continue
+            noted = True
+            if isinstance(row, dict):
+                with self._snap_lock:
+                    row["kind"] = "crash"
+                    if row.get("exit_code") is None:
+                        row["exit_code"] = 1
+        if noted:
+            self._kick.set()
 
     def _sample(self, msg: dict[str, Any]) -> dict[str, Any]:
         # Local buffer only. stdout, stderr, log, and sample do not hop.
@@ -449,6 +612,40 @@ class Link:
             return False
         return self._enqueue(peer, protocol.stop_frame(wid, reason))
 
+    def _drop_peer(self, peer: _Peer) -> None:
+        """Unblock a peer read so close does not leave the link accepting hops."""
+        cancel = getattr(peer.conn, "cancel", None)
+        if cancel is not None:
+            try:
+                cancel()
+            except OSError:
+                pass
+            return
+        fileno = getattr(peer.conn, "fileno", None)
+        if fileno is None:
+            return
+        try:
+            fd = fileno()
+        except (OSError, ValueError):
+            return
+        if not isinstance(fd, int) or fd < 0:
+            return
+        import socket
+
+        try:
+            sock = socket.socket(fileno=fd)
+        except (OSError, ValueError):
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                sock.detach()
+            except (OSError, ValueError):
+                pass
+
     def _wake(self) -> None:
         try:
             conn = self._transport.connect()
@@ -469,21 +666,23 @@ class Link:
         with self._peers_lock:
             peers = [peer for peer in self._peers if peer.live]
         for peer in peers:
-            ids = list(peer.watch_ids)
-            for wid in ids:
+            for wid in list(peer.watch_ids):
                 self._enqueue(peer, protocol.stop_frame(wid, "sit-end"))
-            if not ids:
-                cancel = getattr(peer.conn, "cancel", None)
-                if cancel is not None:
-                    try:
-                        cancel()
-                    except OSError:
-                        pass
+            self._drop_peer(peer)
         self._wake()
         if self._thread is not None:
             self._thread.join(2.0)
         for peer in peers:
             peer.done.wait(0.5)
+        self._kick.set()
+        if self._sender is not None:
+            self._sender.join(2.0)
+        if self._outbox is not None:
+            try:
+                self._outbox.close()
+            except Exception:
+                pass
+            self._outbox = None
         try:
             pointer_path(self.desk).unlink()
         except OSError:

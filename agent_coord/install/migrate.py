@@ -1718,6 +1718,69 @@ def _ensure_transition_n(cn) -> list[str]:
     return applied
 
 
+
+def _ensure_wake_retry_edge(cn) -> list[str]:
+    """card 1111: wake error -> retry_armed / wake_retry. Idempotent INSERT IGNORE."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition_edge"):
+            return applied
+        cur.execute(
+            "INSERT IGNORE INTO transition_edge"
+            " (activity_type, from_state, to_state, reason)"
+            " VALUES ('wake', 'error', 'retry_armed', 'wake_retry')"
+        )
+        if cur.rowcount:
+            applied.append("transition_edge.wake_retry_from_error")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
+def _ensure_wake_auto_id(cn) -> list[str]:
+    """card 1113: wake is payload first, as mail and todo. wake.id is AUTO_INCREMENT, past every wake id in
+    activity (rollup deletes wake rows and keeps their activity rows), and fk_wake_activity is gone (the
+    wake row is written before its activity row). Idempotent.
+    """
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "wake"):
+            return applied
+        cur.execute(
+            "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE()"
+            " AND TABLE_NAME = 'wake' AND CONSTRAINT_NAME = 'fk_wake_activity'"
+        )
+        if cur.fetchone():
+            _apply_stmt(cur, "ALTER TABLE wake DROP FOREIGN KEY fk_wake_activity")
+            applied.append("wake_drop_fk_activity")
+        cur.execute(
+            "SELECT EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
+            " AND TABLE_NAME = 'wake' AND COLUMN_NAME = 'id'"
+        )
+        row = cur.fetchone()
+        if row and "auto_increment" not in str(row[0]).lower():
+            _apply_stmt(cur, "ALTER TABLE wake MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT")
+            applied.append("wake_auto_id")
+        cur.execute("SELECT IFNULL(MAX(id), 0) FROM activity WHERE type = 'wake'")
+        top = int(cur.fetchone()[0])
+        if top:
+            # Only raises the counter: InnoDB keeps it at or past MAX(wake.id) + 1.
+            cur.execute(f"ALTER TABLE wake AUTO_INCREMENT = {top + 1}")
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def apply_transition_1022(cn) -> list[str]:
     """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
@@ -1876,6 +1939,9 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(apply_task_970(cn))
             # card 1098: transition.n (after 1022 table exists)
             applied.extend(_ensure_transition_n(cn))
+            applied.extend(_ensure_wake_retry_edge(cn))
+            # card 1113: wake.id is AUTO_INCREMENT, payload first (after the 1022 wake table).
+            applied.extend(_ensure_wake_auto_id(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
