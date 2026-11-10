@@ -250,10 +250,21 @@ class Link:
         self._flush_reconcile()
 
     def _hop_can_send(self) -> bool:
+        """true once a sit bridge is visible, or when connect has not opened the link yet.
+
+        connect sets the before-sit flag, then opens this link, then sits.
+        a hop in that gap would borrow a second socket.
+        """
+        from agent_coord.client.http import link_before_sit
         from agent_coord.client.seat.status import look
 
         try:
-            return look().kind == "sitting"
+            if look().kind == "sitting":
+                return True
+        except Exception:
+            return False
+        try:
+            return not link_before_sit()
         except Exception:
             return False
 
@@ -447,6 +458,8 @@ class Link:
     def _post_once(self) -> str:
         if self._outbox is None:
             return "empty"
+        if not self._hop_can_send():
+            return "wait"
         from agent_coord.client.tw.outbox import send_pending
 
         with self._send_lock:
@@ -461,7 +474,6 @@ class Link:
 
     def _sender_loop(self) -> None:
         while not self._stop.is_set():
-            self._flush_reconcile()
             try:
                 result = self._post_once()
             except Exception:
@@ -470,7 +482,9 @@ class Link:
                 return
             if result == "ok":
                 continue
-            if result == "empty":
+            # events first, then the reconcile list, so a lost crash is not late.
+            self._flush_reconcile()
+            if result in ("empty", "wait"):
                 self._kick.wait(0.5)
                 self._kick.clear()
                 continue
@@ -497,7 +511,10 @@ class Link:
             if kind_name in ("exit", "crash"):
                 continue
             try:
-                self._outbox.add(
+                box = self._outbox
+                if box is None:
+                    return
+                box.add(
                     {
                         "watch_id": wid,
                         "kind": "crash",
@@ -505,7 +522,7 @@ class Link:
                         "ts_ms": time.time_ns() // 1_000_000,
                     }
                 )
-            except OSError:
+            except Exception:
                 self.marks.append("tw.event")
                 continue
             noted = True

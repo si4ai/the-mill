@@ -1020,6 +1020,14 @@ def check_project_on_socket(who: str, project: str, stop: Any, outcome: dict) ->
     stop.set()
 
 
+_link_before_sit = False
+
+
+def link_before_sit() -> bool:
+    """true while connect has opened the tw link and the sit bridge is not up yet."""
+    return _link_before_sit
+
+
 def _open_tw_link(desk: str):
     """Local tw socket for this sit. A bind failure leaves the sit up."""
     try:
@@ -1170,8 +1178,11 @@ def mill_here_over_http(args: Any) -> int:
 
     parent = _shell_ppid()
     refuse = bool(getattr(args, "refuse", False))
-    tw_link = _open_tw_link(who)
+    global _link_before_sit
+    _link_before_sit = True
+    tw_link = None
     try:
+        tw_link = _open_tw_link(who)
         return _sit_mill_here(
             foreground=foreground,
             who=who,
@@ -1184,3 +1195,4 @@ def mill_here_over_http(args: Any) -> int:
     finally:
         if tw_link is not None:
             tw_link.close()
+        _link_before_sit = False

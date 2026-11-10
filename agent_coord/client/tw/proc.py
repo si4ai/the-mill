@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -136,11 +137,113 @@ def _image_name(pid: int) -> str:
     return _linux_image(pid)
 
 
+def _windows_cmdline(pid: int) -> str:
+    """command line for this pid. empty if the pid is closed."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return ""
+    try:
+        ntdll.NtQueryInformationProcess.argtypes = [
+            wintypes.HANDLE,
+            wintypes.ULONG,
+            wintypes.LPVOID,
+            wintypes.ULONG,
+            ctypes.POINTER(wintypes.ULONG),
+        ]
+        ntdll.NtQueryInformationProcess.restype = wintypes.LONG
+        need = wintypes.ULONG(0)
+        # 60 is ProcessCommandLineInformation. the first call sizes the buffer.
+        ntdll.NtQueryInformationProcess(handle, 60, None, 0, ctypes.byref(need))
+        size = max(int(need.value or 0), 16)
+        buf = ctypes.create_string_buffer(size)
+        status = ntdll.NtQueryInformationProcess(
+            handle, 60, buf, size, ctypes.byref(need)
+        )
+        if status < 0 or status > 0:
+            return ""
+        length = int.from_bytes(buf.raw[:2], "little")
+        if length <= 0:
+            return ""
+        ptr = int.from_bytes(buf.raw[8:16], "little")
+        base = ctypes.addressof(buf)
+        if base <= ptr < base + size:
+            return ctypes.wstring_at(ptr, length // 2)
+        end = min(16 + length, size)
+        return buf.raw[16:end].decode("utf-16-le", "replace")
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def _posix_cmdline(pid: int) -> str:
+    try:
+        raw = Path("/proc/%s/cmdline" % pid).read_bytes()
+    except OSError:
+        raw = b""
+    if raw:
+        return " ".join(
+            part.decode("utf-8", "replace") for part in raw.split(b"\0") if part
+        )
+    if sys.platform != "darwin":
+        return ""
+    try:
+        out = subprocess.check_output(
+            ["ps", "-p", str(int(pid)), "-o", "command="],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.decode("utf-8", "replace").strip()
+
+
+def _cmdline(pid: int) -> str:
+    if pid <= 0:
+        return ""
+    if os.name == "nt":
+        return _windows_cmdline(pid)
+    return _posix_cmdline(pid)
+
+
+def _python_image(name: str) -> bool:
+    base = name.lower()
+    if base.endswith(".exe"):
+        base = base[:-4]
+    return base == "python" or base.startswith("python")
+
+
+def _cmdline_is_tw(text: str) -> bool:
+    """true when the command line is the tw console script or python -m of it."""
+    if not text:
+        return False
+    folded = text.lower()
+    if re.search(
+        r"(?:^|[\s\"'])-m[\s\"']+agent_coord\.client\.tw(?:$|[\s\"'])",
+        folded,
+    ):
+        return True
+    # a path whose last step is the tw script. a later bare argument does not count.
+    return re.search(r"[\\/]tw(?:\.exe)?(?=$|[\s\"'])", folded) is not None
+
+
 def _still_tw(pid: int) -> bool:
-    """The pid is alive and the program name is tw."""
+    """the pid is alive and still the tw wrapper.
+
+    a console script's image is python, not tw. the command line names tw.
+    a reused pid whose program is python but not tw is not the wrapper.
+    """
     if pid <= 0 or not _alive(pid):
         return False
-    return _image_name(pid).lower() in {"tw", "tw.exe"}
+    image = _image_name(pid).lower()
+    if image in {"tw", "tw.exe"}:
+        return True
+    if not _python_image(image):
+        return False
+    return _cmdline_is_tw(_cmdline(pid))
 
 
 def _end(pid: int) -> None:
@@ -458,7 +561,8 @@ def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int],
     if stream is None:
         return
     while True:
-        chunk = stream.read(4096)
+        # one byte. a 4096 read on a pipe waits until that many bytes or exit.
+        chunk = stream.read(1)
         if not chunk:
             return
         with lock:
@@ -794,8 +898,15 @@ def run_argv(
         if code is None:
             code = 1
         code = int(code)
-        if crashed:
-            body = _event_body(watch_id, "crash", proc.pid, cause="killed", exit_code=code)
+        # a signal death is negative. recording it as a plain exit and
+        # returning it makes tw itself exit with the low 8 bits (15 -> 241).
+        signaled = code < 0
+        if signaled:
+            code = 128 + ((-code) & 127)
+        if crashed or signaled:
+            body = _event_body(
+                watch_id, "crash", proc.pid, cause="killed", exit_code=code
+            )
         else:
             body = _event_body(
                 watch_id,

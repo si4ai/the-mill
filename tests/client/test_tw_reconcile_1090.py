@@ -6,7 +6,14 @@ import os
 
 from agent_coord.client.tw.link import serve
 from agent_coord.client.tw.outbox import Outbox, outbox_path
-from agent_coord.client.tw.proc import _image_name, _load, _save, list_runs
+from agent_coord.client.tw.proc import (
+    _cmdline_is_tw,
+    _image_name,
+    _load,
+    _save,
+    _still_tw,
+    list_runs,
+)
 
 
 def _home(monkeypatch, tmp_path):
@@ -38,6 +45,60 @@ def test_image_of_this_process_is_not_tw() -> None:
     name = _image_name(os.getpid()).lower()
     assert name
     assert name not in {"tw", "tw.exe"}
+    assert _still_tw(os.getpid()) is False
+
+
+def test_cmdline_names_the_tw_script_not_a_pytest() -> None:
+    assert _cmdline_is_tw(r"C:\Python\python.exe C:\Scripts\tw.exe echo")
+    assert _cmdline_is_tw("/usr/bin/python3.12 /usr/local/bin/tw echo")
+    assert _cmdline_is_tw("python -m agent_coord.client.tw echo")
+    assert _cmdline_is_tw("python -m pytest tests/client/test_tw_reconcile_1090.py") is False
+    assert _cmdline_is_tw("python -c import tw") is False
+
+
+def test_python_running_the_tw_script_stays_live(tmp_path, monkeypatch) -> None:
+    _home(monkeypatch, tmp_path)
+    _sitting(monkeypatch)
+    hops: list[dict] = []
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
+    )
+    monkeypatch.setattr("agent_coord.client.tw.proc._alive", lambda pid: True)
+    monkeypatch.setattr("agent_coord.client.tw.proc._image_name", lambda pid: "python.exe")
+    monkeypatch.setattr(
+        "agent_coord.client.tw.proc._cmdline",
+        lambda pid: r"C:\Python\python.exe C:\Scripts\tw.exe echo",
+    )
+    _save("tw-py", {"tw-py": _row(pid=99, tw_pid=os.getpid())})
+    link = serve("tw-py")
+    try:
+        assert link.drain() == "empty"
+        assert [item for item in hops if item.get("kind") == "crash"] == []
+        assert [item for item in hops if item.get("verb") == "tw.reconcile"] == [
+            {"verb": "tw.reconcile", "live": ["tw-py"]}
+        ]
+    finally:
+        link.close()
+
+
+def test_events_wait_while_connect_is_opening_the_link(tmp_path, monkeypatch) -> None:
+    _home(monkeypatch, tmp_path)
+    hops: list[dict] = []
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
+    )
+    monkeypatch.setattr("agent_coord.client.http.link_before_sit", lambda: True)
+    box = Outbox(outbox_path("tw-wait"))
+    box.add({"watch_id": "tw-wait", "kind": "start", "ts_ms": 5})
+    box.close()
+    link = serve("tw-wait")
+    try:
+        assert link.drain() == "wait"
+        assert hops == []
+    finally:
+        link.close()
 
 
 def test_list_keeps_a_started_ghost(tmp_path, monkeypatch) -> None:
