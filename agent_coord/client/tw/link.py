@@ -555,6 +555,40 @@ class Link:
             return False
         return self._enqueue(peer, protocol.stop_frame(wid, reason))
 
+    def _drop_peer(self, peer: _Peer) -> None:
+        """Unblock a peer read so close does not leave the link accepting hops."""
+        cancel = getattr(peer.conn, "cancel", None)
+        if cancel is not None:
+            try:
+                cancel()
+            except OSError:
+                pass
+            return
+        fileno = getattr(peer.conn, "fileno", None)
+        if fileno is None:
+            return
+        try:
+            fd = fileno()
+        except (OSError, ValueError):
+            return
+        if not isinstance(fd, int) or fd < 0:
+            return
+        import socket
+
+        try:
+            sock = socket.socket(fileno=fd)
+        except (OSError, ValueError):
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                sock.detach()
+            except (OSError, ValueError):
+                pass
+
     def _wake(self) -> None:
         try:
             conn = self._transport.connect()
@@ -575,16 +609,9 @@ class Link:
         with self._peers_lock:
             peers = [peer for peer in self._peers if peer.live]
         for peer in peers:
-            ids = list(peer.watch_ids)
-            for wid in ids:
+            for wid in list(peer.watch_ids):
                 self._enqueue(peer, protocol.stop_frame(wid, "sit-end"))
-            if not ids:
-                cancel = getattr(peer.conn, "cancel", None)
-                if cancel is not None:
-                    try:
-                        cancel()
-                    except OSError:
-                        pass
+            self._drop_peer(peer)
         self._wake()
         if self._thread is not None:
             self._thread.join(2.0)
