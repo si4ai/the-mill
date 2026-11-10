@@ -369,8 +369,9 @@ class Analyzer:
             locks += self._sub_locks(wh, where)
             locks.append(Lock("X", table, key, self.idx_where(table, wh, None, key), where, "delete"))
             return locks
-        if re.search(r"\bFOR\s+UPDATE\s*$", st, re.I) and re.match(r"SELECT\b", st, re.I):
-            fm = re.search(r"\bFROM\s+(.*?)(?:\bWHERE\b(.*?))?(?:\bORDER\s+BY\b.*|\bLIMIT\b.*|\bFOR\s+UPDATE\s*)$", st, re.I)
+        fu = r"\bFOR\s+UPDATE(?:\s+OF\s+" + ID + r"(?:\s*,\s*" + ID + r")*)?\s*"
+        if re.search(fu + "$", st, re.I) and re.match(r"SELECT\b", st, re.I):
+            fm = re.search(r"\bFROM\s+(.*?)(?:\bWHERE\b(.*?))?(?:\bORDER\s+BY\b.*|\bLIMIT\b.*|" + fu + r")$", st, re.I)
             if fm:
                 locks += self._from_locks(fm.group(1), fm.group(2) or "", "X", where, "for update")
             return locks
@@ -480,17 +481,18 @@ class Analyzer:
     def _covered(self, lk: Lock, held_x: set[tuple[str, str]]) -> bool:
         """A shared read taken while this procedure already holds X on the item it belongs to.
 
-        Assumption (the mill's lock order, F183): an item's rows (tree, watcher, activity) are
-        written under the item's own row lock (todo, mail, hold, score by id), and a plan's tree
-        rows under the plan's name row. So an X on todo[k] covers an S on tree[k], and an X on
-        name[v] covers an S on tree[name_id=v] (tree.name_id references name).
+        Assumption (the mill's lock order, F183): an item's own rows (watcher, activity) are
+        written under the item's row lock (todo, mail, hold, score by id), and a plan's tree rows
+        under the plan's name row. So an X on todo[k] covers an S on activity[k], and an X on
+        name[v] covers an S on tree[name_id=v] (tree.name_id references name). Not tree[k]: a
+        write to another item on the same plan shifts that row's lft/rgt (card 1113).
         """
         val = lk.key.split("=", 1)[1] if "=" in lk.key else lk.key
         col = lk.key.split("=", 1)[0] if "=" in lk.key else self.key_col(lk.table)
         for t, k in held_x:
             if k != val or t == lk.table:
                 continue
-            if "=" not in lk.key and t in ("todo", "mail", "hold", "score"):
+            if "=" not in lk.key and t in ("todo", "mail", "hold", "score") and lk.table != "tree":
                 return True
             if any(f.child == lk.table and f.parent == t and col in f.cols for f in self.fks):
                 return True

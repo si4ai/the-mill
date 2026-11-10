@@ -270,6 +270,7 @@ BEGIN
   DECLARE v_now DATETIME(6);
   DECLARE v_one BIGINT UNSIGNED;
   DECLARE v_ros BIGINT UNSIGNED;
+  DECLARE v_ids JSON;
   SET v_now = MILL_NOW();
   SET v_one = NULL;
   SET v_ros = NULL;
@@ -280,8 +281,9 @@ BEGIN
   END IF;
   DROP TEMPORARY TABLE IF EXISTS tmp_doing_desk;
   CREATE TEMPORARY TABLE tmp_doing_desk (desk_id BIGINT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=MEMORY;
-  INSERT INTO tmp_doing_desk (desk_id)
-  SELECT s.desk_id
+  -- Card 1113: the desk list by a plain read into a value. INSERT ... SELECT from seat and name is
+  -- a locking read: a status read held shared locks on every listed seat and name row.
+  SELECT JSON_ARRAYAGG(s.desk_id) INTO v_ids
     FROM seat s
     JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.deleted IS NULL
    -- 0.8.0: a joined seat only (a named desk has a seat row from its mint; sp_join.sql).
@@ -292,6 +294,8 @@ BEGIN
           OR s.updated > v_now - INTERVAL 1 DAY
           OR EXISTS (SELECT 1 FROM activity a
                       WHERE a.desk_id = s.desk_id AND a.created > v_now - INTERVAL 1 DAY))));
+  INSERT INTO tmp_doing_desk (desk_id)
+  SELECT j.id FROM JSON_TABLE(IFNULL(v_ids, JSON_ARRAY()), '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j;
 
   SELECT 'desk' AS part, d.name AS desk,
          cur.id, cur.text, cur.on_type, cur.on_id, cur.act, cur.waiting_type, cur.waiting_id, cur.waiting_why,

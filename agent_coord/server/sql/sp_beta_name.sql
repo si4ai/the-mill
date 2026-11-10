@@ -370,6 +370,10 @@ BEGIN
   IF v_type NOT IN ('roster','label','tree') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: type is roster, label or tree (desks keep mill retire)';
   END IF;
+  -- Lock order (card 1113, F183): the purging desk's seat before the name (its doing row's FK
+  -- check reads that seat shared later).
+  SELECT id INTO v_doing FROM seat WHERE desk_id = v_by FOR UPDATE;
+  SET v_doing = NULL;
   SELECT id, deleted, trashed, name INTO v_id, v_del, v_tr, v_nm
     FROM name WHERE type = v_type AND name = TRIM(p_name) FOR UPDATE;
   IF v_id IS NULL THEN

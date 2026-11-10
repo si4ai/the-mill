@@ -128,6 +128,7 @@ BEGIN
   -- (children move up), watchers dropped, activity.deleted stamped.
   -- No mill_activity_put; desk_id kept.
   DECLARE v_ts DATETIME(6);
+  DECLARE v_lock BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -135,7 +136,12 @@ BEGIN
   END;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
-  IF EXISTS (SELECT 1 FROM score WHERE id = p_id) THEN
+  -- Lock order (card 1113, F183): the caller's seat, then the score, both exclusive, before any
+  -- read of the score (IF EXISTS in a routine reads shared).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = MILL_NAME_GET('desk', p_desk) FOR UPDATE;
+  SET v_lock = NULL;
+  SELECT id INTO v_lock FROM score WHERE id = p_id FOR UPDATE;
+  IF v_lock IS NOT NULL THEN
     CALL mill_tree_detach('score', p_id);
     DELETE FROM watcher WHERE type = 'score' AND id = p_id;
     UPDATE activity SET deleted = v_ts, updated = v_ts
@@ -355,6 +361,9 @@ BEGIN
   IF v_proj IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such project (MILL_NAME_GET)';
   END IF;
+  -- Lock order (card 1113, F183): the caller's seat before the score.
+  SELECT id INTO v_id FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_id = NULL;
   SELECT s.id, s.desk_id INTO v_id, v_owner FROM score s
     JOIN activity a ON a.type = 'score' AND a.id = s.id AND a.deleted IS NULL
    WHERE s.roster_id = v_proj AND s.kpi = p_kpi

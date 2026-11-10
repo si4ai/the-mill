@@ -97,10 +97,12 @@ BEGIN
   IF v_desk IS NULL THEN
     SELECT id, cause AS kind, payload, state AS outcome, created FROM wake WHERE 1 = 0;
   ELSE
-    SET v_max = (
-      SELECT IFNULL(MAX(id), 0) FROM wake
-       WHERE desk_id = v_desk AND state <> 'taken'
-    );
+    -- Lock order (card 1113): the desk's waiting rows exclusive first (a SET subquery in a routine
+    -- reads shared, and the transition copy below too); the UPDATE then needs no upgrade. The scan
+    -- goes by idx_desk: a mark of one row locks the primary key, then changes idx_desk_state, so a
+    -- scan by idx_desk_state locked them in the reverse order.
+    SELECT IFNULL(MAX(id), 0) INTO v_max FROM wake FORCE INDEX (idx_desk)
+     WHERE desk_id = v_desk AND state <> 'taken' FOR UPDATE;
     SELECT p.id, p.cause AS kind, p.payload, p.state AS outcome, p.created
       FROM wake p
      WHERE p.desk_id = v_desk AND p.id <= v_max AND p.state <> 'taken'
