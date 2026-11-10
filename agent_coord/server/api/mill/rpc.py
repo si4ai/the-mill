@@ -2099,7 +2099,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 try:
                     from agent_coord.server import wake as wake_mod
 
-                    wake_mod.auto_done(c._cn, desk)
+                    wake_mod.auto_done(c._cn, desk, command="reply")
                 except Exception:
                     pass
 
@@ -4197,7 +4197,7 @@ def _h_mark(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             try:
                 from agent_coord.server import wake as wake_mod
 
-                wake_mod.auto_done(c._cn, desk)
+                wake_mod.auto_done(c._cn, desk, command="mark")
             except Exception:
                 pass
 

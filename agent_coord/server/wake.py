@@ -866,12 +866,14 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
         return "error"
 
 
-def auto_done(cn, desk: str) -> str:
+def auto_done(cn, desk: str, command: str = "") -> str:
     """Card 1098 item 5: end the lease when mark/answer cleared its waiting work.
 
     Fires only when the desk has a live lease, every letter in that lease is
     picked up, nothing addressed waits, and no unopened receipt remains.
-    Tags W9 meta auto=1. Returns lease_done's result, or "" when not applicable.
+    Tags W9 meta auto=1. command is the RPC that triggered this (reply, mark);
+    note_rpc must run before finish_lease so an action command is not scored
+    wasted (card 1090). Returns lease_done's result, or "" when not applicable.
     """
     d = str(desk or "").strip()
     if not d:
@@ -897,6 +899,8 @@ def auto_done(cn, desk: str) -> str:
         from agent_coord.server import wasted_wake
 
         wasted_wake.tag_auto(d)
+        if command:
+            wasted_wake.note_rpc(d, command, ok=True)
     except Exception:
         pass
     return lease_done(cn, d, note="", lease="")
