@@ -52,7 +52,10 @@ def test_run_registers_lists_and_stops(tmp_path, monkeypatch) -> None:
         assert "error" not in box
         keys = [key for key, _argv in load_routes("tw-run")]
         assert watch_id in keys
-        assert list_runs("tw-run") == []
+        done = list_runs("tw-run")
+        assert len(done) == 1
+        assert done[0]["watch_id"] == watch_id
+        assert done[0]["exit_code"] is not None
     finally:
         link.close()
 
