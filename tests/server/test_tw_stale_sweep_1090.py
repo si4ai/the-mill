@@ -28,7 +28,7 @@ def test_cap_msg_names_the_oldest_watch_ids_with_ages():
     assert msg.startswith(f"tw.event: desk already has {doing.TASK_CAP} live tasks")
     assert "w0 (1d1h)" in msg and "w1 (2h)" in msg and "w2 (59s)" in msg
     assert msg.index("w0") < msg.index("w1") < msg.index("w2")
-    assert "tw stop" in msg
+    assert "kill PID" in msg and "tw stop" not in msg
 
 
 def test_cap_msg_with_no_rows_keeps_the_plain_line():
@@ -100,7 +100,11 @@ def desk(cn, monkeypatch):
         def scores():
             return rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s ORDER BY kpi", (name,))
 
+        def reconcile(live):
+            return rpc._h_tw_reconcile(SimpleNamespace(_cn=cn), {"live": live}, "Office", name)
+
         return SimpleNamespace(name=name, event=event, tasks=tasks, edges=edges, age=age, seat=seat,
+                               reconcile=reconcile,
                                scores=scores, pings=pings)
 
     return make
@@ -291,3 +295,100 @@ def test_d3_ts_ms_must_be_a_non_negative_integer(desk):
     for bad in (-1, "5", 1.5, True):
         with pytest.raises(CoordError):
             d.event("r", "start", ts_ms=bad)
+
+
+def closes(d, wid=None):
+    return [json.loads(e["meta"]) for e in d.edges(wid) if e["reason"] == "tw_failed"
+            and json.loads(e["meta"]).get("cause") == "reconcile"]
+
+
+@pytest.mark.sql
+@pytest.mark.fresh_schema
+def test_r1_reconcile_closes_unlisted_keeps_listed_ignores_unknown(desk):
+    d = desk()
+    fill(d, 4)
+    d.event("w1", "stall", cause="quiet")
+    reply = d.reconcile(["w0", "w1", "ghost"])
+    assert reply["ok"] is True and reply["desk"] == d.name
+    assert sorted(reply["closed"]) == ["w2", "w3"]
+    assert sorted(reply["kept"]) == ["w0", "w1"]
+    assert reply["unknown_n"] == 1
+    for wid in ("w2", "w3"):
+        e = [x for x in d.edges(wid) if x["reason"] == "tw_failed"]
+        assert len(e) == 1 and e[0]["from_state"] == "active" and e[0]["to_state"] == "failed"
+        assert json.loads(e[0]["meta"])["cause"] == "reconcile"
+    assert closes(d, "w0") == [] and closes(d, "w1") == []
+    assert d.edges("ghost") == []  # unknown ids are never created
+    assert len(d.tasks()) == 4
+    assert d.pings == []  # reconcile wakes no one
+
+
+@pytest.mark.sql
+@pytest.mark.fresh_schema
+def test_r2_reconcile_repeat_is_idempotent_and_empty_list_closes_all(desk):
+    d = desk()
+    fill(d, 3)
+    first = d.reconcile(["w0"])
+    assert sorted(first["closed"]) == ["w1", "w2"]
+    before = (d.edges(), d.scores())
+    again = d.reconcile(["w0"])
+    assert again["closed"] == [] and again["kept"] == ["w0"]
+    assert (d.edges(), d.scores()) == before
+    assert d.reconcile([])["closed"] == ["w0"]
+    assert d.reconcile([])["closed"] == []
+    assert len(closes(d)) == 3
+
+
+@pytest.mark.sql
+@pytest.mark.fresh_schema
+def test_r3_reconcile_cannot_touch_another_desk(desk):
+    a, b = desk(), desk()
+    fill(a, 2)
+    fill(b, 2)
+    before = b.edges()
+    reply = a.reconcile([])
+    assert sorted(reply["closed"]) == ["w0", "w1"]
+    assert b.edges() == before and closes(b) == []
+    # Naming the other desk's watch ids keeps nothing of theirs and closes nothing of theirs.
+    b2 = b.reconcile(["w0"])
+    assert b2["closed"] == ["w1"]
+    assert closes(a, "w0") and len(closes(a)) == 2
+
+
+@pytest.mark.sql
+@pytest.mark.fresh_schema
+def test_r4_reconcile_rejects_a_bad_report(desk):
+    from agent_coord.helpers.errors import CoordError
+
+    d = desk()
+    fill(d, 1)
+    for bad in (None, "w0", [1], [""], ["x" * 65], ["w"] * (doing.RECONCILE_MAX + 1)):
+        with pytest.raises(CoordError):
+            rpc._h_tw_reconcile(SimpleNamespace(_cn=None), {"live": bad}, "Office", d.name)
+    assert closes(d) == []
+
+
+@pytest.mark.sql
+@pytest.mark.fresh_schema
+def test_t1_timer_sweep_closes_desks_offline_a_day_only(desk, cn):
+    old, young, on = desk(), desk(), desk()
+    for d, h in ((old, 25), (young, 23), (on, None)):
+        fill(d, 2)
+        d.age("w0", 48)
+        d.seat(h)
+    got = doing.sweep_offline_desks(cn)
+    assert got["swept"] >= 2 and got["desks"] >= 1
+    assert len(stale_edges(old)) == 2
+    assert stale_edges(young) == [] and stale_edges(on) == []
+    assert doing.sweep_offline_desks(cn)["swept"] == 0  # a second tick finds nothing
+
+
+def test_t2_score_tick_runs_the_offline_sweep(monkeypatch):
+    from agent_coord.server import score_tick
+
+    calls = []
+    monkeypatch.setattr(score_tick, "measure", lambda **k: {})
+    monkeypatch.setattr(score_tick, "publish", lambda counts: {"ok": True})
+    monkeypatch.setattr(score_tick, "sweep_offline_tw", lambda: calls.append(1) or {"ok": True, "swept": 0})
+    out = score_tick.tick()
+    assert calls == [1] and out["tw_sweep"]["ok"] is True

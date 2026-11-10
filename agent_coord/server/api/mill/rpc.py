@@ -4376,8 +4376,35 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
 
 
 
+def _h_tw_reconcile(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Card 1090: connect reports its live watch ids on start; the host closes
+    the calling desk's other live task rows as crashed (cause reconcile)."""
+    from agent_coord.server.records import doing
+    from agent_coord.server.records.db import in_request_tx, request_tx
+    from agent_coord.server.records.name import bare
+
+    if not owner:
+        raise CoordError("tw.reconcile: owner required")
+    raw = body.get("live")
+    if not isinstance(raw, list):
+        raise CoordError("tw.reconcile: live must be a list of watch ids (an empty list closes all)")
+    if len(raw) > doing.RECONCILE_MAX:
+        raise CoordError(f"tw.reconcile: at most {doing.RECONCILE_MAX} watch ids")
+    ids: list[str] = []
+    for w in raw:
+        if not isinstance(w, str) or not w.strip() or not w.isascii() or len(w) > 64:
+            raise CoordError("tw.reconcile: each watch id must be a non-empty ascii string")
+        ids.append(w.strip())
+    desk = bare(owner, CONST_DESK)
+
+    def run():
+        return {"ok": True, "desk": desk, **doing.reconcile_tasks(c._cn, desk, ids)}
+
+    return run() if in_request_tx(c._cn) else request_tx(c._cn, run)
+
+
 # Sitting-session hops that are not skill.md WALL verbs (card 970).
-SESSION_HOPS = frozenset({"tw.event"})
+SESSION_HOPS = frozenset({"tw.event", "tw.reconcile"})
 
 HANDLERS = {
     "wake-done": _h_wake_done,
@@ -4428,6 +4455,7 @@ HANDLERS = {
     "trail": _h_trail,
     "probe-delete": _h_probe_delete,
     "tw.event": _h_tw_event,
+    "tw.reconcile": _h_tw_reconcile,
 }
 
 

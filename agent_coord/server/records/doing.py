@@ -171,6 +171,81 @@ def sweep_stale_tasks(cn, desk_id: int) -> int:
     return n
 
 
+def _lock_seat(cn, desk_id: int) -> None:
+    """Take the desk's seat row lock (the same lock mill_doing_task takes)."""
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT id FROM seat WHERE desk_id=%s FOR UPDATE", (desk_id,))
+        cur.fetchall()
+    finally:
+        cur.close()
+
+
+def sweep_offline_desks(cn) -> dict[str, int]:
+    """Card 1090 timer sweep (score tick): sweep_stale_tasks for every desk
+    offline >= STALE_AFTER_S that still holds live task rows. One request tx
+    per desk under its seat lock; the offline test is re-read under the lock."""
+    from agent_coord.server.records.db import request_tx
+
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT DISTINCT g.desk_id FROM doing g JOIN seat j ON j.desk_id = g.desk_id"
+            f" WHERE {_TASK_LIVE} AND {_SEAT_OFFLINE_S} >= %s ORDER BY g.desk_id",
+            (STALE_AFTER_S,),
+        )
+        desks = [int(r[0]) for r in cur.fetchall()]
+    finally:
+        cur.close()
+    cn.commit()  # end the read snapshot before the per-desk txs
+    swept = 0
+    for desk_id in desks:
+        def run(d=desk_id):
+            _lock_seat(cn, d)
+            return sweep_stale_tasks(cn, d)
+        swept += int(request_tx(cn, run) or 0)
+    return {"desks": len(desks), "swept": swept}
+
+
+RECONCILE_MAX = 256
+
+
+def reconcile_tasks(cn, desk: str, live_ids: list[str]) -> dict[str, Any]:
+    """Card 1090: connect's start-up report of the watch ids it believes live.
+
+    Inside the caller's request tx. Closes every other live act=task row of
+    this desk only, through the crash path (tw_failed, meta cause=reconcile).
+    Listed ids that are live are kept; unknown ids are ignored, never created.
+    An empty list closes all of the desk's live rows. A repeat closes nothing.
+    """
+    from agent_coord.server.records.name import bare
+
+    desk = bare(desk, CONST_DESK)
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT id FROM name WHERE type='desk' AND name=%s", (desk,))
+        got = cur.fetchone()
+    finally:
+        cur.close()
+    keep = set(live_ids)
+    closed: list[str] = []
+    kept: list[str] = []
+    if got:
+        desk_id = int(got[0])
+        _lock_seat(cn, desk_id)
+        for r in _live_task_ages(cn, desk_id):
+            wid = str(r["join_key"]).split(":", 2)[-1]
+            if wid in keep:
+                kept.append(wid)
+                continue
+            if r["state"] not in ("active", "waiting"):
+                continue
+            meta = {"watch_id": wid, "desk": desk, "kind": "crash", "cause": "reconcile"}
+            if task_event(cn, desk, meta) == "wrote":
+                closed.append(wid)
+    return {"closed": closed, "kept": kept, "unknown_n": len(keep - set(kept))}
+
+
 def _age(s: int) -> str:
     d, rest = divmod(max(0, int(s)), 86400)
     h, rest = divmod(rest, 3600)
@@ -188,7 +263,7 @@ def cap_msg(oldest: list[tuple[str, int]]) -> str:
     if not oldest:
         return msg
     named = ", ".join(f"{w} ({_age(a)})" for w, a in oldest[:CAP_HINT_N])
-    return (f"{msg}; oldest: {named}; end one with tw stop, or it is swept"
+    return (f"{msg}; oldest: {named}; end one with kill PID, or it is swept"
             f" after the desk is offline {_age(STALE_AFTER_S)}")
 
 
