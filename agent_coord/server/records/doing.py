@@ -99,6 +99,97 @@ def live_tasks(cn, desk_id: int) -> int:
         cur.close()
 
 
+# Card 1090 step 4: a live task row whose latest hop is older than this is
+# stale. Swept only when a start would hit TASK_CAP (one tw_stale edge each).
+STALE_AFTER_S = 24 * 3600
+CAP_HINT_N = 3
+
+
+def _live_task_ages(cn, desk_id: int) -> list[dict[str, Any]]:
+    """The desk's live act=task rows, oldest latest hop first, with that hop's
+    effective state (card 1098 compress: even n means back at from_state)."""
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT g.id, t.join_key,"
+            " IF(MOD(t.n, 2) = 1, t.to_state, t.from_state) AS state,"
+            " TIMESTAMPDIFF(SECOND, t.at, UTC_TIMESTAMP(6)) AS age_s"
+            " FROM doing g JOIN transition t ON t.id = ("
+            "  SELECT MAX(l.id) FROM transition l"
+            "   WHERE l.activity_type='doing' AND l.activity_id=g.id)"
+            " WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
+            "  SELECT 1 FROM transition e WHERE e.activity_type='doing' AND e.activity_id=g.id"
+            "   AND e.to_state IN (%s, %s, %s, %s))"
+            " ORDER BY t.at, g.id FOR SHARE",
+            (desk_id, *_TASK_TERMINAL),
+        )
+        return list(cur.fetchall())
+    finally:
+        cur.close()
+
+
+def sweep_stale_tasks(cn, desk_id: int) -> int:
+    """Close the desk's live task rows idle longer than STALE_AFTER_S.
+
+    Runs inside the caller's request tx, under the seat lock mill_doing_task
+    took. Each swept row gets one tw_stale edge (meta cause=sweep, age_s).
+    Returns how many rows it closed.
+    """
+    from agent_coord.server import transition as tr
+
+    n = 0
+    for r in _live_task_ages(cn, desk_id):
+        if int(r["age_s"]) < STALE_AFTER_S or r["state"] not in ("active", "waiting"):
+            continue
+        key = str(r["join_key"])
+        tr.put(cn, activity_type=tr.ActivityType.doing, activity_id=int(r["id"]),
+               from_state=tr.State(r["state"]), to_state=tr.State.stale,
+               reason=tr.Reason.tw_stale, desk_id=desk_id, join_key=key,
+               meta={"watch_id": key.split(":", 2)[-1], "cause": "sweep",
+                     "age_s": int(r["age_s"])})
+        n += 1
+    return n
+
+
+def _age(s: int) -> str:
+    d, rest = divmod(max(0, int(s)), 86400)
+    h, rest = divmod(rest, 3600)
+    m, sec = divmod(rest, 60)
+    if d:
+        return f"{d}d{h}h"
+    if h:
+        return f"{h}h"
+    return f"{m}m" if m else f"{sec}s"
+
+
+def cap_msg(oldest: list[tuple[str, int]]) -> str:
+    """The cap reply text: the plain line, then the oldest live watch ids."""
+    msg = f"tw.event: desk already has {TASK_CAP} live tasks"
+    if not oldest:
+        return msg
+    named = ", ".join(f"{w} ({_age(a)})" for w, a in oldest[:CAP_HINT_N])
+    return (f"{msg}; oldest: {named}; end one with tw stop, or it is swept"
+            f" after {_age(STALE_AFTER_S)} idle")
+
+
+def cap_hint(cn, desk: str) -> str:
+    """Read-only: the cap msg for this desk, naming its oldest live watch ids."""
+    from agent_coord.server.records.name import bare
+
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT id FROM name WHERE type='desk' AND name=%s",
+                    (bare(desk, CONST_DESK),))
+        got = cur.fetchone()
+    finally:
+        cur.close()
+    if not got:
+        return cap_msg([])
+    oldest = [(str(r["join_key"]).split(":", 2)[-1], int(r["age_s"]))
+              for r in _live_task_ages(cn, int(got[0]))]
+    return cap_msg(oldest)
+
+
 def task_rows(cn, desks: list[str]) -> list[dict[str, Any]]:
     """One bounded batch for the connected desks; no focus pointer or private payloads."""
     if not desks:
@@ -131,7 +222,7 @@ def task_rows(cn, desks: list[str]) -> list[dict[str, Any]]:
 def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str:
     """Card 970: one serialized task lifecycle, inside the caller's request tx.
 
-    Returns "cap" (a 9th live start; nothing written), "noop" (a replayed or
+    Returns "cap" (a 9th live start after the stale sweep; nothing written), "noop" (a replayed or
     late hop; nothing written), "wrote" (a transition) or "metric".
     """
     import json
@@ -147,8 +238,11 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
     # The seat row lock in mill_doing_task serializes this desk's births.
     row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), 0])[0]
     if kind == "start" and row["id"] is None:
-        if live_tasks(cn, row["desk_id"]) >= TASK_CAP:
-            return "cap"
+        if live_tasks(cn, row["desk_id"]) >= TASK_CAP and (
+            sweep_stale_tasks(cn, row["desk_id"]) == 0
+            or live_tasks(cn, row["desk_id"]) >= TASK_CAP
+        ):
+            return "cap"  # card 1090: swept only at the cap; still full refuses
         row = call(cn, "mill_doing_task", [desk, key, meta.get("card"), 1])[0]
     mapped = {
         "start": (tr.State.active, tr.Reason.tw_start),

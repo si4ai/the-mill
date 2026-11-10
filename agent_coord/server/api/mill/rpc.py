@@ -4360,8 +4360,7 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
         done = doing.task_event(c._cn, desk, meta, outcome=str(clean.get("outcome") or ""))
         if done == "cap":
             # Step 4: the only ok:false reply; no row, no transition, no wake.
-            return {"ok": False, "code": "cap",
-                    "msg": f"tw.event: desk already has {doing.TASK_CAP} live tasks"}
+            return {"ok": False, "code": "cap", "msg": doing.cap_hint(c._cn, desk)}
         if (clean.get("wake") is not False and kind in ("stall", "match", "exit", "crash")
                 and done != "noop"):
             after_commit(c._cn, lambda: wake.post_desk(c._cn, desk, dict(meta)))
