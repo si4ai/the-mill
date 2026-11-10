@@ -55,9 +55,11 @@ def test_changelog_flags_pr_cite_without_card(pc, tmp_path):
 
         ## New changes
 
-        0.9.0
-
         - #999 only a PR cite
+
+        0.9.0 (2026-11-10)
+
+        - bump example from 1 to 2 (#1)
 
         ## Last changes
 
@@ -94,6 +96,36 @@ def test_changelog_flags_entry_under_shipped_without_date(pc, tmp_path):
     p.write_text(text, encoding="utf-8")
     findings = pc.check_changelog(p, base_text="")
     assert any(f.rule == "changelog-date" for f in findings), findings
+
+def test_changelog_allows_shipped_bullet_without_card(pc, tmp_path):
+    """Bump-time bullets (deps, Reverts #N) under a dated heading need no card cite."""
+    text = textwrap.dedent(
+        """\
+        # Changelog
+
+        ## TBD (upcoming)
+
+        Upcoming changes are our current plan, not a promise; they can change or move at release time.
+
+        ## New changes
+
+        0.9.0 (2026-11-10)
+
+        - bump stylelint from 17.16.0 to 18.0.0 (#375)
+        - Reverts #12
+
+        ## Last changes
+
+        0.8.1 (2026-10-31)
+
+        - card 1: old
+        """
+    )
+    p = tmp_path / "CHANGELOG.md"
+    p.write_text(text, encoding="utf-8")
+    findings = pc.check_changelog(p, base_text="")
+    assert findings == [], findings
+
 
 
 def test_frow_flags_new_numbered_file(pc, tmp_path):

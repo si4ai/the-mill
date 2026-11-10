@@ -82,6 +82,20 @@ person or host leaks:
    Never paste a token into chat, mail, a URL, a file in the repo or a
    commit.
 
+   Keep the existing PR body sections (what changed, claims and evidence,
+   not done). Add a `## Changelog` section with one concise line that can
+   be copied into CHANGELOG.md at the release bump, for example:
+
+       ## Changelog
+
+       card 1120: generate CHANGELOG.md at bump from each PR's Changelog section
+
+   Dependabot and docs-only PRs may omit it. `pr_text` prints a hint when
+   the section is missing or empty; that hint does not fail the check.
+   Do not edit CHANGELOG.md in a feature PR. In a release-fold cycle, the
+   card PR targets `release/X.Y.Z`, not `main`; the bump tool still
+   collects that PR's Changelog line from the fold.
+
 4. CI must pass. The required checks are the `ci` jobs `build_pack`,
    `check_pack` (hygiene and pip-audit), `mill_cli_smoke`,
    `pytest_no_sql`, `pytest_sql`, and the CodeQL jobs `analyze (python)`
