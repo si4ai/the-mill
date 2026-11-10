@@ -450,3 +450,130 @@ def test_auto_done_skips_when_addressed_still_waits(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, d: True)
     assert wake_mod.auto_done(object(), "auto-w") == ""
     assert ww.desk_snapshot("auto-w")["wakes"] == 0  # lease not finished
+
+
+def test_reply_auto_done_is_not_wasted(monkeypatch) -> None:
+    """A reply that auto-ends the only letter in a lease is acted, not wasted.
+
+    0.8.10 regression (card 1090): auto_done ran in after_commit inside
+    _run_command, before dispatch called wasted_wake.note_rpc, so the reply
+    that ended the lease was scored wasted. auto_done must count the
+    triggering command first.
+    """
+    from agent_coord.server import wake as wake_mod
+    import time
+
+    lines: list[str] = []
+
+    def fake_perf(op: str, ms: float = 0.0, **kv):
+        lines.append(" ".join([f"op={op}"] + [f"{k}={v}" for k, v in kv.items()]))
+
+    monkeypatch.setattr("agent_coord.server.push.perf_log", fake_perf)
+    wake_mod.gate_clear("auto-r")
+    with wake_mod._GATE_LOCK:
+        wake_mod._GATE["auto-r"] = time.monotonic()
+        wake_mod._EPOCH["auto-r"] = "tok"
+        wake_mod._LEASE_MAIL["auto-r"] = {42}
+    ww.reset_for_tests()
+    ww.mark_lease("auto-r", trigger="other", wake_id=9105, kind="mail", addressed=1)
+    monkeypatch.setattr(wake_mod, "mail_picked_up", lambda cn, d, mid: mid == 42)
+    monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, d: False)
+    monkeypatch.setattr("agent_coord.server.mail_push.has_unopened_receipt", lambda cn, d: False)
+    # Production order on the reply path: after_commit(auto_done), then note_rpc.
+    got = wake_mod.auto_done(object(), "auto-r", command="reply")
+    ww.note_rpc("auto-r", "reply", ok=True)
+    assert got in ("none", "sent", "sitting", "stale")
+    snap = ww.desk_snapshot("auto-r")
+    assert snap["wakes"] == 1
+    assert snap["wasted"] == 0
+    assert any("op=wake.done" in L and "wasted=0" in L for L in lines)
+
+
+def test_mark_auto_done_is_still_wasted(monkeypatch) -> None:
+    """mark alone still wastes, even when it auto-ends the lease (card 1090)."""
+    from agent_coord.server import wake as wake_mod
+    import time
+
+    lines: list[str] = []
+
+    def fake_perf(op: str, ms: float = 0.0, **kv):
+        lines.append(" ".join([f"op={op}"] + [f"{k}={v}" for k, v in kv.items()]))
+
+    monkeypatch.setattr("agent_coord.server.push.perf_log", fake_perf)
+    wake_mod.gate_clear("auto-m")
+    with wake_mod._GATE_LOCK:
+        wake_mod._GATE["auto-m"] = time.monotonic()
+        wake_mod._EPOCH["auto-m"] = "tok"
+        wake_mod._LEASE_MAIL["auto-m"] = {42}
+    ww.reset_for_tests()
+    ww.mark_lease("auto-m", trigger="other", wake_id=9106, kind="mail", addressed=1)
+    monkeypatch.setattr(wake_mod, "mail_picked_up", lambda cn, d, mid: mid == 42)
+    monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda cn, d: False)
+    monkeypatch.setattr("agent_coord.server.mail_push.has_unopened_receipt", lambda cn, d: False)
+    got = wake_mod.auto_done(object(), "auto-m", command="mark")
+    ww.note_rpc("auto-m", "mark", ok=True)
+    assert got in ("none", "sent", "sitting", "stale")
+    snap = ww.desk_snapshot("auto-m")
+    assert snap["wakes"] == 1
+    assert snap["wasted"] == 1
+    assert any("op=wake.done" in L and "wasted=1" in L for L in lines)
+
+
+def test_reply_and_mark_handlers_pass_command_to_auto_done() -> None:
+    """Catch unwiring: the reply and mark handlers must name the command."""
+    import inspect
+
+    from agent_coord.server.api.mill import rpc
+
+    assert 'command="reply"' in inspect.getsource(rpc._h_reply)
+    assert 'command="mark"' in inspect.getsource(rpc._h_mark)
+
+
+@pytest.mark.sql
+def test_reply_auto_done_w9_meta_wasted_zero_auto(cn, monkeypatch) -> None:
+    """Reply auto-end writes W9 meta wasted=0, auto=1 (card 1090)."""
+    import time
+
+    from agent_coord.server import wake as wake_mod
+    from tests.server.records.conftest import seed_names
+    from agent_coord.server.records import push as rec_push
+
+    seed_names(cn, ("ww1090", "roster"), ("ww1090d", "desk"))
+    cur = cn.cursor()
+    cur.execute("SELECT id FROM name WHERE type='desk' AND name='ww1090d'")
+    desk_id = int(cur.fetchone()[0])
+    cur.close()
+    wid = rec_push.row_id(rec_push.put(cn, "ww1090d", "hint", {"type": "mail", "id": 42}, "queued"))
+    cn.commit()
+    wake_mod.gate_clear("ww1090d")
+    with wake_mod._GATE_LOCK:
+        wake_mod._GATE["ww1090d"] = time.monotonic()
+        wake_mod._EPOCH["ww1090d"] = "tok"
+        wake_mod._LEASE_MAIL["ww1090d"] = {42}
+    ww.reset_for_tests()
+    ww.mark_lease("ww1090d", trigger="other", wake_id=wid, pending0=0, addressed=1, kind="mail")
+    monkeypatch.setattr(wake_mod, "mail_picked_up", lambda c, d, mid: mid == 42)
+    monkeypatch.setattr("agent_coord.server.records.push.pending_addressed", lambda c, d: False)
+    monkeypatch.setattr("agent_coord.server.mail_push.has_unopened_receipt", lambda c, d: False)
+    got = wake_mod.auto_done(cn, "ww1090d", command="reply")
+    assert got in ("none", "sent", "sitting", "stale")
+    cn.commit()
+    cur = cn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT meta FROM transition"
+        " WHERE activity_type='wake' AND reason='wake_done' AND activity_id=%s"
+        " ORDER BY id DESC LIMIT 1",
+        (wid,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    assert row is not None
+    import json
+
+    meta = row["meta"]
+    if isinstance(meta, (bytes, bytearray)):
+        meta = meta.decode()
+    if isinstance(meta, str):
+        meta = json.loads(meta)
+    assert meta.get("wasted") == 0
+    assert meta.get("auto") == 1

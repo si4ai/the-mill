@@ -11,6 +11,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- card 1090: a reply that auto-ends the wake lease is not scored wasted
+
 - card 1103: skip the title-case name-token rule on a bot-authored PR or issue title and body; other hygiene rules still run, and the skip is reported in the check output
 
 0.8.10 (2026-11-09)
