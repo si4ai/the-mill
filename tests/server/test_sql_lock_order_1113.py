@@ -18,30 +18,25 @@ import pytest
 
 from tools.sql_lock_order import SQL, Analyzer, load_fks
 
-# Open upgrades outside the card procedures (card 1113, second PR: wake, mail, join, tree,
-# score). Listed so they stay visible as warnings; a new one still fails. Empty when fixed.
-_WAKE = "card 1113 PR B: wake transition copy (shared) then update"
-_SEAT = "card 1113 PR B: IF EXISTS on the seat (shared in a routine) then update the seat"
-_TREE = "card 1113 PR B: IF EXISTS on the item's tree rows, then the plan lock and tree FOR UPDATE"
-KNOWN_OPEN_UPGRADES = {
-    "cmd_push_mark": _WAKE, "cmd_push_put_back": _WAKE, "cmd_push_sent": _WAKE, "mill_push_take": _WAKE,
-    "mill_join_connect": _SEAT, "mill_join_delete": _SEAT, "mill_join_touch": _SEAT,
-    "mill_join_wake_arm": _SEAT, "mill_join_wake_off": _SEAT,
-    "mill_mail_update": "card 1113 PR B: IF EXISTS on the letter then update it",
-    "mill_mail_delete": "card 1113 PR B: letter and tree reads then delete",
-    "mill_score_delete": _TREE, "mill_score_retire": _TREE, "mill_tree_detach": _TREE, "mill_tree_remove": _TREE,
-}
+# Open upgrades, listed with their card so they stay visible as warnings; a new one still fails.
+# Empty: card 1113 fixed the wake, mail, join, plan and score procedures.
+KNOWN_OPEN_UPGRADES: dict[str, str] = {}
 
-# Two-table cycles at table level (most are on different rows); card 1113 PR B reviews each.
-# A new cycle fails this test.
+# Two-table cycles at table level (most are on different rows: another desk's seat, another
+# item). A new cycle fails this test.
 KNOWN_CYCLES = {
     ("activity", "name"), ("activity", "score"), ("activity", "seat"), ("activity", "tree"),
-    ("activity", "watcher"), ("hold", "seat"), ("mail", "name"), ("mail", "tree"),
-    ("member", "name"), ("name", "seat"), ("name", "tree"), ("name", "watcher"),
-    ("score", "seat"), ("seat", "tree"), ("seat", "watcher"),
+    ("activity", "watcher"), ("hold", "seat"), ("member", "name"), ("name", "seat"),
+    ("name", "watcher"), ("score", "seat"), ("seat", "tree"), ("seat", "watcher"),
     # Card writes take the acting desk's seat first (checked below); this cycle is another
     # desk's seat (volunteer or asker FK) asked for after the card.
     ("seat", "todo"),
+    # A recipient's seat (FK check) after the letter, against delete's own seat then letter:
+    # only when the deleting desk is added as a recipient of that letter at that moment.
+    ("mail", "seat"),
+    # sp_name_purge takes the purging desk's seat, then deletes the roster's members; a letter
+    # to that roster reads its members, then the sender's seat FK: only when the purger sends.
+    ("member", "seat"),
 }
 
 # Card procedures: the acting desk's seat must come before the card row (F183).
@@ -76,8 +71,8 @@ def test_insert_select_and_subquery_reads_are_shared_locks() -> None:
     an = Analyzer()
     take = [(lk.mode, lk.table, lk.why) for lk in an.locks("mill_push_take")]
     assert ("S", "wake", "insert-select") in take
-    node = [(lk.mode, lk.table, lk.why) for lk in an.locks("mill_mail_to_node_delete")]
-    assert ("S", "tree", "subquery") in node
+    reclaim = [(lk.mode, lk.table, lk.why) for lk in an.locks("mill_todo_reclaim")]
+    assert ("S", "todo", "subquery") in reclaim
 
 
 def test_lock_order_cycles_are_only_the_known_ones() -> None:
@@ -141,3 +136,40 @@ def test_check_flags_a_card_write_without_its_seat_lock(tmp_path: Path, proc: st
     # The planted error is the procedure as it was before card 1113: the card, then the seat FK.
     an = _planted(tmp_path, "sp_todo.sql", old, old.rsplit("\n", 1)[1])
     assert not _seat_before_card(an, proc)
+
+
+@pytest.mark.parametrize("file,proc,old,new", [
+    # The wake procedures as they were before card 1113: the transition copy first.
+    ("sp_cmd.sql", "cmd_push_mark",
+     "  SELECT COUNT(*) INTO v_lock FROM wake WHERE type = 'wake' AND id = p_push FOR UPDATE;\n"
+     "  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)\n"
+     "  SELECT 'wake', id, state, p_outcome,", None),
+    ("sp_push.sql", "mill_push_take", "FOR UPDATE;\n    SELECT p.id, p.cause", ";\n    SELECT p.id, p.cause"),
+    # The joined-seat check before the seat lock.
+    ("sp_join.sql", "mill_join_touch", None, None),
+    # The plan lookup as a SET subquery.
+    ("sp_tree.sql", "mill_tree_detach",
+     "  SET v_name = NULL;\n  SELECT MIN(name_id) INTO v_name FROM tree WHERE type = p_type AND id = p_id;\n  WHILE",
+     "  SET v_name = (SELECT MIN(name_id) FROM tree WHERE type = p_type AND id = p_id);\n  WHILE"),
+    # The letter read by a SET subquery, no lock first.
+    ("sp_mail.sql", "mill_mail_update",
+     "  SET v_sender = NULL;\n  SELECT desk_id, roster_id INTO v_sender, v_proj FROM mail WHERE id = p_id FOR UPDATE;",
+     "  SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);\n  SET v_proj = (SELECT roster_id FROM mail WHERE id = p_id);"),
+])
+def test_check_flags_each_fixed_shape_when_planted_back(tmp_path: Path, file: str, proc: str, old, new) -> None:
+    if proc == "mill_join_touch":
+        old = "  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;\n  IF v_desk IS NOT NULL AND EXISTS"
+        new = "  IF v_desk IS NOT NULL AND EXISTS"
+        text = (SQL / file).read_text(encoding="utf-8")
+        i = text.index("CREATE PROCEDURE mill_join_touch(")
+        sql = tmp_path / "sql"
+        shutil.copytree(SQL, sql)
+        body = text[i:text.index("END //", i)]
+        assert old in body
+        (sql / file).write_text(text[:i] + body.replace(old, new) + text[i + len(body):], encoding="utf-8")
+        an = Analyzer(sql)
+    else:
+        if new is None:
+            new = old.split("\n", 1)[1]
+        an = _planted(tmp_path, file, old, new)
+    assert an.upgrades(proc), proc

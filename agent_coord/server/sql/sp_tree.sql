@@ -216,9 +216,10 @@ BEGIN
     END IF;
     SELECT name_id INTO v_name FROM tree WHERE type = p_type AND id = p_id LIMIT 1;
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM tree WHERE name_id = v_name AND type = p_type AND id = p_id
-  ) THEN
+  -- Card 1113: a plain read (IF EXISTS in a routine reads shared, and the detach then shifts
+  -- this row exclusive under the plan lock).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE name_id = v_name AND type = p_type AND id = p_id;
+  IF v_n = 0 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree node not found';
   END IF;
   CALL mill_tree_detach_one(v_name, p_type, p_id);
@@ -257,10 +258,14 @@ CREATE PROCEDURE mill_tree_detach(
 )
 BEGIN
   DECLARE v_name BIGINT UNSIGNED;
-  SET v_name = (SELECT MIN(name_id) FROM tree WHERE type = p_type AND id = p_id);
+  -- Card 1113: plain reads. A SET subquery in a routine reads the item's tree rows shared, and
+  -- mill_tree_detach_one then locks the plan and shifts those rows exclusive.
+  SET v_name = NULL;
+  SELECT MIN(name_id) INTO v_name FROM tree WHERE type = p_type AND id = p_id;
   WHILE v_name IS NOT NULL DO
     CALL mill_tree_detach_one(v_name, p_type, p_id);
-    SET v_name = (SELECT MIN(name_id) FROM tree WHERE type = p_type AND id = p_id);
+    SET v_name = NULL;
+    SELECT MIN(name_id) INTO v_name FROM tree WHERE type = p_type AND id = p_id;
   END WHILE;
 END //
 
