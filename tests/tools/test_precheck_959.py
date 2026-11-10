@@ -223,3 +223,43 @@ def test_pack_fresh_unresolvable_base_is_a_finding(pc, tmp_path):
     findings = pc.check_pack_fresh(repo, pc._rev_parse("HEAD", cwd=repo), base="origin/main")
     assert [f.rule for f in findings] == ["check-pack"]
     assert "does not resolve" in findings[0].message
+
+
+def _repo_with_new_test(tmp_path: Path, body: str, name: str = "tests/server/test_new.py") -> Path:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git_t(repo, "init", "-q", "-b", "main")
+    base = repo / "tests" / "server" / "test_base.py"
+    base.parent.mkdir(parents=True)
+    base.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    _git_t(repo, "add", ".")
+    _git_t(repo, "commit", "-q", "-m", "base")
+    _git_t(repo, "checkout", "-q", "-b", "feat")
+    added = repo / name
+    added.parent.mkdir(parents=True, exist_ok=True)
+    added.write_text(body, encoding="utf-8")
+    _git_t(repo, "add", ".")
+    _git_t(repo, "commit", "-q", "-m", "add test")
+    return repo
+
+
+def test_targeted_pytest_sql_only_file_is_not_a_finding(pc, tmp_path):
+    """A changed file of only @pytest.mark.sql tests is for pytest_sql, not a precheck fail."""
+    repo = _repo_with_new_test(
+        tmp_path,
+        "import pytest\n\npytestmark = pytest.mark.sql\n\n\n"
+        "def test_needs_book():\n    assert True\n",
+    )
+    findings = pc.check_targeted_pytest(repo, base="main")
+    assert findings == [], findings
+
+
+def test_targeted_pytest_reports_a_failing_non_sql_test(pc, tmp_path):
+    repo = _repo_with_new_test(
+        tmp_path,
+        "def test_broken():\n    assert False\n",
+    )
+    findings = pc.check_targeted_pytest(repo, base="main")
+    assert findings, findings
+    assert findings[0].rule == "pytest"
+    assert "targeted pytest failed" in findings[0].message

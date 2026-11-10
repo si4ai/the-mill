@@ -449,7 +449,12 @@ def check_pack_fresh(root: Path, sha: str, base: str = "origin/main") -> list[Fi
 
 
 def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding]:
-    """Run pytest on test files the diff touches."""
+    """Run non-SQL pytest on test files the diff touches.
+
+    This job has no MySQL. Files that hold only @pytest.mark.sql tests
+    are left to pytest_sql: pytest then collects nothing and exits 5,
+    which is not a finding.
+    """
     findings: list[Finding] = []
     try:
         merge_base = _git("merge-base", "HEAD", base, cwd=root)
@@ -480,6 +485,9 @@ def check_targeted_pytest(root: Path, base: str = "origin/main") -> list[Finding
         capture_output=True,
         text=True,
     )
+    # 5 = no tests collected (pytest ExitCode.NO_TESTS_COLLECTED).
+    if run.returncode in (0, 5):
+        return findings
     if run.returncode:
         tail = (run.stdout or run.stderr or "pytest failed").strip().splitlines()
         findings.append(
