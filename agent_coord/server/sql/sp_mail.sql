@@ -360,7 +360,7 @@ BEGIN
   END IF;
   -- card 1022: mark matching wakes taken (no delete) and write transitions
   INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-  SELECT 'wake', id, state, 'taken', 'wake_deliver', 0, 'office'
+  SELECT 'wake', id, state, 'taken', 'wake_deliver', desk_id, 'office'
     FROM wake
    WHERE cause IN ('mail', 'receipt')
      AND state <> 'taken'

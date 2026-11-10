@@ -11,6 +11,12 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+- card 1111: webhook failures write wake_fail (and wake_retry when a retry is armed); wake edges use the woken desk; new wake rows fill cause_type and cause_id
+
+- card 1111: retry_armed stays visible to ring_waiting; a POST with no wake row writes no row state; expire-marker error tallies include retry_armed
+
+- card 1111: precheck does not fail when a changed test file holds only SQL tests
+
 - card 1090: a reply that auto-ends the wake lease is not scored wasted
 - card 1090 step 4 (server): a live tw task row is stale only once its desk has been offline (no connected seat) for 24h, counted from `seat.time_disconnect`; a connected desk's rows are never stale. The score tick sweeps desks offline 24h+ (one `tw_stale` edge each, cause `sweep`), and a tw start at the cap sweeps the same way; a cap reply still at the cap names the oldest live watch ids and says to end one with `kill PID`. New session hop `tw.reconcile`: on start, a desk's connect reports the watch ids it believes live; the host closes that desk's other live task rows through the crash path (`tw_failed`, cause `reconcile`), ignores unknown ids, and a repeat closes nothing. Glance alerts gain `tw_offline`: each offline desk with live tw rows, how long offline, and the count (a fact, not a gate). `tw.event` takes an optional `ts_ms` (tw's clock, epoch ms) and dwell uses it when both hops carry one
 

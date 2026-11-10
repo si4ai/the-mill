@@ -1718,6 +1718,30 @@ def _ensure_transition_n(cn) -> list[str]:
     return applied
 
 
+
+def _ensure_wake_retry_edge(cn) -> list[str]:
+    """card 1111: wake error -> retry_armed / wake_retry. Idempotent INSERT IGNORE."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition_edge"):
+            return applied
+        cur.execute(
+            "INSERT IGNORE INTO transition_edge"
+            " (activity_type, from_state, to_state, reason)"
+            " VALUES ('wake', 'error', 'retry_armed', 'wake_retry')"
+        )
+        if cur.rowcount:
+            applied.append("transition_edge.wake_retry_from_error")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def apply_transition_1022(cn) -> list[str]:
     """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
@@ -1876,6 +1900,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(apply_task_970(cn))
             # card 1098: transition.n (after 1022 table exists)
             applied.extend(_ensure_transition_n(cn))
+            applied.extend(_ensure_wake_retry_edge(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}

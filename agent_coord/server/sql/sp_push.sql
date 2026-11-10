@@ -18,6 +18,11 @@ BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_id   BIGINT UNSIGNED;
   DECLARE v_state VARCHAR(32);
+  DECLARE v_cause_type VARCHAR(16);
+  DECLARE v_cause_id BIGINT UNSIGNED;
+  DECLARE v_route VARCHAR(32);
+  DECLARE v_hint_type VARCHAR(32);
+  DECLARE v_payload_id BIGINT UNSIGNED;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: desk is not seated';
@@ -30,6 +35,25 @@ BEGIN
   END IF;
   -- Initial delivery state (compat); lifecycle also uses queued/taken via transitions.
   SET v_state = p_outcome;
+  -- card 1111: fill cause_type/cause_id/route when the payload names a letter or typed item.
+  SET v_payload_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.id')) AS UNSIGNED);
+  IF v_payload_id IS NULL OR v_payload_id = 0 THEN
+    SET v_payload_id = NULL;
+  END IF;
+  SET v_route = NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.route')), 'null'), '');
+  IF v_route IS NOT NULL AND CHAR_LENGTH(v_route) > 32 THEN
+    SET v_route = LEFT(v_route, 32);
+  END IF;
+  IF p_kind IN ('mail', 'receipt') THEN
+    SET v_cause_type = 'mail';
+    SET v_cause_id = v_payload_id;
+  ELSEIF p_kind = 'hint' THEN
+    SET v_hint_type = JSON_UNQUOTE(JSON_EXTRACT(p_payload, '$.type'));
+    IF v_hint_type IN ('mail', 'todo', 'doing', 'hold', 'score') THEN
+      SET v_cause_type = v_hint_type;
+    END IF;
+    SET v_cause_id = v_payload_id;
+  END IF;
 
   IF GET_LOCK('mill_wake_alloc', 10) <> 1 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'push: wake id lock';
@@ -38,13 +62,13 @@ BEGIN
   -- activity.desk_id = 0 (System); wake.desk_id = target desk
   INSERT INTO activity (type, id, desk_id, roster_id, act)
   VALUES ('wake', v_id, 0, 1, 'ring');
-  INSERT INTO wake (id, type, desk_id, cause, state, payload)
-  VALUES (v_id, 'wake', v_desk, p_kind, v_state, p_payload);
+  INSERT INTO wake (id, type, desk_id, cause, state, payload, cause_type, cause_id, route)
+  VALUES (v_id, 'wake', v_desk, p_kind, v_state, p_payload, v_cause_type, v_cause_id, v_route);
   DO RELEASE_LOCK('mill_wake_alloc');
 
   -- Seed transitions: none -> queued -> outcome state (when not already queued)
   INSERT IGNORE INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-  VALUES ('wake', v_id, 'none', 'queued', 'wake_queue', 0, 'office');
+  VALUES ('wake', v_id, 'none', 'queued', 'wake_queue', v_desk, 'office');
   IF v_state <> 'queued' THEN
     INSERT IGNORE INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
     VALUES ('wake', v_id, 'queued', v_state,
@@ -53,7 +77,7 @@ BEGIN
               WHEN 'missed' THEN 'wake_owed'
               ELSE 'wake_fail'
             END,
-            0, 'office');
+            v_desk, 'office');
   END IF;
 
   SELECT v_id AS id, p_desk AS desk, p_kind AS kind, p_outcome AS outcome;
@@ -84,7 +108,7 @@ BEGIN
      ORDER BY p.id;
 
     INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-    SELECT 'wake', p.id, p.state, 'taken', 'wake_deliver', 0, 'office'
+    SELECT 'wake', p.id, p.state, 'taken', 'wake_deliver', p.desk_id, 'office'
       FROM wake p
      WHERE p.desk_id = v_desk AND p.id <= v_max AND p.state <> 'taken'
        AND (p.cause = 'expired' OR p.created >= v_cut);
@@ -127,7 +151,7 @@ BEGIN
                CAST(SUM(cause = 'mail') AS UNSIGNED) AS n_mail,
                CAST(SUM(cause = 'receipt') AS UNSIGNED) AS n_receipt,
                CAST(SUM(state = 'missed') AS UNSIGNED) AS n_missed,
-               CAST(SUM(state = 'error') AS UNSIGNED) AS n_error,
+               CAST(SUM(state IN ('error', 'retry_armed')) AS UNSIGNED) AS n_error,
                MIN(created) AS w_start
           FROM wake
          WHERE created < v_cut
@@ -176,7 +200,7 @@ BEGIN
                  CAST(SUM(cause = 'mail') AS UNSIGNED) AS n_mail,
                  CAST(SUM(cause = 'receipt') AS UNSIGNED) AS n_receipt,
                  CAST(SUM(state = 'missed') AS UNSIGNED) AS n_missed,
-                 CAST(SUM(state = 'error') AS UNSIGNED) AS n_error,
+                 CAST(SUM(state IN ('error', 'retry_armed')) AS UNSIGNED) AS n_error,
                  MIN(created) AS w_start
             FROM wake
            WHERE created < v_cut
