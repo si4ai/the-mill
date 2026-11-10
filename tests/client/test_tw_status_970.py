@@ -73,6 +73,11 @@ def test_sample_updates_the_buffer_and_does_not_hop(tmp_path, monkeypatch) -> No
         assert "secret" not in dumped
         assert "drop-me" not in dumped
         assert "tool" not in dumped
+        deadline = time.time() + 3
+        while time.time() < deadline and not any(
+            body.get("verb") == "tw.event" for body in calls
+        ):
+            time.sleep(0.05)
         assert len([body for body in calls if body.get("verb") == "tw.event"]) == 1
         banned = ("stdout", "stderr", "log", "sample", "argv", "title", "pattern")
         for body in calls:

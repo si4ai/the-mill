@@ -12,7 +12,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 ## New changes
 
 - card 1113: card writes by one desk from several sessions no longer deadlock: rename, delete, retire and reclaim take the desk's seat lock, then the card, before any read of the card, as every other card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys (FK checks, INSERT ... SELECT, and routine IF EXISTS / SET subqueries count as shared locks) and fails on a shared-to-exclusive upgrade; a no-database test runs it, lists the known open findings, and fails on new ones
-
+- card 1090 step 4 client: the status test waits for the async tw.event before it counts hops
 - card 1113: one desk filing cards from several sessions at once no longer deadlocks; the todo insert takes the desk's seat lock before its insert, and the concurrent-insert test no longer retries
 - card 1090 step 4 client: tw runs a command only while a sit is up and otherwise prints the same-parent connect recipe; the connect keeps one sqlite hop file per desk and sends it; tw run --desk and --log are gone
 - card 1090 step 4 client: bare tw prints help; --list, -l, and --list-json list running runs; -h and -V match help and version; every hop carries ts_ms, epoch milliseconds from the desk clock
