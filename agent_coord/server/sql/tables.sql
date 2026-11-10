@@ -574,6 +574,7 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','any','skipped','wake_skip'),
   ('wake','error','taken','wake_deliver'),
   ('wake','fail','retry_armed','wake_retry'),
+  ('wake','error','retry_armed','wake_retry'),
   ('wake','idle','push_pending','wake_queue'),
   ('wake','lease_live','expire','wake_expire');
 INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES

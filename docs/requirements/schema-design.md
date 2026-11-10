@@ -171,3 +171,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
   (spin N03). The tables.sql / beta_ddl.sql headers once claimed a read-committed isolation level; nothing
   set one, so that sentence is gone. The check is the locking read.
 - **To change it.** A new spin finding plus the owner's OK.
+
+## 11. Transition catalog edges
+
+Allowed edges live in `transition_edge` (seeded to match `transition_enums.ALLOWED_TRANSITIONS`). Card 1111 adds `wake` `error` -> `retry_armed` / `wake_retry` so a webhook failure that arms retry can be written after `missed` -> `error` / `wake_fail`. Existing books get the row from migrate (`_ensure_wake_retry_edge`). No new columns.
