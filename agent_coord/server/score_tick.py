@@ -818,7 +818,28 @@ def tick(*, dest: Path | None = None, window_s: int = WINDOW_S) -> dict[str, Any
     counts = measure(dest=dest, window_s=window_s)
     pub = publish(counts)
     counts["publish"] = pub
+    counts["tw_sweep"] = sweep_offline_tw()
     return counts
+
+
+def sweep_offline_tw() -> dict[str, Any]:
+    """Card 1090: close live tw rows on desks offline 24h+ (tw_stale). Never raises."""
+    from agent_coord.server.records import connect
+    from agent_coord.server.records.doing import sweep_offline_desks
+
+    try:
+        cn = connect()
+    except Exception as e:
+        return {"ok": False, "error": type(e).__name__}
+    try:
+        return {"ok": True, **sweep_offline_desks(cn)}
+    except Exception as e:
+        return {"ok": False, "error": type(e).__name__}
+    finally:
+        try:
+            cn.close()
+        except Exception:
+            pass
 
 
 def run_loop(*, every_s: int = EVERY_S, window_s: int = WINDOW_S, stop=None) -> int:
