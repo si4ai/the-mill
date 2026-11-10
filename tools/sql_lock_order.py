@@ -292,10 +292,14 @@ class Analyzer:
             # Lock the row first (the update reads it), then the FK check on a changed FK column.
             locks.append(Lock("X", table, key, where, "update"))
             changed = {c: v for c, v in sets.items() if v != c}
-            locks += self._fk_locks(table, {**{c: UNKNOWN for f in self.fks if f.child == table for c in f.cols if c not in changed}, **changed} if changed else {}, where, "fk(update)") if any(
-                c in changed for f in self.fks if f.child == table for c in f.cols) else []
-            return [lk for lk in locks if not (lk.mode == "S" and lk.key == UNKNOWN and lk.why.startswith("fk(update)") and not any(
-                c in changed for c in self._fk_cols(table, lk.table)))]
+            for f in self.fks:
+                if f.child != table or not any(c in changed for c in f.cols):
+                    continue
+                kc = self.key_col(f.parent)
+                val = changed.get(f.cols[f.pcols.index(kc)] if kc in f.pcols else f.cols[0], UNKNOWN)
+                if val != "null":
+                    locks.append(Lock("S", f.parent, val, where, f"fk(update) {table}.{','.join(f.cols)}"))
+            return locks
         m = re.match(r"DELETE\s+FROM\s+`?(" + ID + r")`?(?:\s+(" + ID + r"))?\s*(?:WHERE\s+(.*))?$", st, re.I)
         if m:
             table = m.group(1).lower()
