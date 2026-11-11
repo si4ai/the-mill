@@ -93,7 +93,9 @@ ALTER TABLE watcher ADD seen_rev SMALLINT UNSIGNED NOT NULL DEFAULT 0;
 
 ## 4. Read and write API
 
-Reads (`mill show`, `mill mail N`, `mill todo ID`, inbox, `trail`):
+The verbs show, mail, and edit below are proposed names; they are not in the current CLI (reads today go through `mill todo`, `mill mail-thread`, `mill inbox`, and `mill trail`; there is no edit verb).
+
+Reads (`mill show`, `mill mail N`, `mill todo ID`, inbox, `trail`): <!-- doc-commands: skip -->
 - Return `rev` with the text, from the same SELECT on the payload row (F2, X02).
 - Default text output gets one line, `v3, edited by DESK 2h ago`, only when rev > 1. No history rows.
 - `--history [--page N]` lists history rows newest first: `rev, at (office clock), desk, kind, +bytes/-bytes, diff clipped to 200 chars`, 20 per page.
@@ -106,7 +108,7 @@ Writes:
 
 | Verb | On `--rev` < current | Reply |
 | :--- | :--- | :--- |
-| `mill edit ID TEXT --rev N` / `mill mail N --edit` / `--supersedes` / `--done-when` | refused, nothing changed | `stale: you have vN, current vM; diff since vN below; retry: mill edit ID --rev M ...` |
+| `mill edit ID TEXT --rev N` / `mill mail N --edit` / `--supersedes` / `--done-when` | refused, nothing changed | `stale: you have vN, current vM; diff since vN below; retry: mill edit ID --rev M ...` | <!-- doc-commands: skip -->
 | `mill note` (append) | applied, rev+1 | `stale=true` and the diff since vN, if behind |
 | reply, claim, unclaim, pass, ship, done | applied | `stale=true`, the diff since vN (or the full text when shorter), `base_rev` stored on the reply letter or move row |
 | no `--rev` at all (old client, hand call) | treated as stale | same as above; the hint says to pass `--rev` |
@@ -128,7 +130,7 @@ Every stale reply also advances that desk's `seen_rev` to the current rev, becau
 ## 6. Edit rights
 
 - Replace (edit, supersede, done-when): the author (letter sender, card asker) or an Admin desk. That matches `mill_mail_update` and `cmd_card_accept` now.
-  - A refusal names the next command: `not yours to edit; add a note: mill note ...` or `reply: mill mail N --reply`.
+  - A refusal names the next command: `not yours to edit; add a note: mill note ...` or `reply: mill mail N --reply`. <!-- doc-commands: skip -->
   - An Admin edit of someone else's text stores the Admin desk in `desk_id`, so `--history` shows who.
 - Note append: unchanged.
 - The volunteer may not replace the asker's text. It notes instead, so the asker's acceptance line can't silently move under it.
@@ -142,7 +144,7 @@ Every stale reply also advances that desk's `seen_rev` to the current rev, becau
 
 ## 8. Receipts
 
-There is still one receipt per `mail_to` row, at first open. An edit sends no new receipt. The sender can see who has read the latest version in `mill mail N --history`, which lists each row's `seen_rev` against `rev`. It's a read, not a push, to save tokens.
+There is still one receipt per `mail_to` row, at first open. An edit sends no new receipt. The sender can see who has read the latest version in `mill mail N --history`, which lists each row's `seen_rev` against `rev`. <!-- doc-commands: skip --> It's a read, not a push, to save tokens.
 
 ## 9. Races (what the model covers)
 
@@ -197,7 +199,7 @@ Owner for every item: builder (build of card 1125). The auditor reviews against 
 | F3 | todo has no per-desk read state, so "unread again" has nowhere to live for cards; mail has `mail_to.opened`, but reusing it breaks receipts | A11 (second receipt), A12 | `seen_rev` on `mail_to` and `watcher`; unread = `seen_rev < rev`; leave `opened` as the first open | SPIN A11 stays violated and A01 passes; a test: edit, re-read, exactly one receipt row |
 | F4 | An edited hint taken before a newer read can land after it; a client that keeps the max rev then acts clean on text it never saw | X09; A05 passes with the drop rule | hints carry `rev`; the client drops a hint older than `last_rev[item]` and sends the rev of the text it last showed | SPIN X09/A05; a client unit test: deliver read v2 then hint v1, the next act sends `--rev 2` and shows v2 text |
 | F5 | Treating hint delivery (or queuing) as "seen" loses unread when a hint drops; drops are real (`mill-desk.hint_drop`) | X08, A04 | `seen_rev` advances only on a read or an act at the current rev | SPIN X08; a test: queue an edited hint, drop it, the inbox still shows the item unread |
-| F6 | No "edit" exists for cards: notes are append-only by rule (#539) and `mill_todo_write` replaces the whole body with no base check (last writer wins) | code read; X04 shows the lost update | one replace path (`mill edit` or `--supersedes`) doing CAS on rev; decide whether `--supersedes` becomes that path | SPIN X04/X05; UNIQUE (type, activity_id, rev) makes a double apply fail on insert |
+| F6 | No "edit" exists for cards: notes are append-only by rule (#539) and `mill_todo_write` replaces the whole body with no base check (last writer wins) | code read; X04 shows the lost update | one replace path (`mill edit` or `--supersedes`) doing CAS on rev; decide whether `--supersedes` becomes that path | SPIN X04/X05; UNIQUE (type, activity_id, rev) makes a double apply fail on insert | <!-- doc-commands: skip -->
 | F7 | A ship or done made against an older acceptance line is invisible after the fact | design (suggestion 2) | store `base_rev` on the move row (doing) and the reply letter | a deterministic check: list cards whose `done_when` history row has rev > the ship's `base_rev`; report, do not refuse |
 | F8 | Refusing stale acts can refuse the same reply/claim again and again while edits continue | A09 vs A10 | stale-flag for acts; refuse only text replaces | SPIN A09/A10 kept in the run |
 | F9 | `mill_mail_update` notifies nobody and writes act `note`; with this card it must write history, bump rev and queue hints in the same transaction | code read; X06 (history after commit) | history row, rev bump and hint queue in the edit procedure itself, not an after-commit hook | SPIN X06; the `history_replay` check (rebuild every rev from the diffs, compare `fp`) |
