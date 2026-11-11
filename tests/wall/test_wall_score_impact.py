@@ -140,6 +140,18 @@ def test_doing_tags_partial_previous_run_and_outlier(sample):
     assert "/hr" not in doing  # durations carry no rate column
     assert sample["tally"] == {"finished": 3, "active": 1, "failed": 2, "desks": 6}
     assert sample["fmt"] == ["40 ms", "1.1s", "4d 5h 43m"]
+    assert "10215.395 ms" in _run_raw()  # stored ms shown without float noise
+
+
+def _run_raw() -> str:
+    js = (
+        "global.window=global;const fs=require('fs');"
+        f"(0,eval)(fs.readFileSync({json.dumps(str(SCORE))},'utf8'));"
+        f"(0,eval)(fs.readFileSync({json.dumps(str(IMPACT))},'utf8'));"
+        "const k=[{kpi:'doing.task.dwell_active_ms',owner:'auditor',value:'10215.394999999999'}];"
+        "process.stdout.write(scoreSpendHtml(scoreSpendModel(k,{}),0));"
+    )
+    return subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout
 
 
 def test_activity_buckets_today_by_type_and_task_only(sample):

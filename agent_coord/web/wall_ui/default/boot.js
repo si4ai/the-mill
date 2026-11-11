@@ -879,8 +879,6 @@
       if (tables.length) return tables.map(tableTsv).join("\n\n");
       const hist = pane.querySelector(".hist-row");
       if (hist) return rowsTsv(".hist-row", pane);
-      const spend = pane.querySelector(".spend-row");
-      if (spend) return rowsTsv(".spend-row", pane);
       const list = document.getElementById("jobs-list");
       if (list && !list.hidden && list.querySelector(".todo-list-row")) return rowsTsv(".todo-list-row", list);
       const cards = [...pane.querySelectorAll("#jobs-kanban .body > *")].filter(el => !el.classList.contains("jobs-col-gutter"));
@@ -1008,7 +1006,7 @@
       document.querySelectorAll(".mail-col").forEach(c => add(c));
       add(document.getElementById("score-desk-table"));
       add(document.getElementById("score-human"));
-      add(document.querySelector("#score-spend-view .spend-body"));
+      add(document.getElementById("score-spend-view"));
       add(document.getElementById("guide-body"));
       pairs.forEach(({ scroll, host }) => {
         if (!scroll || scroll.hidden || (host && host.hidden)) return;
@@ -5837,11 +5835,6 @@
     function scoreKpiBucket(name) {
       return String(name || "").trim() === "system" ? "platform" : "office";
     }
-    function scoreShown(name) {
-      const bucket = scoreKpiBucket(name);
-      if (_scoreGroupOff[bucket]) return false;
-      return !_scoreShowOff[String(name || "").trim()];
-    }
     function scoreFiledFace(name) {
       const raw = String(name || "").trim();
       const mapped = (typeof scoreKpiLabel === "function") ? scoreKpiLabel(raw) : "";
@@ -5859,7 +5852,8 @@
       books.forEach(function (list) {
         list.forEach(function (k) {
           const name = hereKpiName(k);
-          if (!name || name === "system" || !scoreShown(name)) return;
+          /* Every filed score is shown; the old show/hide rail no longer filters (score redesign). */
+          if (!name || name === "system") return;
           let desk = "";
           if (typeof scoreDeskSlug === "function") desk = scoreOwnerKey(scoreDeskSlug(k));
           else desk = scoreOwnerKey(k && k.owner);

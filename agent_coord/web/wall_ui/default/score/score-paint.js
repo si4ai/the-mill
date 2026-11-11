@@ -400,8 +400,8 @@
     function paintScoreOfficeTotals(d) {
       const lbl = (n) => scoreShowLabel(n);
       const names = scoreCatalog(d);
-      const product = names.filter(n => scoreKpiBucket(n) === "product" && scoreShown(n));
-      const office = names.filter(n => scoreKpiBucket(n) === "office" && scoreShown(n));
+      const product = names.filter(n => scoreKpiBucket(n) === "product");
+      const office = names.filter(n => scoreKpiBucket(n) === "office");
       const totals = typeof scoreOfficeTotals === "function" ? scoreOfficeTotals(d) : {};
       const chip = (n, fromHost) => {
         const k = fromHost ? (totals[n] || scoreRowFor(n, d)) : scoreRowFor(n, d);

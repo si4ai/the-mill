@@ -77,6 +77,10 @@
     return mon + " " + d.getDate() + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
   }
 
+  function rawMs(n) {
+    /* Stored ms, trimmed of float noise (10215.394999999999 -> 10215.395). */
+    return String(Math.round(n * 1000) / 1000);
+  }
   function fmtMs(v) {
     var n = num(v);
     if (n == null) return String(v);
@@ -209,7 +213,7 @@
     var tags = [];
     if (/_ms$/.test(suf)) {
       var n = num(v);
-      var shown = fmtMs(v) + (n != null && n >= 1000 ? ' <span class="si-tag">' + h(v) + " ms</span>" : "");
+      var shown = fmtMs(v) + (n != null && n >= 1000 ? ' <span class="si-tag">' + h(rawMs(n)) + " ms</span>" : "");
       if (lr === "active" && suf === "dwell_active_ms") tags.push("partial, run open");
       if (n != null && n > DAY_MS) tags.push("outlier: multi-day, shown as stored");
       return '<td class="num si-wrap' + (n != null && n > DAY_MS ? " si-hot" : "") + '">' + shown +
@@ -329,7 +333,7 @@
     var n = num(v);
     var hot = n != null && n > DAY_MS;
     return '<td class="num si-wrap' + (hot ? " si-hot" : "") + '">' + h(fmtMs(v)) +
-      (n != null && n >= 1000 ? ' <span class="si-tag">' + h(String(v)) + " ms</span>" : "") +
+      (n != null && n >= 1000 ? ' <span class="si-tag">' + h(rawMs(n)) + " ms</span>" : "") +
       (extra ? ' <span class="si-tag">' + h(extra) + "</span>" : "") +
       (hot ? ' <span class="si-tag">outlier: multi-day, shown as stored</span>' : "") + "</td>";
   }
@@ -413,13 +417,11 @@
    * answer leaves its part out (em dash); a route that answered with no rows paints 0. */
   var ACT_TYPES = ["wake", "doing", "mail", "todo", "hold"];
   function routeRows(body) {
-    if (Array.isArray(body)) return body;
-    if (!body || typeof body !== "object") return null;
-    var list = body.rows || body.buckets || body.runs || body.items;
-    return Array.isArray(list) ? list : null;
+    /* Both routes answer { rows, next } (letter 5500). */
+    return body && Array.isArray(body.rows) ? body.rows : null;
   }
   function parseLocal(raw) {
-    /* Naive "YYYY-MM-DD HH:MM:SS[.ffffff]" reads as the viewer's local clock. */
+    /* Naive office-local "YYYY-MM-DD HH:MM:SS[.ffffff]" (letter 5500); read on the viewer's clock. */
     if (raw == null || raw === "") return null;
     var t = Date.parse(String(raw).replace(" ", "T"));
     return Number.isFinite(t) ? t : null;
