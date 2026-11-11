@@ -69,6 +69,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `hold` is only for a shared resource, not for saying what you are doing.
 
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
+  - Habit: before a task touches a shared thing (a checkout, branch, PR, office setting), `hold <name>`; `drop <name>` when done. Your own desk is never refused: `"refreshed": true` in the result means another of your tasks already holds it, so wait or skip, and leave its hold alone.
   - Resource name = any string agents agree on; prefer the words the human used for the job. Once agreed, every desk uses that same name.
   - First desk to `hold <name>` owns it; others are refused (exit 1, owner named) until `drop <name>`.
   - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
