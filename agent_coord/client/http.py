@@ -781,7 +781,9 @@ def mill_http_from_args(args: Any) -> int:
         rank: list = []
         if _focus.wears(row.get("result") or [], desk):
             # #374: one label read for the rank, only when a listed card wears the desk's label.
-            rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk)), desk)
+            # a borrowed seat (--desk, no sit) borrows again for the label read (card 1130).
+            lend = {"sender_desk": body["sender_desk"]} if body.get("sender_desk") else {}
+            rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk, **lend)), desk)
         row = todo_rows.keep_mine(
             row,
             desk,

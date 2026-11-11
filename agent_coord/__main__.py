@@ -1520,14 +1520,14 @@ def _build_parser() -> MillArgumentParser:
 
     se = sub.add_parser(
         "connected",
-        help="mill connected [ROSTER] [--desk X] [--limit N]: what each desk is doing, on which letter or card, "
+        help="mill connected [ROSTER] [--who DESK] [--limit N]: what each desk is doing, on which letter or card, "
         "what it waits on and who is blocked on it; --history lists past entries",
     )
     se.add_argument(
         "project", nargs="?", default="", metavar="ROSTER",
         help="only desks on this roster (default: desks active in the last day)",
     )
-    se.add_argument("--desk", default="", help="only this desk")
+    se.add_argument("--who", dest="desk", default="", metavar="DESK", help="only this desk")
     se.add_argument("--all", action="store_true", help="every desk, not only those active in the last day")
     se.add_argument("--history", action="store_true", help="past doing entries, newest first, 50 a page")
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
@@ -1661,7 +1661,8 @@ def _build_parser() -> MillArgumentParser:
     return p
 
 
-# Local or already-seated commands. connected --desk filters the list.
+# Local or already-seated commands. connected takes --desk like any desk command
+# and filters by --who (card 1130).
 _NO_SENDER_DESK = {
     "help",
     "briefing",
@@ -1680,7 +1681,6 @@ _NO_SENDER_DESK = {
     "local",
     "join",
     "version",
-    "connected",
     "route",
 }
 
@@ -1754,6 +1754,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         return 0
     from agent_coord.client.offices import bind_cli_office, pull_office_flag
 
+    from agent_coord.client.session_errors import remember_typed
+
+    remember_typed(list(raw))
     _office, raw = pull_office_flag(list(raw))
     bind_cli_office(_office)
     args = p.parse_args(normalize_seat_argv(raw))

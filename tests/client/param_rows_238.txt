@@ -472,6 +472,7 @@ connected page
 connected limit
 connected office
 connected yes
+connected sender_desk
 attach (command)
 attach project
 attach type_a
