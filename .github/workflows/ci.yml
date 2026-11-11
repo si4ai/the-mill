@@ -142,6 +142,64 @@ jobs:
       - run: pip-audit --disable-pip --no-deps -r pack-floors.txt
       - run: pip-audit --disable-pip --require-hashes -r tools/ci-lock/ci.txt
 
+  # Card 1155: a visible report of hidden code in the diff (unmapped
+  # executables, import-time hooks, obfuscation, control-plane edits, lock-file
+  # provenance). It is a report, not a gate: the scan exits 0 whatever it finds
+  # (never --strict here), and this job is not a required check. It sits
+  # outside ci/test-select.toml on purpose: path-based selection runs nothing
+  # for a file no rule lists, which is exactly the blind spot this scan covers,
+  # so it runs on every trigger whatever paths changed. Git only, standard
+  # library only: no pack, no install, no network.
+  hidden_code_report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Range per event. A pull request scans its own diff, from the merge base
+      # of the two shas. The merge queue scans the queued squash against its
+      # base. A push scans before..sha. Anything else (a manual run, a tag
+      # through release.yml, a first push or one whose old tip is gone) scans
+      # the last commit against its first parent; a root commit has no parent,
+      # so the step says so and reports nothing. No branch of this step can fail.
+      - env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          MQ_BASE: ${{ github.event.merge_group.base_sha }}
+          MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          base=""
+          head="$PUSH_SHA"
+          case "$EVENT_NAME" in
+            pull_request)
+              head="$PR_HEAD"
+              base=$(git merge-base "$PR_BASE" "$PR_HEAD" 2>/dev/null || echo "$PR_BASE")
+              ;;
+            merge_group)
+              base="$MQ_BASE"
+              head="$MQ_HEAD"
+              ;;
+            push)
+              base="$PUSH_BEFORE"
+              ;;
+          esac
+          if ! git cat-file -e "${base:-missing}^{commit}" 2>/dev/null; then
+            base=$(git rev-parse --verify --quiet "$head^1" || true)
+            echo "No usable base for this event; scanning the last commit against its first parent."
+          fi
+          if [ -z "$base" ]; then
+            echo "Root commit, nothing to compare: no hidden-code report."
+            exit 0
+          fi
+          python3 tools/check_hidden_code.py --base "$base" --head "$head" --author "${PR_AUTHOR:-$GITHUB_ACTOR}" || echo "check_hidden_code exited $?; this is a report, not a gate."
+
   mill_cli_smoke:
     needs: build_pack
     # Pinned image, not ubuntu-latest: 24.04 ships OpenSSL 3.0, the case the
