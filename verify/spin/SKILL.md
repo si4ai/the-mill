@@ -1,6 +1,6 @@
 ---
 name: verify-spin-wake-holds
-description: Model-check the mill wake path, holds, and 0.8.0 activities (mail, todo, doing, score, name) with SPIN. Use when a change touches agent_coord/server/wake.py, push.py, the /ws handler in asgi.py, records/push.py, sp_push.sql, sp_hold.sql, records/hold.py, the hold/drop handlers, client/ws.py, the reset and retire routines, or the 0.8.0 activity writers (sp_todo.sql, sp_cmd.sql, sp_doing.sql, sp_opened.sql, sp_score.sql, sp_beta_name.sql, fn_name.sql, mill/rpc.py), or when someone asks whether the mill can deadlock, livelock, lose a wake, or break an activity invariant.
+description: Model-check the mill wake path, holds, 0.8.0 activities (mail, todo, doing, score, name), and the card 1125 activity_history design, with SPIN. Use when a change touches agent_coord/server/wake.py, push.py, the /ws handler in asgi.py, records/push.py, sp_push.sql, sp_hold.sql, records/hold.py, the hold/drop handlers, client/ws.py, the reset and retire routines, or the 0.8.0 activity writers (sp_todo.sql, sp_cmd.sql, sp_doing.sql, sp_opened.sql, sp_score.sql, sp_beta_name.sql, fn_name.sql, mill/rpc.py), or when someone asks whether the mill can deadlock, livelock, lose a wake, or break an activity invariant.
 ---
 
 # Verify the mill with SPIN
@@ -20,6 +20,8 @@ Covered code (the sync commits are in `run.sh`: `SYNC` for wake and holds, `SYNC
 | `name.pml` | `sp_beta_name.sql` (`sp_name_retire`, `sp_name_reclaim`); `fn_name.sql` (`MILL_NAME_PUT`); `sp_join.sql` (`mill_join_upsert`, `mill_join_reset`) |
 
 `run.sh` prints `note: covered code changed since SYNC` (or `SYNC_080`) when any covered file differs from the pin.
+
+`activity_history.pml` is a design model for card 1125 (targeted at 0.8.13). Nothing is built, so it has no covered-code pin and no `SYNC` entry. Rerun A01-A14 and X01-X11 when the protocol in `docs/dev/card-1125-activity-history.md` changes. Once the build lands, add a pin and the covered writers (mail and todo edit, open, reply, and hint paths).
 
 ## Run
 
@@ -82,3 +84,5 @@ matches its expectation. Switches default to the code; a `-DSwitch=0` or
 open at the pin: N03 (join locks the name row, but re-checks it with a plain
 read, which under REPEATABLE READ sees the snapshot from before the lock;
 N04 passes under READ COMMITTED).
+
+Card 1125 activity_history design (no code pin): every A01-A14 and X01-X11 row matches its expectation. A04, A09 and A11 are expected violations; X01-X11 are mutations that must stay violated. See `README.md`.

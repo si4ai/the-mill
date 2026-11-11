@@ -15,17 +15,19 @@ in which the steps of the model can interleave, inside the stated bounds.
 | `mail.pml` | 0.8.0 recipient rows M1-M8: the first open kept, opening leaves activity alone, receipts |
 | `score.pml` | 0.8.0 score moves S1-S6, the Wall writer included |
 | `name.pml` | 0.8.0 retire and reclaim N1-N4, the self-retire token check (card 880), join of a retired name |
+| `activity_history.pml` | card 1125 design (targeted at 0.8.13, nothing built): text edits on mail and todo, monotonic `rev`, compare-and-set replaces, stale-flagged acts, debounced edited hints, `seen_rev` unread, done and retired items |
 | `run.sh` | runs every check with fixed flags, compares each result with its expectation, exits nonzero on any difference or tool error (`--strict`: on any violation) |
 | `SKILL.md` | how the next agent tells whether a change touches the modelled code, reruns the checks, and updates the models |
 
-Run: `verify/spin/run.sh` (about sixteen minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
-compiler). One check with its trail: `verify/spin/run.sh W07`.
+Run: `verify/spin/run.sh` (about fifteen minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
+compiler). One check with its trail: `verify/spin/run.sh W07` (or `A01`, `X01`, ...).
 
-Last full run: 102 checks, every one matching its expectation (46 `pass`, 56
-`violated` as expected: findings, mutants and reachability goals), in about
-15 minutes, with `SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
-`SYNC_080` = 8a80dc1, 2026-11-01. The wake checks now store states compressed
-(`-DCOLLAPSE`), as the 0.8.0 checks do.
+Last full run: 127 checks, every one matching its expectation (57 `pass`, 70
+`violated` as expected: findings, mutants, reachability goals, and the card 1125
+design expected-violations and mutations), in 873 s (about 15 minutes), with
+`SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
+`SYNC_080` = 8a80dc1, 2026-11-10 (Pacific). The wake checks store states compressed
+(`-DCOLLAPSE`), as the 0.8.0 and activity_history checks do.
 
 All searches are exhaustive (no `-DBITSTATE`, no depth cut). Liveness checks
 run with weak fairness (`pan -a -f`): every process that can always move
@@ -292,6 +294,80 @@ Setting a fixed switch to 0 is the pre-fix mutant, not an option on the pin.
   text, votes (none in 0.8.0).
 - Card statuses in `doing.pml` (any card move succeeds there; `todo.pml` has the
   guards).
+
+
+## Card 1125: activity_history (design for 0.8.13)
+
+Design model only: nothing is built. Protocol and findings are in
+`docs/dev/card-1125-activity-history.md`. The model describes the proposed
+protocol, not current mail or todo writers. There is no `SYNC` pin until the
+build lands. Check ids are A01-A14 and X01-X11; A* avoids colliding with
+`holds.pml` (H01-H13).
+
+One item, three desks (author/asker A, addressee/claimer B, watcher with Admin W),
+up to two author edits (three in A07, A13, A14) plus one watcher edit, a reply or
+claim carrying `--rev`, re-reads, a Hub that delivers debounced edited hints
+(may drop them, may land them late), done or retire. Searches are exhaustive
+(`-DCOLLAPSE`, no BITSTATE, no depth cut; max depth 300000).
+
+| Property | How checked |
+| :--- | :--- |
+| P1. No act (reply, claim, pass) made at rev v-1 is accepted silently once v exists: it is refused or flagged stale and the reply carries the current text | assert in the act's lock step: accepted clean implies the desk's last text is the current text |
+| P2. Every desk on the activity was told the last rev, or still sees the item unread | assert at rest (timeout) |
+| P3. No lost edit: at most one text edit applies from any base rev | assert in the edit's lock step |
+| P4. History is append-only, one row per rev, newest row = current text | assert in every read and edit, and at rest |
+| P5. Debounce never drops the final rev: with no dropped hints, every desk ends told the final rev | assert at rest (`CHECK_P5`) |
+| P6. A retired item's text never changes | assert at rest |
+| P7. One receipt per recipient row, also after an edit makes it unread again (mail invariant 7) | assert in the read |
+| act_lands. The reply/claim lands (not refused MAXTRY times in a row) | LTL safety claim `[] !gaveup` |
+
+| Id | Defines | Expect | Got | States | Depth | What it shows |
+| :--- | :--- | :--- | :--- | ---: | ---: | :--- |
+| A01 | (proposed design) | pass | pass | 49,630 | 110 | P1, P2, P3, P4, P6, P7 |
+| A02 | CHECK_P5 | pass | pass | 49,630 | 110 | P5: one pending slot per (item, desk), last rev wins |
+| A03 | HINT_DROP=1 | pass | pass | 83,903 | 110 | P2 with hints that drop: unread covers the untold desk |
+| A04 | HINT_DROP=1 CHECK_P5 | violated | violated | 44 | 110 | expected: a dropped hint leaves a desk untold; why unread must stay |
+| A05 | INFLIGHT=1 CHECK_P5 | pass | pass | 202,760 | 116 | a hint that lands after a newer read is dropped by rev |
+| A06 | CLOSE=2 | pass | pass | 71,528 | 110 | retire refuses edits and acts; text frozen |
+| A07 | EDITS_A=3 | pass | pass | 170,258 | 134 | A01 with three author edits |
+| A08 | ACT_MODE=1 | pass | pass | 79,469 | 120 | refuse mode is also safe |
+| A09 | ACT_MODE=1 | violated | violated | 10,555 | 161 | finding: refuse mode starves a reply/claim while edits continue |
+| A10 | ACT_MODE=0 | pass | pass | 49,630 | 146 | stale-flag mode: the act lands on its first try |
+| A11 | SEEN_REV=0 | violated | violated | 2,755 | 121 | finding: unread-again by clearing mail_to.opened sends a second receipt |
+| A12 | SEEN_REV=0 SKIP_P7 HINT_DROP=1 | pass | pass | 82,923 | 121 | that reuse keeps P2 when it clears every handled row |
+| A13 | EDITS_A=3 INFLIGHT=1 HINT_DROP=1 CLOSE=2 | pass | pass | 1,777,811 | 142 | larger: P1-P4, P6, P7 |
+| A14 | EDITS_A=3 INFLIGHT=1 CHECK_P5 | pass | pass | 969,136 | 142 | larger: P5 |
+| X01 | MUT_CHECK_SPLIT | violated | violated | 10,419 | 110 | act compares `--rev` before the item lock (P1) |
+| X02 | MUT_READ_SPLIT | violated | violated | 65,393 | 113 | read returns body and rev from two selects (P1) |
+| X03 | MUT_SILENT | violated | violated | 10,051 | 110 | stale act applies with no flag (P1) |
+| X04 | MUT_EDIT_NOCAS | violated | violated | 210 | 110 | edit ignores its base, last writer wins (P3) |
+| X05 | MUT_EDIT_SPLIT | violated | violated | 633 | 110 | edit compares its base before the lock (P3) |
+| X06 | MUT_HIST_SPLIT | violated | violated | 208 | 113 | history row written after commit (P4) |
+| X07 | MUT_DEB_FIRST CHECK_P5 | violated | violated | 71 | 116 | debounce keeps the first rev (P5) |
+| X08 | MUT_SEEN_ON_HINT HINT_DROP=1 | violated | violated | 44 | 110 | queuing the hint marks the desk seen (P2) |
+| X09 | INFLIGHT=1 MUT_KNOWS_MAX | violated | violated | 189,857 | 127 | client keeps the highest rev heard, even from an older hint (P1) |
+| X10 | CLOSE=2 MUT_EDIT_RETIRED | violated | violated | 64 | 110 | edit on a retired item applies (P6) |
+| X11 | SEEN_REV=0 SKIP_P7 HINT_DROP=1 MUT_NO_UNREAD_W | violated | violated | 44 | 119 | unread-again clears addressee rows only (P2) |
+
+A04, A09 and A11 are expected violations (a dropped hint leaves a desk untold;
+refuse mode can starve an act; clearing `mail_to.opened` sends a second receipt).
+X01-X11 are mutations: every property has at least one mutation that breaks it,
+so no pass is vacuous.
+
+What is not modelled: text contents and diffs (text is an id per rev; the diff
+chain replay is a deterministic check, not a model); append-only notes as a
+separate op (they are a text change with rev+1 and never refused); edit rights
+(a guard in the procedure; not concurrent); wake POSTs and the lease
+(`wake.pml` covers them; the Hub here is the delivery of the hint frame only);
+more than one item, rooms with many members, time windows (debounce is a
+pending slot until the Hub runs).
+
+Open questions for the build (see the design doc): does a note append re-notify
+and count as unread-again; stale reply text, full or diff only; debounce window
+length; whether an Admin edit of someone else's letter needs a reason line;
+whether a `done_when` change after ship moves the card back to claimed (the
+draft says no: a check flags it); history retention; whether the table ENUM
+grows to `score` later.
 
 ## Product-edge sync (card 916)
 
