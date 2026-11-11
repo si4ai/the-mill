@@ -517,6 +517,8 @@ def wake_body(
 
 
 ADDRESSED = "addressed"
+# Card 1141: tw.event kinds that ring on an empty queue.
+TW_ALERTS = frozenset({"stall", "match"})
 ROOM = "room"
 # #628: the desk's choice at join. addressed: a room-only item does not POST.
 WAKE_ON_ALL = "all"
@@ -1398,9 +1400,11 @@ def post_desk(
         _wake_log(desk, frame, hint_id, "none reason=picked-up")
         return "none"
     # Card 1098 item 5c: skip empty wakes before they spend an LLM turn.
-    # tw.event frames carry watch_id and are exempt (no queue row).
     # counts_as_waiting / has_unopened_receipt live in mail_push (card 1093).
-    if not frame.get("watch_id"):
+    # Card 1141: only tw stall and match (mid-run alerts, no queue row) are
+    # exempt. A tw exit or crash is the desk's own run ending; it rings only
+    # when something waits, like every other wake.
+    if not (frame.get("watch_id") and frame.get("kind") in TW_ALERTS):
         try:
             from agent_coord.server import mail_push as mp
             from agent_coord.server.records import push as rec_push
