@@ -59,10 +59,16 @@ def flake_pairs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     flakes: list[dict[str, Any]] = []
     for (sha, wf, event), items in groups.items():
         def sort_key(r: dict[str, Any]) -> tuple:
+            # numeric run id first, then attempt of that run. attempt-first
+            # or string-id order reports pass-then-fail as a flake and
+            # misses fail-then-pass.
+            raw_id = r.get("id") or r.get("run_id") or 0
+            try:
+                rid = int(raw_id)
+            except (TypeError, ValueError):
+                rid = 0
             attempt = int(r.get("run_attempt") or r.get("attempt") or 1)
-            # Stable order without emitting timestamps: attempt, then id.
-            rid = str(r.get("id") or r.get("run_id") or "")
-            return (attempt, rid)
+            return (rid, attempt)
 
         items = sorted(items, key=sort_key)
         first_fail_i = None
