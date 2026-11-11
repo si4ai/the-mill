@@ -73,7 +73,8 @@ END //
 -- editing from the same text cannot lose one edit (UNIQUE type, activity_id, old_updated backs this up).
 -- Rights: a letter's sender or an Admin desk; a card's asker or an Admin desk. A letter's opened and receipt
 -- marks (mail_to) are not touched. Refusals, nothing written: body:type, body:no_desk, body:no_text,
--- body:no_such_item, body:deleted, body:rights, body:stale, body:unchanged.
+-- body:no_such_item, body:deleted, body:rights, body:stale, body:unchanged (the new text is the same as the
+-- current text, so the replace did nothing; its message says so in plain words).
 CREATE PROCEDURE mill_body_replace(
   IN p_type     VARCHAR(8),
   IN p_id       BIGINT UNSIGNED,
@@ -136,7 +137,8 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:stale';
   END IF;
   IF CAST(p_body AS BINARY) = CAST(v_old AS BINARY) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:unchanged';
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'body:unchanged: replace did nothing: the new text is the same as the current text';
   END IF;
   INSERT INTO activity_history (type, activity_id, old_body, old_updated, old_updater_id, replaced_at, replaced_by)
   VALUES (p_type, p_id, v_old, v_old_ts, v_old_by, v_ts, v_desk);
@@ -163,20 +165,36 @@ BEGIN
          v_old_ts AS old_updated, 'replaced' AS op;
 END //
 
--- The old texts of one letter or card, oldest first (idx_item_version): each row is the text that stood from
--- old_updated (written by old_updater) until replaced_at (replaced by replaced_by). The current text is the item's.
+-- The old texts of one letter or card, newest first by default: each row is the text that stood from old_updated
+-- (written by old_updater) until replaced_at (replaced by replaced_by). The current text is the item's.
+-- p_order 'newest' or NULL lists the latest old text first; 'oldest' lists the first text first. Any other value
+-- refuses body:order.
 CREATE PROCEDURE mill_body_history(
-  IN p_type VARCHAR(8),
-  IN p_id   BIGINT UNSIGNED
+  IN p_type  VARCHAR(8),
+  IN p_id    BIGINT UNSIGNED,
+  IN p_order VARCHAR(8)
 )
 BEGIN
-  SELECT h.id, h.type, h.activity_id, h.old_body, h.old_updated, h.old_updater_id, ou.name AS old_updater,
-         h.replaced_at, h.replaced_by AS replaced_by_id, rb.name AS replaced_by
-    FROM activity_history h
-    LEFT JOIN name ou ON ou.id = h.old_updater_id
-    LEFT JOIN name rb ON rb.id = h.replaced_by
-   WHERE h.type = p_type AND h.activity_id = p_id
-   ORDER BY h.old_updated, h.id;
+  IF p_order IS NOT NULL AND p_order NOT IN ('newest', 'oldest') THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:order: order is newest or oldest';
+  END IF;
+  IF IFNULL(p_order, 'newest') = 'oldest' THEN
+    SELECT h.id, h.type, h.activity_id, h.old_body, h.old_updated, h.old_updater_id, ou.name AS old_updater,
+           h.replaced_at, h.replaced_by AS replaced_by_id, rb.name AS replaced_by
+      FROM activity_history h
+      LEFT JOIN name ou ON ou.id = h.old_updater_id
+      LEFT JOIN name rb ON rb.id = h.replaced_by
+     WHERE h.type = p_type AND h.activity_id = p_id
+     ORDER BY h.old_updated, h.id;
+  ELSE
+    SELECT h.id, h.type, h.activity_id, h.old_body, h.old_updated, h.old_updater_id, ou.name AS old_updater,
+           h.replaced_at, h.replaced_by AS replaced_by_id, rb.name AS replaced_by
+      FROM activity_history h
+      LEFT JOIN name ou ON ou.id = h.old_updater_id
+      LEFT JOIN name rb ON rb.id = h.replaced_by
+     WHERE h.type = p_type AND h.activity_id = p_id
+     ORDER BY h.old_updated DESC, h.id DESC;
+  END IF;
 END //
 
 DELIMITER ;

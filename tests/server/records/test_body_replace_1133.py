@@ -2,7 +2,8 @@
 
 A replace writes the old text to activity_history, the new text and both stamps to the item, and act replace to its
 activity row, in one transaction. It refuses a stale stamp, a desk with no rights, a retired item and a no-op, and
-writes nothing then. A card's text is todo.body; slug and the rest are todo.meta; readers still get one document.
+writes nothing then; the no-op says plainly that the replace did nothing because the text is the same. History lists
+the old texts newest first unless the caller asks for oldest first. A card's text is todo.body; slug and the rest are todo.meta; readers still get one document.
 """
 from __future__ import annotations
 
@@ -118,10 +119,31 @@ def test_second_replace_chains_old_updated_to_the_first(cn):
     first = rec_body.replace(cn, "todo", tid, "h_ask", "v2", _stamp(_card_row(cn, tid)))
     second = rec_body.replace(cn, "todo", tid, "h_adm", "v3", first["body_updated"])
     hist = rec_body.history(cn, "todo", tid)
-    assert [h["old_body"] for h in hist] == ["v1", "v2"]
-    assert hist[1]["old_updated"] == first["body_updated"] and hist[1]["old_updater"] == "h_ask"
-    assert hist[1]["replaced_by"] == "h_adm" and second["old_updated"] == first["body_updated"]
+    assert [h["old_body"] for h in hist] == ["v2", "v1"]  # newest first by default
+    assert hist[0]["old_updated"] == first["body_updated"] and hist[0]["old_updater"] == "h_ask"
+    assert hist[0]["replaced_by"] == "h_adm" and second["old_updated"] == first["body_updated"]
     assert _card_row(cn, tid)["body"] == "v3"
+
+
+def test_history_is_newest_first_and_oldest_on_request(cn):
+    tid = _card(cn, "history-order", "v1")
+    stamp = _stamp(_card_row(cn, tid))
+    for text in ("v2", "v3", "v4"):
+        stamp = rec_body.replace(cn, "todo", tid, "h_ask", text, stamp)["body_updated"]
+    newest = ["v3", "v2", "v1"]
+    assert [h["old_body"] for h in rec_body.history(cn, "todo", tid)] == newest
+    assert [h["old_body"] for h in rec_body.history(cn, "todo", tid, order="newest")] == newest
+    assert [h["old_body"] for h in call(cn, "mill_body_history", ["todo", tid, None])] == newest
+    assert [h["old_body"] for h in rec_body.history(cn, "todo", tid, order="oldest")] == newest[::-1]
+    with pytest.raises(Exception, match="body:order"):
+        rec_body.history(cn, "todo", tid, order="sideways")
+
+
+def test_unchanged_refusal_says_the_replace_did_nothing(cn):
+    tid = _card(cn, "unchanged-message", "same words")
+    with pytest.raises(Exception) as err:
+        rec_body.replace(cn, "todo", tid, "h_ask", "same words", _stamp(_card_row(cn, tid)))
+    assert "body:unchanged: replace did nothing: the new text is the same as the current text" in str(err.value)
 
 
 @pytest.mark.parametrize(
@@ -179,7 +201,7 @@ def test_mail_replace_sender_or_admin_and_receipts_untouched(cn):
     assert row["body"] == "letter v3" and row["body_updated"] == second["body_updated"]
     assert row["body_updater_id"] == _desk(cn, "h_adm")
     assert call(cn, "mill_mail_get", [mid])[0]["body_updated"] == second["body_updated"]
-    assert [h["old_body"] for h in rec_body.history(cn, "mail", mid)] == ["letter v1", "letter v2"]
+    assert [h["old_body"] for h in rec_body.history(cn, "mail", mid, order="oldest")] == ["letter v1", "letter v2"]
     assert _q(cn, "SELECT desk_id, opened, receipt, asked, created FROM mail_to WHERE type = 'mail' AND id = %s",
               (mid,)) == to0
     assert _q(cn, "SELECT act FROM activity WHERE type = 'mail' AND id = %s", (mid,))[0]["act"] == "replace"

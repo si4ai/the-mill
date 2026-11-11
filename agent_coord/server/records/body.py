@@ -2,6 +2,8 @@
 
 replace() is the one write: mill_body_replace keeps the old text in activity_history and refuses with
 body:stale unless ``expected`` is the stamp the caller read (body_updated, or created when never edited).
+A replace with the text already there refuses body:unchanged: the replace did nothing because the text is the same.
+history() lists the old texts newest first; order="oldest" lists the first text first.
 """
 
 from __future__ import annotations
@@ -23,6 +25,6 @@ def replace(cn, kind: str, item_id: int, desk: str, text: str, expected: Any) ->
     return rows[0] if rows else {}
 
 
-def history(cn, kind: str, item_id: int) -> list[dict[str, Any]]:
-    """The old texts of one item, oldest first."""
-    return call(cn, "mill_body_history", [kind, int(item_id)])
+def history(cn, kind: str, item_id: int, order: str = "newest") -> list[dict[str, Any]]:
+    """The old texts of one item, newest first; order="oldest" for the first text first (else body:order)."""
+    return call(cn, "mill_body_history", [kind, int(item_id), order])

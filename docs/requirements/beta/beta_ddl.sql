@@ -312,6 +312,8 @@ CREATE TABLE IF NOT EXISTS todo (
 -- old_updated is when that text was written (the item's body_updated, else created); old_updater_id who wrote it
 -- (body_updater_id, else the sender or the asker). Like label and tree it points at a timeline row that exists, so a
 -- hard delete of the activity row takes its history with it. type lists only the kinds with a body.
+-- mill_body_history reads it newest first (order 'oldest' on request); a replace with the same text writes no row
+-- (body:unchanged: replace did nothing).
 CREATE TABLE IF NOT EXISTS activity_history (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   type           ENUM('mail','todo') NOT NULL,
