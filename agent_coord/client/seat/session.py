@@ -120,33 +120,57 @@ def hold(
 
 
 def command(body: dict[str, Any]) -> Any:
-    """One desk command.
+    """one desk command.
 
-    A sit this process can see carries the call. Otherwise open a socket,
-    send this command, and release the bearer.
+    a sit this process can see carries the call. --desk on that sit is refused.
+    with no sit, --desk names the desk whose seat is borrowed for this call.
     """
-    from agent_coord.client.session_errors import SESSION_WS_BRIDGE_REQUIRED
+    from agent_coord.client.session_errors import (
+        desk_flag_required,
+        desk_flag_unnecessary,
+    )
     from agent_coord.client.ws import mill_ws_call, wait_for_sitting_desk
+    from agent_coord.helpers.ident import desk as slug_desk
 
+    asked = slug_desk(str(body.pop("sender_desk", "") or ""))
+    verb = str(body.get("verb") or body.get("cmd") or "COMMAND")
     state = look()
     if state.kind == "sitting":
+        if asked:
+            raise CoordError(desk_flag_unnecessary(state.desk))
         return mill_ws_call(body)
     if state.kind == "starting":
         if wait_for_sitting_desk():
+            if asked:
+                from agent_coord.client.tokens import resolve_desk_owner
+
+                raise CoordError(desk_flag_unnecessary(resolve_desk_owner("") or state.desk))
             return mill_ws_call(body)
         state = look()
     if state.kind == "busy":
         raise CoordError(state.detail or held_message())
     if state.kind == "fail":
         raise CoordError(state.detail or "connect failed")
-    desk, token = _joined_bearer()
+    if not asked:
+        if state.kind == "dead":
+            raise CoordError(state.detail)
+        raise CoordError(desk_flag_required(verb))
+    from agent_coord.client.offices import aliases_with_desk, cli_office
+
+    if not cli_office():
+        offices = aliases_with_desk(asked)
+        if len(offices) > 1:
+            from agent_coord.client.session_errors import desk_office_ambiguous
+
+            raise CoordError(desk_office_ambiguous(asked, offices))
+    holder = other_holder(asked)
+    if holder:
+        raise CoordError(held_message(holder))
+    desk, token = _bearer_for(asked)
     if not desk or not token:
         if state.kind == "dead":
             raise CoordError(state.detail)
-        raise CoordError(SESSION_WS_BRIDGE_REQUIRED)
-    holder = other_holder(desk)
-    if holder:
-        raise CoordError(held_message(holder))
+        raise CoordError(f"mill {verb} --desk {asked}: no seat for {asked} on this machine")
     return borrow(desk, token, body)
 
 
@@ -168,11 +192,12 @@ def _focus(desk: str, project: str, stop: threading.Event, outcome: dict[str, An
     seat_then_focus(desk, project, stop, outcome)
 
 
-def _joined_bearer() -> tuple[str, str]:
-    """The desk this process joined, when that seat has a stored bearer."""
-    from agent_coord.client.tokens import read_active_desk, read_session_token
+def _bearer_for(desk: str) -> tuple[str, str]:
+    """stored seat for an explicit desk. never the active-desk file."""
+    from agent_coord.client.tokens import read_session_token
+    from agent_coord.helpers.ident import desk as slug_desk
 
-    who = (read_active_desk() or "").strip()
+    who = slug_desk(desk)
     if not who:
         return "", ""
     try:

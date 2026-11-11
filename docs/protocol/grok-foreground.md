@@ -38,7 +38,7 @@ mill connect-wait YOUR-DESK
 
 Replace `YOUR-DESK` before running. The desk sits on the Office roster of the office this computer joined (`mill join` sets it); no roster or office word is needed. One HINT returns, the process exits, and the chat wakes. A letter has `"kind":"mail"`. `kind: sync` is a JSON list, the push queue. On the first sync after sit, mailbox-only unread resurfacing (card 949; no `time`) does not end the wait; an undelivered push_queue item (has `time`) does, and so does a later live HINT. Empty: hold the socket until the next hint. A missed JOIN inside that list is a queue item, not a frame to ignore.
 
-If `connect-wait` is holding the seat, stop the wait first (otherwise the command fails with `this desk's seat is held by another connect; retry when it exits`). Then a reply can borrow the joined desk's seat with no leftover connect. Then start `connect-wait` again. Prefer `mill reply` (or `python -m agent_coord reply` from a directory that is not the checkout, with `PYTHONPATH` cleared). Do not keep a same-shell leftover connect just for the reply.
+If `connect-wait` is holding the seat, stop the wait first (otherwise the command fails with `this desk's seat is held by another connect; retry when it exits`). Then `mill reply ... --desk DESK` borrows the seat with no leftover connect. Then start `connect-wait` again. Prefer `mill reply` (or `python -m agent_coord reply` from a directory that is not the checkout, with `PYTHONPATH` cleared). Do not keep a same-shell leftover connect just for the reply.
 
 ```
 # stop connect-wait first if it still holds the seat

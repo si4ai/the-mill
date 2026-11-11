@@ -402,6 +402,27 @@ def read_desk_token(owner: str, *, host: str, dest: Path | None = None) -> str:
         return ""
 
 
+def aliases_with_desk(desk: str, *, dest: Path | None = None) -> list[str]:
+    """One alias per wall that has a seat file for this desk."""
+    from agent_coord.helpers.ident import desk as slug_desk
+
+    who = slug_desk(desk)
+    if not who:
+        return []
+    seen: set[str] = set()
+    names: list[str] = []
+    for row in list_aliases(dest=dest):
+        host = str(row.get("host") or "")
+        name = str(row.get("name") or "")
+        if not host or not name or host in seen:
+            continue
+        if not read_desk_token(who, host=host, dest=dest):
+            continue
+        seen.add(host)
+        names.append(name)
+    return names
+
+
 def write_seat_project(owner: str, project: str, *, host: str, dest: Path | None = None) -> Path | None:
     """Remember the project this seat joined, so connect can fill it in (#249)."""
     name = (project or "").strip()

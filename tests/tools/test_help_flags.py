@@ -2,7 +2,7 @@
 
 A flag added to a subparser without a matching row in docs/protocol/cli-*.md (the
 text mill help COMMAND prints) fails here. Hidden commands (help suppressed) and the
-flags every command takes (--help, --office, --yes) are skipped.
+flags every command takes (--help, --office, --yes), and --desk on desk commands (documented in the session line, not each command row), are skipped.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from agent_coord.__main__ import _build_parser
 from agent_coord.install.office import help_text
 
-_EVERY_COMMAND = {"--help", "--office", "--yes"}
+_EVERY_COMMAND = {"--help", "--office", "--yes", "--desk"}
 
 
 def _shown_commands() -> dict[str, argparse.ArgumentParser]:
