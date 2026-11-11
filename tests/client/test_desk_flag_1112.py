@@ -11,6 +11,7 @@ from agent_coord.client import http as mill_client
 from agent_coord.client import ws as ws_cli
 from agent_coord.client.outbound import body_from_args
 from agent_coord.client.seat import command
+from agent_coord.client.session_errors import desk_flag_required
 from agent_coord.helpers.errors import CoordError
 
 
@@ -24,8 +25,9 @@ def test_join_does_not_take_sender_desk():
         _build_parser().parse_args(["join", "--desk", "grok-tui"])
 
 
-def test_connected_desk_stays_a_filter():
-    args = _build_parser().parse_args(["connected", "--desk", "grok-tui"])
+def test_connected_who_is_the_filter():
+    """card 1130: --desk is the seat borrow here too; the filter is --who."""
+    args = _build_parser().parse_args(["connected", "--who", "grok-tui"])
     assert args.desk == "grok-tui"
     assert getattr(args, "sender_desk", "") == ""
 
@@ -55,6 +57,7 @@ def test_command_refuses_desk_flag_when_this_shell_is_connected(tmp_path, monkey
 
 def test_command_without_desk_or_sit_names_the_flag(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
+    monkeypatch.setattr("agent_coord.client.session_errors._typed", [])
 
     def boom(*_a, **_k):
         raise AssertionError("active desk")
@@ -62,7 +65,7 @@ def test_command_without_desk_or_sit_names_the_flag(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_coord.client.tokens.read_active_desk", boom)
     with pytest.raises(CoordError) as ei:
         command({"verb": "inbox"})
-    assert str(ei.value) == "mill inbox --desk DESK ..."
+    assert str(ei.value) == desk_flag_required("inbox")
 
 
 def test_active_desk_file_is_not_a_bearer(tmp_path, monkeypatch):
@@ -70,6 +73,7 @@ def test_active_desk_file_is_not_a_bearer(tmp_path, monkeypatch):
     from agent_coord.client.tokens import write_active_desk, write_session_token
 
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
+    monkeypatch.setattr("agent_coord.client.session_errors._typed", [])
     write_active_desk("builder")
     write_session_token("builder", "seat-builder")
     write_session_token("grok-tui", "seat-grok")
@@ -83,7 +87,7 @@ def test_active_desk_file_is_not_a_bearer(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_coord.client.seat.session.borrow", fake_borrow)
     with pytest.raises(CoordError) as ei:
         command({"verb": "inbox"})
-    assert str(ei.value) == "mill inbox --desk DESK ..."
+    assert str(ei.value) == desk_flag_required("inbox")
     assert borrowed == {}
 
     out = command({"verb": "inbox", "sender_desk": "grok-tui"})

@@ -33,19 +33,21 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # No pack or database dependency: decide before either heavy runner starts.
-  detect_docs_only:
+  # Card 1127: pick the test jobs that verify the changed files, from
+  # ci/test-select.toml. No pack or database dependency, nothing installed.
+  select:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
-      skip_pytest: ${{ steps.detect.outputs.skip_pytest }}
+      pytest_no_sql_run: ${{ steps.select.outputs.pytest_no_sql_run }}
+      pytest_sql_run: ${{ steps.select.outputs.pytest_sql_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - id: detect
-        run: python3 tools/docs_only.py >> "$GITHUB_OUTPUT"
+      - id: select
+        run: python3 ci/test_select.py --github
 
   build_pack:
     runs-on: ubuntu-24.04
@@ -123,6 +125,15 @@ jobs:
         run: |
           git fetch --no-tags origin main
           python tools/check_pack.py --commits origin/main..HEAD
+      # The merge queue lands "TITLE (#N)" plus the PR body as the squash
+      # message and scans it with --head-message and the private names. Scan
+      # that text here too, read from the event file (never a workflow
+      # expression), so a hit shows on the PR instead of in the queue.
+      - if: github.event_name == 'pull_request'
+        env:
+          MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}
+          MILL_PRIVATE_NAMES_REQUIRED: ${{ github.event.pull_request.head.repo.fork && '0' || '1' }}
+        run: python tools/check_pack.py --pr-message
       # Whole-tree comment and prose hygiene, the same scan as the pre-commit hook.
       - run: python tools/precommit_hygiene.py tree
       # Audit without installing anything: the runtime floors (the oldest a
@@ -164,8 +175,8 @@ jobs:
       - run: python tools/check_doc_commands.py
 
   pytest_no_sql_run:
-    needs: [detect_docs_only, build_pack]
-    if: needs.detect_docs_only.outputs.skip_pytest != 'true'
+    needs: [select, build_pack]
+    if: needs.select.outputs.pytest_no_sql_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -209,8 +220,8 @@ jobs:
       - run: python -m pytest tests -m "not sql"
 
   pytest_sql_run:
-    needs: [detect_docs_only, build_pack]
-    if: needs.detect_docs_only.outputs.skip_pytest != 'true'
+    needs: [select, build_pack]
+    if: needs.select.outputs.pytest_sql_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -277,34 +288,34 @@ jobs:
           if-no-files-found: warn
 
   # Keep the required check names present even when the heavy jobs skip.
-  # A failed detector or a failed/skipped runner must never turn green.
+  # A failed selector, or a selected runner that failed or skipped, never turns green.
   pytest_sql:
-    needs: [detect_docs_only, pytest_sql_run]
+    needs: [select, pytest_sql_run]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - env:
-          DETECT_RESULT: ${{ needs.detect_docs_only.result }}
-          SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}
+          SELECT_RESULT: ${{ needs.select.result }}
+          SELECTED: ${{ needs.select.outputs.pytest_sql_run }}
           RUN_RESULT: ${{ needs.pytest_sql_run.result }}
         run: |
-          test "$DETECT_RESULT" = success
-          test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success
+          test "$SELECT_RESULT" = success
+          test "$SELECTED" = false || test "$RUN_RESULT" = success
 
   pytest_no_sql:
-    needs: [detect_docs_only, pytest_no_sql_run]
+    needs: [select, pytest_no_sql_run]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - env:
-          DETECT_RESULT: ${{ needs.detect_docs_only.result }}
-          SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}
+          SELECT_RESULT: ${{ needs.select.result }}
+          SELECTED: ${{ needs.select.outputs.pytest_no_sql_run }}
           RUN_RESULT: ${{ needs.pytest_no_sql_run.result }}
         run: |
-          test "$DETECT_RESULT" = success
-          test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success
+          test "$SELECT_RESULT" = success
+          test "$SELECTED" = false || test "$RUN_RESULT" = success
 
   precheck:
     needs: build_pack

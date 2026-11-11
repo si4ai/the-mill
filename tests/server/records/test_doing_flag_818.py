@@ -105,7 +105,7 @@ class World:
         return need, int(rec_todo.find(self.cn, R, need)["id"])
 
     def me(self, desk=ME) -> dict:
-        rows = self.ok(["connected", "--desk", desk])
+        rows = self.ok(["connected", "--who", desk])
         assert len(rows) == 1, rows
         return rows[0]
 
@@ -491,7 +491,7 @@ def test_connected_roster_is_optional_and_lists_active_desks(w):
     assert {ME, PEER} <= {r["owner"] for r in rows}
     rows = w.ok(["connected", R])
     assert {ME, PEER} <= {r["owner"] for r in rows}
-    code, out, err = w.run(["connected", "--desk", "d818-nobody"])
+    code, out, err = w.run(["connected", "--who", "d818-nobody"])
     assert code != 0 and "no desk" in (err + out)
 
 
@@ -504,7 +504,7 @@ def test_rows_from_before_818_are_not_a_doing(w):
     assert any(r["text"] for r in w.entries("d818-old"))
     view = w.me("d818-old")
     assert view["doing"] == "" and "last" not in view and view["line"].startswith("d818-old: idle.")
-    hist = w.ok(["connected", "--history", "--desk", "d818-old"])
+    hist = w.ok(["connected", "--history", "--who", "d818-old"])
     assert hist["history"] == [] and hist["page"]["entries"] == 0
 
 
@@ -513,7 +513,7 @@ def test_history_says_how_an_entry_ended(w):
     w.ok(["claim", R, need, "--doing", "first"])
     w.ok(["note", R, need, "--note", "x", "--doing", "second"])
     w.ok(["pass", R, need])
-    rows = w.ok(["connected", "--history", "--desk", ME])["history"]
+    rows = w.ok(["connected", "--history", "--who", ME])["history"]
     by = {r["doing"]: r for r in rows[:2]}
     assert by["second"]["ended_by"] == "finished" and by["first"]["ended_by"] == "newer"
 
@@ -521,7 +521,7 @@ def test_history_says_how_an_entry_ended(w):
 def test_history_lists_entries_with_ended_and_pages(w):
     need, _ = w.card()
     w.ok(["claim", R, need, "--doing", "still on it"])
-    got = w.ok(["connected", "--history", "--desk", ME])
+    got = w.ok(["connected", "--history", "--who", ME])
     hist = got["history"]
     assert hist and all(e["desk"] == ME and e["doing"] for e in hist)
     assert any(e["ended"] for e in hist) and any(not e["ended"] for e in hist)
@@ -545,7 +545,7 @@ def _joined(w, desk: str) -> str:
 
 
 def _hist(w, desk: str) -> list[dict]:
-    return w.ok(["connected", "--history", "--desk", desk])["history"]
+    return w.ok(["connected", "--history", "--who", desk])["history"]
 
 
 @pytest.mark.parametrize("how", ["clock-out", "reset"])

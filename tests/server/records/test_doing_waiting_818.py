@@ -202,7 +202,7 @@ def test_blocked_on_ends_with_its_entry(w):
 def test_history_keeps_the_blocked_on(w):
     need, _ = w.card()
     w.ok(["claim", R, need, "--doing", "for history", "--waiting-on", f"{PEER} a review"])
-    h = w.ok(["connected", "--history", "--desk", ME])["history"][0]
+    h = w.ok(["connected", "--history", "--who", ME])["history"][0]
     assert h["waiting_on"] == {"on": f"desk-{PEER}", "why": "a review"}
 
 
