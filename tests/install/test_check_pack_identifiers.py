@@ -633,3 +633,75 @@ def test_identity_name_role_and_bot_pass() -> None:
     who = _j("W", "ibble")
     assert not mod.identity_name_ok(who)
     assert not mod.identity_name_ok("")
+
+
+# The PR squash message (#396 left the queue on a name the PR checks never
+# scanned): on pull_request, check_pack --pr-message builds the message the
+# merge queue will land, "TITLE (#N)" then the body, from the event file, and
+# runs the same message rules with the private-name list as --head-message.
+def test_home_user_name_is_a_whole_word_not_a_substring() -> None:
+    mod = _mod()
+    short = _j("b", "ox")
+    pats = mod._home_user_regexes((short,))
+    assert not mod._has_local_home_user("Run `mill inbox --desk DESK`, then inbox again.", pats)
+    assert mod._has_local_home_user(_j("/", "home", "/", short, "/.mill"), pats)
+    assert mod._has_local_home_user(_j("C:", BS, "Users", BS, short), pats)
+    alias = _j("zq", "-office")
+    assert mod._has_local_home_user(_j("verified live on ", alias, " 0.8.12"), mod._home_user_regexes((alias,)))
+
+
+def _pr_event(tmp_path: Path, title: str, body: str, *, login: str = "si4ai-builder[bot]", uid: int = 1) -> Path:
+    import json
+
+    path = tmp_path / "event.json"
+    path.write_text(
+        json.dumps({"pull_request": {"number": 7, "title": title, "body": body, "user": {"login": login, "id": uid, "type": "Bot"}}}),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_pr_message_is_the_queue_squash_text(tmp_path) -> None:
+    mod = _mod()
+    ev = _pr_event(tmp_path, "docs: guide examples", "line one\nline two")
+    msg, author = mod.pr_squash_message(ev)
+    assert msg == "docs: guide examples (#7)\n\nline one\nline two"
+    assert author == "1+si4ai-builder[bot]@users.noreply.github.com"
+
+
+def test_pr_message_cli_flags_a_private_name_and_passes_inbox(tmp_path, monkeypatch, capsys) -> None:
+    mod = _mod()
+    repo = _fresh_root(tmp_path / "r", "initial public import")
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    monkeypatch.setattr(mod, "local_home_user_names", lambda: ())
+    alias = _j("zq", "-office")
+    monkeypatch.setenv("MILL_PRIVATE_NAMES", alias + "\n" + _j("b", "ox"))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(_pr_event(tmp_path, "docs: examples pass --desk", "mill inbox --desk DESK in the inbox example")))
+    assert mod.main(["--pr-message"]) == 0
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(_pr_event(tmp_path, "docs: examples", "verified live on " + alias + " 0.8.12")))
+    assert mod.main(["--pr-message"]) == 1
+    out = capsys.readouterr().out
+    assert "local home-user name in the PR squash message" in out
+    assert alias not in out
+
+
+def test_pr_message_needs_the_secret_on_ci_unless_a_fork(tmp_path, monkeypatch) -> None:
+    mod = _mod()
+    repo = _fresh_root(tmp_path / "r", "initial public import")
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.delenv("MILL_PRIVATE_NAMES", raising=False)
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(_pr_event(tmp_path, "docs: x", "plain body")))
+    monkeypatch.setenv("MILL_PRIVATE_NAMES_REQUIRED", "1")
+    assert mod.main(["--pr-message"]) == 1
+    monkeypatch.setenv("MILL_PRIVATE_NAMES_REQUIRED", "0")
+    assert mod.main(["--pr-message"]) == 0
+
+
+def test_ci_scans_the_pr_squash_message_on_pull_request() -> None:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    at = text.index("python tools/check_pack.py --pr-message")
+    step = text[text.rindex("- if:", 0, at) : at]
+    assert "github.event_name == 'pull_request'" in step
+    assert "MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}" in step
+    assert "github.event.pull_request.title" not in step and "github.event.pull_request.body" not in step

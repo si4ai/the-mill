@@ -123,6 +123,15 @@ jobs:
         run: |
           git fetch --no-tags origin main
           python tools/check_pack.py --commits origin/main..HEAD
+      # The merge queue lands "TITLE (#N)" plus the PR body as the squash
+      # message and scans it with --head-message and the private names. Scan
+      # that text here too, read from the event file (never a workflow
+      # expression), so a hit shows on the PR instead of in the queue.
+      - if: github.event_name == 'pull_request'
+        env:
+          MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}
+          MILL_PRIVATE_NAMES_REQUIRED: ${{ github.event.pull_request.head.repo.fork && '0' || '1' }}
+        run: python tools/check_pack.py --pr-message
       # Whole-tree comment and prose hygiene, the same scan as the pre-commit hook.
       - run: python tools/precommit_hygiene.py tree
       # Audit without installing anything: the runtime floors (the oldest a

@@ -5,6 +5,7 @@ Usage:
   python tools/check_pack.py path/to.whl path/to.tar.gz
   python tools/check_pack.py --head-message
   python tools/check_pack.py --commits A..B
+  python tools/check_pack.py --pr-message
 
 Exits 0 when both artifacts are clean; exits 1 on any fail-closed hit.
 Does not print matched home-path, email, local home-user, or address substrings.
@@ -46,6 +47,7 @@ for U+FEFF may stay; that is how mill send strips a PowerShell BOM.
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import re
 import shutil
@@ -1382,6 +1384,53 @@ def scan_head_message(pats: tuple[re.Pattern[str], ...] = ()) -> list[str]:
     return fails
 
 
+def pr_squash_message(event_path: Path) -> tuple[str, str]:
+    """(message, author email) the merge queue will land for this pull request.
+
+    The queue squashes to "TITLE (#N)", a blank line, then the PR body (GitHub
+    rewraps the body on whitespace and appends co-author trailers, which the
+    message rules do not depend on). The author is the PR opener's noreply.
+    Read from the event file: the text is untrusted and never passes a shell.
+    """
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    pr = event.get("pull_request") or {}
+    user = pr.get("user") or {}
+    title = str(pr.get("title") or "")
+    body = str(pr.get("body") or "").replace("\r\n", "\n")
+    message = f"{title} (#{pr.get('number')})"
+    if body:
+        message += "\n\n" + body
+    author = f"{user.get('id')}+{user.get('login')}@users.noreply.github.com"
+    return message, author
+
+
+def pr_message_main() -> int:
+    """check_pack.py --pr-message: on pull_request, the squash message the queue
+    will scan with --head-message, scanned now so a hit shows before the queue."""
+    names = private_names()
+    if not names and private_names_required():
+        print(f"FAIL: CI needs the {PRIVATE_NAMES_ENV} secret for the PR squash-message scan (fail-closed)")
+        return 1
+    if not names:
+        print(f"Private-name scan: skipped (no {PRIVATE_NAMES_ENV}; a fork PR has no secrets)")
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+    try:
+        message, author = pr_squash_message(Path(event_path))
+    except (OSError, ValueError) as exc:
+        print(f"FAIL: cannot read the pull_request event ({type(exc).__name__}; failing closed)")
+        return 1
+    pats = _home_user_regexes(tuple(sorted(set(local_home_user_names()) | set(names), key=str.casefold)))
+    fails = _message_fails("pr", author, message, pats, ordinary_words(mill_root()), where="the PR squash message")
+    if fails:
+        print(f"FAIL: {len(fails)} issue(s) in the PR squash message (title and body)")
+        for f in fails:
+            print(f"  - {f}")
+        print("Fix the PR title or body; the merge queue lands this text on main.")
+        return 1
+    print("OK: the PR squash message (title and body) passed the message rules.")
+    return 0
+
+
 def head_message_main() -> int:
     """check_pack.py --head-message: the merge-queue step (no dist needed)."""
     names = private_names()
@@ -1577,10 +1626,12 @@ def main(argv: list[str] | None = None) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         print()
-        print("usage: python tools/check_pack.py dist | <wheel> <sdist> | --head-message | --commits A..B")
+        print("usage: python tools/check_pack.py dist | <wheel> <sdist> | --head-message | --commits A..B | --pr-message")
         return 0 if argv and argv[0] in ("-h", "--help") else 2
     if argv == ["--head-message"]:
         return head_message_main()
+    if argv == ["--pr-message"]:
+        return pr_message_main()
     if len(argv) == 2 and argv[0] == "--commits":
         return commits_main(argv[1])
     if argv and argv[0] == "--commits":
