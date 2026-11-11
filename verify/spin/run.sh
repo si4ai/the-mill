@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh - run every SPIN check of the wake path, holds, 0.8.0 activity models, and the card 1125 activity_history design model, with fixed flags.
+# run.sh - run every SPIN check of the wake path, holds, 0.8.0 activity models, and the card 1125 activity_history MVP design model, with fixed flags.
 #
 # Each check has an expected result: pass, or violated (a known finding or a
 # mutation that must fail). The run exits nonzero when any check differs from
@@ -159,31 +159,30 @@ N04|name|-DRC=1|ltl:retired_no_token|pass|same join under READ COMMITTED (as tab
 N05|name|-DJOIN_NAME_LOCK=0 -DRC=1|ltl:retired_no_token|violated|mutation (pre-F186): no name-row lock, only the plain read in MILL_NAME_PUT: a retired desk keeps a token at any isolation
 M19|name|-DMUT_SELF_ANY|safety|violated|mutation: the self check forgets target = caller (invariant 14)
 M20|name|-DMUT_RECLAIM_ANY|safety|violated|mutation: reclaim forgets the Admin check
-A01|activity_history||safety|pass|card 1125 design: P1 no silent stale act, P3 one edit per base, P4 history = log, P6, P7, P2 at rest
-A02|activity_history|-DCHECK_P5|safety|pass|P5: debounce (one slot per item and desk, last rev wins) tells every desk the final rev
-A03|activity_history|-DHINT_DROP=1|safety|pass|P2 with hints that drop: a desk not told the last rev still sees it unread
-A04|activity_history|-DHINT_DROP=1 -DCHECK_P5|safety|violated|EXPECTED: a dropped hint leaves a desk untold; unread (P2) is what covers it
-A05|activity_history|-DINFLIGHT=1 -DCHECK_P5|safety|pass|a hint that lands after a newer read is dropped by rev; P1 and P5 hold
-A06|activity_history|-DCLOSE=2|safety|pass|retire: edits and acts on a retired item are refused; text frozen (P6)
-A07|activity_history|-DEDITS_A=3|safety|pass|same as A01 with three author edits
-A08|activity_history|-DACT_MODE=1|safety|pass|refuse mode is also safe (P1, P3, P4)
-A09|activity_history|-DACT_MODE=1|ltl:act_lands|violated|FINDING: refuse mode, a reply/claim is refused MAXTRY times in a row while edits continue
-A10|activity_history|-DACT_MODE=0|ltl:act_lands|pass|stale-flag mode: the reply/claim always lands on its first try
-A11|activity_history|-DSEEN_REV=0|safety|violated|FINDING: unread-again by clearing mail_to.opened pushes a second receipt (P7, mail invariant 7)
-A12|activity_history|-DSEEN_REV=0 -DSKIP_P7 -DHINT_DROP=1|safety|pass|same reuse, receipts aside: P2 itself holds when every handled row is cleared
-A13|activity_history|-DEDITS_A=3 -DINFLIGHT=1 -DHINT_DROP=1 -DCLOSE=2|safety|pass|larger: three author edits, late and dropped hints, retire (P1-P4, P6, P7)
-A14|activity_history|-DEDITS_A=3 -DINFLIGHT=1 -DCHECK_P5|safety|pass|larger: three author edits and late hints, P5
-X01|activity_history|-DMUT_CHECK_SPLIT|safety|violated|mutation: the act compares --rev before the item lock (P1)
-X02|activity_history|-DMUT_READ_SPLIT|safety|violated|mutation: a read returns body and rev from two selects (P1)
-X03|activity_history|-DMUT_SILENT|safety|violated|mutation: a stale act applies with no flag and no current text (P1)
-X04|activity_history|-DMUT_EDIT_NOCAS|safety|violated|mutation: a text edit ignores its base rev, last writer wins (P3)
-X05|activity_history|-DMUT_EDIT_SPLIT|safety|violated|mutation: a text edit compares its base before the lock (P3)
-X06|activity_history|-DMUT_HIST_SPLIT|safety|violated|mutation: the history row is written after commit (P4)
-X07|activity_history|-DMUT_DEB_FIRST -DCHECK_P5|safety|violated|mutation: debounce keeps the first pending rev (P5)
-X08|activity_history|-DMUT_SEEN_ON_HINT -DHINT_DROP=1|safety|violated|mutation: queuing the edited hint marks the desk seen (P2)
-X09|activity_history|-DINFLIGHT=1 -DMUT_KNOWS_MAX|safety|violated|mutation: the client keeps the highest rev heard, even from an older hint (P1)
-X10|activity_history|-DCLOSE=2 -DMUT_EDIT_RETIRED|safety|violated|mutation: an edit on a retired item applies (P6)
-X11|activity_history|-DSEEN_REV=0 -DSKIP_P7 -DHINT_DROP=1 -DMUT_NO_UNREAD_W|safety|violated|mutation: unread-again clears addressee rows only, not watchers (P2)
+A01|activity_history||safety|pass|card 1125 MVP: P1 one-SELECT read, P2 rights, P3 no lost update, P4 history = log, P7 receipts; replace, in-lock claim line, bare claim
+A02|activity_history|-DAPPEND=0|safety|pass|replace-only (card 1125, 8:19 AM PST: no note append): same properties
+A03|activity_history|-DCLOSE=1|safety|pass|retire: replace refused afterwards, body frozen (P5)
+A04|activity_history|-DFAIL=1|safety|pass|forced error after the history insert rolls back both (done_when 5)
+A05|activity_history|-DCHECK_P6|safety|pass|P6: a replace built on the current text is never refused stale (strict clock)
+A06|activity_history|-DCLOCK=1|safety|pass|MILL_NOW() may repeat or step back: UNIQUE (type, activity_id, old_updated) still stops every lost update
+A07|activity_history|-DCLOCK=1 -DUNIQUE=0|safety|violated|FINDING: body_updated alone is not a version when the clock repeats; the UNIQUE key is load-bearing
+A08|activity_history|-DCLOCK=1 -DCHECK_P6|safety|violated|FINDING (minor): a repeated stamp makes UNIQUE refuse a replace built on the current text
+A09|activity_history|-DCLOSE=1 -DFAIL=1 -DMAXTRY=3|safety|pass|larger: retire, forced errors, three tries per editor
+X01|activity_history|-DMUT_APPEND_RMW|safety|violated|mutation: the claim/note line is appended to an earlier unlocked read (P3)
+X02|activity_history|-DMUT_CLAIM_RMW|safety|violated|mutation: a claim rewrites the body from its earlier read, as today (P3)
+X03|activity_history|-DMUT_NOCAS|safety|violated|mutation: replace ignores body_updated, last writer wins (P3)
+X04|activity_history|-DMUT_CAS_SPLIT|safety|violated|mutation: replace compares body_updated before the item lock (P3)
+X05|activity_history|-DMUT_READ_SPLIT|safety|violated|mutation: a read takes body and body_updated from two selects (P1)
+X06|activity_history|-DMUT_HIST_SPLIT -DFAIL=1|safety|violated|mutation: the history row commits in its own transaction (P4)
+X07|activity_history|-DMUT_OPEN_CLEAR|safety|violated|mutation: a body write clears mail_to.opened, a second receipt (P7)
+X08|activity_history|-DMUT_FRESH_READ|safety|violated|mutation: replace-body re-reads body_updated in the call, not the last read (P3)
+X09|activity_history|-DMUT_NULL_NE|safety|violated|mutation: compare cur <> base; NULL never reads as stale (P3)
+X10|activity_history|-DMUT_NULL_EQ -DCHECK_P6|safety|violated|mutation: compare cur = base; a never-edited item is always stale (P6)
+X11|activity_history|-DMUT_ANY_RIGHTS|safety|violated|mutation: no rights check (P2)
+X12|activity_history|-DCLOSE=1 -DMUT_EDIT_RETIRED|safety|violated|mutation: replace on a retired item applies (P5)
+X13|activity_history|-DMUT_APPEND_NOBUMP -DUNIQUE=0|safety|violated|mutation: the append leaves body_updated as it was, a replace from before it passes (P3)
+X14|activity_history|-DMUT_APPEND_NOBUMP|safety|violated|same with the UNIQUE key: on a never-edited item old_updated is NULL and NULLs never collide, so the append is still lost (P3)
+X15|activity_history|-DMUT_NOREAD_NULL|safety|violated|mutation: no last read is sent as NULL; on a never-edited item a desk replaces text it never read (P3)
 '
 
 fail=0; n=0; t0=$(date +%s)

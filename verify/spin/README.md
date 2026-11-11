@@ -15,7 +15,7 @@ in which the steps of the model can interleave, inside the stated bounds.
 | `mail.pml` | 0.8.0 recipient rows M1-M8: the first open kept, opening leaves activity alone, receipts |
 | `score.pml` | 0.8.0 score moves S1-S6, the Wall writer included |
 | `name.pml` | 0.8.0 retire and reclaim N1-N4, the self-retire token check (card 880), join of a retired name |
-| `activity_history.pml` | card 1125 design (targeted at 0.8.13, nothing built): text edits on mail and todo, monotonic `rev`, compare-and-set replaces, stale-flagged acts, debounced edited hints, `seen_rev` unread, done and retired items |
+| `activity_history.pml` | card 1125 MVP design (targeted at 0.8.14, nothing built): `replace-body` on mail and todo, `body_updated` as the version (compare-and-set under the item lock), full old body in `activity_history`, in-lock claim lines, bare claims, receipts, retire, a clock that may repeat |
 | `run.sh` | runs every check with fixed flags, compares each result with its expectation, exits nonzero on any difference or tool error (`--strict`: on any violation) |
 | `SKILL.md` | how the next agent tells whether a change touches the modelled code, reruns the checks, and updates the models |
 
@@ -296,78 +296,75 @@ Setting a fixed switch to 0 is the pre-fix mutant, not an option on the pin.
   guards).
 
 
-## Card 1125: activity_history (design for 0.8.13)
+## Card 1125: activity_history (MVP design for 0.8.14)
 
-Design model only: nothing is built. Protocol and findings are in
-`docs/dev/card-1125-activity-history.md`. The model describes the proposed
-protocol, not current mail or todo writers. There is no `SYNC` pin until the
-build lands. Check ids are A01-A14 and X01-X11; A* avoids colliding with
-`holds.pml` (H01-H13).
+Design model only: nothing is built. The design, findings and the mapping from
+the first draft's check ids are in `docs/dev/card-1125-activity-history.md`. The
+model describes the MVP agreed in room `card-1125-mvp` and on cards 1125 and
+1133, not current mail or todo writers. There is no `SYNC` pin until the build
+lands. Check ids are A01-A09 and X01-X15; A* avoids colliding with `holds.pml`
+(H01-H13).
 
-One item, three desks (author/asker A, addressee/claimer B, watcher with Admin W),
-up to two author edits (three in A07, A13, A14) plus one watcher edit, a reply or
-claim carrying `--rev`, re-reads, a Hub that delivers debounced edited hints
-(may drop them, may land them late), done or retire. Searches are exhaustive
-(`-DCOLLAPSE`, no BITSTATE, no depth cut; max depth 300000).
+One item, three desks (sender/asker A, addressee/claimer B, Admin W). A and W
+read, then `replace-body` from their last read, re-reading and retrying after a
+refusal (W may skip the read). B claims bare, claims with a line appended in the
+lock, or tries a replace it has no right to, and reads twice. A may retire the
+item; a replace may fail after its history insert; the clock may repeat.
+Searches are exhaustive (`-DCOLLAPSE`, no BITSTATE, no depth cut; max depth 300000).
 
 | Property | How checked |
 | :--- | :--- |
-| P1. No act (reply, claim, pass) made at rev v-1 is accepted silently once v exists: it is refused or flagged stale and the reply carries the current text | assert in the act's lock step: accepted clean implies the desk's last text is the current text |
-| P2. Every desk on the activity was told the last rev, or still sees the item unread | assert at rest (timeout) |
-| P3. No lost edit: at most one text edit applies from any base rev | assert in the edit's lock step |
-| P4. History is append-only, one row per rev, newest row = current text | assert in every read and edit, and at rest |
-| P5. Debounce never drops the final rev: with no dropped hints, every desk ends told the final rev | assert at rest (`CHECK_P5`) |
-| P6. A retired item's text never changes | assert at rest |
-| P7. One receipt per recipient row, also after an edit makes it unread again (mail invariant 7) | assert in the read |
-| act_lands. The reply/claim lands (not refused MAXTRY times in a row) | LTL safety claim `[] !gaveup` |
+| P1. A read returns body and `body_updated` of one version | assert in the read |
+| P2. Only the sender/asker or Admin replaces | assert in the replace step |
+| P3. No lost update: every body write is built on the current text | assert in the write step; at rest the versions form one chain |
+| P4. History is the log: one row per body write, newest row = the version the current one replaced, with its stamp | assert in every read and at rest |
+| P5. A retired item's body never changes | assert at rest |
+| P6. A replace built on the current text is never refused (`CHECK_P6`) | assert in the replace step |
+| P7. One receipt per `mail_to` row, also after edits | assert in the read and at rest |
 
 | Id | Defines | Expect | Got | States | Depth | What it shows |
 | :--- | :--- | :--- | :--- | ---: | ---: | :--- |
-| A01 | (proposed design) | pass | pass | 49,630 | 110 | P1, P2, P3, P4, P6, P7 |
-| A02 | CHECK_P5 | pass | pass | 49,630 | 110 | P5: one pending slot per (item, desk), last rev wins |
-| A03 | HINT_DROP=1 | pass | pass | 83,903 | 110 | P2 with hints that drop: unread covers the untold desk |
-| A04 | HINT_DROP=1 CHECK_P5 | violated | violated | 44 | 110 | expected: a dropped hint leaves a desk untold; why unread must stay |
-| A05 | INFLIGHT=1 CHECK_P5 | pass | pass | 202,760 | 116 | a hint that lands after a newer read is dropped by rev |
-| A06 | CLOSE=2 | pass | pass | 71,528 | 110 | retire refuses edits and acts; text frozen |
-| A07 | EDITS_A=3 | pass | pass | 170,258 | 134 | A01 with three author edits |
-| A08 | ACT_MODE=1 | pass | pass | 79,469 | 120 | refuse mode is also safe |
-| A09 | ACT_MODE=1 | violated | violated | 10,555 | 161 | finding: refuse mode starves a reply/claim while edits continue |
-| A10 | ACT_MODE=0 | pass | pass | 49,630 | 146 | stale-flag mode: the act lands on its first try |
-| A11 | SEEN_REV=0 | violated | violated | 2,755 | 121 | finding: unread-again by clearing mail_to.opened sends a second receipt |
-| A12 | SEEN_REV=0 SKIP_P7 HINT_DROP=1 | pass | pass | 82,923 | 121 | that reuse keeps P2 when it clears every handled row |
-| A13 | EDITS_A=3 INFLIGHT=1 HINT_DROP=1 CLOSE=2 | pass | pass | 1,777,811 | 142 | larger: P1-P4, P6, P7 |
-| A14 | EDITS_A=3 INFLIGHT=1 CHECK_P5 | pass | pass | 969,136 | 142 | larger: P5 |
-| X01 | MUT_CHECK_SPLIT | violated | violated | 10,419 | 110 | act compares `--rev` before the item lock (P1) |
-| X02 | MUT_READ_SPLIT | violated | violated | 65,393 | 113 | read returns body and rev from two selects (P1) |
-| X03 | MUT_SILENT | violated | violated | 10,051 | 110 | stale act applies with no flag (P1) |
-| X04 | MUT_EDIT_NOCAS | violated | violated | 210 | 110 | edit ignores its base, last writer wins (P3) |
-| X05 | MUT_EDIT_SPLIT | violated | violated | 633 | 110 | edit compares its base before the lock (P3) |
-| X06 | MUT_HIST_SPLIT | violated | violated | 208 | 113 | history row written after commit (P4) |
-| X07 | MUT_DEB_FIRST CHECK_P5 | violated | violated | 71 | 116 | debounce keeps the first rev (P5) |
-| X08 | MUT_SEEN_ON_HINT HINT_DROP=1 | violated | violated | 44 | 110 | queuing the hint marks the desk seen (P2) |
-| X09 | INFLIGHT=1 MUT_KNOWS_MAX | violated | violated | 189,857 | 127 | client keeps the highest rev heard, even from an older hint (P1) |
-| X10 | CLOSE=2 MUT_EDIT_RETIRED | violated | violated | 64 | 110 | edit on a retired item applies (P6) |
-| X11 | SEEN_REV=0 SKIP_P7 HINT_DROP=1 MUT_NO_UNREAD_W | violated | violated | 44 | 119 | unread-again clears addressee rows only (P2) |
+| A01 | (MVP design) | pass | pass | 4,059 | 89 | card 1125 MVP: P1 one-SELECT read, P2 rights, P3 no lost update, P4 history = log, P7 receipts; replace, in-lock claim line, bare claim |
+| A02 | APPEND=0 | pass | pass | 1,933 | 79 | replace-only (card 1125, 8:19 AM PST: no note append): same properties |
+| A03 | CLOSE=1 | pass | pass | 6,914 | 93 | retire: replace refused afterwards, body frozen (P5) |
+| A04 | FAIL=1 | pass | pass | 12,841 | 116 | forced error after the history insert rolls back both (done_when 5) |
+| A05 | CHECK_P6 | pass | pass | 4,110 | 89 | P6: a replace built on the current text is never refused stale (strict clock) |
+| A06 | CLOCK=1 | pass | pass | 6,196 | 94 | MILL_NOW() may repeat or step back: UNIQUE (type, activity_id, old_updated) still stops every lost update |
+| A07 | CLOCK=1 UNIQUE=0 | violated | violated | 692 | 68 | FINDING: body_updated alone is not a version when the clock repeats; the UNIQUE key is load-bearing |
+| A08 | CLOCK=1 CHECK_P6 | violated | violated | 648 | 75 | FINDING (minor): a repeated stamp makes UNIQUE refuse a replace built on the current text |
+| A09 | CLOSE=1 FAIL=1 MAXTRY=3 | pass | pass | 40,563 | 163 | larger: retire, forced errors, three tries per editor |
+| X01 | MUT_APPEND_RMW | violated | violated | 1,838 | 86 | mutation: the claim/note line is appended to an earlier unlocked read (P3) |
+| X02 | MUT_CLAIM_RMW | violated | violated | 2,175 | 86 | mutation: a claim rewrites the body from its earlier read, as today (P3) |
+| X03 | MUT_NOCAS | violated | violated | 34 | 62 | mutation: replace ignores body_updated, last writer wins (P3) |
+| X04 | MUT_CAS_SPLIT | violated | violated | 56 | 66 | mutation: replace compares body_updated before the item lock (P3) |
+| X05 | MUT_READ_SPLIT | violated | violated | 35 | 66 | mutation: a read takes body and body_updated from two selects (P1) |
+| X06 | MUT_HIST_SPLIT FAIL=1 | violated | violated | 13 | 34 | mutation: the history row commits in its own transaction (P4) |
+| X07 | MUT_OPEN_CLEAR | violated | violated | 185 | 75 | mutation: a body write clears mail_to.opened, a second receipt (P7) |
+| X08 | MUT_FRESH_READ | violated | violated | 37 | 64 | mutation: replace-body re-reads body_updated in the call, not the last read (P3) |
+| X09 | MUT_NULL_NE | violated | violated | 34 | 62 | mutation: compare cur <> base; NULL never reads as stale (P3) |
+| X10 | MUT_NULL_EQ CHECK_P6 | violated | violated | 10 | 20 | mutation: compare cur = base; a never-edited item is always stale (P6) |
+| X11 | MUT_ANY_RIGHTS | violated | violated | 1,023 | 86 | mutation: no rights check (P2) |
+| X12 | CLOSE=1 MUT_EDIT_RETIRED | violated | violated | 90 | 79 | mutation: replace on a retired item applies (P5) |
+| X13 | MUT_APPEND_NOBUMP UNIQUE=0 | violated | violated | 1,706 | 72 | mutation: the append leaves body_updated as it was, a replace from before it passes (P3) |
+| X14 | MUT_APPEND_NOBUMP | violated | violated | 1,706 | 83 | same with the UNIQUE key: on a never-edited item old_updated is NULL and NULLs never collide, so the append is still lost (P3) |
+| X15 | MUT_NOREAD_NULL | violated | violated | 98 | 81 | mutation: no last read is sent as NULL; on a never-edited item a desk replaces text it never read (P3) |
 
-A04, A09 and A11 are expected violations (a dropped hint leaves a desk untold;
-refuse mode can starve an act; clearing `mail_to.opened` sends a second receipt).
-X01-X11 are mutations: every property has at least one mutation that breaks it,
-so no pass is vacuous.
+A07 and A08 are expected violations: `body_updated` is a version only while
+`MILL_NOW()` never repeats, so `UNIQUE (type, activity_id, old_updated)` is what
+stops a lost update when it does (A06 vs A07), at the price of a rare refusal of
+a replace built on the current text (A08). X01-X15 are mutations: every property
+has at least one mutation that breaks it, so no pass is vacuous. X14 and X15
+show the key never guards a NULL stamp (a never-edited item): the compare must
+be NULL-safe, an append must stamp `body_updated`, and "no last read" must not
+be sent as NULL.
 
-What is not modelled: text contents and diffs (text is an id per rev; the diff
-chain replay is a deterministic check, not a model); append-only notes as a
-separate op (they are a text change with rev+1 and never refused); edit rights
-(a guard in the procedure; not concurrent); wake POSTs and the lease
-(`wake.pml` covers them; the Hub here is the delivery of the hint frame only);
-more than one item, rooms with many members, time windows (debounce is a
-pending slot until the Hub runs).
+Deferred with their features (removed from `run.sh`): edit hints and debounce,
+`seen_rev` unread-again, acts carrying a version with a stale flag or refusal.
+They return when those features do.
 
-Open questions for the build (see the design doc): does a note append re-notify
-and count as unread-again; stale reply text, full or diff only; debounce window
-length; whether an Admin edit of someone else's letter needs a reason line;
-whether a `done_when` change after ship moves the card back to claimed (the
-draft says no: a check flags it); history retention; whether the table ENUM
-grows to `score` later.
+What is not modelled: text contents (a version is an id); the todo JSON split
+and second install (deterministic tests on card 1133); the client keeping the
+last read across `--desk` one-shots; more than one item; Wall rendering.
 
 ## Product-edge sync (card 916)
 

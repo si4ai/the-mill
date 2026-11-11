@@ -21,7 +21,7 @@ Covered code (the sync commits are in `run.sh`: `SYNC` for wake and holds, `SYNC
 
 `run.sh` prints `note: covered code changed since SYNC` (or `SYNC_080`) when any covered file differs from the pin.
 
-`activity_history.pml` is a design model for card 1125 (targeted at 0.8.13). Nothing is built, so it has no covered-code pin and no `SYNC` entry. Rerun A01-A14 and X01-X11 when the protocol in `docs/dev/card-1125-activity-history.md` changes. Once the build lands, add a pin and the covered writers (mail and todo edit, open, reply, and hint paths).
+`activity_history.pml` is a design model of the card 1125 MVP (targeted at 0.8.14). Nothing is built, so it has no covered-code pin and no `SYNC` entry. Rerun A01-A09 and X01-X15 when the design in `docs/dev/card-1125-activity-history.md` changes. Once the build lands, add a pin and the covered writers (the replace-body procedure, the claim path, mail open and the todo and mail reads).
 
 ## Run
 
@@ -85,4 +85,4 @@ open at the pin: N03 (join locks the name row, but re-checks it with a plain
 read, which under REPEATABLE READ sees the snapshot from before the lock;
 N04 passes under READ COMMITTED).
 
-Card 1125 activity_history design (no code pin): every A01-A14 and X01-X11 row matches its expectation. A04, A09 and A11 are expected violations; X01-X11 are mutations that must stay violated. See `README.md`.
+Card 1125 activity_history MVP design (no code pin): every A01-A09 and X01-X15 row matches its expectation. A07 and A08 are expected violations; X01-X15 are mutations that must stay violated. See `README.md`.
