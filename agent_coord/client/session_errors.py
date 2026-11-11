@@ -103,10 +103,28 @@ def desk_flag_unnecessary(desk: str) -> str:
     return f"--desk is not necessary; {who} is already connected"
 
 
+# The command as typed (after the mill word), so a refusal can name the exact
+# next command in the CLI's words, not the RPC it rides (card 1130).
+_typed: list[str] = []
+
+
+def remember_typed(argv: list[str]) -> None:
+    global _typed
+    _typed = [str(a) for a in argv]
+
+
 def desk_flag_required(command: str) -> str:
-    """no sit and no --desk. the hint names the command to try next."""
-    cmd = str(command or "").strip() or "COMMAND"
-    return f"mill {cmd} --desk DESK ..."
+    """no sit and no --desk: say why, then the exact command to run next (card 1130)."""
+    import shlex
+
+    words = list(_typed) or [str(command or "").strip() or "COMMAND"]
+    head = shlex.join(["mill", *words])
+    again = head + " --desk DESK"
+    return (
+        f"{head}: no desk to act as (this shell has no sitting mill connect "
+        f"and the command has no --desk). Run: {again} (DESK = a desk joined on this machine), "
+        "or run it in the same shell as mill connect DESK."
+    )
 
 
 def desk_office_ambiguous(desk: str, aliases: list[str]) -> str:
