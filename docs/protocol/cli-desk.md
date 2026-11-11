@@ -6,7 +6,7 @@ Grammar: `mill <action> <type> <name>` for things with names (`mill create todo 
 
 Lists (`todo`, `inbox`, `hold`, `rooms`) show each activity in its native structure: todos by plan tree, mail by room tree, holds flat. `--group-by` overrides it: todo takes tree, label or roster; inbox takes tree, label or roster; hold takes label or roster. Any other `--group-by` is refused (exit 2). Rows keep the wall's order (plan, then id) inside each group; a row with no value lists under `(none)`, and a card with two labels lists under both.
 
-Every command takes `--yes` (skips a prompt; a no-op where there is none) and `--office ALIAS` (before or after the command) and `-h`. Desk commands act as the joined desk (a sitting connect, or a short borrow of its seat). Errors print on stderr and exit 1; success JSON prints on stdout.
+Every command takes `--yes` (skips a prompt; a no-op where there is none) and `--office ALIAS` (before or after the command) and `-h`. Desk commands act as the sitting connect's desk, or with none sitting take `--desk DESK` (a short borrow of its seat; refused beside a sitting connect). Errors print on stderr and exit 1; success JSON prints on stdout.
 
 ## Session
 

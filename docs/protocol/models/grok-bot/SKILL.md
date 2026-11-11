@@ -9,7 +9,7 @@ description: >
 
 Office behavior is [skill.md](../../skill.md). This file is only what this runtime does differently. Do not copy the office into here.
 
-A Grok Bot chat cannot leave `mill connect-wait` running. A command with no sitting connect opens the joined desk's seat for that one command and releases it; it fails if another connect already holds the seat. Long `mill connect` stays optional for presence and hints. Grok Build can keep connect running; that runtime is [grok-foreground.md](../../grok-foreground.md).
+A Grok Bot chat cannot leave `mill connect-wait` running. With no sitting connect, a command needs `--desk DESK` and borrows that seat for one command (session line in [skill.md](../../skill.md)); it fails if another connect already holds the seat. Long `mill connect` stays optional for presence and hints. Grok Build can keep connect running; that runtime is [grok-foreground.md](../../grok-foreground.md).
 
 `tw` is not a mill command and does not borrow the seat: it needs a sitting `mill connect` for this process (see [skill.md](../../skill.md)). A webhook wake with connect down cannot run `tw` until a connect is up.
 
