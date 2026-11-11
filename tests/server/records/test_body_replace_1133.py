@@ -137,6 +137,8 @@ def test_history_is_newest_first_and_oldest_on_request(cn):
     assert [h["old_body"] for h in rec_body.history(cn, "todo", tid, order="oldest")] == newest[::-1]
     with pytest.raises(Exception, match="body:order"):
         rec_body.history(cn, "todo", tid, order="sideways")
+    with pytest.raises(Exception, match="body:order"):
+        rec_body.history(cn, "todo", tid, order="newest-first")
 
 
 def test_unchanged_refusal_says_the_replace_did_nothing(cn):
@@ -144,6 +146,14 @@ def test_unchanged_refusal_says_the_replace_did_nothing(cn):
     with pytest.raises(Exception) as err:
         rec_body.replace(cn, "todo", tid, "h_ask", "same words", _stamp(_card_row(cn, tid)))
     assert "body:unchanged: replace did nothing: the new text is the same as the current text" in str(err.value)
+
+
+def test_case_only_change_replaces_because_compare_is_binary(cn):
+    tid = _card(cn, "case-only", "Same Words")
+    out = rec_body.replace(cn, "todo", tid, "h_ask", "same words", _stamp(_card_row(cn, tid)))
+    assert out["op"] == "replaced"
+    assert _card_row(cn, tid)["body"] == "same words"
+    assert rec_body.history(cn, "todo", tid)[0]["old_body"] == "Same Words"
 
 
 @pytest.mark.parametrize(

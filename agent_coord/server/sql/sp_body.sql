@@ -172,7 +172,7 @@ END //
 CREATE PROCEDURE mill_body_history(
   IN p_type  VARCHAR(8),
   IN p_id    BIGINT UNSIGNED,
-  IN p_order VARCHAR(8)
+  IN p_order VARCHAR(32)
 )
 BEGIN
   IF p_order IS NOT NULL AND p_order NOT IN ('newest', 'oldest') THEN
