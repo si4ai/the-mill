@@ -66,9 +66,12 @@ def is_na(status: str) -> bool:
     return status.strip().lower().startswith("n/a")
 
 
+_NO_OWNER = frozenset({"-", "\u2013", "\u2014", "none", "n/a"})
+
+
 def has_owner(owner: str) -> bool:
     o = owner.strip()
-    if not o or o in {"-", "-", "none", "n/a"}:
+    if not o or o in _NO_OWNER or o.lower() in _NO_OWNER:
         return False
     return True
 
@@ -148,7 +151,7 @@ def check_rows(
         if missing:
             findings.append({**rec, "kind": "missing_path", "paths": missing})
         dates = evidence_dates(evid)
-        if dates:
+        if dates and not is_na(status):
             newest = max(dates)
             rec_dates = {
                 "newest_evidence": newest.isoformat(),
