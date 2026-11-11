@@ -302,6 +302,10 @@ def body_from_args(args: Any) -> dict[str, Any]:
         "project": str(getattr(args, "project", "") or "") or "the-mill",
         "owner": owner,
     }
+    # Client-only. seat.command pops this before the office sees the body.
+    asked = str(getattr(args, "sender_desk", "") or "").strip()
+    if asked:
+        body["sender_desk"] = asked
     need = str(getattr(args, "need", "") or getattr(args, "need_id", "") or "")
     if need:
         body["need"] = need

@@ -12,6 +12,8 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 0.8.12 (2026-11-10)
 
+- card 1112: a desk command with no sitting connect takes `--desk DESK` and borrows that desk's seat. it does not read the active-desk file. with no `--desk` and no connect, the refusal names `mill CMD --desk DESK ...`. when this shell already has a connect, `--desk` is refused. when that desk has a seat on more than one office and `--office` was omitted, the command names those aliases and asks for `--office ALIAS`
+
 ## Last changes
 
 0.8.11 (2026-11-10)

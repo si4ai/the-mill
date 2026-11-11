@@ -54,9 +54,13 @@ def test_command_uses_a_sitting_bridge(tmp_path, monkeypatch):
     assert seen["verb"] == "inbox"
 
 
-def test_command_borrows_when_no_sit(tmp_path, monkeypatch):
+def test_command_borrows_the_named_desk_when_no_sit(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
-    monkeypatch.setattr("agent_coord.client.tokens.read_active_desk", lambda **k: "alice")
+
+    def boom(*_a, **_k):
+        raise AssertionError("active desk")
+
+    monkeypatch.setattr("agent_coord.client.tokens.read_active_desk", boom)
     monkeypatch.setattr("agent_coord.client.tokens.read_session_token", lambda owner, **k: "seat-alice")
     borrowed: dict = {}
 
@@ -64,19 +68,19 @@ def test_command_borrows_when_no_sit(tmp_path, monkeypatch):
         borrowed["desk"] = desk
         borrowed["token"] = token
         borrowed["verb"] = body.get("verb")
+        borrowed["sender"] = body.get("sender_desk")
         return {"ok": True, "result": {"via": "borrow"}, "sync": []}
 
     monkeypatch.setattr("agent_coord.client.seat.session.borrow", fake_borrow)
-    out = command({"verb": "todo"})
+    out = command({"verb": "todo", "sender_desk": "alice"})
     assert out["result"]["via"] == "borrow"
-    assert borrowed == {"desk": "alice", "token": "seat-alice", "verb": "todo"}
+    assert borrowed == {"desk": "alice", "token": "seat-alice", "verb": "todo", "sender": None}
 
 
 def test_command_does_not_open_when_another_connect_holds_the_seat(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
     monkeypatch.setattr(ws_cli, "_pid_alive", lambda pid: int(pid) == 4242)
     ws_cli.write_rpc_bridge("alice", port=9, secret="s", pid=4242, parent_pid=999)
-    monkeypatch.setattr("agent_coord.client.tokens.read_active_desk", lambda **k: "alice")
     monkeypatch.setattr("agent_coord.client.tokens.read_session_token", lambda owner, **k: "seat-alice")
 
     def fail_borrow(*_a, **_k):
@@ -84,7 +88,7 @@ def test_command_does_not_open_when_another_connect_holds_the_seat(tmp_path, mon
 
     monkeypatch.setattr("agent_coord.client.seat.session.borrow", fail_borrow)
     with pytest.raises(CoordError) as ei:
-        command({"verb": "inbox"})
+        command({"verb": "inbox", "sender_desk": "alice"})
     assert "held by another connect" in str(ei.value)
     assert "4242" in str(ei.value)
 

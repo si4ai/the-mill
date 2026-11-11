@@ -96,6 +96,25 @@ def parent_exited_notice(desk: str, os_name: str | None = None, **extra: object)
 
 SESSION_WS_BRIDGE_REQUIRED = bridge_hint()
 
+
+def desk_flag_unnecessary(desk: str) -> str:
+    """--desk was passed while this shell already has a connect."""
+    who = str(desk or "").strip() or "this desk"
+    return f"--desk is not necessary; {who} is already connected"
+
+
+def desk_flag_required(command: str) -> str:
+    """no sit and no --desk. the hint names the command to try next."""
+    cmd = str(command or "").strip() or "COMMAND"
+    return f"mill {cmd} --desk DESK ..."
+
+
+def desk_office_ambiguous(desk: str, aliases: list[str]) -> str:
+    """Same desk name has a seat on more than one wall, and --office was omitted."""
+    who = str(desk or "").strip() or "DESK"
+    names = ", ".join(str(name) for name in aliases if str(name).strip())
+    return f"multiple offices have desk {who} ({names}); pass --office ALIAS"
+
 # The bridge or starting file is still here, but that connect process is gone (#228).
 # Shell-neutral, and different from the sitting-miss hint (#236).
 SESSION_CONNECT_DIED = (

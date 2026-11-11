@@ -154,19 +154,26 @@ def mill_http_call(body: dict[str, Any]) -> Any:
             key = ""
     else:
         payload.pop("token", None)
-        # A sit for this process carries the command. With no sit, seat.command
-        # opens one socket for the joined desk, sends the command, and releases it.
-        from agent_coord.client.session_errors import SESSION_TOKEN_REQUIRED
+        # a sit for this process carries the command. --desk is only for no sit.
+        from agent_coord.client.session_errors import (
+            SESSION_TOKEN_REQUIRED,
+            desk_flag_unnecessary,
+        )
         from agent_coord.client.ws import mill_ws_call, wait_for_sitting_desk
 
+        asked = str(payload.pop("sender_desk", "") or "").strip()
         # Sitting miss: one short wait, or up to 10s while this parent's connect
         # is still in the handshake (#121, #210).
         who = (resolve_desk_owner("") or "").strip()
         if not who:
             who = (wait_for_sitting_desk() or "").strip()
-        if not who:
-            # No sit for this process: same socket package as mill connect,
-            # one command, then the bearer is released.
+        if who:
+            if asked:
+                raise CoordError(desk_flag_unnecessary(who))
+        else:
+            # no sit: borrow the named desk. never the active-desk file.
+            if asked:
+                payload["sender_desk"] = asked
             from agent_coord.client.seat import command
 
             return command(payload)

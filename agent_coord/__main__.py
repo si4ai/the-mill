@@ -1651,6 +1651,7 @@ def _build_parser() -> MillArgumentParser:
     _attach_office_help(p)
     _no_abbrev(p)
     _yes_everywhere(p)
+    _sender_desk_everywhere(p)
     # #818 PR B: every activity write takes --doing; the doing entry links to the
     # item that command wrote (no separate doing command).
     for _name in DOING_FLAG_COMMANDS:
@@ -1658,6 +1659,53 @@ def _build_parser() -> MillArgumentParser:
         _dp.add_argument("--doing", default="", metavar="TEXT", help=DOING_HELP)
         _dp.add_argument("--waiting-on", dest="waiting_on", default="", metavar="WHAT [WHY]", help=WAITING_ON_HELP)
     return p
+
+
+# Local or already-seated commands. connected --desk filters the list.
+_NO_SENDER_DESK = {
+    "help",
+    "briefing",
+    "init",
+    "update",
+    "install",
+    "uninstall",
+    "wall",
+    "connect",
+    "connect-wait",
+    "wall-check",
+    "score-add",
+    "score-tick",
+    "wall-src",
+    "invite",
+    "local",
+    "join",
+    "version",
+    "connected",
+    "route",
+}
+
+
+def _sender_desk_everywhere(parser: argparse.ArgumentParser) -> None:
+    """--desk names the seat a command borrows when this shell has no connect."""
+    prog = getattr(parser, "prog", "") or ""
+    parts = set(prog.split())
+    has_sub = any(isinstance(a, argparse._SubParsersAction) for a in parser._actions)
+    if (
+        not has_sub
+        and parts.isdisjoint(_NO_SENDER_DESK)
+        and "--desk" not in parser._option_string_actions
+        and prog != "mill"
+    ):
+        parser.add_argument(
+            "--desk",
+            dest="sender_desk",
+            default="",
+            help="desk to speak as when this shell has no mill connect",
+        )
+    for act in parser._actions:
+        if isinstance(act, argparse._SubParsersAction):
+            for child in act.choices.values():
+                _sender_desk_everywhere(child)
 
 
 def _yes_everywhere(parser: argparse.ArgumentParser, top: bool = True) -> None:
