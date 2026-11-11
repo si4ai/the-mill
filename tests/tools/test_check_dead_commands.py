@@ -58,3 +58,37 @@ def test_clean_tree_passes_strict(tmp_path: Path) -> None:
 def test_repo_scan_is_a_report_not_a_gate() -> None:
     # Existing findings must not fail the default command (card 1147: checks over blocks).
     assert cdc.main(["--root", str(ROOT)]) == 0
+
+
+def _readme_dead_command_argvs() -> list[list[str]]:
+    text = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
+    start = text.find("## check_dead_commands.py")
+    assert start != -1, "tools/README.md is missing the check_dead_commands section"
+    rest = text[start + 1 :]
+    end = rest.find("\n## ")
+    section = text[start:] if end < 0 else text[start : start + 1 + end]
+    argvs: list[list[str]] = []
+    for line in section.splitlines():
+        raw = line.strip()
+        if not raw.startswith("python tools/check_dead_commands.py"):
+            continue
+        code = raw.split("#", 1)[0].strip()
+        parts = code.split()
+        argvs.append(parts[2:])
+    assert argvs, "README examples for check_dead_commands.py are missing"
+    return argvs
+
+
+def test_readme_examples_exit_0() -> None:
+    """The documented commands must not fail on a missing --root (usage exit 2)."""
+    argvs = _readme_dead_command_argvs()
+    for args in argvs:
+        if "--strict" in args:
+            assert cdc.main(args) != 2
+        else:
+            assert cdc.main(args) == 0
+
+
+def test_default_root_is_the_repo() -> None:
+    assert cdc.main([]) == 0
+

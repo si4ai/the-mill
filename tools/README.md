@@ -97,22 +97,6 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
-## check_dead_commands.py
-
-Card 1147. Scan `mill ...` examples that check_doc_commands does not cover
-(all docs markdown, verify skills, and hint or usage strings in
-`agent_coord/`), check them against the same CLI parser, and print only
-findings that tool does not already report. Sorted, no timestamps.
-
-```bash
-python tools/check_dead_commands.py          # report; exit 0 even with findings
-python tools/check_dead_commands.py --strict # exit 1 when a new dead form is found
-```
-
-Not a CI gate. Tests prove --strict fails on a doctored tree and passes on
-a clean one.
-
-
 ## check_repro.py
 
 Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
@@ -139,6 +123,21 @@ It starts from `pyproject.toml` console scripts (`mill`, `mill-hold`, `agent-coo
 `web/wall_ui_save/` is a snapshot and is not scanned.
 
 A module can be an orphan and still be a stub you meant to keep. The scan does not decide keep or delete.
+
+## check_dead_commands.py
+
+Card 1147. Scan `mill ...` examples that check_doc_commands does not cover
+(all docs markdown, verify skills, and hint or usage strings in
+`agent_coord/`), check them against the same CLI parser, and print only
+findings that tool does not already report. Sorted, no timestamps.
+
+```bash
+python tools/check_dead_commands.py          # report; exit 0 even with findings
+python tools/check_dead_commands.py --strict # exit 1 when a new dead form is found
+```
+
+Not a CI gate. Tests prove --strict fails on a doctored tree and passes on
+a clean one.
 
 ## probe_deleted_rows.py
 

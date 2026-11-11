@@ -192,7 +192,11 @@ def repo_commit(root: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--root", required=True, help="the-mill checkout (CLI parser)")
+    p.add_argument(
+        "--root",
+        default=str(Path(__file__).resolve().parents[1]),
+        help="the-mill checkout (CLI parser); default: this repository",
+    )
     p.add_argument(
         "--scan",
         default="",
