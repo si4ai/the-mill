@@ -879,8 +879,6 @@
       if (tables.length) return tables.map(tableTsv).join("\n\n");
       const hist = pane.querySelector(".hist-row");
       if (hist) return rowsTsv(".hist-row", pane);
-      const spend = pane.querySelector(".spend-row");
-      if (spend) return rowsTsv(".spend-row", pane);
       const list = document.getElementById("jobs-list");
       if (list && !list.hidden && list.querySelector(".todo-list-row")) return rowsTsv(".todo-list-row", list);
       const cards = [...pane.querySelectorAll("#jobs-kanban .body > *")].filter(el => !el.classList.contains("jobs-col-gutter"));
@@ -1008,7 +1006,7 @@
       document.querySelectorAll(".mail-col").forEach(c => add(c));
       add(document.getElementById("score-desk-table"));
       add(document.getElementById("score-human"));
-      add(document.querySelector("#score-spend-view .spend-body"));
+      add(document.getElementById("score-spend-view"));
       add(document.getElementById("guide-body"));
       pairs.forEach(({ scroll, host }) => {
         if (!scroll || scroll.hidden || (host && host.hidden)) return;
@@ -4476,6 +4474,7 @@
         paintScoreShow(scoreFloor);
         paintScoreDeskTable((typeof scoreDeskRows === "function") ? scoreDeskRows(scoreFloor) : []);
         if (typeof paintScoreTaskWrap === "function") paintScoreTaskWrap(scoreFloor, typeof scoreSelectedDesk !== "undefined" ? scoreSelectedDesk : "");
+        if (typeof paintScoreImpact === "function") paintScoreImpact();
       } catch (eScorePane) {}
       try {
         if (_hereOwner && typeof paintHereDesk === "function") paintHereDesk(window._floor || {}, _hereOwner);
@@ -4493,12 +4492,29 @@
       const scopeKey = "project:project=" + encodeURIComponent("Office");
       const partsStr = "scores";
       const fpQ = floorFpQuery(scopeKey, partsStr);
-      const url = "/api/v1/scores?project=" + encodeURIComponent("Office") + "&limit=50" + fpQ;
-      _officeScoreInflight = fetch(url, { cache: "no-store" }).then(function (r) {
-        if (!r.ok) return null;
-        const ct = (r.headers.get("content-type") || "").toLowerCase();
-        if (ct.indexOf("json") < 0) return null;
-        return r.json();
+      /* Score tab redesign: every score row is listed, so follow ?cursor= until next is null
+       * (500 per page, the server max; a server with no cap answers in one page). */
+      const base = "/api/v1/scores?project=" + encodeURIComponent("Office") + "&limit=500";
+      function scorePage(cursor) {
+        const url = base + (cursor ? "&cursor=" + encodeURIComponent(cursor) : fpQ);
+        return fetch(url, { cache: "no-store" }).then(function (r) {
+          if (!r.ok) return null;
+          const ct = (r.headers.get("content-type") || "").toLowerCase();
+          if (ct.indexOf("json") < 0) return null;
+          return r.json();
+        });
+      }
+      function scoreRest(first, cursor, pages) {
+        if (!cursor || pages >= 20) return first;
+        return scorePage(cursor).then(function (more) {
+          if (!more || !Array.isArray(more.kpis)) return first;
+          first.kpis = first.kpis.concat(more.kpis);
+          return scoreRest(first, more.next, pages + 1);
+        });
+      }
+      _officeScoreInflight = scorePage("").then(function (json) {
+        if (!json || !Array.isArray(json.kpis) || !json.next) return json;
+        return scoreRest(json, json.next, 1);
       }).then(function (json) {
         _officeScoreInflight = null;
         if (!json) { officeScoreRepaint(); return; }
@@ -5754,8 +5770,6 @@
       ).join("");
       return `<section id="sec-kpi-miss"><h2>KPI MISS - stop and debug</h2><div class="body">${body}</div></section>`;
     }
-    let spendWindow = "all";
-    let spendOwner = "";
 
 
     /* SCORECARDS_BOTTLENECK / SCORECARDS_GLANCE / SCORECARDS_TOKEN_DETAIL / SCORECARDS_TOKENS_EST */
@@ -5821,11 +5835,6 @@
     function scoreKpiBucket(name) {
       return String(name || "").trim() === "system" ? "platform" : "office";
     }
-    function scoreShown(name) {
-      const bucket = scoreKpiBucket(name);
-      if (_scoreGroupOff[bucket]) return false;
-      return !_scoreShowOff[String(name || "").trim()];
-    }
     function scoreFiledFace(name) {
       const raw = String(name || "").trim();
       const mapped = (typeof scoreKpiLabel === "function") ? scoreKpiLabel(raw) : "";
@@ -5843,7 +5852,8 @@
       books.forEach(function (list) {
         list.forEach(function (k) {
           const name = hereKpiName(k);
-          if (!name || name === "system" || !scoreShown(name)) return;
+          /* Every filed score is shown; the old show/hide rail no longer filters (score redesign). */
+          if (!name || name === "system") return;
           let desk = "";
           if (typeof scoreDeskSlug === "function") desk = scoreOwnerKey(scoreDeskSlug(k));
           else desk = scoreOwnerKey(k && k.owner);
@@ -7751,27 +7761,6 @@
     })();
 
     /* WALL_PLAN_TAB: plan chrome bound in bindPlanChrome */
-    const scorePane = document.getElementById("pane-score");
-    if (scorePane && !scorePane.dataset.spendCut) {
-      scorePane.dataset.spendCut = "1";
-      scorePane.addEventListener("click", ev => {
-        const btn = ev.target.closest("[data-spend-window]");
-        if (!btn) return;
-        spendWindow = btn.dataset.spendWindow || "all";
-        if (window._floor) {
-          cards(window._floor);
-          enhanceTables(document.getElementById("pane-score"));
-        }
-      });
-      scorePane.addEventListener("change", ev => {
-        if (!ev.target || ev.target.id !== "spend-owner") return;
-        spendOwner = ev.target.value || "";
-        if (window._floor) {
-          cards(window._floor);
-          enhanceTables(document.getElementById("pane-score"));
-        }
-      });
-    }
     paintBoardViewToggle();
     paintLayoutToggles();
     applyBoardView();

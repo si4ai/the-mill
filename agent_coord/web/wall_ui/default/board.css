@@ -941,13 +941,8 @@
       font: inherit; font-size: 11px; padding: .15rem .35rem; letter-spacing: 0;
     }
     .board-cut input { min-width: 9rem; flex: 1 1 9rem; }
-    .spend-chrome .wall-filter { margin-right: .45rem; }
     #score-span[hidden] { display: none !important; }
     #score-note[hidden] { display: none !important; }
-    .spend-cut select {
-      background: var(--shop); color: var(--ink); border: 1px solid var(--edge);
-      font: inherit; font-size: 11px; padding: .12rem .35rem; letter-spacing: 0;
-    }
     .issue-kind { font-size: 10px; letter-spacing: .12em; color: var(--amber); }
     .issue-kind.bug { color: var(--red); }
     .issue-kind.feature { color: var(--cyan); }
@@ -1491,8 +1486,7 @@
     .wire-filters[hidden],
     #todo-done-span[hidden],
     .floor-legend .lg[hidden],
-    .wall-filter button[hidden],
-    .spend-cut select[hidden] { display: none !important; }
+    .wall-filter button[hidden] { display: none !important; }
 
     /* WALL_UI_FUNGIBLE: calm refresh-needed banner (not modal spam) */
     #wall-refresh-banner {
