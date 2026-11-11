@@ -67,6 +67,7 @@ jobs = ["pytest_no_sql_run", "pytest_sql_run"]
 # hooks, workflows and this selector.
 [[rule]]
 paths = [
+  "tests/tools/test_check_dead_commands.py",
   "**/*.py",
   "tests/**",
   "tools/**",
