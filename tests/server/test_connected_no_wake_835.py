@@ -79,8 +79,8 @@ def test_a_letter_to_a_connected_desk_rides_its_socket_and_wakes_nothing(client,
     assert got == "sent"
     assert frame["kind"] == "mail" and frame["id"] == 2722
     assert frame["idem"] == "letter:2722:alice"
-    # The row went in as missed first (#832) and the live frame settled it as sent.
-    assert rows == [("alice", "mail", "missed")]
+    # Card 1098 item 5: row goes in as queued; the live frame settles it as sent.
+    assert rows == [("alice", "mail", "queued")]
     assert settled == [("alice", 77, True)]
     assert posts == []
     assert not [t for t in lines if t.startswith("webhook desk=")]

@@ -167,6 +167,10 @@ def post_invites(
         "network",
         "lan_only",
         "set_lan_only",
+        "transition",
+        "transition_compress",
+        "set_transition",
+
         # #sec S-5: the read-only list takes the same Admin check.
         "list",
         "board",
@@ -214,6 +218,20 @@ def post_invites(
             on = bool(raw)
         bind = data.get("bind")
         return set_lan_only(on, bind=str(bind) if bind else None)
+    if action in ("transition", "transition_compress", "set_transition"):
+        from agent_coord.server import transition_admin as tr_admin
+
+        # mutate when mode/pairs present; else return current + analysis
+        if any(k in data for k in ("mode", "transition_mode", "pairs", "transition_pairs")):
+            out = tr_admin.set_compress(data)
+        else:
+            out = tr_admin.compress_packet()
+        try:
+            with office() as c:
+                out["analysis"] = tr_admin.analysis(c._cn, since=data.get("since"))
+        except Exception as e:
+            out["analysis"] = {"error": str(e)[:200]}
+        return out
     if action in ("list", "board", ""):
         return door_mod.board_packet()
     raise CoordError(f"unknown action {action}")

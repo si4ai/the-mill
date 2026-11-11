@@ -79,17 +79,20 @@ def mine_applies(args: Any) -> bool:
 
 
 def sitting_desk(body: dict) -> str:
-    """The desk --mine matches: the sitting connect this command ran as."""
+    """The desk --mine matches: the sitting connect this command ran as, or the
+    desk whose seat --desk borrowed (card 1130)."""
     desk = str((body or {}).get("owner") or "").strip()
     if not desk:
         from agent_coord.client.tokens import resolve_desk_owner
 
         desk = (resolve_desk_owner("") or "").strip()
     if not desk:
-        from agent_coord.client.session_errors import ONE_LINER
-
+        desk = str((body or {}).get("sender_desk") or "").strip()
+    if not desk:
         raise CoordError(
-            "todo --mine: no sitting mill connect, so there is no desk to match; run it as " + ONE_LINER
+            "todo --mine: no desk to match (this shell has no sitting mill connect and the command "
+            "has no --desk). Run: mill todo --mine --desk DESK, or run it in the same shell as "
+            "mill connect DESK."
         )
     return desk
 

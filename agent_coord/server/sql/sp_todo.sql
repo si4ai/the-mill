@@ -39,8 +39,13 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
+  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
+  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
-  -- Then the activity row (the timeline; todo has no FK to it). No lock, no catalog read.
+  -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
@@ -88,8 +93,13 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
+  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
+  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
+  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
-  -- Then the activity row (the timeline; todo has no FK to it). No lock, no catalog read.
+  -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
   INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
   SET v_id = LAST_INSERT_ID();
@@ -273,6 +283,9 @@ BEGIN
   BEGIN
     DECLARE v_saved INT DEFAULT @mill_req_tx;
     DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN SET @mill_req_tx = v_saved; END;
+    -- Card 1113: a deadlock (1213) or lock wait timeout (1205) is not a score failure. InnoDB has
+    -- rolled back the caller's work by then; swallowing it returned success with nothing stored.
+    DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     IF p_body IS NOT NULL
        AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
@@ -315,6 +328,7 @@ BEGIN
   DECLARE v_created DATETIME(6);
   DECLARE v_bytes INT UNSIGNED;
   DECLARE v_has INT;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -322,6 +336,14 @@ BEGIN
   END;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
+  -- Lock order (card 1113): the stamped desk's seat, then the card, before any read of the card
+  -- (IF EXISTS in a routine takes a shared lock). The tombstone insert's FK check takes a shared
+  -- lock on that seat; a note holds the seat and waits for the card. SELECT ... INTO is a plain read.
+  SET v_seat = NULL;
+  SELECT desk_id INTO v_seat FROM activity WHERE type = 'todo' AND id = p_id;
+  SET v_seat = IFNULL(v_seat, MILL_NAME_GET('desk', p_desk));
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_seat FOR UPDATE;
+  SELECT id INTO v_seat FROM todo WHERE id = p_id FOR UPDATE;
   IF EXISTS (SELECT 1 FROM todo WHERE id = p_id) THEN
     SET v_desk = NULL;
     SET v_has = 0;
@@ -369,6 +391,7 @@ CREATE PROCEDURE mill_todo_retire(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -379,6 +402,9 @@ BEGIN
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_proj = NULL;
+  -- Lock order (card 1113): the desk's seat before the card; the activity and updated_id FK checks
+  -- below take a shared lock on that seat, and a note holds the seat while it waits for the card.
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
   IF v_proj IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'retire todo: no such card';
@@ -404,6 +430,7 @@ CREATE PROCEDURE mill_todo_reclaim(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_seat BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -415,6 +442,10 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'reclaim todo: no such desk';
   END IF;
+  -- Lock order (card 1113): the desk's seat before the card; the activity and updated_id FK checks
+  -- below take a shared lock on that seat, and a note holds the seat while it waits for the card.
+  SELECT id INTO v_seat FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SELECT id INTO v_seat FROM todo WHERE id = p_id FOR UPDATE;
   IF NOT EXISTS (SELECT 1 FROM todo t
                    JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NOT NULL
                   WHERE t.id = p_id) THEN
@@ -569,6 +600,11 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such desk';
   END IF;
+  -- Lock order (card 1113): the renaming desk's seat, then the card, as every card write does. The
+  -- UPDATE below sets updated_id, whose FK check takes a shared lock on that seat row, and
+  -- mill_doing_move then wants it exclusive; with the card first, a note on the card waited the other way.
+  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_move = NULL;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
   IF v_proj IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such card';

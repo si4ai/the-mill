@@ -669,6 +669,12 @@ def _build_parser() -> MillArgumentParser:
         metavar="ROOM",
         help="open a new room with this name (a room that exists is refused; reply to it instead)",
     )
+    m.add_argument(
+        "--receipt",
+        action="store_true",
+        default=False,
+        help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
+    )
 
     rp = sub.add_parser(
         "reply",
@@ -696,6 +702,12 @@ def _build_parser() -> MillArgumentParser:
         default="",
         dest="roster",
         help="replying desk's sender roster; default as on send",
+    )
+    rp.add_argument(
+        "--receipt",
+        action="store_true",
+        default=False,
+        help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
     )
 
     mt = sub.add_parser(
@@ -1508,14 +1520,14 @@ def _build_parser() -> MillArgumentParser:
 
     se = sub.add_parser(
         "connected",
-        help="mill connected [ROSTER] [--desk X] [--limit N]: what each desk is doing, on which letter or card, "
+        help="mill connected [ROSTER] [--who DESK] [--limit N]: what each desk is doing, on which letter or card, "
         "what it waits on and who is blocked on it; --history lists past entries",
     )
     se.add_argument(
         "project", nargs="?", default="", metavar="ROSTER",
         help="only desks on this roster (default: desks active in the last day)",
     )
-    se.add_argument("--desk", default="", help="only this desk")
+    se.add_argument("--who", dest="desk", default="", metavar="DESK", help="only this desk")
     se.add_argument("--all", action="store_true", help="every desk, not only those active in the last day")
     se.add_argument("--history", action="store_true", help="past doing entries, newest first, 50 a page")
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
@@ -1639,6 +1651,7 @@ def _build_parser() -> MillArgumentParser:
     _attach_office_help(p)
     _no_abbrev(p)
     _yes_everywhere(p)
+    _sender_desk_everywhere(p)
     # #818 PR B: every activity write takes --doing; the doing entry links to the
     # item that command wrote (no separate doing command).
     for _name in DOING_FLAG_COMMANDS:
@@ -1646,6 +1659,53 @@ def _build_parser() -> MillArgumentParser:
         _dp.add_argument("--doing", default="", metavar="TEXT", help=DOING_HELP)
         _dp.add_argument("--waiting-on", dest="waiting_on", default="", metavar="WHAT [WHY]", help=WAITING_ON_HELP)
     return p
+
+
+# Local or already-seated commands. connected takes --desk like any desk command
+# and filters by --who (card 1130).
+_NO_SENDER_DESK = {
+    "help",
+    "briefing",
+    "init",
+    "update",
+    "install",
+    "uninstall",
+    "wall",
+    "connect",
+    "connect-wait",
+    "wall-check",
+    "score-add",
+    "score-tick",
+    "wall-src",
+    "invite",
+    "local",
+    "join",
+    "version",
+    "route",
+}
+
+
+def _sender_desk_everywhere(parser: argparse.ArgumentParser) -> None:
+    """--desk names the seat a command borrows when this shell has no connect."""
+    prog = getattr(parser, "prog", "") or ""
+    parts = set(prog.split())
+    has_sub = any(isinstance(a, argparse._SubParsersAction) for a in parser._actions)
+    if (
+        not has_sub
+        and parts.isdisjoint(_NO_SENDER_DESK)
+        and "--desk" not in parser._option_string_actions
+        and prog != "mill"
+    ):
+        parser.add_argument(
+            "--desk",
+            dest="sender_desk",
+            default="",
+            help="desk to speak as when this shell has no mill connect",
+        )
+    for act in parser._actions:
+        if isinstance(act, argparse._SubParsersAction):
+            for child in act.choices.values():
+                _sender_desk_everywhere(child)
 
 
 def _yes_everywhere(parser: argparse.ArgumentParser, top: bool = True) -> None:
@@ -1694,6 +1754,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         return 0
     from agent_coord.client.offices import bind_cli_office, pull_office_flag
 
+    from agent_coord.client.session_errors import remember_typed
+
+    remember_typed(list(raw))
     _office, raw = pull_office_flag(list(raw))
     bind_cli_office(_office)
     args = p.parse_args(normalize_seat_argv(raw))

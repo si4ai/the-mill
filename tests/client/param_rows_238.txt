@@ -29,12 +29,14 @@ hold peek
 hold group_by
 hold office
 hold yes
+hold sender_desk
 hold doing
 hold waiting_on
 drop (command)
 drop resource
 drop office
 drop yes
+drop sender_desk
 drop doing
 drop waiting_on
 wake-done (command)
@@ -42,14 +44,17 @@ wake-done note
 wake-done lease
 wake-done office
 wake-done yes
+wake-done sender_desk
 send (command)
 send to
 send to_desk
 send body_file
 send roster
 send name
+send receipt
 send office
 send yes
+send sender_desk
 send doing
 send waiting_on
 reply (command)
@@ -57,8 +62,10 @@ reply mail_id
 reply body_file
 reply to_desk
 reply roster
+reply receipt
 reply office
 reply yes
+reply sender_desk
 reply doing
 reply waiting_on
 mail-thread (command)
@@ -69,10 +76,12 @@ mail-thread page
 mail-thread after
 mail-thread office
 mail-thread yes
+mail-thread sender_desk
 mark (command)
 mark ids
 mark office
 mark yes
+mark sender_desk
 mark doing
 mark waiting_on
 trail (command)
@@ -81,6 +90,7 @@ trail label
 trail as_json
 trail office
 trail yes
+trail sender_desk
 clear-human (command)
 clear-human project
 clear-human ids
@@ -89,6 +99,7 @@ clear-human token
 clear-human by_agent
 clear-human office
 clear-human yes
+clear-human sender_desk
 inbox (command)
 inbox all
 inbox limit
@@ -97,6 +108,7 @@ inbox full
 inbox page
 inbox office
 inbox yes
+inbox sender_desk
 rooms (command)
 rooms all
 rooms sort
@@ -106,6 +118,7 @@ rooms full
 rooms page
 rooms office
 rooms yes
+rooms sender_desk
 score (command)
 score project
 score name
@@ -118,6 +131,7 @@ score limit
 score at
 score office
 score yes
+score sender_desk
 score doing
 score waiting_on
 score-add (command)
@@ -139,6 +153,7 @@ kpi-import project
 kpi-import root
 kpi-import office
 kpi-import yes
+kpi-import sender_desk
 wall (command)
 wall bind
 wall port
@@ -186,6 +201,7 @@ drain drain_id
 drain dst
 drain office
 drain yes
+drain sender_desk
 connect (command)
 connect project
 connect desk
@@ -222,12 +238,14 @@ reset desk
 reset yes
 reset dead
 reset office
+reset sender_desk
 reclaim (command)
 reclaim kind
 reclaim slug
 reclaim need
 reclaim yes
 reclaim office
+reclaim sender_desk
 rename (command)
 rename kind
 rename old
@@ -236,30 +254,36 @@ rename to
 rename why
 rename yes
 rename office
+rename sender_desk
 delete (command)
 delete kind
 delete slug
 delete yes
 delete office
+delete sender_desk
 restore (command)
 restore kind
 restore slug
 restore yes
 restore office
+restore sender_desk
 purge (command)
 purge kind
 purge slug
 purge yes
 purge office
+purge sender_desk
 retire (command)
 retire kind
 retire slug
 retire score_name
 retire yes
 retire office
+retire sender_desk
 member (command)
 member office
 member yes
+member sender_desk
 add (command)
 add kind
 add group
@@ -267,23 +291,27 @@ add desks
 add hint
 add office
 add yes
+add sender_desk
 remove (command)
 remove kind
 remove group
 remove desks
 remove yes
 remove office
+remove sender_desk
 watch (command)
 watch type
 watch target
 watch hint
 watch office
 watch yes
+watch sender_desk
 unwatch (command)
 unwatch type
 unwatch target
 unwatch office
 unwatch yes
+unwatch sender_desk
 label (command)
 label type
 label id
@@ -291,12 +319,14 @@ label label
 label ord
 label office
 label yes
+label sender_desk
 unlabel (command)
 unlabel type
 unlabel id
 unlabel label
 unlabel office
 unlabel yes
+unlabel sender_desk
 create (command)
 create todo (command)
 create todo project
@@ -309,16 +339,19 @@ create todo parent_id
 create todo done_when
 create todo yes
 create todo office
+create todo sender_desk
 create todo doing
 create todo waiting_on
 create roster (command)
 create roster slug
 create roster yes
 create roster office
+create roster sender_desk
 create label (command)
 create label slug
 create label yes
 create label office
+create label sender_desk
 create office
 todo (command)
 todo project
@@ -334,6 +367,7 @@ todo page
 todo fixtures
 todo office
 todo yes
+todo sender_desk
 note (command)
 note project
 note need
@@ -346,6 +380,7 @@ note full
 note done_when
 note office
 note yes
+note sender_desk
 note doing
 note waiting_on
 claim (command)
@@ -356,6 +391,7 @@ claim msg
 claim take_over
 claim office
 claim yes
+claim sender_desk
 claim doing
 claim waiting_on
 unclaim (command)
@@ -363,6 +399,7 @@ unclaim project
 unclaim need
 unclaim office
 unclaim yes
+unclaim sender_desk
 unclaim doing
 unclaim waiting_on
 unpark (command)
@@ -372,6 +409,7 @@ unpark parent_type
 unpark parent_id
 unpark office
 unpark yes
+unpark sender_desk
 unpark doing
 unpark waiting_on
 assign (command)
@@ -380,6 +418,7 @@ assign need
 assign desk
 assign office
 assign yes
+assign sender_desk
 assign doing
 assign waiting_on
 pass (command)
@@ -390,11 +429,13 @@ pass back
 pass evidence
 pass office
 pass yes
+pass sender_desk
 pass doing
 pass waiting_on
 glance (command)
 glance office
 glance yes
+glance sender_desk
 invite (command)
 invite door
 invite rotate
@@ -420,6 +461,7 @@ admin owner
 admin by
 admin office
 admin yes
+admin sender_desk
 connected (command)
 connected project
 connected desk
@@ -430,6 +472,7 @@ connected page
 connected limit
 connected office
 connected yes
+connected sender_desk
 attach (command)
 attach project
 attach type_a
@@ -439,6 +482,7 @@ attach id_b
 attach tree
 attach office
 attach yes
+attach sender_desk
 move (command)
 move project
 move type
@@ -448,6 +492,7 @@ move parent_id
 move tree
 move office
 move yes
+move sender_desk
 prune (command)
 prune project
 prune type
@@ -455,6 +500,7 @@ prune id
 prune tree
 prune office
 prune yes
+prune sender_desk
 detach (command)
 detach project
 detach type
@@ -462,6 +508,7 @@ detach id
 detach tree
 detach office
 detach yes
+detach sender_desk
 wall-check (command)
 wall-check base
 wall-check project_filter
@@ -496,6 +543,7 @@ trust (command)
 trust level
 trust office
 trust yes
+trust sender_desk
 (mill) office
 session heartbeat
 floor alive

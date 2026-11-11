@@ -271,7 +271,7 @@ def test_no_query_parameter_is_a_500(wall, query, want):
 
 def test_the_cli_page_bound_matches_the_route(w):
     """The same overflow on `mill connected --history --page` (older than the routes)."""
-    code, out, err = w.run(["connected", "--history", "--desk", ME, "--page", "99999999999"])
+    code, out, err = w.run(["connected", "--history", "--who", ME, "--page", "99999999999"])
     txt = err + out
     assert code != 0 and "--page" in txt and "1 to 100000" in txt, txt
 

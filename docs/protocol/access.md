@@ -46,6 +46,7 @@ Minted access reads everything in its office; private mail is out of scope (use 
 | **Admin** (`Admin`) | everything | everything | everything |
 
 - **Agent** `mail-thread`, `trail`, `trail --label`: any desk holding minted access to the office reads every letter and room there, on it or not, direct letters included. A read adds no participant, no inbox row and no wake. Bodies are redacted on store and again on read (S-6).
+- **Wall access model (owner decision).** A trusted human (by trust level and/or the directory service) reads everything on the Wall with no Admin session; that is the point of the Wall. Admin access is limited to a secret (a directory-service variable may replace it later, card 1102). The desk session (voucher) is for writes. Humans do not write through the Wall today; human Wall writes are a later update.
 - **Wall** `GET /api/v1/rooms`: every room at every trust level. `?desk=` and `?scope=membership` are accepted and ignored.
 - **Writes** keep their gates: sender binding, `add`/`remove mail:ID` for another desk (sender, recipient, room participant, or Admin), Admin-only commands. A caller with no minted access to the office gets nothing.
 - Chart: [admin.md](../requirements/admin.md). Contract: Wall contract card rule-rooms-and-trust, read with `mill todo wall-contract rule-rooms-and-trust` (the whole contract: `mill trail mail:2290`).

@@ -55,9 +55,11 @@ def test_changelog_flags_pr_cite_without_card(pc, tmp_path):
 
         ## New changes
 
-        0.9.0
-
         - #999 only a PR cite
+
+        0.9.0 (2026-11-10)
+
+        - bump example from 1 to 2 (#1)
 
         ## Last changes
 
@@ -94,6 +96,36 @@ def test_changelog_flags_entry_under_shipped_without_date(pc, tmp_path):
     p.write_text(text, encoding="utf-8")
     findings = pc.check_changelog(p, base_text="")
     assert any(f.rule == "changelog-date" for f in findings), findings
+
+def test_changelog_allows_shipped_bullet_without_card(pc, tmp_path):
+    """Bump-time bullets (deps, Reverts #N) under a dated heading need no card cite."""
+    text = textwrap.dedent(
+        """\
+        # Changelog
+
+        ## TBD (upcoming)
+
+        Upcoming changes are our current plan, not a promise; they can change or move at release time.
+
+        ## New changes
+
+        0.9.0 (2026-11-10)
+
+        - bump stylelint from 17.16.0 to 18.0.0 (#375)
+        - Reverts #12
+
+        ## Last changes
+
+        0.8.1 (2026-10-31)
+
+        - card 1: old
+        """
+    )
+    p = tmp_path / "CHANGELOG.md"
+    p.write_text(text, encoding="utf-8")
+    findings = pc.check_changelog(p, base_text="")
+    assert findings == [], findings
+
 
 
 def test_frow_flags_new_numbered_file(pc, tmp_path):
@@ -223,3 +255,43 @@ def test_pack_fresh_unresolvable_base_is_a_finding(pc, tmp_path):
     findings = pc.check_pack_fresh(repo, pc._rev_parse("HEAD", cwd=repo), base="origin/main")
     assert [f.rule for f in findings] == ["check-pack"]
     assert "does not resolve" in findings[0].message
+
+
+def _repo_with_new_test(tmp_path: Path, body: str, name: str = "tests/server/test_new.py") -> Path:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git_t(repo, "init", "-q", "-b", "main")
+    base = repo / "tests" / "server" / "test_base.py"
+    base.parent.mkdir(parents=True)
+    base.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    _git_t(repo, "add", ".")
+    _git_t(repo, "commit", "-q", "-m", "base")
+    _git_t(repo, "checkout", "-q", "-b", "feat")
+    added = repo / name
+    added.parent.mkdir(parents=True, exist_ok=True)
+    added.write_text(body, encoding="utf-8")
+    _git_t(repo, "add", ".")
+    _git_t(repo, "commit", "-q", "-m", "add test")
+    return repo
+
+
+def test_targeted_pytest_sql_only_file_is_not_a_finding(pc, tmp_path):
+    """A changed file of only @pytest.mark.sql tests is for pytest_sql, not a precheck fail."""
+    repo = _repo_with_new_test(
+        tmp_path,
+        "import pytest\n\npytestmark = pytest.mark.sql\n\n\n"
+        "def test_needs_book():\n    assert True\n",
+    )
+    findings = pc.check_targeted_pytest(repo, base="main")
+    assert findings == [], findings
+
+
+def test_targeted_pytest_reports_a_failing_non_sql_test(pc, tmp_path):
+    repo = _repo_with_new_test(
+        tmp_path,
+        "def test_broken():\n    assert False\n",
+    )
+    findings = pc.check_targeted_pytest(repo, base="main")
+    assert findings, findings
+    assert findings[0].rule == "pytest"
+    assert "targeted pytest failed" in findings[0].message

@@ -47,7 +47,7 @@ BEGIN
     SELECT created INTO v_prev_at FROM doing WHERE id = v_prev;
   END IF;
   INSERT INTO doing (created, desk_id, roster_id, text, act)
-  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), LEFT(IFNULL(p_text, ''), 512), IF(IFNULL(p_text, '') = '', 'clear', 'focus'));
+  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), IFNULL(p_text, ''), IF(IFNULL(p_text, '') = '', 'clear', 'focus'));
   SET p_id = LAST_INSERT_ID();
   IF v_prev IS NULL OR p_ts > v_prev_at OR (p_ts = v_prev_at AND p_id > v_prev) THEN
     UPDATE seat SET doing_id = p_id, updated = updated WHERE desk_id = p_desk;
@@ -229,9 +229,13 @@ BEGIN
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
+  -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
+  -- reads shared, and the UPDATE below then wanted the row exclusive).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
     CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'clear', NULL);
@@ -335,9 +339,13 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
+  -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
+  -- reads shared, and the UPDATE below then wanted the row exclusive).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     ROLLBACK;
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill connect: desk has not joined';
@@ -358,10 +366,14 @@ BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   SET v_id = NULL;
+  -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
+  -- reads shared, and the UPDATE below then wanted the row exclusive).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
     SELECT doing_id INTO v_id FROM seat WHERE desk_id = v_desk;
@@ -424,10 +436,14 @@ CREATE PROCEDURE mill_join_wake_arm(
 )
 BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   IF IFNULL(p_url, '') = '' OR IFNULL(p_key, '') = '' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake arm: url and key required';
   END IF;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
+  -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
+  -- reads shared, and the UPDATE below then wanted the row exclusive).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake: desk has not joined';
   END IF;
@@ -446,7 +462,11 @@ CREATE PROCEDURE mill_join_wake_off(
 )
 BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   SET v_desk = MILL_NAME_GET('desk', p_desk);
+  -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
+  -- reads shared, and the UPDATE below then wanted the row exclusive).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NULL OR NOT EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wake: desk has not joined';
   END IF;

@@ -302,6 +302,10 @@ def body_from_args(args: Any) -> dict[str, Any]:
         "project": str(getattr(args, "project", "") or "") or "the-mill",
         "owner": owner,
     }
+    # Client-only. seat.command pops this before the office sees the body.
+    asked = str(getattr(args, "sender_desk", "") or "").strip()
+    if asked:
+        body["sender_desk"] = asked
     need = str(getattr(args, "need", "") or getattr(args, "need_id", "") or "")
     if need:
         body["need"] = need
@@ -377,6 +381,9 @@ def body_from_args(args: Any) -> dict[str, Any]:
     # send/reply: the sender project comes from the seat, never a silent the-mill (#241).
     if command in ("send", "reply"):
         body.pop("project", None)
+        # Card 1093: --receipt asks for a read receipt; human_required stays dropped (#254).
+        if bool(getattr(args, "receipt", False)):
+            body["receipt"] = True
     # mill send: From is the connect desk only.
     if command == "send":
         if body.get("owner"):

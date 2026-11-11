@@ -158,6 +158,9 @@ CREATE PROCEDURE mill_hold_release_desk(
 BEGIN
   DECLARE v_n INT DEFAULT 0;
   -- Lock the holds first (X), so the read under the INSERT below never upgrades a shared lock.
+  -- The activity rows are read shared by that INSERT, then updated (card 1113 audit): left as is,
+  -- because the only caller (mill_join_reset) holds the desk's seat exclusive first, so two
+  -- releases of one desk queue on the seat.
   SELECT COUNT(*) INTO v_n FROM hold WHERE desk_id = p_desk FOR UPDATE;
   INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
   SELECT p_ts, p_by, IFNULL(a.roster_id, 1), '', 'hold', h.id, 'drop', NULLIF(p_desk, p_by)

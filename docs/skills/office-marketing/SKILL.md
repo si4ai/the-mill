@@ -30,7 +30,7 @@ On the desk **before** you can launch or publish (else `note` gap + `send` asker
 - **Brief / ask** - what ships (in todo detail)
 - **Campaign or asset identity** - name + CMS/DAM id or URL (do not clone CMS)
 - **Channel / date** - and embargo if any
-- **Review / approve path** - who must greenlight (brand -> human_required if policy)
+- **Review / approve path** - who must greenlight (brand -> `--receipt` if policy)
 - **KPI** - a row in the score table (`kpi`, `value`, `target`)
 - When handoff: sales enablement / support FAQ / eng landing ask
 
@@ -47,7 +47,7 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 | progress / diary | `note` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
-| approval / brand approve | `send`; human_required if policy |
+| approval / brand approve | `send` / `reply` `--receipt` if policy |
 | embargo / wait | waiting_on + `note` / `send` |
 | channel | detail / `note` |
 | handoff to sales/support | `send` + `assign` |
@@ -68,7 +68,7 @@ Never teach `open` / `yield` / bare `create` / `done`.
 | Engineering | Landing, tracking, release-tied launch |
 | QA | Claims remasure / evidence |
 | Research | Insights brief feeding the ask |
-| Brand human | Approve gate / embargo lift (human_required) |
+| Brand human | Approve gate / embargo lift (`--receipt`) |
 
 ## Must-not
 - Bypass mill-desk HINT routing.

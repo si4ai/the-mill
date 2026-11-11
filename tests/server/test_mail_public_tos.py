@@ -13,11 +13,10 @@ def test_public_mail_tos_desk_receipt():
     tos = rec_mail.public_mail_tos(rows)
     assert tos == [
         {"deskId": "alice", "receipt": 0},
-        {"deskId": "bob", "receipt": 1},
+        {"deskId": "bob", "receipt": 1, "opened": "2026-01-01 00:00:00"},
     ]
-    for t in tos:
-        assert "opened" not in t
-        assert set(t.keys()) == {"deskId", "receipt"}
+    assert set(tos[0].keys()) == {"deskId", "receipt"}
+    assert set(tos[1].keys()) == {"deskId", "receipt", "opened"}
 
 
 def test_public_mail_tos_empty():

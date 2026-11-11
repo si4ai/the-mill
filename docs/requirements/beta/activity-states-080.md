@@ -214,7 +214,7 @@ Changes from 0.7.19:
 
 ## task (card 970)
 
-A task is one run of the task wrapper (`tw run --desk D ... -- CMD`). The client sends `tw.event` hops on the desk's sitting session; the server keeps one doing row per run and records its states as `transition` rows. The row is never a focus: it does not move `seat.doing_id`, and a focus or clear put does not overwrite its activity row. The Wall shows act `task` as "tasked".
+A task is one run of the task wrapper (`tw CMD [ARGS...]`). The client sends `tw.event` hops on the desk's sitting session; the server keeps one doing row per run and records its states as `transition` rows. The row is never a focus: it does not move `seat.doing_id`, and a focus or clear put does not overwrite its activity row. The Wall shows act `task` as "tasked".
 
 Birth: the first accepted `start` for a new watch id inserts one doing row with act `task`, empty `text`, and `on_type` `todo` / `on_id` the card when the hop names one (`mill_doing_task`), plus its activity row with act `task`. The new row is idle; there is no birth transition. Every transition of the run carries `join_key` = `task:D:W`.
 

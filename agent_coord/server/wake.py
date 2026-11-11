@@ -866,6 +866,46 @@ def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
         return "error"
 
 
+def auto_done(cn, desk: str, command: str = "") -> str:
+    """Card 1098 item 5: end the lease when mark/answer cleared its waiting work.
+
+    Fires only when the desk has a live lease, every letter in that lease is
+    picked up, nothing addressed waits, and no unopened receipt remains.
+    Tags W9 meta auto=1. command is the RPC that triggered this (reply, mark);
+    note_rpc must run before finish_lease so an action command is not scored
+    wasted (card 1090). Returns lease_done's result, or "" when not applicable.
+    """
+    d = str(desk or "").strip()
+    if not d:
+        return ""
+    with _GATE_LOCK:
+        if d not in _GATE:
+            return ""
+        mails = set(_LEASE_MAIL.get(d) or ())
+    for mid in mails:
+        if not mail_picked_up(cn, d, int(mid)):
+            return ""
+    try:
+        from agent_coord.server import mail_push as mp
+        from agent_coord.server.records import push as rec_push
+
+        if rec_push.pending_addressed(cn, d):
+            return ""
+        if mp.has_unopened_receipt(cn, d):
+            return ""
+    except Exception:
+        return ""
+    try:
+        from agent_coord.server import wasted_wake
+
+        wasted_wake.tag_auto(d)
+        if command:
+            wasted_wake.note_rpc(d, command, ok=True)
+    except Exception:
+        pass
+    return lease_done(cn, d, note="", lease="")
+
+
 def _wake_log(desk: str, frame: dict[str, Any], hint_id: int | None, outcome: str) -> None:
     """One line per desk per wake attempt (#625). Never the URL, its host, or the key
     (the same rule as the webhook fail line; mill connect shows the host)."""
@@ -1054,8 +1094,11 @@ def _arm_retry(
     err: str,
     note: str | None,
     tag: str,
+    cn=None,
+    wake_id: int = 0,
 ) -> None:
     """Schedule the next POST off the caller. One line when the budget runs out."""
+    _record_wake_retry(cn, desk, wake_id)
     state: dict[str, Any] = {
         "attempts": 0,
         "spent": 0.0,
@@ -1180,6 +1223,135 @@ def _rering_wait(desk: str, mid: int, frame: dict[str, Any], **kw) -> str:
     return "deferred"
 
 
+
+def _fail_why(status: int | None, err: str) -> str:
+    """Short why token for W9-style meta: no host, url, or receiver text."""
+    if status is not None:
+        return "http"
+    e = str(err or "").lower()
+    if "timeout" in e:
+        return "timeout"
+    if "connect" in e or "refused" in e:
+        return "conn"
+    return "error"
+
+
+def _wake_row_for_fail(cn, desk: str, wake_id: int) -> tuple[int, str, int] | None:
+    """(id, state, desk_id) for the named wake row, or None.
+
+    A POST with no wake row (wake_id=0: tw.event stall/exit/crash, trailing)
+    writes no row state. desk is kept so callers can pass the woken desk.
+    """
+    if cn is None:
+        return None
+    wid = int(wake_id or 0)
+    if wid <= 0 or not str(desk or "").strip():
+        return None
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, state, desk_id FROM wake WHERE id = %s AND type = 'wake'",
+            (wid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return int(row[0]), str(row[1] or ""), int(row[2] or 0)
+    finally:
+        cur.close()
+
+
+def _record_wake_fail(
+    cn, desk: str, wake_id: int, status: int | None, err: str, *, retry: int
+) -> None:
+    """missed|queued -> error / wake_fail (card 1111). Best-effort; never raises."""
+    try:
+        from agent_coord.server import transition as tr
+        from agent_coord.server.transition_enums import ActivityType, Reason, State
+
+        got = _wake_row_for_fail(cn, desk, wake_id)
+        if not got:
+            return
+        wid, state, did = got
+        if state not in ("queued", "missed"):
+            return
+        frm = State.queued if state == "queued" else State.missed
+        meta = {
+            "status": None if status is None else int(status),
+            "why": _fail_why(status, err),
+            "retry": 1 if int(retry or 0) else 0,
+        }
+        tr.put(
+            cn,
+            activity_type=ActivityType.wake,
+            activity_id=wid,
+            from_state=frm,
+            to_state=State.error,
+            reason=Reason.wake_fail,
+            desk_id=did,
+            role="office",
+            meta=meta,
+        )
+        cur = cn.cursor()
+        try:
+            cur.execute(
+                "UPDATE wake SET state = 'error' WHERE id = %s AND type = 'wake'"
+                " AND state IN ('queued', 'missed')",
+                (wid,),
+            )
+        finally:
+            cur.close()
+        try:
+            from agent_coord.server.records.db import commit as db_commit
+
+            db_commit(cn)
+        except Exception:
+            pass
+    except Exception:
+        return
+
+
+def _record_wake_retry(cn, desk: str, wake_id: int) -> None:
+    """error -> retry_armed / wake_retry (card 1111). Best-effort; never raises."""
+    try:
+        from agent_coord.server import transition as tr
+        from agent_coord.server.transition_enums import ActivityType, Reason, State
+
+        got = _wake_row_for_fail(cn, desk, wake_id)
+        if not got:
+            return
+        wid, state, did = got
+        if state != "error":
+            return
+        tr.put(
+            cn,
+            activity_type=ActivityType.wake,
+            activity_id=wid,
+            from_state=State.error,
+            to_state=State.retry_armed,
+            reason=Reason.wake_retry,
+            desk_id=did,
+            role="office",
+        )
+        cur = cn.cursor()
+        try:
+            cur.execute(
+                "UPDATE wake SET state = 'retry_armed' WHERE id = %s AND type = 'wake'"
+                " AND state = 'error'",
+                (wid,),
+            )
+        finally:
+            cur.close()
+        try:
+            from agent_coord.server.records.db import commit as db_commit
+
+            db_commit(cn)
+        except Exception:
+            pass
+    except Exception:
+        return
+
+
 def post_desk(
     cn,
     desk: str,
@@ -1191,6 +1363,7 @@ def post_desk(
     trailing: str = "",
     ring: str = "",
     pending_count: int = 0,
+    wake_id: int = 0,
 ) -> str:
     """Wake an armed desk that is not sitting.
 
@@ -1224,9 +1397,34 @@ def post_desk(
     if mid and mail_picked_up(cn, desk, mid):
         _wake_log(desk, frame, hint_id, "none reason=picked-up")
         return "none"
+    # Card 1098 item 5c: skip empty wakes before they spend an LLM turn.
+    # tw.event frames carry watch_id and are exempt (no queue row).
+    # counts_as_waiting / has_unopened_receipt live in mail_push (card 1093).
+    if not frame.get("watch_id"):
+        try:
+            from agent_coord.server import mail_push as mp
+            from agent_coord.server.records import push as rec_push
+            from agent_coord.server.push import unread_mail_frames
+
+            pending0 = rec_push.pending(cn, desk)
+            unread = [
+                f
+                for f in unread_mail_frames(cn, desk)
+                if not mail_picked_up(cn, desk, int(f.get("id") or 0))
+            ]
+            if not mp.counts_as_waiting(
+                pending=pending0,
+                unread=bool(unread),
+                unopened_receipt=mp.has_unopened_receipt(cn, desk),
+            ):
+                _wake_log(desk, frame, hint_id, "skipped reason=empty")
+                return "skipped"
+        except Exception:
+            pass
     if reason == ROOM and rec_join.wake_state(cn, desk).get("wake_on") == ADDRESSED:
-        # #628: this desk wakes for addressed items only. The item still waits in
-        # the queue for its next connect; no window is taken.
+        # #628: this desk wakes for addressed items only. Receipt dests arrive
+        # as reason=addressed via mail_push.wake_reason_for_dest (card 1093),
+        # so they never hit this room-only skip.
         _wake_log(desk, frame, hint_id, "skipped reason=room-only")
         return "skipped"
     if _coalesced(desk, frame, hint_id, reason, room):
@@ -1303,7 +1501,17 @@ def post_desk(
             tag_name = wasted_wake.classify_trigger(
                 frame=frame, reason=reason, opened=opened, ring=ring, trailing=trailing
             )
-            wasted_wake.mark_lease(desk, trigger=tag_name, wake_id=int(hint_id) if hint_id is not None else 0)
+            kind_s = "tw" if frame.get("watch_id") else str(frame.get("kind") or "hint").strip().lower()
+            if kind_s not in ("mail", "hint", "receipt", "tw"):
+                kind_s = "hint"
+            wasted_wake.mark_lease(
+                desk,
+                trigger=tag_name,
+                wake_id=int(wake_id or 0),
+                pending0=int(pending or 0),
+                addressed=1 if reason == ADDRESSED else 0,
+                kind=kind_s,
+            )
         except Exception:
             pass
         try:
@@ -1332,9 +1540,16 @@ def post_desk(
         has_unread = bool(unread_mail_frames(cn, desk, limit=1))
     except Exception:
         has_unread = False
-    if (pending > 0 or has_unread) and _retryable(status) and str((body or {}).get(FIELD) or "").strip():
+    retry = bool(
+        (pending > 0 or has_unread)
+        and _retryable(status)
+        and str((body or {}).get(FIELD) or "").strip()
+    )
+    _record_wake_fail(cn, desk, wake_id, status, err, retry=1 if retry else 0)
+    if retry:
         _arm_retry(
             url, body, key=key, desk=desk, hint_id=hint_id, frame=frame,
             status=status, err=err, note=note, tag=tag,
+            cn=cn, wake_id=wake_id,
         )
     return "error"

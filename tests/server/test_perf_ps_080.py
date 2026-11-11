@@ -26,6 +26,9 @@ from tests.sql_isolate import throwaway_db
 pytestmark = pytest.mark.sql
 
 DB = throwaway_db("mill_perf_ps_test")
+# One user per xdist worker: MySQL users are server-wide, and another worker's teardown dropped a shared
+# one while this worker was connecting with it (1045 in CI).
+NP_USER = throwaway_db("mill_perf_np")[:32]
 
 
 def _connect(**over):
@@ -57,7 +60,7 @@ def book():
     perf._PS["ok"] = True
     yield admin
     cur.execute(f"DROP DATABASE IF EXISTS `{DB}`")
-    for u in ("mill_perf_np",):
+    for u in (NP_USER,):
         cur.execute(f"DROP USER IF EXISTS '{u}'@'%'")
     admin.close()
 
@@ -240,12 +243,12 @@ def test_two_waits_in_one_command_add_up(book) -> None:
 
 def test_user_without_performance_schema_still_gets_a_line(book) -> None:
     cur = book.cursor()
-    cur.execute("CREATE USER IF NOT EXISTS 'mill_perf_np'@'%' IDENTIFIED BY 'np-throwaway-1'")
-    cur.execute(f"GRANT SELECT, UPDATE, EXECUTE ON `{DB}`.* TO 'mill_perf_np'@'%'")
+    cur.execute(f"CREATE USER IF NOT EXISTS '{NP_USER}'@'%' IDENTIFIED BY 'np-throwaway-1'")
+    cur.execute(f"GRANT SELECT, UPDATE, EXECUTE ON `{DB}`.* TO '{NP_USER}'@'%'")
     cmd = perf.begin("hold", "alice")
     out = perf.in_book(
         cmd,
-        lambda: _Book(_connect(database=DB, user="mill_perf_np", password="np-throwaway-1")),
+        lambda: _Book(_connect(database=DB, user=NP_USER, password="np-throwaway-1")),
         lambda c: (_call(c._cn, "bump", [3]), "done")[1],
     )
     assert out == "done"

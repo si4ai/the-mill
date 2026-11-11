@@ -91,7 +91,7 @@ SET @mill_1022_sql := IF(
 PREPARE mill_1022_stmt FROM @mill_1022_sql; EXECUTE mill_1022_stmt; DEALLOCATE PREPARE mill_1022_stmt;
 
 CREATE TABLE IF NOT EXISTS wake (
-  id          BIGINT UNSIGNED NOT NULL,
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL DEFAULT 'wake',
   desk_id     BIGINT UNSIGNED NOT NULL,
   cause       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -105,7 +105,6 @@ CREATE TABLE IF NOT EXISTS wake (
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, id),
   KEY idx_desk_state (desk_id, state),
-  CONSTRAINT fk_wake_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT,
   CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -121,6 +120,7 @@ CREATE TABLE IF NOT EXISTS transition (
   role          ENUM('sender','recipient','actor','holder','waiter','office','other') NOT NULL DEFAULT 'actor',
   join_key      VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NULL,
   meta          JSON NULL,
+  n             INT UNSIGNED NOT NULL DEFAULT 1,
   PRIMARY KEY (id),
   KEY idx_type_id_at (activity_type, activity_id, at),
   KEY idx_desk_type_at (desk_id, activity_type, at),

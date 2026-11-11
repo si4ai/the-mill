@@ -276,3 +276,11 @@ the top of admin.md:
 |---|-----|-----|-----|--------|
 | 970a | `activity.act` / `doing.act` end at `ring` | both gain `task` (appended; existing books via `migrate_970_task.sql`) | task-wrapper birth rows, kept apart from focus/clear | proposed |
 
+## card 1098 (compress two-state cycles)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1098a | `transition` rows are one per flip | `transition.n INT UNSIGNED NOT NULL DEFAULT 1` counts compressed two-state cycles (odd=at to_state, even=at from_state); office `transition_mode`/`transition_pairs` choose compress vs capture | card 1098 instrumentation; sit/unsit middle timings are wake-interrupt artifacts | proposed |
+
+Items 3 (tw score transitions on start/finish/fail) and 4 (required receipt / `--receipt`) need no DDL: score/transition tables and `mail_to.receipt` already exist.
+

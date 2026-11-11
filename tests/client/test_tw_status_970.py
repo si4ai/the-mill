@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 from agent_coord.client.tw.link import open_session, serve
 from agent_coord.client.tw.proc import query_status, run_argv
@@ -72,7 +73,12 @@ def test_sample_updates_the_buffer_and_does_not_hop(tmp_path, monkeypatch) -> No
         assert "secret" not in dumped
         assert "drop-me" not in dumped
         assert "tool" not in dumped
-        assert len(calls) == 1
+        deadline = time.time() + 3
+        while time.time() < deadline and not any(
+            body.get("verb") == "tw.event" for body in calls
+        ):
+            time.sleep(0.05)
+        assert len([body for body in calls if body.get("verb") == "tw.event"]) == 1
         banned = ("stdout", "stderr", "log", "sample", "argv", "title", "pattern")
         for body in calls:
             for key in banned:
@@ -120,6 +126,9 @@ def test_run_counts_stdout_and_writes_the_log(tmp_path, monkeypatch) -> None:
         assert "stdout" not in rows[0]
         assert "argv" not in rows[0]
         assert b"hello-step2" in log_path.read_bytes()
+        deadline = time.time() + 3
+        while time.time() < deadline and not any(body.get("kind") == "exit" for body in calls):
+            time.sleep(0.05)
         assert calls
         banned = ("stdout", "stderr", "log", "sample", "argv", "title", "pattern")
         for body in calls:

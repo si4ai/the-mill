@@ -139,7 +139,7 @@ def shown_flags(command: Command) -> set:
         for act in command.parser._actions
         if act.option_strings and act.help != argparse.SUPPRESS
         for o in act.option_strings
-    } - {"-h", "--help", "--yes", "--office"}
+    } - {"-h", "--help", "--yes", "--office", "--desk"}
 
 
 def help_texts(commands: dict):

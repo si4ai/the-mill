@@ -29,7 +29,7 @@ Either way the command is the same single line (`mill join --link-file LINKFILE`
 
 ## Connect, then commands
 
-`mill connect DESK` sits the desk on the Office roster (`mill connect ROSTER DESK` names another roster). A command with no sitting connect opens the joined desk's seat for that one command and releases it. It fails if another connect already holds the seat (`this desk's seat is held by another connect; retry when it exits`). With no joined desk it still fails with `no sitting mill connect for this process`.
+`mill connect DESK` sits the desk on the Office roster (`mill connect ROSTER DESK` names another roster). Run desk commands in the shell that started that connect. With no sitting connect, pass `--desk DESK` (one-command seat borrow); with neither, the command is refused. The full rule, including `--office` when a desk is on more than one office, is the session line in [skill.md](protocol/skill.md).
 
 Long `mill connect` / `connect-wait` stays for presence, hints, and idle. Several commands may share one sitting connect. The same-shell one-liner is optional when you want that long session:
 
@@ -37,7 +37,7 @@ Long `mill connect` / `connect-wait` stays for presence, hints, and idle. Severa
 bash -c 'mill connect DESK >/dev/null 2>&1 & trap "kill $!" EXIT; mill inbox; mill todo'
 ```
 
-- When you use the optional same-shell one-liner above, wait for that connect to be ready before the commands. One-shot seat borrow does not need it.
+- When you use the optional same-shell one-liner above, wait for that connect to be ready before the commands. A one-shot `--desk DESK` command does not need it.
 - `mill connect DESK` alone in the foreground just blocks.
 - A second connect for the same desk is refused as busy while the first is up (exit 0); `mill connect --take DESK` takes the seat.
 - `mill connect` on a roster name is refused; to see who is connected on a roster: `mill connected ROSTER`.

@@ -40,7 +40,7 @@ Status notes below are as of 6 Nov 2026, Pacific Time.
 
 | Tool | What it checks | Where it lives | Status |
 | :--- | :--- | :--- | :--- |
-| SPIN (`verify/spin/run.sh`) | Every interleaving of the wake, hold, mail, todo, doing, score, and name models. Lost wakes, duplicate wakes, deadlocks, livelock, lease and retry properties (`W*`, `H*`, `L*`, `T*`, `D*`, `E*`, `S*`, `N*`, `R*`, `M*`). | [verify/spin/README.md](../../verify/spin/README.md), [SKILL.md](../../verify/spin/SKILL.md), `run.sh` | In use; pins stale vs main as of this writing |
+| SPIN (`verify/spin/run.sh`) | Every interleaving of the wake, hold, mail, todo, doing, score, and name models, plus the card 1125 activity_history design model (`A*`, `X*`). Lost wakes, duplicate wakes, deadlocks, livelock, lease and retry properties (`W*`, `H*`, `L*`, `T*`, `D*`, `E*`, `S*`, `N*`, `R*`, `M*`). | [verify/spin/README.md](../../verify/spin/README.md), [SKILL.md](../../verify/spin/SKILL.md), [card-1125-activity-history.md](card-1125-activity-history.md), `run.sh` | In use; activity_history is a design model of the card 1125 MVP for 0.8.14 (nothing built); wake/0.8.0 pins stale vs main as of this writing |
 | TLA+ `/statechart` | Protocol design drawings and TLC model checks. Used for the doing model (`Doing.cfg`, NoTwoActive). | `/statechart` skill; doing TLA+ config in the repo | In use alongside SPIN |
 | Protocol lock review (card 970) | Frames and hops against dual-plane, the letter 4583 kind map, and letter 4585 residuals. Not a replacement for a `tw` SPIN model. | Letter 4595; letters 4583 and 4585 | Manual until a `tw` model lands |
 
@@ -96,12 +96,14 @@ duplicates, validity, and jobs that must run together rather than be split.
 
 | Check | Role |
 | :--- | :--- |
-| `detect_docs_only` | Decides whether pytest can be skipped on a docs-only change |
+| `select` | Picks the pytest run jobs from the changed files with `ci/test-select.toml` (card 1127); a file in no rule runs none, and a wrapper passes when its run job is not picked |
 | `pytest_sql` | Required wrapper: success if docs-only skip, or if `pytest_sql_run` succeeded |
 | `pytest_sql_run` | The actual server tests that need the book; skipped on docs-only |
 | `pytest_no_sql` | Required wrapper: success if docs-only skip, or if `pytest_no_sql_run` succeeded |
 | `pytest_no_sql_run` | The actual tests that do not need the book; skipped on docs-only |
 | `precheck` | PR prechecks |
+| `pr_text` | PR and issue text hygiene; hints (does not fail) when a PR body is missing a one-line `## Changelog` section; Dependabot and docs-only PRs are exempt |
+| `changelog_generate` | At version bump, builds the current CHANGELOG section from card PRs since the last tag (squash-to-main and release-fold) |
 | `mill_cli_smoke` | CLI smoke; also runs `check_doc_commands` and `check_skill_copy --installed` |
 | `build_pack` | Build the install pack |
 | `check_pack` | Pack hygiene and commit scan |

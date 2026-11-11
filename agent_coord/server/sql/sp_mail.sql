@@ -143,6 +143,9 @@ BEGIN
   DECLARE v_hits INT DEFAULT 0;
   DECLARE v_gone INT DEFAULT 0;
   DECLARE v_msg VARCHAR(255);
+  DECLARE v_lock BIGINT UNSIGNED;
+  DECLARE v_nodes JSON;
+  DECLARE v_desks JSON;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -152,10 +155,16 @@ BEGIN
   IF v_type IS NULL OR v_type NOT IN ('desk', 'roster') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'remove: WHO is a live desk or roster';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM mail WHERE type = 'mail' AND id = p_id) THEN
+  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
+  -- Lock order (card 1113): the letter exclusive first (as mill_mail_delete: letter, then its
+  -- recipient rows), so two removes under one letter queue. The reads below are plain reads; the
+  -- DELETE takes the node and desk lists as values, so it locks only the recipient rows it drops
+  -- (its subquery over mail, tree, member and name read them all shared).
+  SET v_lock = NULL;
+  SELECT id INTO v_lock FROM mail WHERE type = 'mail' AND id = p_id FOR UPDATE;
+  IF v_lock IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'remove: no such mail';
   END IF;
-  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   WITH nodes AS (
       SELECT m.id, m.desk_id AS sender_id FROM mail m
        WHERE m.type = 'mail'
@@ -199,34 +208,25 @@ BEGIN
     SET v_msg = CONCAT('remove: mail ', v_orphan, ' would have no recipient');
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
+  WITH nodes AS (
+      SELECT m.id FROM mail m
+       WHERE m.type = 'mail'
+         AND (m.id = p_id OR m.id IN (
+           SELECT c.id FROM tree t
+             JOIN tree c ON c.name_id = t.name_id AND c.lft > t.lft AND c.rgt < t.rgt AND c.type = 'mail'
+            WHERE t.type = 'mail' AND t.id = p_id))
+    )
+  SELECT JSON_ARRAYAGG(id) INTO v_nodes FROM nodes;
+  SELECT JSON_ARRAYAGG(id) INTO v_desks FROM (
+      SELECT d.id FROM name d WHERE d.id = p_who AND d.type = 'desk' AND d.deleted IS NULL
+      UNION
+      SELECT d.id FROM member mb JOIN name d ON d.id = mb.desk_id AND d.deleted IS NULL
+       WHERE mb.name_id = p_who AND v_type = 'roster'
+    ) AS dd;
   DELETE mt FROM mail_to mt
-   WHERE mt.type = 'mail'
-     AND mt.id IN (SELECT id FROM (WITH nodes AS (
-      SELECT m.id, m.desk_id AS sender_id FROM mail m
-       WHERE m.type = 'mail'
-         AND (m.id = p_id OR m.id IN (
-           SELECT c.id FROM tree t
-             JOIN tree c ON c.name_id = t.name_id AND c.lft > t.lft AND c.rgt < t.rgt AND c.type = 'mail'
-            WHERE t.type = 'mail' AND t.id = p_id))
-    ), desks AS (
-      SELECT d.id FROM name d WHERE d.id = p_who AND d.type = 'desk' AND d.deleted IS NULL
-      UNION
-      SELECT d.id FROM member mb JOIN name d ON d.id = mb.desk_id AND d.deleted IS NULL
-       WHERE mb.name_id = p_who AND v_type = 'roster'
-    ) SELECT id FROM nodes) AS nn)
-     AND mt.desk_id IN (SELECT id FROM (WITH nodes AS (
-      SELECT m.id, m.desk_id AS sender_id FROM mail m
-       WHERE m.type = 'mail'
-         AND (m.id = p_id OR m.id IN (
-           SELECT c.id FROM tree t
-             JOIN tree c ON c.name_id = t.name_id AND c.lft > t.lft AND c.rgt < t.rgt AND c.type = 'mail'
-            WHERE t.type = 'mail' AND t.id = p_id))
-    ), desks AS (
-      SELECT d.id FROM name d WHERE d.id = p_who AND d.type = 'desk' AND d.deleted IS NULL
-      UNION
-      SELECT d.id FROM member mb JOIN name d ON d.id = mb.desk_id AND d.deleted IS NULL
-       WHERE mb.name_id = p_who AND v_type = 'roster'
-    ) SELECT id FROM desks) AS dd);
+    JOIN JSON_TABLE(IFNULL(v_nodes, JSON_ARRAY()), '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) n ON n.id = mt.id
+    JOIN JSON_TABLE(IFNULL(v_desks, JSON_ARRAY()), '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) d ON d.id = mt.desk_id
+   WHERE mt.type = 'mail';
   SET v_gone = ROW_COUNT();
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT v_gone AS removed;
@@ -299,6 +299,7 @@ BEGIN
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_sender BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -307,8 +308,13 @@ BEGIN
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);
-  SET v_proj = (SELECT roster_id FROM mail WHERE id = p_id);
+  -- Lock order (card 1113, F183): the editing desk's seat, then the letter, both exclusive, before
+  -- the letter is read (as mill_mail_delete). A SET subquery in a routine reads shared, and the
+  -- UPDATE below then wanted the row exclusive (two edits deadlocked); the activity row's FK check
+  -- reads the seat shared later.
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_sender = NULL;
+  SELECT desk_id, roster_id INTO v_sender, v_proj FROM mail WHERE id = p_id FOR UPDATE;
   IF v_sender IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mail: no such letter';
   END IF;
@@ -338,6 +344,8 @@ BEGIN
   DECLARE v_gone INT DEFAULT 0;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_sender BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
+  DECLARE v_wakes JSON;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -346,7 +354,11 @@ BEGIN
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = IFNULL(MILL_NAME_GET('desk', p_desk), 0);
-  SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);
+  -- Lock order (card 1113, F183): the deleting desk's seat, then the letter, both exclusive,
+  -- before any read of the letter (a SET subquery in a routine reads shared).
+  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
+  SET v_sender = NULL;
+  SELECT desk_id INTO v_sender FROM mail WHERE id = p_id FOR UPDATE;
   -- An unknown caller desk (0) is never the sender and never Admin.
   IF v_sender IS NOT NULL AND v_desk <> v_sender
      AND NOT EXISTS (SELECT 1 FROM member
@@ -358,18 +370,28 @@ BEGIN
   IF v_sender IS NOT NULL THEN
     CALL mill_tree_detach('mail', p_id);
   END IF;
-  -- card 1022: mark matching wakes taken (no delete) and write transitions
-  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-  SELECT 'wake', id, state, 'taken', 'wake_deliver', 0, 'office'
-    FROM wake
+  -- card 1022: mark matching wakes taken (no delete) and write transitions.
+  -- Card 1113: no index covers the payload filter, so a locking read here locked every wake row
+  -- it scanned (shared, then exclusive). Find the rows by a plain read, then lock only those, by
+  -- primary key (type, id), before the transition copy and the update.
+  SELECT JSON_ARRAYAGG(id) INTO v_wakes FROM wake
    WHERE cause IN ('mail', 'receipt')
      AND state <> 'taken'
      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = p_id;
-  UPDATE wake
-     SET state = 'taken'
-   WHERE cause IN ('mail', 'receipt')
-     AND state <> 'taken'
-     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = p_id;
+  IF v_wakes IS NOT NULL THEN
+    SELECT COUNT(*) INTO v_lock FROM wake w
+      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
+     FOR UPDATE OF w;
+    INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+    SELECT 'wake', w.id, w.state, 'taken', 'wake_deliver', w.desk_id, 'office'
+      FROM wake w
+      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
+     WHERE w.state <> 'taken';
+    UPDATE wake w
+      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
+       SET w.state = 'taken'
+     WHERE w.state <> 'taken';
+  END IF;
   DELETE FROM mail WHERE id = p_id;  -- mail_to cascades; mail_no_delete_in_tree still guards
   SET v_gone = ROW_COUNT();
   IF v_gone = 1 THEN

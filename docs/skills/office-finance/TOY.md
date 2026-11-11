@@ -17,18 +17,18 @@
 
 **Toy fill (after agent asks):** use Scenario B facts.
 
-**Fail if:** ledger clone; invent approve/pay CLI; skip human_required
+**Fail if:** ledger clone; invent approve/pay CLI; skip `--receipt`
 
 ---
 
 ## Scenario B - happy path (Inputs given)
 
 **Human says:**  
-"Invoice INV-100 $50 vendor X. Approve path: the host human_required. Ledger SoR outside. Pay when approved."
+"Invoice INV-100 $50 vendor X. Approve path: the host `--receipt`. Ledger SoR outside. Pay when approved."
 
 **Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
 
-**Fail if:** ledger clone; invent approve/pay CLI; skip human_required
+**Fail if:** ledger clone; invent approve/pay CLI; skip `--receipt`
 
 ---
 

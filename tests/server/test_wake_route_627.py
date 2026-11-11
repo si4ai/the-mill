@@ -69,7 +69,8 @@ def _letter(tos, room_only=(), tree="build-room"):
 def test_a_room_letter_says_room_for_members_and_addressed_for_the_named(posts):
     got, _ = posts
     _letter(["away"], room_only={"away"})
-    assert got[-1]["wake"] == {**got[-1]["wake"], "reason": "room", "room": "build-room"}
+    # Card 1098 item 5: a room copy stays queued (no owed, no POST).
+    assert got == []
     wake._GATE.clear()
     _letter(["away"], room_only=())
     assert got[-1]["wake"]["reason"] == "addressed" and got[-1]["wake"]["room"] == "build-room"
@@ -86,8 +87,10 @@ def test_an_off_room_letter_has_room_null(posts):
 
 def test_a_minted_thread_tree_is_not_a_room_name(posts):
     got, _ = posts
-    _letter(["away"], room_only={"away"}, tree="0a1b2c3d4e")
-    assert got[-1]["wake"]["room"] is None and got[-1]["wake"]["reason"] == "room"
+    # Addressed letter still wakes; a minted thread tree is not a room name (#627).
+    # Room copies no longer POST (card 1098 item 5), so this uses an addressed dest.
+    _letter(["away"], tree="0a1b2c3d4e")
+    assert got[-1]["wake"]["room"] is None and got[-1]["wake"]["reason"] == "addressed"
 
 
 def test_a_burst_says_addressed_when_any_waiting_item_is_addressed(posts):
@@ -103,7 +106,8 @@ def test_a_burst_of_room_items_only_says_room(posts):
     _letter(["away"], room_only={"away"})
     wake._GATE.clear()
     _letter(["away"], room_only={"away"})
-    assert [b["wake"]["reason"] for b in got] == ["room", "room"]
+    # Card 1098 item 5: room copies stay queued; a room-only burst posts nothing.
+    assert got == []
 
 
 def _book():

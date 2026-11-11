@@ -20,3 +20,4 @@ Office / customer desks do **not** load this folder. They use:
 | [CHECKS-AND-TOOLS.md](CHECKS-AND-TOOLS.md) | Map of protocol, code, process, CI, hygiene, and field checks (where each lives, and what is still only a card) |
 | [DETERMINISTIC-OFFICE.md](DETERMINISTIC-OFFICE.md) | Design for scripted, self-checking office steps (#282) |
 | [OPTIMIZATION.md](OPTIMIZATION.md) | Query and read-path principles, plus the log of optimization examples |
+| [card-1125-activity-history.md](card-1125-activity-history.md) | Card 1125 replace-body MVP with activity_history: design and SPIN model (targeted at 0.8.14; nothing built) |

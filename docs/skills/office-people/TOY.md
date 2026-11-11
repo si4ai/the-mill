@@ -17,18 +17,18 @@
 
 **Toy fill (after agent asks):** use Scenario B facts.
 
-**Fail if:** skip human_required on offer; invent hire CLI; ATS clone
+**Fail if:** skip `--receipt` on offer; invent hire CLI; ATS clone
 
 ---
 
 ## Scenario B - happy path (Inputs given)
 
 **Human says:**  
-"Req: Loop-1 Scout contractor. ATS id ATS-9. Offer needs human_required (host). Onboard checklist: laptop, mill join, desk token."
+"Req: Loop-1 Scout contractor. ATS id ATS-9. Offer needs `--receipt` (host). Onboard checklist: laptop, mill join, desk token."
 
 **Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
 
-**Fail if:** skip human_required on offer; invent hire CLI; ATS clone
+**Fail if:** skip `--receipt` on offer; invent hire CLI; ATS clone
 
 ---
 

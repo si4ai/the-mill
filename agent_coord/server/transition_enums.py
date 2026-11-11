@@ -201,6 +201,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_fail),  # W4a
         (ActivityType.wake, State.unread_owed, State.lease_live, Reason.wake_fail),  # W4b
         (ActivityType.wake, State.fail, State.retry_armed, Reason.wake_retry),  # W5
+        (ActivityType.wake, State.error, State.retry_armed, Reason.wake_retry),  # W5c card 1111
         (ActivityType.wake, State.retry_armed, State.drained, Reason.wake_drain),  # W6a
         (ActivityType.wake, State.retry_armed, State.idle, Reason.wake_drain),  # W6b
         (ActivityType.wake, State.lease_live, State.trail, Reason.wake_trail),  # W7
@@ -322,6 +323,74 @@ def check_edge(
         )
 
 
+def _pair_key(a: str, b: str) -> frozenset[str]:
+    return frozenset({a, b})
+
+
+def _pair_configured(activity_type: ActivityType, from_s: str, to_s: str) -> bool:
+    from agent_coord.config import transition_pairs
+
+    want = (activity_type.value, _pair_key(from_s, to_s))
+    return want in transition_pairs()
+
+
+def _try_compress(
+    cn,
+    *,
+    activity_type: ActivityType,
+    activity_id: int,
+    from_state: State,
+    to_state: State,
+    desk_id: int | None = 0,
+) -> bool:
+    """If latest row is the same two-state cycle and from matches effective state, bump n.
+
+    Odd n => still at original to_state; even n => back at from_state.
+    Same-state A->A refreshes bump n on a matching A->A row.
+    Desk must match the latest row (a new holder/desk starts a new row).
+    Returns True when an existing row was updated (no INSERT).
+    """
+    from agent_coord.config import transition_mode
+
+    if transition_mode() != "compress":
+        return False
+    frm = from_state.value
+    to = to_state.value
+    if not _pair_configured(activity_type, frm, to):
+        return False
+    want_desk = 0 if desk_id is None else int(desk_id)
+
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, from_state, to_state, n, desk_id FROM transition"
+            " WHERE activity_type=%s AND activity_id=%s"
+            " ORDER BY id DESC LIMIT 1",
+            (activity_type.value, int(activity_id)),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        tid, lf, lt, n = row[0], str(row[1]), str(row[2]), int(row[3] or 1)
+        latest_desk = int(row[4] or 0)
+        if latest_desk != want_desk:
+            return False
+        if _pair_key(lf, lt) != _pair_key(frm, to):
+            return False
+        # effective current state from odd/even on the stored edge
+        effective = lt if (n % 2 == 1) else lf
+        if frm != effective:
+            return False
+        # continuing the cycle: reverse, same direction after even n, or A->A refresh
+        cur.execute(
+            "UPDATE transition SET n = n + 1, at = UTC_TIMESTAMP(6) WHERE id = %s",
+            (int(tid),),
+        )
+        return cur.rowcount == 1
+    finally:
+        cur.close()
+
+
 def put(
     cn,
     *,
@@ -335,12 +404,31 @@ def put(
     join_key: str | None = None,
     meta=None,
 ) -> None:
-    """Insert one transition via mill_transition_put. Enums only (no bare strings)."""
+    """Insert one transition via mill_transition_put. Enums only (no bare strings).
+
+    Card 1098: when office transition_mode=compress and the undirected pair is
+    configured, a reverse (or same-state refresh) of the latest edge for this
+    activity bumps n and refreshes at instead of inserting a second row.
+    """
     import json
 
     from agent_coord.server.records.db import call
 
     check_edge(activity_type, from_state, to_state, reason)
+    if _try_compress(
+        cn,
+        activity_type=activity_type,
+        activity_id=activity_id,
+        from_state=from_state,
+        to_state=to_state,
+        desk_id=desk_id,
+    ):
+        # Match call(): compress UPDATE must be durable without a later caller commit
+        # (autocommit off + pool reset would otherwise drop the bump).
+        from agent_coord.server.records.db import commit as db_commit
+
+        db_commit(cn)
+        return
     meta_arg = None if meta is None else (meta if isinstance(meta, str) else json.dumps(meta))
     call(
         cn,

@@ -19,11 +19,13 @@ ADDR = "10.1" + ".2.3"
 SCRIPT = ROOT / "tools" / "check_pr_text.py"
 
 
-def _run(tmp_path: Path, name: str, event: dict) -> subprocess.CompletedProcess:
+def _run(tmp_path: Path, name: str, event: dict, cwd: Path | None = None) -> subprocess.CompletedProcess:
     path = tmp_path / "event.json"
     path.write_text(json.dumps(event), encoding="utf-8")
     env = {"GITHUB_EVENT_NAME": name, "GITHUB_EVENT_PATH": str(path), "PATH": "/usr/bin:/bin"}
-    return subprocess.run([sys.executable, str(SCRIPT), "event"], env=env, capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "event"], env=env, capture_output=True, text=True, cwd=cwd,
+    )
 
 
 @pytest.mark.parametrize("bad,kind", [(HOME_PATH, "home path with a login name"),
@@ -172,3 +174,150 @@ def test_comment_name_token_stays_on_generic_rules(tmp_path: Path) -> None:
         {"issue": {"number": 5}, "comment": {"id": 99, "body": f"thanks {who}"}},
     )
     assert res.returncode == 0, res.stderr
+
+
+def test_bot_authored_body_skips_name_token(tmp_path: Path) -> None:
+    """Card 1103: a bot-authored PR title and body skip the name-token rule, with a note."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 374,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "Bot"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert "personal name token" not in res.stderr
+    assert who not in res.stderr + res.stdout
+    assert "0 hits" in res.stdout
+
+
+def test_human_authored_body_still_flags_name_token(tmp_path: Path) -> None:
+    """A human (user.type User) title and body still take the name-token rule."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 272,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "User"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #272 body:2: personal name token" in res.stderr
+    assert "name-token rule skipped" not in res.stdout + res.stderr
+    assert who not in res.stderr + res.stdout
+
+
+def test_bot_authored_body_with_email_still_fails(tmp_path: Path) -> None:
+    """Skipping the name-token rule does not skip address, home-path, email, or credential rules."""
+    who = _who()
+    body = f"ok\nsee {EMAIL}\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 377,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "Bot"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #377 body:2: email outside placeholder domains" in res.stderr
+    assert "personal name token" not in res.stderr
+    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert EMAIL not in res.stderr + res.stdout
+    assert who not in res.stderr + res.stdout
+    assert "zorbin" not in res.stderr + res.stdout
+
+
+def test_missing_changelog_section_hints_and_does_not_fail(tmp_path: Path) -> None:
+    body = "## summary\n\nwhat changed\n\n## claims\n\nclaim 1\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 90, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" in res.stdout
+    assert "0 hits" in res.stdout
+
+
+def test_empty_changelog_section_hints(tmp_path: Path) -> None:
+    body = "## summary\n\nx\n\n## Changelog\n\n## claims\n\ny\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 91, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" in res.stdout
+
+
+def test_present_changelog_section_has_no_hint(tmp_path: Path) -> None:
+    body = "## summary\n\nx\n\n## Changelog\n\ncard 1120: generate the changelog at bump\n"
+    res = _run(tmp_path, "pull_request", {"pull_request": {"number": 92, "title": "#1 Fix", "body": body}})
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout
+
+
+def test_dependabot_is_exempt_from_changelog_hint(tmp_path: Path) -> None:
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 375,
+            "title": "bump stylelint from 17.16.0 to 18.0.0",
+            "body": "Bumps stylelint.",
+            "user": {"type": "Bot", "login": "dependabot[bot]"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout
+
+
+def _pr_repo(tmp_path: Path, changed: str) -> tuple[Path, str, str]:
+    """A git repo with base and head commits; head changes only `changed`."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=repo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    target = repo / changed
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("head\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "head")
+    return repo, base, git("rev-parse", "HEAD")
+
+
+def _pr_event(number: int, base: str, head: str) -> dict:
+    """Real-shaped pull_request payload: base and head shas, no changed-file list."""
+    return {"pull_request": {
+        "number": number, "title": "#1 Docs", "body": "docs only",
+        "base": {"sha": base}, "head": {"sha": head},
+    }}
+
+
+def test_docs_only_is_exempt_from_changelog_hint(tmp_path: Path) -> None:
+    repo, base, head = _pr_repo(tmp_path, "docs/dev/BUILD.md")
+    res = _run(tmp_path, "pull_request", _pr_event(93, base, head), cwd=repo)
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" not in res.stdout
+
+
+def test_code_change_is_not_docs_only_exempt(tmp_path: Path) -> None:
+    repo, base, head = _pr_repo(tmp_path, "tools/x.py")
+    res = _run(tmp_path, "pull_request", _pr_event(94, base, head), cwd=repo)
+    assert res.returncode == 0, res.stderr
+    assert "hint: PR body needs a one-line ## Changelog section" in res.stdout

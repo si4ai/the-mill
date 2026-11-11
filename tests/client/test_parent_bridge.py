@@ -16,6 +16,7 @@ from agent_coord.client.session_errors import (
     SESSION_CONNECT_DIED,
     SESSION_WS_BRIDGE_REQUIRED,
     bridge_hint,
+    desk_flag_required,
 )
 from agent_coord.client.tokens import write_session_token
 from agent_coord.helpers.errors import CoordError
@@ -54,6 +55,7 @@ def test_parent_bridges_do_not_cross_and_missing_fails_closed(tmp_path, monkeypa
     """Parent B cannot send on parent A's bridge. No bridge does not read active."""
     monkeypatch.setenv("AGENT_COORD_MILL_HOME", str(tmp_path))
     monkeypatch.setattr(ws_cli, "SITTING_BRIDGE_RETRY_WAIT_S", 0)
+    monkeypatch.setattr("agent_coord.client.session_errors._typed", [])
     monkeypatch.delenv("AGENT_COORD_OWNER", raising=False)
     monkeypatch.delenv("AGENT_COORD_TOKEN", raising=False)
     bind_cli_office("")
@@ -135,6 +137,12 @@ def test_parent_bridges_do_not_cross_and_missing_fails_closed(tmp_path, monkeypa
         assert captured[-1]["secret"] == "sec-a"
 
         monkeypatch.setattr(os, "getppid", lambda: 3003)
+        with pytest.raises(CoordError) as ei:
+            mill_client.mill_http_call(
+                {"verb": "inbox", "project": "the-mill", "owner": "DESK_alice"}
+            )
+        assert str(ei.value) == desk_flag_required("inbox")
+
         borrowed: dict = {}
 
         def fake_borrow(desk, token, body):
@@ -143,14 +151,19 @@ def test_parent_bridges_do_not_cross_and_missing_fails_closed(tmp_path, monkeypa
             borrowed["verb"] = body.get("verb")
             return {"ok": True, "result": {"via": "borrow"}, "sync": []}
 
-        allow_active["on"] = True
         monkeypatch.setattr("agent_coord.client.seat.session.borrow", fake_borrow)
         out_once = mill_client.mill_http_call(
-            {"verb": "inbox", "project": "the-mill", "owner": "DESK_alice"}
+            {
+                "verb": "inbox",
+                "project": "the-mill",
+                "owner": "DESK_alice",
+                "sender_desk": "bob",
+            }
         )
         assert out_once["result"]["via"] == "borrow"
+        assert borrowed["desk"] == "bob"
+        assert borrowed["token"] == "tok-bob"
         assert borrowed["verb"] == "inbox"
-        assert borrowed["token"] == "tok-alice"
         assert ports[-1] == 1111
         assert open_real(active, encoding="utf-8").read().strip() == "alice"
     finally:

@@ -1348,6 +1348,8 @@ def board_packet() -> dict[str, Any]:
 
     from agent_coord.server.netbind import network_packet
 
+    from agent_coord.server import transition_admin as tr_admin
+
 
 
     m = mode()
@@ -1423,6 +1425,8 @@ def board_packet() -> dict[str, Any]:
         },
 
         "network": network_packet(),
+
+        "transition": tr_admin.compress_packet(),
 
     }
 

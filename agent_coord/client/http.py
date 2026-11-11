@@ -154,19 +154,26 @@ def mill_http_call(body: dict[str, Any]) -> Any:
             key = ""
     else:
         payload.pop("token", None)
-        # A sit for this process carries the command. With no sit, seat.command
-        # opens one socket for the joined desk, sends the command, and releases it.
-        from agent_coord.client.session_errors import SESSION_TOKEN_REQUIRED
+        # a sit for this process carries the command. --desk is only for no sit.
+        from agent_coord.client.session_errors import (
+            SESSION_TOKEN_REQUIRED,
+            desk_flag_unnecessary,
+        )
         from agent_coord.client.ws import mill_ws_call, wait_for_sitting_desk
 
+        asked = str(payload.pop("sender_desk", "") or "").strip()
         # Sitting miss: one short wait, or up to 10s while this parent's connect
         # is still in the handshake (#121, #210).
         who = (resolve_desk_owner("") or "").strip()
         if not who:
             who = (wait_for_sitting_desk() or "").strip()
-        if not who:
-            # No sit for this process: same socket package as mill connect,
-            # one command, then the bearer is released.
+        if who:
+            if asked:
+                raise CoordError(desk_flag_unnecessary(who))
+        else:
+            # no sit: borrow the named desk. never the active-desk file.
+            if asked:
+                payload["sender_desk"] = asked
             from agent_coord.client.seat import command
 
             return command(payload)
@@ -774,7 +781,9 @@ def mill_http_from_args(args: Any) -> int:
         rank: list = []
         if _focus.wears(row.get("result") or [], desk):
             # #374: one label read for the rank, only when a listed card wears the desk's label.
-            rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk)), desk)
+            # a borrowed seat (--desk, no sit) borrows again for the label read (card 1130).
+            lend = {"sender_desk": body["sender_desk"]} if body.get("sender_desk") else {}
+            rank = _focus.label_rank(lambda b: mill_http_call(dict(b, owner=desk, **lend)), desk)
         row = todo_rows.keep_mine(
             row,
             desk,
@@ -1020,6 +1029,14 @@ def check_project_on_socket(who: str, project: str, stop: Any, outcome: dict) ->
     stop.set()
 
 
+_link_before_sit = False
+
+
+def link_before_sit() -> bool:
+    """true while connect has opened the tw link and the sit bridge is not up yet."""
+    return _link_before_sit
+
+
 def _open_tw_link(desk: str):
     """Local tw socket for this sit. A bind failure leaves the sit up."""
     try:
@@ -1170,8 +1187,11 @@ def mill_here_over_http(args: Any) -> int:
 
     parent = _shell_ppid()
     refuse = bool(getattr(args, "refuse", False))
-    tw_link = _open_tw_link(who)
+    global _link_before_sit
+    _link_before_sit = True
+    tw_link = None
     try:
+        tw_link = _open_tw_link(who)
         return _sit_mill_here(
             foreground=foreground,
             who=who,
@@ -1184,3 +1204,4 @@ def mill_here_over_http(args: Any) -> int:
     finally:
         if tw_link is not None:
             tw_link.close()
+        _link_before_sit = False

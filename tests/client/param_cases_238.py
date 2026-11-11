@@ -156,7 +156,7 @@ def unclassified(parser: argparse.ArgumentParser) -> list[str]:
     out = []
     for command in BOOK:
         for act in actions(parser, command):
-            if act.dest == "office" or isinstance(act, _SWITCH):
+            if act.dest in ("office", "sender_desk") or isinstance(act, _SWITCH):
                 continue
             if (command, act.dest) not in KIND:
                 out.append("%s %s" % (command, act.dest))

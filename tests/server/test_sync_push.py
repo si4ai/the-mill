@@ -91,8 +91,9 @@ def test_compact_receipt_names_the_opener_and_the_open_time():
 
 
 def test_emit_records_sent_missed_and_error(monkeypatch):
-    """#832: the row is put first, always as missed; a raised live send marks it error.
-    A send that reaches a socket marks it sent from the broadcast (row id in notify)."""
+    """#832 / card 1098 item 5: the row is put first as queued; addressed not-sitting
+    marks missed (owed); a raised live send marks error; a send that reaches a
+    socket marks sent from the broadcast (row id in notify)."""
     logged: list[tuple] = []
     marks: list[tuple] = []
     monkeypatch.setattr(hub.HUB, "rooms", {})
@@ -103,6 +104,7 @@ def test_emit_records_sent_missed_and_error(monkeypatch):
         or [{"id": 70 + len(logged)}],
     )
     monkeypatch.setattr(rec_push, "mark", lambda cn, rid, outcome: marks.append((rid, outcome)) or 1)
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: "sent")
     assert hub.emit(object(), "DESK_one", "mail", {"id": 9}) == "missed"
     hub.HUB.rooms["DESK_one"] = {object()}
     rows: list = []
@@ -115,8 +117,9 @@ def test_emit_records_sent_missed_and_error(monkeypatch):
 
     monkeypatch.setattr(hub.HUB, "notify", _boom)
     assert hub.emit(object(), "DESK_one", "mail", {"id": 9}) == "error"
-    assert [row[2] for row in logged] == ["missed", "missed", "missed"]
-    assert marks == [(73, "error")]
+    assert [row[2] for row in logged] == ["queued", "queued", "queued"]
+    # first emit: addressed not-sitting -> mark missed; third: sitting raise -> mark error
+    assert marks == [(71, "missed"), (73, "error")]
 
 
 def test_take_merges_outcome_and_time(monkeypatch):

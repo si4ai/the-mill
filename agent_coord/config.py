@@ -46,6 +46,10 @@ DEFAULTS: dict[str, Any] = {
     # #797: mill-home log rotation (bytes cap and retention days).
     "log_max_bytes": str(10 * 1024 * 1024),
     "log_retain_days": "30",
+    # card 1098: compress two-state transition cycles (compress|capture)
+    "transition_mode": "compress",
+    # undirected pairs activity:from/to,... default sit/unsit + hold free/held
+    "transition_pairs": "doing:seated/connected,hold:free/held,hold:held/held",
 }
 
 _ENV = {
@@ -81,6 +85,8 @@ _ENV = {
     "perf": "AGENT_COORD_PERF",
     "log_max_bytes": "AGENT_COORD_LOG_MAX_BYTES",
     "log_retain_days": "AGENT_COORD_LOG_RETAIN_DAYS",
+    "transition_mode": "AGENT_COORD_TRANSITION_MODE",
+    "transition_pairs": "AGENT_COORD_TRANSITION_PAIRS",
 }
 
 _INT_KEYS = {"port", "dashboard_port", "hold_stale_days", "log_max_bytes", "log_retain_days"}
@@ -128,6 +134,72 @@ def hold_stale_days() -> int:
     except (TypeError, ValueError):
         return HOLD_STALE_DAYS_DEFAULT
     return n if n >= 1 else HOLD_STALE_DAYS_DEFAULT
+
+
+
+
+DEFAULT_TRANSITION_PAIRS = "doing:seated/connected,hold:free/held,hold:held/held"
+
+
+def transition_mode() -> str:
+    """compress (default) or capture. Env AGENT_COORD_TRANSITION_MODE wins."""
+    raw = str(settings().get("transition_mode") or "compress").strip().lower()
+    return "capture" if raw in ("capture", "full", "all", "every") else "compress"
+
+
+def transition_pairs() -> frozenset[tuple[str, frozenset[str]]]:
+    """Configured undirected compress pairs: (activity_type, frozenset({a,b})).
+
+    Config key transition_pairs / env AGENT_COORD_TRANSITION_PAIRS.
+    Shape: activity:from/to,activity:from/to (same-state: hold:held/held).
+    """
+    raw = str(settings().get("transition_pairs") or DEFAULT_TRANSITION_PAIRS).strip()
+    out: set[tuple[str, frozenset[str]]] = set()
+    if not raw:
+        return frozenset()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        typ, rest = part.split(":", 1)
+        typ = typ.strip().lower()
+        if "/" not in rest:
+            continue
+        a, b = rest.split("/", 1)
+        a, b = a.strip().lower(), b.strip().lower()
+        if not typ or not a or not b:
+            continue
+        out.add((typ, frozenset({a, b})))
+    return frozenset(out)
+
+
+def set_transition_compress(
+    *,
+    mode: str | None = None,
+    pairs: str | None = None,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Persist compress-vs-capture and/or pair list on the wall config.toml."""
+    data = load_file(path)
+    if mode is not None:
+        m = str(mode).strip().lower()
+        if m not in ("compress", "capture"):
+            raise ValueError("transition_mode must be compress or capture")
+        data["transition_mode"] = m
+    if pairs is not None:
+        # settings() treats an empty value as unset (back to the defaults), so
+        # "every pair off" is stored as the word none.
+        data["transition_pairs"] = str(pairs).strip() or "none"
+    # keep other live settings from env-backed file merge
+    cur = settings(path)
+    for k, v in cur.items():
+        if k not in data and k in DEFAULTS:
+            data[k] = v
+    save_config(data, path)
+    return {
+        "transition_mode": transition_mode(),
+        "transition_pairs": str(settings(path).get("transition_pairs") or DEFAULT_TRANSITION_PAIRS),
+    }
 
 
 def set_mill_trust(level: str, path: Path | None = None) -> str:
@@ -273,6 +345,12 @@ def save_config(data: dict[str, Any], path: Path | None = None) -> Path:
         "compress",
         "buffered",
         "glance_tap",
+        "hold_stale_days",
+        "perf",
+        "log_max_bytes",
+        "log_retain_days",
+        "transition_mode",
+        "transition_pairs",
     )
     lines = [
         "# Written by mill init. AGENT_COORD_* environment variables override this file.",
