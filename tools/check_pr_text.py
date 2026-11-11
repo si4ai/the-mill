@@ -258,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             event = {}
         pr = event.get("pull_request") or {}
-        # The event carries no file list: diff base...head like ci.yml's detect_docs_only.
+        # The event carries no file list: diff base...head like ci.yml did before card 1127.
         exempt = is_dependabot(pr) or docs_only.skip_pytest("pull_request", event)
         hint = changelog_hint(pr.get("body") or "", exempt=exempt)
         if hint:
