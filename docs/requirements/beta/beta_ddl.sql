@@ -1,11 +1,12 @@
--- 24 tables. Wipe then apply.
--- BETA (0.8, card 868 + 1022): main's tables.sql with the departures listed in BETA-CHANGES.md; 24 tables (fold wake into wake + transition + transition_edge).
+-- 25 tables. Wipe then apply.
+-- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 25 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history).
 -- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). doing is the history of card and hold moves, and seat.doing_id names a
 -- desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.
 -- name, member, activity, label, tree, watcher,
 -- mail, mail_to, tree_read, todo, seat, doing, hold, score, score_point, score_evidence,
--- wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join.
+-- wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join,
+-- activity_history (card 1133: the old text of a mail or card body, one row per replace).
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
 -- name stores a bare string. type is desk, roster, label, tree, or res. A roster is an unordered list of desks; members are equal.
@@ -146,7 +147,7 @@ CREATE TABLE IF NOT EXISTS activity (
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_activity_roster
   -- BETA (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
-  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task') NOT NULL DEFAULT 'create',
+  act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   KEY idx_type (type, roster_id, updated),
@@ -220,11 +221,16 @@ CREATE TABLE IF NOT EXISTS mail (
   roster_id  BIGINT UNSIGNED NOT NULL,
   roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- BETA: pins the name kind for fk_mail_roster
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  -- card 1133: when and by whom the body was last replaced (mill_body_replace). NULL = never edited (created stands).
+  body_updated    DATETIME(6) NULL,
+  body_updater_id BIGINT UNSIGNED NULL,
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, created),
   KEY idx_mail_roster (roster_id, roster_kind),
+  KEY idx_body_updater (body_updater_id),
   CONSTRAINT fk_mail_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_mail_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -277,7 +283,14 @@ CREATE TABLE IF NOT EXISTS todo (
   -- #818 D2: when the card became claimed or its volunteer changed (claim,
   -- --take-over, assign, pass --back to claimed). NULL when not claimed.
   claimed_at      DATETIME(6)   NULL,
+  -- card 1133: body is the card text (the old JSON body's detail); meta is the rest of that JSON (slug, progress,
+  -- eta_at, started_at, aliases, ...), never card state (status, volunteer, claimed_at stay in their columns).
+  -- meta NULL = a row the 1133 migration has not split yet. body_updated / body_updater_id: the last write that
+  -- changed the text (a note or mill_body_replace); NULL = never edited (created and creator_id stand).
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  meta            JSON NULL,
+  body_updated    DATETIME(6) NULL,
+  body_updater_id BIGINT UNSIGNED NULL,
   -- BETA (owner rule): the acceptance line, set by the asker or Admin until the card is done (cmd_card_accept).
   done_when       VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   PRIMARY KEY (type, id),
@@ -287,10 +300,36 @@ CREATE TABLE IF NOT EXISTS todo (
   KEY idx_updated (updated_id),
   KEY idx_creator (creator_id),
   KEY idx_assigned (assigned_id),
+  KEY idx_body_updater (body_updater_id),
   CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_updated FOREIGN KEY (updated_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_creator FOREIGN KEY (creator_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_todo_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- card 1133: the old text of a mail or card body, one row per replace (mill_body_replace). Full text, never a diff.
+-- old_updated is when that text was written (the item's body_updated, else created); old_updater_id who wrote it
+-- (body_updater_id, else the sender or the asker). Like label and tree it points at a timeline row that exists, so a
+-- hard delete of the activity row takes its history with it. type lists only the kinds with a body.
+-- mill_body_history reads it newest first (order 'oldest' on request); a replace with the same text writes no row
+-- (body:unchanged: replace did nothing).
+CREATE TABLE IF NOT EXISTS activity_history (
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  type           ENUM('mail','todo') NOT NULL,
+  activity_id    BIGINT UNSIGNED NOT NULL,
+  old_body       VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  old_updated    DATETIME(6)     NOT NULL,
+  old_updater_id BIGINT UNSIGNED NOT NULL,
+  replaced_at    DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  replaced_by    BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY idx_item_version (type, activity_id, old_updated),
+  KEY idx_old_updater (old_updater_id),
+  KEY idx_replaced_by (replaced_by),
+  CONSTRAINT fk_history_activity FOREIGN KEY (type, activity_id) REFERENCES activity (type, id) ON DELETE CASCADE,
+  CONSTRAINT fk_history_old_updater FOREIGN KEY (old_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_history_replaced_by FOREIGN KEY (replaced_by) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- #818: what a desk is doing. Append-only: one row per entry, never overwritten.
@@ -316,7 +355,7 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_type  ENUM('mail','todo','hold','desk') NULL,
   waiting_id    BIGINT UNSIGNED NULL,
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task') NOT NULL DEFAULT 'focus',
+  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'focus',
   peer_id       BIGINT UNSIGNED NULL,   -- BETA: the second desk of a move; not waiting_* (that is what a focus is blocked on)
   evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- BETA: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),

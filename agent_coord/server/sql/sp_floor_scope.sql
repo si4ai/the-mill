@@ -104,9 +104,11 @@ BEGIN
     SELECT t.id AS id,
       CAST(t.id AS CHAR) AS need_id,  -- need_id = card id
       IFNULL(t.status, 'open') AS status,
-      IFNULL(JSON_UNQUOTE(JSON_EXTRACT(t.body, '$.doing')), '') AS doing,
-      IF(LEFT(t.body, 1) = '{', IFNULL(JSON_UNQUOTE(JSON_EXTRACT(t.body, '$.detail')), ''), IFNULL(t.body, '')) AS detail,
-      IFNULL(JSON_UNQUOTE(JSON_EXTRACT(t.body, '$.progress')), '') AS progress,
+      -- card 1133: the text is t.body and the rest t.meta; a row not yet split keeps the whole document in body.
+      IFNULL(JSON_UNQUOTE(JSON_EXTRACT(MILL_TODO_DOC(t.body, t.meta), '$.doing')), '') AS doing,
+      IF(t.meta IS NOT NULL, t.body,
+         IF(LEFT(t.body, 1) = '{', IFNULL(JSON_UNQUOTE(JSON_EXTRACT(t.body, '$.detail')), ''), IFNULL(t.body, ''))) AS detail,
+      IFNULL(JSON_UNQUOTE(JSON_EXTRACT(MILL_TODO_DOC(t.body, t.meta), '$.progress')), '') AS progress,
       IFNULL(sn.name, '') AS assigned, IFNULL(sn.type, '') AS assigned_type,
       IFNULL(cn.name, '') AS creator, IFNULL(cn.type, '') AS creator_type,
       IFNULL(an.name, '') AS roster_id, IFNULL(an.type, '') AS roster_id_type

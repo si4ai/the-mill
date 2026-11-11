@@ -46,8 +46,10 @@ BEGIN
   SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
   -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
-  INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
-  VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
+  -- Card 1133: p_body is the card document; the text goes to body, the rest to meta (sp_body.sql).
+  INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body, meta)
+  VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'),
+          MILL_BODY_TEXT(IFNULL(p_body, '')), MILL_BODY_META(IFNULL(p_body, '')));
   SET v_id = LAST_INSERT_ID();
   -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
   CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
@@ -100,8 +102,10 @@ BEGIN
   SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
   -- Then the activity row (the timeline; todo has no FK to it). No catalog read.
-  INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body)
-  VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'), IFNULL(p_body, ''));
+  -- Card 1133: p_body is the card document; the text goes to body, the rest to meta (sp_body.sql).
+  INSERT INTO todo (updated, updated_id, roster_id, creator_id, status, body, meta)
+  VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'),
+          MILL_BODY_TEXT(IFNULL(p_body, '')), MILL_BODY_META(IFNULL(p_body, '')));
   SET v_id = LAST_INSERT_ID();
   -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
   CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
@@ -179,6 +183,9 @@ BEGIN
   DECLARE v_ev VARCHAR(2000);
   DECLARE v_move BIGINT UNSIGNED;
   DECLARE v_old_body VARCHAR(4096);
+  DECLARE v_old_meta JSON;
+  DECLARE v_old_doc TEXT;
+  DECLARE v_text_changed TINYINT DEFAULT 0;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -196,10 +203,16 @@ BEGIN
   -- and the focus writers (seat) do, so a pass never waits on a seat while holding the card.
   SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_move = NULL;
-  SELECT roster_id, status, assigned_id, body INTO v_proj, v_was, v_old_vol, v_old_body FROM todo WHERE id = p_id FOR UPDATE;
+  SELECT roster_id, status, assigned_id, body, meta INTO v_proj, v_was, v_old_vol, v_old_body, v_old_meta
+    FROM todo WHERE id = p_id FOR UPDATE;
   IF v_was IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo: no such card';
   END IF;
+  -- Card 1133: p_body is the whole card document. The text is stored in body and the rest in meta; a write
+  -- that changes the text stamps body_updated and body_updater_id (mill_body_replace checks that stamp).
+  SET v_old_doc = MILL_TODO_DOC(v_old_body, v_old_meta);
+  SET v_text_changed = p_body IS NOT NULL
+      AND NOT (CAST(MILL_BODY_TEXT(p_body) AS BINARY) <=> CAST(MILL_BODY_TEXT(v_old_doc) AS BINARY));
   -- F186 (spin T04): a retired card moves under no lock on find; refuse under the card lock.
   IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'card:deleted';
@@ -236,7 +249,10 @@ BEGIN
            WHEN p_volunteer IS NULL OR p_volunteer = '' THEN assigned_id
            ELSE v_vol
          END,
-         body = IFNULL(p_body, body)
+         body_updated = IF(v_text_changed, v_ts, body_updated),
+         body_updater_id = IF(v_text_changed, v_desk, body_updater_id),
+         meta = IF(p_body IS NULL, meta, MILL_BODY_META(p_body)),
+         body = IF(p_body IS NULL, body, MILL_BODY_TEXT(p_body))
    WHERE id = p_id;
   SELECT status, assigned_id INTO v_now, v_new_vol FROM todo WHERE id = p_id;
   -- The act names the move so the fold rebuilds the card (BETA-CHANGES.md, the act list; F175): read in id
@@ -289,8 +305,8 @@ BEGIN
     SET @mill_req_tx = 1;
     IF p_body IS NOT NULL
        AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
-       AND (v_old_body IS NULL OR v_old_body = ''
-            OR JSON_EXTRACT(CAST(IFNULL(NULLIF(v_old_body, ''), '{}') AS JSON), '$.started_at') IS NULL) THEN
+       AND (v_old_doc IS NULL OR v_old_doc = ''
+            OR JSON_EXTRACT(CAST(IFNULL(NULLIF(v_old_doc, ''), '{}') AS JSON), '$.started_at') IS NULL) THEN
       CALL mill_card_score_event(v_proj, 'started', NULL, NULL, NULL, NULL, v_ts);
     END IF;
     SET @mill_req_tx = v_saved;
@@ -460,13 +476,15 @@ END //
 CREATE PROCEDURE mill_todo_get(IN p_id BIGINT UNSIGNED)
 BEGIN
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
-         t.status, t.assigned_id, t.body,
+         t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
          -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
          (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence
+           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         -- card 1133: the text stamp mill_body_replace checks (NULL = never edited; created stands)
+         t.body_updated
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
@@ -494,7 +512,7 @@ BEGIN
   -- labels is a JSON array of names in label order. tree reads tree.idx_activity;
   -- labels read the label primary key (type, id, name_id). Stable sort: plan, then id.
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
-         t.status, t.assigned_id, t.body,
+         t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
@@ -544,7 +562,7 @@ BEGIN
   -- labels is a JSON array of names in label order. tree reads tree.idx_activity;
   -- labels read the label primary key (type, id, name_id). Stable sort: plan, then id.
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
-         t.status, t.assigned_id, t.body,
+         t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
          (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
@@ -573,7 +591,7 @@ BEGIN
   ORDER BY tr.tree_id IS NULL, tr.tree_id, t.id;
 END //
 
--- #926: guarded rename of a card's need slug. Id stays; old slug reserved in body.aliases.
+-- #926: guarded rename of a card's need slug. Id stays; old slug reserved in meta.aliases (card 1133).
 -- One doing move + activity.act=rename (evidence JSON: old, new, why). Auth is in Python.
 CREATE PROCEDURE mill_todo_rename(
   IN p_id      BIGINT UNSIGNED,
@@ -612,7 +630,17 @@ BEGIN
   IF EXISTS (SELECT 1 FROM activity WHERE type = 'todo' AND id = p_id AND deleted IS NOT NULL) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: card is retired';
   END IF;
-  UPDATE todo SET body = p_body, updated = v_ts, updated_id = v_desk WHERE id = p_id;
+  -- Card 1133: p_body is the card document (new slug and aliases in meta). A rename keeps the text; were it to
+  -- change, the text stamp moves as in mill_todo_write (left to right: stamps before body).
+  UPDATE todo
+     SET body_updated = IF(CAST(MILL_BODY_TEXT(p_body) AS BINARY) <=> CAST(MILL_BODY_TEXT(MILL_TODO_DOC(body, meta)) AS BINARY),
+                           body_updated, v_ts),
+         body_updater_id = IF(body_updated <=> v_ts, v_desk, body_updater_id),
+         meta = MILL_BODY_META(p_body),
+         body = MILL_BODY_TEXT(p_body),
+         updated = v_ts,
+         updated_id = v_desk
+   WHERE id = p_id;
   SET v_ev = JSON_OBJECT('old', TRIM(p_old), 'new', TRIM(p_new), 'why', IFNULL(TRIM(p_why), ''));
   IF CHAR_LENGTH(v_ev) > 2000 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: why too long; nothing changed';

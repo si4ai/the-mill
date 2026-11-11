@@ -30,6 +30,7 @@ DATA_TABLES = (
     "member",
     "mail",
     "todo",
+    "activity_history",  # card 1133: child of activity (FK CASCADE), cleared before it
     "doing",
     "seat",
     "hold",

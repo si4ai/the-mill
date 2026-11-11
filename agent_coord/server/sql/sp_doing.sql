@@ -363,7 +363,7 @@ BEGIN
   SELECT 'card' AS part, x.desk, x.id, x.need, x.roster, x.watchers, x.age_s, x.n, x.claimed_at
     FROM (
       SELECT d.name AS desk, td.id,
-             JSON_UNQUOTE(JSON_EXTRACT(td.body, '$.slug')) AS need,
+             JSON_UNQUOTE(JSON_EXTRACT(MILL_TODO_DOC(td.body, td.meta), '$.slug')) AS need,
              ro.name AS roster,
              (SELECT GROUP_CONCAT(wn.name ORDER BY wn.name SEPARATOR ',')
                 FROM watcher w JOIN name wn ON wn.id = w.desk_id

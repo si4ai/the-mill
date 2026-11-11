@@ -204,7 +204,7 @@ def glance_rows(cn, roster_ids: list[int] | None = None) -> list[dict]:
         sql = (
             "SELECT n.name AS tree, n.type AS tree_type,"
             " t.type, t.id, t.lft, t.rgt, a.roster_id,"
-            " td.status AS todo_status, td.body AS todo_body,"
+            " td.status AS todo_status, MILL_TODO_DOC(td.body, td.meta) AS todo_body,"
             " mb.body AS mail_body, msn.name AS mail_src,"
             " jd.name AS join_desk, j.text AS join_doing,"
             " hd.name AS hold_desk, hr.name AS hold_resource,"
@@ -239,7 +239,7 @@ def activity_forest_rows(
         sql = (
             "SELECT n.name AS tree, n.type AS tree_type,"
             " t.type, t.id, t.lft, t.rgt, a.roster_id,"
-            " td.status AS todo_status, td.body AS todo_body,"
+            " td.status AS todo_status, MILL_TODO_DOC(td.body, td.meta) AS todo_body,"
             " mb.body AS mail_body, msn.name AS mail_src,"
             " jd.name AS join_desk, j.text AS join_doing,"
             " hd.name AS hold_desk, hr.name AS hold_resource,"
@@ -401,7 +401,7 @@ def trail_details(cn, nodes: list[tuple[str, int]]) -> dict[tuple[str, int], dic
         cur.execute(
             "SELECT a.type, a.id, a.deleted, a.updated AS a_updated,"
             " ad.name AS actor,"
-            " td.status AS todo_status, td.body AS todo_body, td.updated AS todo_updated,"
+            " td.status AS todo_status, MILL_TODO_DOC(td.body, td.meta) AS todo_body, td.updated AS todo_updated,"
             " tc.name AS todo_creator, ts.name AS todo_assigned,"
             " mb.body AS mail_body, mb.created AS mail_created, ms.name AS mail_src"
             " FROM activity a"

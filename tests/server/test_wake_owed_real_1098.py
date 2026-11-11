@@ -193,7 +193,7 @@ def test_post_desk_empty_skip_and_tw_exempt(monkeypatch) -> None:
     assert wake.post_desk(object(), "away", {"kind": "mail", "id": 1}, hint_id=1) == "skipped"
     assert any("skipped reason=empty" in ln for ln in lines)
     lines.clear()
-    # tw frame with watch_id still posts (empty queue exempt)
+    # tw stall alert still posts on an empty queue (card 1141: exit and crash do not)
     monkeypatch.setattr(wake, "check_url", lambda u: (u, "hooks.example.test"))
     monkeypatch.setattr(wake, "public_host", lambda h: True)
     monkeypatch.setattr(wake, "_hold_or_take", lambda *a, **k: "lease-tok")
@@ -202,7 +202,7 @@ def test_post_desk_empty_skip_and_tw_exempt(monkeypatch) -> None:
     monkeypatch.setattr(wake, "desk_roster", lambda cn, d: "")
     monkeypatch.setattr("agent_coord.server.wasted_wake.mark_lease", lambda *a, **k: None)
     assert (
-        wake.post_desk(object(), "away", {"kind": "hint", "type": "todo", "id": 9, "watch_id": 42}, hint_id=9)
+        wake.post_desk(object(), "away", {"kind": "stall", "watch_id": "42"})
         == "sent"
     )
 

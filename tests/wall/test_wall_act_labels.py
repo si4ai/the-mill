@@ -16,6 +16,7 @@ ACTS = [
     "create", "send", "reply", "note", "park", "claim", "unclaim", "assign", "unpark",
     "ship", "done", "back", "hold", "drop", "focus", "clear", "finish", "score",
     "retire", "reclaim", "remove", "delete", "restore", "purge", "rename", "ring", "task",
+    "replace",  # card 1133: a body replace (activity_history keeps the old text)
 ]
 
 

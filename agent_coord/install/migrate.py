@@ -1100,6 +1100,7 @@ ROSTER_070 = "migrate_070_roster.sql"
 DOING_818 = "migrate_818_doing.sql"
 TRANSITION_1022 = "migrate_1022_transition.sql"
 TASK_970 = "migrate_970_task.sql"
+HISTORY_1133 = "migrate_1133_history.sql"
 
 
 def roster_070_needed(cn) -> bool:
@@ -1871,6 +1872,58 @@ def apply_task_970(cn) -> list[str]:
         cur.close()
 
 
+def history_1133_needed(cn) -> bool:
+    """Card 1133: True while the book lacks activity_history, a body stamp column, todo.meta, the replace act,
+    or still has a card document that is not split into body and meta (meta NULL)."""
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "activity_history"):
+            return True
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
+            " AND ((TABLE_NAME = 'mail' AND COLUMN_NAME IN ('body_updated', 'body_updater_id'))"
+            " OR (TABLE_NAME = 'todo' AND COLUMN_NAME IN ('meta', 'body_updated', 'body_updater_id')))"
+        )
+        if int(cur.fetchone()[0] or 0) < 5:
+            return True
+        for table in ("activity", "doing"):
+            cur.execute(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+                " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'act'",
+                (table,),
+            )
+            row = cur.fetchone()
+            ctype = row[0] if row else ""
+            if isinstance(ctype, (bytes, bytearray)):
+                ctype = ctype.decode("utf-8")
+            if "'replace'" not in str(ctype):
+                return True
+        cur.execute("SELECT EXISTS (SELECT 1 FROM todo WHERE meta IS NULL)")
+        return bool(int(cur.fetchone()[0] or 0))
+    finally:
+        cur.close()
+
+
+def apply_history_1133(cn) -> list[str]:
+    """Card 1133: body stamps, todo meta, activity_history and the replace act; splits each card document into
+    body (the text) and meta (the rest). Each step checks the book first. Idempotent."""
+    if not history_1133_needed(cn):
+        return []
+    cur = cn.cursor()
+    try:
+        for stmt in split_script((sql_dir() / HISTORY_1133).read_text(encoding="utf-8-sig")):
+            _apply_stmt(cur, stmt)
+            if cur.with_rows:
+                cur.fetchall()
+        cn.commit()
+        return [HISTORY_1133]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -1937,6 +1990,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             did_1022 = apply_transition_1022(cn)
             applied.extend(did_1022)
             applied.extend(apply_task_970(cn))
+            # card 1133: after 970 so replace follows task in both act enums, as in tables.sql.
+            applied.extend(apply_history_1133(cn))
             # card 1098: transition.n (after 1022 table exists)
             applied.extend(_ensure_transition_n(cn))
             applied.extend(_ensure_wake_retry_edge(cn))
