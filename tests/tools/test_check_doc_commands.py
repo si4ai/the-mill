@@ -47,7 +47,7 @@ def test_drift_fails(text, kind):
     "text",
     [
         "```\nmill connected the-mill --limit 5\n```",
-        "```\nmill connected --history --desk builder --page 2\n```",
+        "```\nmill connected --history --who builder --page 2\n```",
         "`mill send --to-desk gardener --body-file PATH`",
         "`mill inbox [--full | --page N]`",
         "`mill mail-thread <mail_id|room> [--room | --subtree | --full] [--after ID] [--page N]`",
