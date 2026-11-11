@@ -69,7 +69,9 @@ Run these from the repo root and fix every failure:
 - Commit subject: `#NNN <what changed>` in lower case after the card number,
   for example `#338 skip a line-start word in the name scan`. No body.
 - PR title the same form. PR body: what changed, which tests, the hygiene
-  result. Plain ASCII.
+  result. Keep those sections. Add a one-line `## Changelog` section
+  (Dependabot and docs-only PRs may omit it). Do not edit CHANGELOG.md.
+  Plain ASCII.
 - No personal identifiers anywhere (code, docs, tests, fixtures, commit or
   PR text): no real names, home directory paths, IP addresses or email
   addresses other than noreply ones. Docs describe roles, not people.

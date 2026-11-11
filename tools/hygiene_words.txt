@@ -122,3 +122,4 @@ wave
 typical
 ring
 minimal
+changelog

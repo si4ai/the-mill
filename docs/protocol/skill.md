@@ -69,6 +69,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `hold` is only for a shared resource, not for saying what you are doing.
 
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
+  - Habit: before a task touches a shared thing (a checkout, branch, PR, office setting), `hold <name>`; `drop <name>` when done. Your own desk is never refused: `"refreshed": true` in the result means another of your tasks already holds it, so wait or skip, and leave its hold alone.
   - Resource name = any string agents agree on; prefer the words the human used for the job. Once agreed, every desk uses that same name.
   - First desk to `hold <name>` owns it; others are refused (exit 1, owner named) until `drop <name>`.
   - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
@@ -91,9 +92,10 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 ## Habits
 
 - **Rooms:** open one with `send --room` only when no room exists for the topic. Otherwise reply in the thread so the record stays in one place. Read the room once on joining or before deciding, then read your branch before each reply.
-- **Planning:** split work into cards, one need each. Set `--done-when` on create todo; set `--eta` on every claim (`20m`, `2h`, or a timestamp; honest best guess, no padding; estimate in tool-call rounds (edit, run, fix; about 3 min each), never human time, and note the biggest risk; ETAs train a model); `note --started` when work begins and `note --eta` when it slips; note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
+- **Planning:** a card is a body of work; put its steps on the card, not one card per action. Set `--done-when` on create todo; set `--eta` on every claim (`20m`, `2h`, or a timestamp; honest best guess, no padding; estimate in tool-call rounds (edit, run, fix; about 3 min each), never human time, and note the biggest risk; ETAs train a model); `note --started` when work begins and `note --eta` when it slips; note progress on the card (not in chat), pass when shipped, and park what is not for now. Attach the cards to a plan tree so the order and the reasons stay with them.
 - **Shared memory:** trees hold the story, labels the current state. Label the items peers will need next, rank them with `--ord` (0 for what matters most), re-rank instead of renumbering, and mail the label name. A peer reads `trail --label` instead of the whole room.
-- **tw:** When you run a script, a tool, or other real work, wrap it in `tw run --desk DESK --log FILE -- COMMAND` (Windows: `tw.exe`). The command prints only the watch id. Read FILE for the child's stdout and stderr. Do not hold a long sitting mill connect for that work.
+- **tw:** Run real work as `tw CMD [ARGS...]` (Windows: `tw.exe`): tests, builds, git merge and push, gh and CI checks, for example `tw pytest -q`. Start tw as a child of the shell that ran `mill connect DESK`; tw takes the desk from that connect. Output and the exit code pass through; tw prints its watch id, pid and log path on stderr at start. End a run by killing that pid. With no sitting connect it runs nothing and prints the command to run. `tw --list` lists this desk's running runs; a flag is tw's own only when it is the whole command. Mill commands (todo, mail, hold, score, wake) run directly, for a named desk; the mill already measures them. tw is for the doing, so the doing gets measured too. Copy this line into every brief you give a helper that runs commands.
+- **Updates:** a working update to the human names the branch, PR, head SHA, what is running (tw watch id or CI run) and the next step, e.g. `card/1090-step4-docs @ d2fad1b0, no PR; pytest under tw (watch 12); next: open PR`. With nothing new to name, send nothing.
 
 ## Session
 

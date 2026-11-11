@@ -37,8 +37,10 @@ jobs:
       contents: read
     steps:
       # Default branch tools for comment events; the PR merge commit for PR events.
+      # Full history so the docs-only Changelog exemption can diff base...head.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
           sparse-checkout: tools
       - run: python3 tools/check_pr_text.py event

@@ -19,11 +19,14 @@ The text is untrusted input. It is read from the event JSON file
 (GITHUB_EVENT_PATH) or the API, never from a shell argument or a workflow
 expression. Reports name the item, field and kind, never the matched text.
 Exit 0 clean, 1 on a hit, 1 with "pr-text ERROR" when the scan cannot run.
+On a pull_request event, a missing or empty ## Changelog section prints a
+hint and does not fail the check. Dependabot and docs-only PRs are exempt.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -31,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_pack as cp  # noqa: E402
+import docs_only  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
@@ -174,6 +178,59 @@ def sweep_texts(repo: str, token: str) -> list[tuple[str, str]]:
     return texts
 
 
+CHANGELOG_HEAD = re.compile(r"^##[ \t]+Changelog[ \t]*$", re.I)
+NEXT_HEAD = re.compile(r"^##[ \t]+")
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+CHANGELOG_HINT = (
+    "hint: PR body needs a one-line ## Changelog section "
+    "(see docs/dev/CONTRIBUTING-PR.md). This hint does not fail the check."
+)
+
+
+def _login(obj: dict) -> str:
+    return str((obj.get("user") or {}).get("login") or "")
+
+
+def is_dependabot(obj: dict) -> bool:
+    """True for Dependabot-authored PRs (exempt from the Changelog hint)."""
+    login = _login(obj).casefold()
+    return login == "dependabot[bot]" or login.startswith("dependabot")
+
+
+def changelog_section_present(body: str) -> bool:
+    """True when ## Changelog exists and has at least one non-empty line."""
+    if not body:
+        return False
+    text = HTML_COMMENT.sub("", body)
+    lines = text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if CHANGELOG_HEAD.match(ln):
+            start = i + 1
+            break
+    if start is None:
+        return False
+    for ln in lines[start:]:
+        if NEXT_HEAD.match(ln):
+            break
+        if ln.strip():
+            return True
+    return False
+
+
+def changelog_hint(
+    body: str,
+    *,
+    exempt: bool = False,
+) -> str | None:
+    """A visible hint, never a failing check, when the Changelog section is missing or empty."""
+    if exempt:
+        return None
+    if changelog_section_present(body):
+        return None
+    return CHANGELOG_HINT
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] not in ("event", "sweep", "file") or (argv[0] == "file" and len(argv) < 2):
@@ -194,6 +251,18 @@ def main(argv: list[str] | None = None) -> int:
     fails = scan(texts)
     if bot_name_token_skipped(texts):
         print(BOT_NAME_TOKEN_SKIP)
+    if argv[0] == "event" and os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+        event_path = os.environ.get("GITHUB_EVENT_PATH")
+        try:
+            event = json.loads(Path(event_path).read_text(encoding="utf-8")) if event_path else {}
+        except (OSError, ValueError):
+            event = {}
+        pr = event.get("pull_request") or {}
+        # The event carries no file list: diff base...head like ci.yml's detect_docs_only.
+        exempt = is_dependabot(pr) or docs_only.skip_pytest("pull_request", event)
+        hint = changelog_hint(pr.get("body") or "", exempt=exempt)
+        if hint:
+            print(hint)
     if fails:
         print(f"pr-text hygiene FAIL: {len(fails)} hit(s) in {len(texts)} text(s)", file=sys.stderr)
         for f in fails:
