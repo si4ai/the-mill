@@ -97,6 +97,25 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
+## check_flake_reruns.py
+
+Card 1148. From a list of GitHub workflow runs, report flakes:
+the same head sha and workflow with a failed attempt followed by a later
+success. Pass-then-fail is a regression, not a flake. Sorted, no
+timestamps. Prefer `--fixtures` for tests; live mode reads the workflow
+API when a token is in the environment (the token is never printed).
+
+```bash
+python tools/check_flake_reruns.py --fixtures runs.json
+python tools/check_flake_reruns.py --fixtures runs.json --strict
+python tools/check_flake_reruns.py --repo si4ai/the-mill --since YYYY-MM-DD
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Tests prove --strict fails on a doctored run list and passes on a clean
+one.
+
+
 ## check_repro.py
 
 Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
