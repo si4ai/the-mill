@@ -420,7 +420,6 @@ def apply_catalog_links(
     items: list[dict[str, Any]], catalog: dict[str, dict[str, Any]]
 ) -> None:
     """Attach F-rows to pytest items named in a regression row's test list."""
-    by_id = {it["id"]: it for it in items}
     for fid, row in catalog.items():
         for listed in row.get("listed_tests") or []:
             listed = listed.strip().strip("`")
@@ -445,8 +444,7 @@ def apply_catalog_links(
                         it["f_rows"].sort()
                     if it["behaviour"] in {nid.split("::")[-1], Path(path).name}:
                         it["behaviour"] = fid
-            # if listed path matches no item, still recorded via uncovered logic
-            _ = by_id
+            # a listed path that matches no item is still recorded as uncovered
 
 
 def cluster_duplicates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -497,13 +495,7 @@ def uncovered_f_rows(
     for fid in sorted(catalog):
         if fid in covered:
             continue
-        # a listed test path counts as coverage even if we failed to collect it
         listed = catalog[fid].get("listed_tests") or []
-        if listed:
-            # still uncovered if listed tests were not collected? treat listed
-            # as a claim of coverage only when a collected item matched.
-            # If the catalog lists tests but none were collected, flag it.
-            pass
         out.append(
             {
                 "id": fid,

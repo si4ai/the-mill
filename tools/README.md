@@ -97,6 +97,16 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
+## check_repro.py
+
+Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
+
+```bash
+python tools/check_repro.py dist
+```
+
+Exit 1 when any sha256 differs or a build is not one wheel and one sdist.
+
 ## check_test_overlap.py
 
 Card 1152. Inventory pytest tests, CI jobs and steps, SPIN checks, and
@@ -112,17 +122,6 @@ python tools/check_test_overlap.py --root . --strict
 Exit 0 after the report by default, even with findings. Not a CI gate.
 Overlap is a fact to review, not a block. Tests prove --strict fails on
 a doctored tree and passes on a clean one.
-
-
-## check_repro.py
-
-Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
-
-```bash
-python tools/check_repro.py dist
-```
-
-Exit 1 when any sha256 differs or a build is not one wheel and one sdist.
 
 ## orphan_scan.py
 
