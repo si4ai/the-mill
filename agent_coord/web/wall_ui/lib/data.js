@@ -252,7 +252,8 @@
     purge: "purged",
     rename: "renamed",
     ring: "rang",
-    task: "tasked"
+    task: "tasked",
+    replace: "replaced"
   };
   var WALL_ACT_FOCUS = { focus: 1, clear: 1, finish: 1 };
   var WALL_ACT_EVIDENCE = { ship: 1, done: 1 };

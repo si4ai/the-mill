@@ -199,8 +199,9 @@ def test_cards_carry_no_doing_key(w):
     assert "doing" not in unpack(json.dumps({"slug": "s", "doing": "old", "detail": "d"}), 1)
     need, tid = w.card()
     cur = w.cn.cursor()
-    cur.execute("UPDATE todo SET body = %s WHERE id = %s",
-                (json.dumps({"slug": need, "doing": "old title", "detail": "card for #818"}), tid))
+    # card 1133: a stored legacy key lives in meta after the split; the text is body.
+    cur.execute("UPDATE todo SET body = %s, meta = %s WHERE id = %s",
+                ("card for #818", json.dumps({"slug": need, "doing": "old title"}), tid))
     cur.close()
     w.cn.commit()
     one = floor.v1_todo(w.cn, tid)["todo"]

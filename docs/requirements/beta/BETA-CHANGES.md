@@ -196,6 +196,7 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `rename` | a card's need was renamed (`mill rename todo`); evidence holds old, new, why | activity only; card id and status unchanged |
 | `ring` | a wake/push was queued for a desk (card 1022) | activity only; wake payload holds cause/state |
 | `task` | a desk's task-wrapper run was born (`tw.event` start; card 970); never a focus or clear | the task's transition rows; not `seat.doing_id` |
+| `replace` | a letter's or a card's text was replaced (mill_body_replace; the replace-body command is card 1125); the old text is an `activity_history` row | activity only; no doing row |
 
 Not in the list: `open` and `mark` (opening a letter writes no move: `mail_to.opened` keeps the first open and
 activity is not bumped), `status` and `pass` (a pass is ship, done or back), `cast` and `close` (no votes).
@@ -283,4 +284,13 @@ the top of admin.md:
 | 1098a | `transition` rows are one per flip | `transition.n INT UNSIGNED NOT NULL DEFAULT 1` counts compressed two-state cycles (odd=at to_state, even=at from_state); office `transition_mode`/`transition_pairs` choose compress vs capture | card 1098 instrumentation; sit/unsit middle timings are wake-interrupt artifacts | proposed |
 
 Items 3 (tw score transitions on start/finish/fail) and 4 (required receipt / `--receipt`) need no DDL: score/transition tables and `mail_to.receipt` already exist.
+
+## card 1133 (body history; schema part of card 1125)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1133a | 24 tables | 25 tables: `activity_history` (type mail or todo, activity_id, old_body full text, old_updated, old_updater_id, replaced_at, replaced_by); UNIQUE (type, activity_id, old_updated); FK (type, activity_id) to activity CASCADE, desk FKs to seat RESTRICT | a replace keeps the old text; full text, not a diff, so the write is one atomic row; the UNIQUE key refuses a second edit made from the same text | proposed |
+| 1133b | `mail.body` only | `mail.body_updated`, `mail.body_updater_id` (FK seat RESTRICT); NULL = never edited | the stamp a replace checks (body:stale) | proposed |
+| 1133c | `todo.body` is one JSON document (slug, detail, progress, eta_at, started_at, aliases) | `todo.body` is the card text (the old detail); `todo.meta` JSON holds the rest; `todo.body_updated`, `todo.body_updater_id`; card state stays in status/assigned_id/claimed_at, its history in doing | the text can be replaced and kept apart from what the server keeps on a card; `migrate_1133_history.sql` splits existing cards (idempotent) | proposed |
+| 1133d | `activity.act` / `doing.act` end at `task` | both gain `replace` (appended; existing books via `migrate_1133_history.sql`) | the timeline row of a replace (`mill_body_replace`) | proposed |
 

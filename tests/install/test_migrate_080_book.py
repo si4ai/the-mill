@@ -273,14 +273,16 @@ MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher",
                "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
                "mill_invite", "mill_invite_join", "push_queue")
 CARD_1022_TABLES = ("wake", "transition", "transition_edge")
-FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES
+CARD_1133_TABLES = ("activity_history",)
+FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema = 0.8.0 + card 1022 + card 970. Kill/resume tests run apply_080 only; finish with 1022 and 970."""
+    """Tip schema = 0.8.0 + card 1022 + card 970 + card 1133. Kill/resume tests run apply_080 only; finish with the rest."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
     migrate.apply_task_970(cn)
+    migrate.apply_history_1133(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -288,7 +290,8 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 # Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
 # activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
 # (it is new; main's focus rows keep it NULL).
-ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id", "trashed"}
+ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id", "trashed",
+         "meta", "body_updated", "body_updater_id"}  # card 1133 (a plain-text card body stays as it is)
 DROPPED = {"evidence", "weight", "n"}
 # A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
 # assign).

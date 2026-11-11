@@ -268,7 +268,7 @@ BEGIN
   BEGIN
     DECLARE v_rid BIGINT UNSIGNED DEFAULT NULL;
     DECLARE v_claimed DATETIME(6) DEFAULT NULL;
-    DECLARE v_body VARCHAR(4096) DEFAULT NULL;
+    DECLARE v_body TEXT DEFAULT NULL;
     DECLARE v_now DATETIME(6) DEFAULT MILL_NOW();
     DECLARE v_lead INT DEFAULT NULL;
     DECLARE v_eta_min INT DEFAULT NULL;
@@ -277,7 +277,7 @@ BEGIN
     DECLARE v_eta_at DATETIME(6) DEFAULT NULL;
     DECLARE v_doing INT DEFAULT NULL;
     DECLARE v_kind VARCHAR(16) DEFAULT NULL;
-    SELECT roster_id, claimed_at, body INTO v_rid, v_claimed, v_body
+    SELECT roster_id, claimed_at, MILL_TODO_DOC(body, meta) INTO v_rid, v_claimed, v_body
       FROM todo WHERE id = p_card;
     IF p_step = 'ship' THEN
       SET v_kind = 'passed';
@@ -466,7 +466,7 @@ CREATE PROCEDURE mill_todo_select_rosters(
 )
 BEGIN
   SELECT t.type, t.id, t.created, t.updated, t.updated_id, t.roster_id, t.creator_id,
-         t.status, t.assigned_id, t.body,
+         t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type,
          sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
@@ -488,7 +488,7 @@ END //
 -- Today only: one roster's retired cards (mill reclaim lists them).
 CREATE PROCEDURE mill_todo_select_retired(IN p_roster BIGINT UNSIGNED)
 BEGIN
-  SELECT t.id, t.status, t.body, t.creator_id, t.assigned_id, cn.name AS creator, sn.name AS assigned
+  SELECT t.id, t.status, MILL_TODO_DOC(t.body, t.meta) AS body, t.creator_id, t.assigned_id, cn.name AS creator, sn.name AS assigned
     FROM todo t
     JOIN activity a ON a.type = 'todo' AND a.id = t.id AND a.deleted IS NOT NULL
     LEFT JOIN name cn ON cn.id = t.creator_id
