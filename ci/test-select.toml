@@ -1,0 +1,78 @@
+# Test-selection map (card 1127). Read by ci/test_select.py in the ci.yml
+# select job.
+#
+# Each path pattern maps to the test jobs that verify that file. A changed
+# file runs the union of jobs from every rule it matches. A file that
+# matches no rule runs no test job and never fails for being unlisted
+# (docs, README.md, CHANGELOG.md, LICENSE, Makefile, .gitignore).
+#
+# Schema:
+#   [[rule]]
+#   paths = ["repo-relative glob", ...]   "**" is zero or more directories
+#   jobs  = ["job", ...]                  pytest_no_sql_run, pytest_sql_run
+#
+# build_pack, check_pack, mill_cli_smoke and precheck are not in this map:
+# they scan or install the whole pack, commit messages and diff lines, so
+# they run on every change. Push to main, tags, dispatch and an all-zero
+# base run every job.
+#
+# To add a file pattern: put it in the rule whose jobs verify that file.
+# A new SQL-marked test, or a tests/ or tools/ module one imports, must be
+# in a rule with pytest_sql_run; tests/ci/test_test_select.py fails if not.
+
+# The pack, its build, its dependency pins and all SQL: both suites.
+[[rule]]
+paths = [
+  "agent_coord/**",
+  "build_backend/**",
+  "pyproject.toml",
+  "MANIFEST.in",
+  "tools/ci-lock/*.txt",
+  "**/*.sql",
+]
+jobs = ["pytest_no_sql_run", "pytest_sql_run"]
+
+# Shared test helpers, the SQL suites and the modules they import.
+[[rule]]
+paths = [
+  "tests/*.py",
+  "tests/server/**",
+  "tests/client/__init__.py",
+  "tests/client/param_cases_238.py",
+  "tests/client/param_gaps_238.py",
+  "tests/install/test_beta_080_cuts_868.py",
+  "tests/install/test_invite.py",
+  "tests/install/test_migrate_080_book.py",
+  "tests/install/test_migrate_1059_watcher_name.py",
+  "tests/install/test_regression_rows_not_skipped_663.py",
+  "tests/install/test_schema_invariants_868.py",
+  "tests/install/test_sql_marker_guard_794.py",
+  "tests/tools/test_precheck_959.py",
+  "tools/__init__.py",
+  "tools/book_shape.py",
+  "tools/check_pack.py",
+  "tools/precheck.py",
+  "tools/precheck.sh",
+  "tools/probe_deleted_rows.py",
+]
+jobs = ["pytest_no_sql_run", "pytest_sql_run"]
+
+# Everything else a non-SQL test reads: tests, tools, scripts, models,
+# hooks, workflows and this selector.
+[[rule]]
+paths = [
+  "**/*.py",
+  "tests/**",
+  "tools/**",
+  "scripts/**",
+  "verify/**",
+  ".githooks/**",
+  ".github/**",
+  "ci/**",
+]
+jobs = ["pytest_no_sql_run"]
+
+# A ci.yml change is proven by running every job it defines.
+[[rule]]
+paths = [".github/workflows/ci.yml"]
+jobs = ["pytest_no_sql_run", "pytest_sql_run"]
