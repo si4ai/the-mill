@@ -4,7 +4,7 @@
 # Each path pattern maps to the test jobs that verify that file. A changed
 # file runs the union of jobs from every rule it matches. A file that
 # matches no rule runs no test job and never fails for being unlisted
-# (docs, README.md, CHANGELOG.md, LICENSE, Makefile, .gitignore).
+# (docs, README.md, CHANGELOG.md, LICENSE, .gitattributes, .gitignore).
 #
 # Schema:
 #   [[rule]]
@@ -17,8 +17,10 @@
 # base run every job.
 #
 # To add a file pattern: put it in the rule whose jobs verify that file.
-# A new SQL-marked test, or a tests/ or tools/ module one imports, must be
-# in a rule with pytest_sql_run; tests/ci/test_test_select.py fails if not.
+# A new SQL-marked test, or a tests/ or tools/ file one imports or loads
+# by path, must be in a rule with pytest_sql_run, and any tracked file a
+# test names by path must be in some rule; tests/ci/test_test_select.py
+# fails if not.
 
 # The pack, its build, its dependency pins and all SQL: both suites.
 [[rule]]
@@ -40,6 +42,7 @@ paths = [
   "tests/client/__init__.py",
   "tests/client/param_cases_238.py",
   "tests/client/param_gaps_238.py",
+  "tests/programs/**",
   "tests/install/test_beta_080_cuts_868.py",
   "tests/install/test_invite.py",
   "tests/install/test_migrate_080_book.py",
@@ -47,6 +50,8 @@ paths = [
   "tests/install/test_regression_rows_not_skipped_663.py",
   "tests/install/test_schema_invariants_868.py",
   "tests/install/test_sql_marker_guard_794.py",
+  "tests/install/test_validator_pass_810.py",
+  "tests/install/test_validator_status_identity_811.py",
   "tests/tools/test_precheck_959.py",
   "tools/__init__.py",
   "tools/book_shape.py",
@@ -69,6 +74,7 @@ paths = [
   ".githooks/**",
   ".github/**",
   "ci/**",
+  "Makefile",
 ]
 jobs = ["pytest_no_sql_run"]
 

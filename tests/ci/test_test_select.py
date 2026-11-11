@@ -35,6 +35,21 @@ def _tracked(*prefixes: str) -> list[str]:
     return [p for p in out.stdout.decode("utf-8").split("\0") if p]
 
 
+def _path_forms(path: str) -> list[str]:
+    """How a test can name a tracked file: the quoted path, or a quoted
+    `"dir" / "name"` join of its last two or more segments (ROOT / ..., spec_from_file_location)."""
+    parts = path.split("/")
+    forms = [f'"{path}"', f"'{path}'"]
+    forms += [" / ".join(f'"{seg}"' for seg in parts[i:]) for i in range(len(parts) - 1)]
+    if len(parts) == 1:
+        forms.append(f'/ "{path}"')
+    return forms
+
+
+def _referenced(text: str, candidates: list[str]) -> list[str]:
+    return [p for p in candidates if any(form in text for form in _path_forms(p))]
+
+
 def test_star_star_matches_zero_or_more_directories() -> None:
     assert ts.match_glob("a.py", "**/*.py")
     assert ts.match_glob("agent_coord/server/sql/tables.sql", "**/*.sql")
@@ -89,7 +104,9 @@ def test_two_rules_with_disjoint_jobs_union(tmp_path: Path) -> None:
     (["scripts/bootstrap.sh"], {"pytest_no_sql_run"}),
     (["ci/test-select.toml"], {"pytest_no_sql_run"}),
     (["ci/test_select.py"], {"pytest_no_sql_run"}),
-    (["README.md", "docs/JOIN.md", "CHANGELOG.md", "LICENSE", ".gitignore", "Makefile"], set()),
+    (["Makefile"], {"pytest_no_sql_run"}),
+    (["tests/programs/hint_check.py"], BOTH),
+    (["README.md", "docs/JOIN.md", "CHANGELOG.md", "LICENSE", ".gitattributes", ".gitignore"], set()),
 ])
 def test_real_map_selects(rules: ts.Rules, paths: list[str], want: set[str]) -> None:
     assert ts.select_jobs(paths, rules) == want
@@ -122,6 +139,7 @@ def test_sql_suites_and_what_they_load_run_sql(rules: ts.Rules) -> None:
     todo = [p for p in _tracked("tests") if p.endswith(".py")
             and SQL_MARK_RE.search((ROOT / p).read_text(encoding="utf-8", errors="replace"))]
     assert len(todo) > 100, len(todo)
+    loadable = [p for p in _tracked("tests", "tools") if p.endswith((".py", ".sh"))]
     seen: set[str] = set()
     while todo:
         path = todo.pop()
@@ -140,7 +158,25 @@ def test_sql_suites_and_what_they_load_run_sql(rules: ts.Rules) -> None:
             tool = m.group(1) or f"tools/{m.group(2)}"
             if (ROOT / tool).is_file():
                 seen.add(tool)
+        todo += [p for p in _referenced(text, loadable) if p.endswith(".py")]
+        seen.update(_referenced(text, loadable))
     missing = sorted(p for p in seen if "pytest_sql_run" not in ts.select_jobs([p], rules))
+    assert not missing, missing
+
+
+# Docs are read by many tests but stay unmapped by design (the detect_docs_only
+# outcome): their checks are check_pack, mill_cli_smoke and precheck, which run on every change.
+DOCS_EXEMPT = ("docs/",)
+
+
+def test_every_tracked_file_a_test_names_is_mapped(rules: ts.Rules) -> None:
+    """A tracked file a test names by path selects at least one test job (Makefile, MANIFEST.in, ...)."""
+    tests = [p for p in _tracked("tests") if p.endswith(".py") and p != "tests/ci/test_test_select.py"]
+    text = "\n".join((ROOT / p).read_text(encoding="utf-8", errors="replace") for p in tests)
+    candidates = [p for p in _tracked() if not p.startswith(DOCS_EXEMPT) and not p.endswith(".md") and p != "LICENSE"]
+    named = _referenced(text, candidates)
+    assert "Makefile" in named and "MANIFEST.in" in named, named
+    missing = sorted(p for p in named if not ts.select_jobs([p], rules))
     assert not missing, missing
 
 
