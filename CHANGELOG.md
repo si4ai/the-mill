@@ -1,7 +1,6 @@
 # Changelog
 
 ## TBD (upcoming)
-
 Upcoming changes are our current plan, not a promise; they can change or move at release time.
 
 - card 1053 / transition-retention: archive + rollup for transition (and optional wake); deferred past 0.8.10; DDL needs office human review before code
@@ -11,26 +10,28 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
-- card 1113: a deadlock or lock wait inside the soft score step of claim, pass, card write or doing is raised, no longer swallowed (it had returned success after InnoDB rolled the move back); a wake row is written first and takes its id from `wake.id` AUTO_INCREMENT (as mail and todo; `fk_wake_activity` dropped) instead of MAX(id)+1 under a named lock released before commit (duplicate ids, lost wakes, and a lock left on the session after an error); a wake payload with "id": null is stored with no id; a route over 32 characters is refused with a clear message
+0.8.11 (2026-11-10)
 
-- card 1113: the perf test's no-performance_schema user is one per xdist worker (another worker's teardown dropped the shared user mid-test, 1045 in CI)
+- card 1103: skip the name-token rule on bot-authored PR bodies
+- card 1090: keep a finished tw run and log stderr
+- bump html-validate from 11.17.0 to 11.18.0 in tools/wall-validators
+- ci-lock: bump the-mill pin in desk.txt to 0.8.10
+- bump github/codeql-action from 4.39.1 to 4.39.3
+- bump stylelint from 17.16.0 to 18.0.0 in tools/wall-validators
+- card 1090: count a reply that auto-ends the wake lease as acted
+- card 1090 step 4 (server): sweep stale task rows at the cap; cap reply names oldest watches
+- card 1111: write webhook failures and fill wake desk and cause
+- card 1113: todo insert takes the desk seat before its FK check (fix concurrent-insert deadlock)
+- card 1113: todo card writes take the desk seat before the card; source lock-order check
+- card 1090: tw hops through the sitting connect
+- card 1113: wake, mail, join, plan, score and status procedures lock before they read
+- card 1113: score step re-raises deadlocks; wake ids from AUTO_INCREMENT; visible push errors
+- card 1090: tw docs for 0.8.11 (doing under tw, updates habit, cards as bodies of work)
+- card 1120: generate CHANGELOG.md at bump from each PR's one-line Changelog section
+- card 1120: docs-only Changelog exemption diffs base...head in CI
+- docs: hold habit in mill-desk skill (0.8.11)
 
-- card 1113: wake, mail, join, plan, score and status procedures no longer deadlock or lock what they only read: wake marks, hand-backs and takes lock the wake rows exclusive (by primary key, or by desk index for a take) before the transition copy; mail delete and edit take the desk's seat, then the letter; mail delete finds its wake rows by a plain read and locks only those (the payload filter has no index); the joined-seat check locks the seat first; plan detach and remove read the item's tree rows without a shared lock; score delete and retire and name purge take the desk's seat first; `mill_doing_now` and recipient remove read their lists into values, so a status read holds no row locks. The lock-order check's open list is empty
-- card 1113: card writes by one desk from several sessions no longer deadlock: rename, delete, retire and reclaim take the desk's seat lock, then the card, before any read of the card, as every other card write does. New `tools/sql_lock_order.py` lists each procedure's row locks from the schema's foreign keys (FK checks, INSERT ... SELECT, and routine IF EXISTS / SET subqueries count as shared locks) and fails on a shared-to-exclusive upgrade; a no-database test runs it, lists the known open findings, and fails on new ones
-- card 1090 step 4 client: the status test waits for the async tw.event before it counts hops
-- card 1113: one desk filing cards from several sessions at once no longer deadlocks; the todo insert takes the desk's seat lock before its insert, and the concurrent-insert test no longer retries
-- card 1090 step 4 client: tw runs a command only while a sit is up and otherwise prints the same-parent connect recipe; the connect keeps one sqlite hop file per desk and sends it; tw run --desk and --log are gone
-- card 1090 step 4 client: bare tw prints help; --list, -l, and --list-json list running runs; -h and -V match help and version; every hop carries ts_ms, epoch milliseconds from the desk clock
-- card 1090 step 4 client: after the hop file drains, connect records a lost crash for a started run whose tw pid is gone or no longer tw, then sends tw.reconcile once with the watch ids that are still live. the hop waits until this process can see the sitting bridge, so connect start does not open a second socket. a live python whose command line is the tw script stays live. tw.event waits for that same bridge. an outside signal death is a crash, a stop stays an exit, and the passthrough read is one byte
-- card 1090 step 4 client: end a run by killing the printed pid (taskkill on windows)
-- card 1090 step 4 client: closing the connect shuts down a unix peer so a later hop cannot be sent
-- card 1111: webhook failures write wake_fail (and wake_retry when a retry is armed); wake edges use the woken desk; new wake rows fill cause_type and cause_id
-- card 1111: retry_armed stays visible to ring_waiting; a POST with no wake row writes no row state; expire-marker error tallies include retry_armed
-- card 1111: precheck does not fail when a changed test file holds only SQL tests
-- card 1090: a reply that auto-ends the wake lease is not scored wasted
-- card 1090 step 4 (server): a live tw task row is stale only once its desk has been offline (no connected seat) for 24h, counted from `seat.time_disconnect`; a connected desk's rows are never stale. The score tick sweeps desks offline 24h+ (one `tw_stale` edge each, cause `sweep`), and a tw start at the cap sweeps the same way; a cap reply still at the cap names the oldest live watch ids and says to end one with `kill PID`. New session hop `tw.reconcile`: on start, a desk's connect reports the watch ids it believes live; the host closes that desk's other live task rows through the crash path (`tw_failed`, cause `reconcile`), ignores unknown ids, and a repeat closes nothing. Glance alerts gain `tw_offline`: each offline desk with live tw rows, how long offline, and the count (a fact, not a gate). `tw.event` takes an optional `ts_ms` (tw's clock, epoch ms) and dwell uses it when both hops carry one
-- card 1103: skip the title-case name-token rule on a bot-authored PR or issue title and body; other hygiene rules still run, and the skip is reported in the check output
-- card 1090 / docs: tw habit is `tw CMD [ARGS...]` on a sitting connect; no `--desk` or `--log` (step 4 client code not in this change)
+## Last changes
 
 0.8.10 (2026-11-09)
 
@@ -43,22 +44,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 1098 / sql: `sp_cmd.sql` and `sp_push.sql` reload via migrate (#371, #373)
 - card 1095 / card 1097: tw status without a sit; join and connect write the desk pointer (#370)
 - card 970 / pack skill.md: tw habit with `--log FILE` (#368, #369)
-
-## Last changes
-
-0.8.9 (2026-11-06)
-
-- card 970 / task wrapper: `tw` run, list and stop, local link, local watch and status, notices and one recipe, spool and sit-end survival (#350, #353, #355, #357, #359)
-- card 970 / tw.event: server accepts the tw.event hop, drops stream and sample bodies, births one task doing row with transitions and wake, and caps live tasks with replay-safe ingest (#351, #356, #358, #360)
-- card 970 / task act schema: `task` added to the activity and doing act enums; existing books take `migrate_970_task.sql` (idempotent) (#358)
-- card 1005 / F-unread-wake-retry: failed wake for unread-only mail arms retry (push drained) (#338)
-- card 1011 / F-insert-deadlock-retry: concurrent insert deadlock retries twice (#337)
-- card 1069: light and heavy partner review and ship GO documented in docs/dev (#349)
-- card 1080 / commands-without-sitting-connect: a desk command that cannot see a sitting connect opens one socket, sends that command, and releases the bearer; a bearer another connect already holds stays with that connect (#361)
-
-- card 970 / doing tasks feed: doing view lists live task rows as `tasks[]` (#365)
-- card 970 / wall display: tasked rows, doing.task rollups and a last-done tail when no live task remains; only available score fields, no invented command text or relative timestamp (#363)
-- card 1080 / command docs: document desk commands without a leftover sitting connect; align the foreground forms assertion (#364, #367)
-- card 1089 / docs: map protocol, code, process and CI checks in CHECKS-AND-TOOLS (#366)
-- card 970 / docs: activity-state diagrams for the current schema, including task (#226)
-- card 1080 / docs: README caveats reflect the unused-connect same-shell change (#210)
