@@ -9,7 +9,9 @@ on a local mysqld via agent_coord.install.migrate.ensure.
 
 The live compare is a SQL test (pytest.mark.sql). SQL tests skip when
 no throwaway mysqld is available; CI pytest_sql_run is the proof. The
-demo starts its own throwaway mysqld (never a live office book).
+demo starts its own throwaway mysqld (never a live office book). When
+which() finds a distro binary such as /usr/sbin/mysqld, that path is
+spawned; parent.parent is only --basedir and lib.
 
 By default the compare command exits 0 after printing the report, even
 when it finds drift: it is a fact report, not a CI gate on main. Pass
@@ -172,18 +174,75 @@ def admin_and_db(kwargs: dict[str, Any], database: str):
     return mysql.connector.connect(**db_kw)
 
 
-def default_mysqld_basedir() -> Path | None:
-    env = os.environ.get("MILL_MYSQLD_BASEDIR") or ""
-    if env and (Path(env) / "bin" / "mysqld").is_file():
-        return Path(env)
-    for cand in (Path("/tmp/mysql84"), Path("/usr/local/mysql")):
-        if (cand / "bin" / "mysqld").is_file():
-            return cand
+def mysqld_basedir_if_present(path: Path) -> Path | None:
+    """Return path only when path/bin/mysqld exists (prefix-style layout)."""
+    cand = Path(path)
+    if (cand / "bin" / "mysqld").is_file():
+        return cand
+    return None
+
+
+WELL_KNOWN_MYSQLD_BASEDIRS = (Path("/tmp/mysql84"), Path("/usr/local/mysql"))
+
+
+def mysqld_basedir_of(binary: Path) -> Path:
+    """parent.parent of the binary, used only for --basedir and lib."""
+    return Path(binary).resolve().parent.parent
+
+
+def default_mysqld_binary() -> Path | None:
+    """Return the mysqld path to spawn, or None if none is present.
+
+    When which() finds a binary (for example /usr/sbin/mysqld on ubuntu),
+    that path is the one to spawn. parent.parent is only used as --basedir
+    and for lib/; it is not rewritten to basedir/bin/mysqld.
+    MILL_MYSQLD_BASEDIR may be a binary or a prefix-style basedir.
+    """
+    env = (os.environ.get("MILL_MYSQLD_BASEDIR") or "").strip()
+    if env:
+        ev = Path(env)
+        if ev.is_file():
+            return ev
+        hit = mysqld_basedir_if_present(ev)
+        if hit is not None:
+            return hit / "bin" / "mysqld"
+    for cand in WELL_KNOWN_MYSQLD_BASEDIRS:
+        hit = mysqld_basedir_if_present(cand)
+        if hit is not None:
+            return hit / "bin" / "mysqld"
     found = shutil.which("mysqld")
     if found:
-        # .../bin/mysqld
-        return Path(found).resolve().parent.parent
+        binary = Path(found).resolve()
+        if binary.is_file():
+            return binary
     return None
+
+
+def default_mysqld_basedir() -> Path | None:
+    binary = default_mysqld_binary()
+    if binary is None:
+        return None
+    return mysqld_basedir_of(binary)
+
+
+def job_mysql_kwargs() -> dict[str, Any] | None:
+    """Kwargs for the job's MySQL when AGENT_COORD_HOST is set.
+
+    CI pytest_sql_run sets AGENT_COORD_HOST. A desk config file may point
+    at a live office book, so this never falls back to that file.
+    """
+    if not (os.environ.get("AGENT_COORD_HOST") or "").strip():
+        return None
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        # repo root is the parent of tools/
+        root = Path(__file__).resolve().parents[1]
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+    from agent_coord.server.records.db import conn_kwargs
+
+    kw = dict(conn_kwargs())
+    kw.pop("database", None)
+    return kw
 
 
 def pick_port(preferred: int = 3318) -> int:
@@ -201,9 +260,10 @@ def pick_port(preferred: int = 3318) -> int:
 class LocalMysqld:
     """Throwaway mysqld with our datadir and port. Never reuse another instance."""
 
-    def __init__(self, workdir: Path, basedir: Path, port: int | None = None):
+    def __init__(self, workdir: Path, mysqld: Path, port: int | None = None):
         self.workdir = workdir
-        self.basedir = basedir
+        self.mysqld = Path(mysqld)
+        self.basedir = mysqld_basedir_of(self.mysqld)
         self.port = port or pick_port()
         self.datadir = workdir / "data"
         self.socket = workdir / "mysql.sock"
@@ -217,17 +277,19 @@ class LocalMysqld:
         env["LD_LIBRARY_PATH"] = lib + ((":" + env["LD_LIBRARY_PATH"]) if env.get("LD_LIBRARY_PATH") else "")
         return env
 
+    def mysqld_cmd(self, *args: str) -> list[str]:
+        """Spawn the found mysqld path; basedir is only --basedir (and lib)."""
+        return [str(self.mysqld), f"--basedir={self.basedir}", *args]
+
     def initialize(self) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
         if (self.datadir / "mysql").is_dir():
             return
         self.datadir.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            str(self.basedir / "bin" / "mysqld"),
+        cmd = self.mysqld_cmd(
             "--initialize-insecure",
-            f"--basedir={self.basedir}",
             f"--datadir={self.datadir}",
-        ]
+        )
         user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
         if user:
             cmd.append(f"--user={user}")
@@ -235,9 +297,7 @@ class LocalMysqld:
 
     def start(self) -> None:
         self.initialize()
-        cmd = [
-            str(self.basedir / "bin" / "mysqld"),
-            f"--basedir={self.basedir}",
+        cmd = self.mysqld_cmd(
             f"--datadir={self.datadir}",
             f"--port={self.port}",
             f"--socket={self.socket}",
@@ -245,7 +305,7 @@ class LocalMysqld:
             f"--log-error={self.errlog}",
             "--bind-address=127.0.0.1",
             "--mysqlx=0",
-        ]
+        )
         user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
         if user:
             cmd.append(f"--user={user}")
@@ -387,41 +447,100 @@ def write_reports(report: dict[str, Any], out_json: str, out_md: str) -> None:
         print(f"{f['object']}: {f['kind']}")
 
 
+def compare_fresh_then_doctor(
+    root: Path,
+    kwargs: dict[str, Any],
+    gold_db: str,
+    subject_db: str,
+    out_dir: Path | None = None,
+) -> int:
+    """Install two throwaway books, compare, doctor the subject, compare again."""
+    gold_cn = admin_and_db(kwargs, gold_db)
+    try:
+        ensure_book(gold_cn, root)
+        subject_cn = admin_and_db(kwargs, subject_db)
+        try:
+            ensure_book(subject_cn, root)
+            report_pass = run_compare(gold_cn, subject_cn)
+            if out_dir is not None:
+                write_reports(
+                    report_pass,
+                    str(out_dir / "pass-report.json"),
+                    str(out_dir / "pass-report.md"),
+                )
+            if report_pass["counts"]["drift"]:
+                print("FAIL: freshly installed subject drifted from gold", file=sys.stderr)
+                return 1
+            print("pass stage: no drift")
+            probe = doctor_probe(subject_cn)
+            report_fail = run_compare(gold_cn, subject_cn)
+            if out_dir is not None:
+                write_reports(
+                    report_fail,
+                    str(out_dir / "fail-report.json"),
+                    str(out_dir / "fail-report.md"),
+                )
+            kinds = {f["object"] for f in report_fail["drift"]}
+            if probe not in kinds or report_fail["counts"]["drift"] < 1:
+                print(f"FAIL: doctored procedure {probe} was not reported", file=sys.stderr)
+                return 1
+            print(f"fail stage: detected {probe}")
+            print("demo ok: install passed, doctored procedure failed")
+            return 0
+        finally:
+            try:
+                subject_cn.close()
+            except Exception:
+                pass
+    finally:
+        try:
+            gold_cn.close()
+        except Exception:
+            pass
+
+
+def drop_database(kwargs: dict[str, Any], database: str) -> None:
+    import mysql.connector
+
+    admin_kw = dict(kwargs)
+    admin_kw.pop("database", None)
+    admin_kw["autocommit"] = True
+    admin = mysql.connector.connect(**admin_kw)
+    try:
+        cur = admin.cursor()
+        cur.execute(f"DROP DATABASE IF EXISTS `{database}`")
+        cur.close()
+    finally:
+        admin.close()
+
+
 def run_demo(root: Path, workdir: Path, out_dir: Path) -> int:
-    basedir = default_mysqld_basedir()
-    if basedir is None:
+    mysqld = default_mysqld_binary()
+    if mysqld is None:
         print("no mysqld binary found (set MILL_MYSQLD_BASEDIR)", file=sys.stderr)
         return 2
-    server = LocalMysqld(workdir, basedir)
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    server = LocalMysqld(workdir, mysqld)
     started = False
     try:
         server.start()
         started = True
-        gold_cn = admin_and_db(server.connect_kwargs(), "mill_gold")
-        ensure_book(gold_cn, root)
-        subject_cn = admin_and_db(server.connect_kwargs(), "mill_subject")
-        ensure_book(subject_cn, root)
-        report_pass = run_compare(gold_cn, subject_cn)
-        write_reports(report_pass, str(out_dir / "pass-report.json"), str(out_dir / "pass-report.md"))
-        if report_pass["counts"]["drift"]:
-            print("FAIL: freshly installed subject drifted from gold", file=sys.stderr)
-            return 1
-        print("pass stage: no drift")
-        probe = doctor_probe(subject_cn)
-        report_fail = run_compare(gold_cn, subject_cn)
-        write_reports(report_fail, str(out_dir / "fail-report.json"), str(out_dir / "fail-report.md"))
-        kinds = {f["object"] for f in report_fail["drift"]}
-        if probe not in kinds or report_fail["counts"]["drift"] < 1:
-            print(f"FAIL: doctored procedure {probe} was not reported", file=sys.stderr)
-            return 1
-        print(f"fail stage: detected {probe}")
-        gold_cn.close()
-        subject_cn.close()
-        print("demo ok: install passed, doctored procedure failed")
-        return 0
+        return compare_fresh_then_doctor(
+            root,
+            server.connect_kwargs(),
+            "mill_gold",
+            "mill_subject",
+            out_dir,
+        )
     finally:
         if started:
-            server.stop()
+            try:
+                server.stop()
+            except Exception:
+                pass
+        # The demo datadir is about 200 MB; always delete it.
+        shutil.rmtree(server.datadir, ignore_errors=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -450,13 +569,23 @@ def main(argv: list[str] | None = None) -> int:
             print("--demo needs --root", file=sys.stderr)
             return 2
         root = Path(args.root).resolve()
+        created_workdir = False
         if args.workdir:
             workdir = Path(args.workdir).resolve()
         else:
             import tempfile
             workdir = Path(tempfile.mkdtemp(prefix="mill-install-drift-"))
-        out_dir = Path(args.out_json).parent if args.out_json else Path(__file__).resolve().parent
-        return run_demo(root, workdir, out_dir)
+            created_workdir = True
+        # Default reports go to the current directory, never into tools/.
+        if args.out_json:
+            out_dir = Path(args.out_json).parent
+        else:
+            out_dir = Path.cwd()
+        try:
+            return run_demo(root, workdir, out_dir)
+        finally:
+            if created_workdir:
+                shutil.rmtree(workdir, ignore_errors=True)
 
     if not args.gold_database or not args.subject_database:
         print("provide --gold-database and --subject-database, or --demo", file=sys.stderr)
