@@ -8,8 +8,8 @@ in which the steps of the model can interleave, inside the stated bounds.
 
 | File | What it models |
 | :--- | :--- |
-| `wake.pml` | the wake path: push queue, webhook POST, the wake lease (card 886: ended by `mill wake-done` or its timeout, not by a connect), the trailing POST (#669), card 827's retry chain off the request (#300, live since 0.8.3), unread mail that resurfaces on connect and rings again (#297, card 949), wake-done inside a connect with no trailing POST to a sitting desk (#322, card 889, 0.8.5), connect sync, the seat rule (supersede, `-r` 4409), and the fixes for cards 831 and 832 (shipped; their switches default on) |
-| `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal |
+| `wake.pml` | the wake path: push queue, webhook POST, the wake lease (card 886: ended by `mill wake-done` or its timeout, not by a connect), the trailing POST (#669), card 827's retry chain off the request (#300, live since 0.8.3), unread mail that resurfaces on connect and rings again (#297, card 949), wake-done inside a connect with no trailing POST to a sitting desk (#322, card 889, 0.8.5), connect sync, the seat rule (supersede, `-r` 4409), and the fixes for cards 831 and 832 (shipped; their switches default on); `LIVE`: the wake path at main 8bae076 and #416 for the live modes F1, F2, F7 (card 1144) |
+| `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal; `READ_DROP`: a connect sync against a committed drop (card 1144, F3) |
 | `todo.pml` | 0.8.0 card moves T1-T14: the card row lock, one move row per status or volunteer change, the act on the activity row, the migration seed |
 | `doing.pml` | 0.8.0 doing: focus rows and move rows, `seat.doing_id`, the seat row lock, finish (D8, D9), heartbeats, hold moves H1-H5, reset (D11) and retire (N1) |
 | `mail.pml` | 0.8.0 recipient rows M1-M8: the first open kept, opening leaves activity alone, receipts |
@@ -22,11 +22,12 @@ in which the steps of the model can interleave, inside the stated bounds.
 Run: `verify/spin/run.sh` (about fifteen minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
 compiler). One check with its trail: `verify/spin/run.sh W07` (or `A01`, `X01`, ...).
 
-Last full run: 127 checks, every one matching its expectation (57 `pass`, 70
-`violated` as expected: findings, mutants, reachability goals, and the card 1125
-design expected-violations and mutations), in 873 s (about 15 minutes), with
+Last full run: 150 checks, every one matching its expectation (65 `pass`, 85
+`violated` as expected: findings, mutants, reachability goals, the card 1125
+design expected-violations and mutations, and the card 1144 live wake modes
+V01-V24), in 897 s (about 15 minutes), on main ec280da with
 `SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
-`SYNC_080` = 8a80dc1, 2026-11-10 (Pacific). The wake checks store states compressed
+`SYNC_080` = 8a80dc1, 2026-11-11 (Pacific). The wake checks store states compressed
 (`-DCOLLAPSE`), as the 0.8.0 and activity_history checks do.
 
 All searches are exhaustive (no `-DBITSTATE`, no depth cut). Liveness checks
@@ -365,6 +366,72 @@ They return when those features do.
 What is not modelled: text contents (a version is an id); the todo JSON split
 and second install (deterministic tests on card 1133); the client keeping the
 last read across `--desk` one-shots; more than one item; Wall rendering.
+
+## Live wake modes (card 1144): F1, F2, F3, F7
+
+Four failure modes seen live (auditor letter 5502), modelled in a `LIVE`
+block of `wake.pml` (F1, F2, F7) and a `READ_DROP` block of `holds.pml` (F3).
+The `LIVE` block reads main at 8bae076 (before #416) and ec280da (#416, card
+1141, squash-merged): the switch `TW_GUARD=1` is the #416 change, an exit or
+crash `tw.event` through the empty skip (`wake.py` 520-521, 1407). One desk,
+armed with a webhook, a perfect receiver (POST failures stay with W08-W17).
+Its own switches and the code lines each step stands for are in the block's
+header. `-DLIVE=0`, the default, leaves the models above unchanged.
+
+| Property | Result |
+| :--- | :--- |
+| F1. A finite connect that exits with nothing pending rings no wake | **violated** before #416 (V01): every tw exit hop rang `post_desk`, which exempted every `watch_id` frame from the empty skip; proved on #416 (V02); proved without tw, where only `Hub.discard` rings on the last leave and `ring_waiting` needs a missed row or unread mail (V03); fails on a mutation with no empty skip (V04) |
+| F1. Every wake is counted by the wasted-wake tracker, and only for the run it woke | **violated**, modelled (V05, main and #416): `mark_lease` overwrites the desk's tracker with no stamp (`wasted_wake.py` 105-132), and `note_rpc` marks the live tracker acted for an action of any session of the desk (155-171). Builder's reading, not measured. Proved for one item with a stamp on lapse and the lease token on the run's commands (V06, proposed, card 1140 a and b) |
+| F2. A same-desk reconnect after its own connect exited is not refused busy | **violated** (V07) when the office has not seen the close yet: `Hub.add` drops only sockets whose state already reads disconnected (`push.py` 123-125), and the client retries a 4409 only after 1 s and 2 s (`client/ws.py` 787, 1470-1481); proved with a retry while the holder is the desk's own exited connect (V08, proposed) |
+| F2. A busy refusal rings no wake with nothing waiting | proved (V09): a refused add closes 4409 and returns before the `finally` that calls `HUB.discard` (`asgi.py` 633-643); a refused run's `wake-done` rings only for held work; fails on a mutation with no empty skip and a trailing POST with nothing waiting (V10) |
+| F2. A seat-free delay loses no item | proved when a frame sent into the dead socket raises (V11); **violated** if `send_text` into a socket the office has not closed returns without error (V12): the row is marked sent, nothing rings, and the item waits for the next connect. Which one the code does is unclear (`push.py` 176-197, 226-240) |
+| F3. A sync whose hold read starts after the drop committed never shows the hold | proved (V21): `mill_hold_delete` commits inside its procedure, and every read in `connect_sync_frame` commits after it (`db.py` 719-731), so `own()` reads a fresh snapshot; fails on a mutation that reuses the frame's first snapshot (V22) |
+| F3. A sync printed after the drop reply never shows the hold | **reachable** (V23): a connect in a second shell reads its sync before the drop commits and prints it after the reply; proved in one shell, where the connect starts after the reply (V24) |
+| F7. No wake started by the desk's own step when no outside work waits | **violated** before #416 (V13): the run's own tw exit hop; **violated** on #416 (V14, finding): `rec_push.pending` counts rows already sent live (`state <> 'taken'`, `records/push.py` 324-338), so a tw exit after a live item still rings; without tw the trailing POST does the same (V15, `_send_trailing`, `wake.py` 739); proved with both proposed changes: count only rows not sent live, and re-check the empty skip under the gate lock (V16, V17) |
+| F7. No self-wake chain: a run that a self wake started does not start another | **violated** before #416 (V18); proved on #416 (V19) |
+| The proposed changes lose nothing | proved (V20): every item delivered and every letter opened |
+
+| Id | Defines | Expect | Got | States | Depth | What it shows |
+| :--- | :--- | :--- | :--- | ---: | ---: | :--- |
+| V01 | N=1 WK=1 TW=1 | violated | violated | 14 | 40 | F1 before #416 (main 8bae076): a tw exit hop of its own finite connect, nothing pending, rings a webhook wake (post_desk exempted every watch_id frame) |
+| V02 | N=1 WK=1 TW=1 TW_GUARD=1 | pass | pass | 597,330 | 249 | F1, #416 (card 1141): a tw exit or crash goes through the empty skip; no wake with nothing waiting |
+| V03 | N=2 WK=1 | pass | pass | 2,412,003 | 352 | F1, no tw: a connect exit (Hub.discard, ring_waiting) never rings with nothing pending, two items |
+| V04 | N=1 WK=1 MUT_NO_EMPTY_SKIP | violated | violated | 14 | 39 | mutation: no empty skip in post_desk and ring_waiting (keeps V02 and V03 from being vacuous) |
+| V05 | N=1 WK=1 TRACK=1 | violated | violated | 256 | 119 | F1 count, MODELLED (not measured): note_rpc marks the live tracker acted for any session of the desk and mark_lease overwrites an unstamped tracker, so a wake is miscounted (main and #416) |
+| V06 | N=1 WK=1 TRACK=1 WASTE_FIX=1 | pass | pass | 8,174 | 170 | proposed (card 1140 a, b): stamp a lapsed lease, only the run holding the token marks it acted; one item |
+| V07 | N=1 WK=2 ZOMBIE=1 | violated | violated | 3,159 | 188 | F2 FINDING: the own exited connect of the desk still sits until the office sees the close; a same-desk reconnect after the 1 s + 2 s settle is refused busy |
+| V08 | N=1 WK=2 ZOMBIE=1 SETTLE_OWN=1 | pass | pass | 49,456 | 188 | proposed: a refused connect keeps retrying while the holder is its own exited connect |
+| V09 | N=1 WK=1 ZOMBIE=1 | pass | pass | 7,320 | 166 | F2: a busy refusal never rings a wake with nothing waiting (the wake-done of a refused run rings only for held work) |
+| V10 | N=1 WK=1 ZOMBIE=1 MUT_NO_EMPTY_SKIP MUT_TRAIL_ANY | violated | violated | 7,227,063 | 10359 | mutation: no empty skip and a trailing POST with nothing waiting (keeps V09 from being vacuous) |
+| V11 | N=1 WK=1 ZOMBIE=1 | pass | pass | 1,088 | 111 | F2: with a seat-free delay, every item is still delivered and opened when a frame sent into the dead socket fails |
+| V12 | N=1 WK=1 ZOMBIE=1 ZOMBIE_SEND_OK=1 | violated | violated | 496 | 111 | F2, UNCLEAR in the code: if send_text into the not-yet-closed socket returns, the row is marked sent, nothing rings, and the item waits for the next connect |
+| V13 | N=1 WK=1 TW=1 SELFG=1 | violated | violated | 14 | 43 | F7 before #416: the own tw exit hop of the run starts a wake with no outside work |
+| V14 | N=1 WK=1 TW=1 TW_GUARD=1 SELFG=1 | violated | violated | 11,429 | 185 | F7 FINDING on #416: pending() counts rows already sent live, so a tw exit after a live item rings a wake for work the desk has |
+| V15 | N=2 WK=1 SELFG=1 | violated | violated | 137,028 | 294 | F7 FINDING, no tw: the wake-done trailing POST (_send_trailing, pending()) rings for a row sent live |
+| V16 | N=2 WK=1 PENDING_OWED=1 SKIP_TAKE_ATOMIC=1 SELFG=1 | pass | pass | 2,454,055 | 362 | proposed: count only rows not sent live, and re-check empty under the gate lock: no self wake, two items |
+| V17 | N=1 WK=1 TW=1 TW_GUARD=1 PENDING_OWED=1 SKIP_TAKE_ATOMIC=1 SELFG=1 | pass | pass | 612,483 | 255 | same with tw exit hops on #416 |
+| V18 | N=1 WK=1 TW=1 SELFG=1 | violated | violated | 76 | 202 | F7 before #416: a run a self wake started rings another self wake (the loop) |
+| V19 | N=1 WK=1 TW=1 TW_GUARD=1 SELFG=1 | pass | pass | 672,282 | 255 | F7, #416: no self wake chain beyond one per lease (V18 is its old-shape mutant) |
+| V20 | N=1 WK=1 TW=1 TW_GUARD=1 PENDING_OWED=1 SKIP_TAKE_ATOMIC=1 | pass | pass | 44,736 | 151 | the proposed fixes lose nothing: every item delivered and opened |
+| V21 | READ_DROP=1 | pass | pass | 25 | 23 | F3: a sync whose hold read starts after the drop commit never shows the hold (each read commits, so a fresh snapshot) |
+| V22 | READ_DROP=1 MUT_SNAPSHOT_CARRY | violated | violated | 20 | 23 | mutation: the hold read reuses the first snapshot of the frame (REPEATABLE READ, no commit between reads) |
+| V23 | READ_DROP=1 | violated | violated | 14 | 23 | F3 REACHABLE: a connect sync in a second shell, read before the drop commits, prints after the drop reply and shows the dropped hold |
+| V24 | READ_DROP=1 SAME_SHELL=1 | pass | pass | 11 | 25 | F3: in one shell (connect after the drop reply) the sync never shows the dropped hold |
+
+V01-V24 run with `-DLIVE=1` (wake) or `-DREAD_DROP=1` (holds) and small
+bounds: one or two items, one or two finite connects of the desk's working
+session, one woken run. Larger bounds ran out of memory or time on the run host
+(tw with two connects: 9 million states; tw with two items: out of memory). Each `pass` has a
+`violated` partner, a mutation or the old shape, so no pass is vacuous: V02 and
+V03 (V04, V01), V06 (V05), V08 (V07), V09 (V10), V11 (V12), V16 and V17 (V14,
+V15), V19 (V18), V21 (V22), V24 (V23).
+
+What is not modelled here: stall and match hops (still exempt on #416), a
+command reply sync that acks a row sent live before the tw exit hop goes out
+(`asgi.py` 684-701; if it always wins, V14 does not happen live), the lease
+timer length, the token reuse of the model's three lease tokens, F4 (a stale
+wake-done on an ordinary run, card 1140), F5 (no-route queue, card 1142), F6
+and F8 (tw ready race, card 1154).
 
 ## Product-edge sync (card 916)
 

@@ -115,6 +115,505 @@
  *                fail L06)
  */
 
+#ifndef LIVE
+#define LIVE 0
+#endif
+#if LIVE
+/*
+ * LIVE: the wake path as main 8bae076 runs it today, cut down to the four
+ * failure modes seen live (card 1144): F1 exit ring, F2 seat-free delay,
+ * F7 self-ring loop, and the wasted-wake counter. (F3, sync read after a
+ * drop, is in holds.pml.) The model above this block is pinned at SYNC;
+ * this block reads main and has its own switches. One desk D, armed with a
+ * webhook; a perfect receiver (POST failures and #300 retries are W08-W17's).
+ *
+ * Code read (main 8bae076; on ec280da, #416, wake.py lines after 520 move
+ * down by 2 and TW_GUARD=1 is the change):
+ *   push.py      emit (641-715) and fanout (541-579): put as queued, sitting
+ *                read, live notify or mark missed then post_desk; Hub.add
+ *                refuse (106-146); Hub.discard (148-167): the last socket out
+ *                rings ring_waiting off the loop; _broadcast (169-197) and
+ *                _settle_row (226-240): a frame no socket took marks the row
+ *                missed and rings; ring_waiting (253-291): not sitting, and a
+ *                waiting() row (state missed/error/retry_armed) or unread mail
+ *   records/push.py  pending (324-338): every row with state <> 'taken',
+ *                'sent' rows included; waiting (277-282, 305-321)
+ *   wake.py      post_desk (1355-1555): the empty skip (1403-1421) is skipped
+ *                for a frame with watch_id (a tw.event); no sitting read of
+ *                its own; _coalesced, then _hold_or_take (694-710);
+ *                mark_lease on a 2xx (1490-1514); lease_done (805-866):
+ *                stale token ends nothing and stamps nothing, a live token
+ *                pops the lease, calls finish_lease, and sends the trailing
+ *                POST only when not sitting; trail (761-790) and
+ *                _send_trailing (729-758): pending() > 0 or unread mail
+ *   wasted_wake.py  mark_lease (105-132) overwrites the desk's tracker with
+ *                no stamp; note_rpc (155-171) marks the desk's live tracker
+ *                acted for any action command of the desk; finish_lease
+ *                (185-) is called only from lease_done
+ *   api/mill/rpc.py  _h_tw_event (4311-4375): a tw exit, stall, match or
+ *                crash calls post_desk after commit, unless the hop says
+ *                wake=False (tw never sets it: client/tw/proc.py 597-617);
+ *                _poke (217-231): the acting desk gets no hint for its own
+ *                change (skip_desk)
+ *   asgi.py      ws_endpoint (579-707): a refused add closes 4409 and returns
+ *                before the try whose finally calls HUB.discard (633-643)
+ *   client/ws.py card 834: connect refuses by default (__main__.py 1072-1101);
+ *                a first 4409 is retried after 1 s and 2 s (BUSY_SETTLE_S,
+ *                785-786, 1474-1480), then busy, exit 0, no wake
+ *   client/tw/link.py  the hop is sent by the sit link inside a live connect
+ *                (sender loop 480-492); a hop not sent stays in the outbox
+ *                for the next connect
+ *
+ * Switches (0 = the code on main):
+ *   N            items from other desks (item 0 a hint, items 1.. letters)
+ *   WK           finite connects of the desk's own working session (not woken)
+ *   TW           1 = connects run tw-wrapped commands; each exit hop rings
+ *                post_desk as the code does
+ *   HMAX         tw exit hops waiting in the outbox at once
+ *   ZOMBIE       1 = a connect's exit and the office's Hub.discard are two
+ *                steps: between them the seat is held by a socket whose
+ *                process is gone (the seat-free window)
+ *   ZOMBIE_SEND_OK 1 = a live frame sent into that window may return without
+ *                error, so the row is marked sent though no desk got it
+ *                (unclear in the code: depends on when starlette sees the
+ *                close)
+ *   SETTLE_OWN   proposed: a refused connect retries while the holder is this
+ *                desk's own exited connect (the window), so it is never busy
+ *                on itself
+ *   TW_GUARD     #416 (card 1141, main ec280da): a tw exit or crash goes through
+ *                post_desk's empty skip (wake.py 520-521, 1407); stall and match
+ *                stay exempt (not modelled: they are mid-run alerts)
+ *   PENDING_OWED proposed: the empty skip and the trailing POST count only
+ *                rows not handed over live (not state 'sent')
+ *   WASTE_FIX    proposed: a lapsed lease is stamped too, and only the run
+ *                that holds the lease's token marks it acted
+ *   SKIP_TAKE_ATOMIC proposed: _hold_or_take re-reads the empty check under the
+ *                gate lock, so work another run handled between the check
+ *                (1407-1425) and the take is not woken for again
+ *   MUT_NO_EMPTY_SKIP  mutation: no empty skip in post_desk and no waiting
+ *                check in ring_waiting (keeps F1 from being vacuous)
+ *   MUT_SIT_NOGUARD    mutation of #889: wake-done sends its trailing POST
+ *                while another connect sits
+ *   MUT_NO_LEAVE_RING  mutation of #832: Hub.discard does not ring
+ *   MUT_TRAIL_ANY      mutation: wake-done sends its trailing POST with nothing
+ *                waiting (with MUT_NO_EMPTY_SKIP: keeps no_busy_ring from being vacuous)
+ */
+#ifndef N
+#define N 2
+#endif
+#ifndef WK
+#define WK 2
+#endif
+#ifndef TW
+#define TW 0
+#endif
+#ifndef HMAX
+#define HMAX 1
+#endif
+#ifndef ZOMBIE
+#define ZOMBIE 0
+#endif
+#ifndef ZOMBIE_SEND_OK
+#define ZOMBIE_SEND_OK 0
+#endif
+#ifndef SETTLE_OWN
+#define SETTLE_OWN 0
+#endif
+#ifndef TW_GUARD
+#define TW_GUARD 0
+#endif
+#ifndef PENDING_OWED
+#define PENDING_OWED 0
+#endif
+#ifndef WASTE_FIX
+#define WASTE_FIX 0
+#endif
+#ifndef SKIP_TAKE_ATOMIC
+#define SKIP_TAKE_ATOMIC 0
+#endif
+#ifndef MAXSKIP
+#define MAXSKIP 1
+#endif
+#ifndef TRACK
+#define TRACK 0       /* 1: keep the wasted_wake tracker (wake_counted) */
+#endif
+#ifndef SELFG
+#define SELFG 0       /* 1: keep the self-wake ghosts (no_self_wake, no_self_loop) */
+#endif
+
+#define ALL ((1 << N) - 1)
+#define BIT(i) (1 << (i))
+#define MAILMASK (ALL & ~1)
+
+byte queued = 0;   /* wake rows with state <> 'taken' (records/push.py pending) */
+byte missed = 0;   /* of those, rows marked missed (owed): waiting() */
+byte sentm = 0;    /* of those, rows marked sent: a live frame went out */
+byte dlv = 0;      /* items the desk got, live or by a sync */
+byte mbox = 0;     /* letters in the mailbox (unread until opened) */
+byte opened = 0;
+byte skips = 0;
+
+#define UNREAD_LEFT (mbox & ~opened)
+/* counts_as_waiting (mail_push.py 135-143) and _send_trailing: pending() > 0 or unread */
+#if PENDING_OWED
+#define WAITING (((queued & ~sentm) != 0) || UNREAD_LEFT != 0)
+#else
+#define WAITING (queued != 0 || UNREAD_LEFT != 0)
+#endif
+/* ring_waiting: a waiting() row or unread mail */
+#define OWED (((queued & missed) != 0) || UNREAD_LEFT != 0)
+/* ghost: work from other desks the desk has not got or not opened */
+#define OUTSIDE (((queued & ~dlv) != 0) || UNREAD_LEFT != 0)
+
+/* wake.py _GATE / _EPOCH / _TRAIL (one desk); tokens cycle 1..3 (the code's are uuids) */
+byte gate_ep = 0;
+byte ep_ctr = 0;
+bool held = false;       /* _TRAIL for the live lease */
+bool held_self = false;  /* ghost: every item it held back was the desk's own */
+byte firing = 0;
+chan pend = [2] of { byte };
+byte selfmask = 0;       /* ghost: leases a self trigger started, by token */
+
+/* wasted_wake._leases[D] */
+bool tr_live = false;
+bool tr_acted = false;
+bool tr_run = false;     /* ghost: the run that holds the lease acted */
+byte tr_tok = 0;
+
+/* Hub.rooms[D]: slots 0 and 1 are the working session's connects (it
+   alternates, so a new connect can start while the last one's socket is
+   still in the room), slot 2 the woken run */
+bool seat[3];
+bool gone[3];            /* the client process exited; the office has not seen it */
+byte hops = 0;           /* tw exit hops in the outbox */
+bool hop_sl = false;     /* ghost: the hop came from a run a self wake started */
+
+#define SITTING (seat[0] || seat[1] || seat[2])
+#define LIVE_ANY ((seat[0] && !gone[0]) || (seat[1] && !gone[1]) || (seat[2] && !gone[2]))
+#define OTHER_SEAT(i) ((i != 0 && seat[0]) || (i != 1 && seat[1]) || (i != 2 && seat[2]))
+#define OTHER_LIVE(i) ((i != 0 && seat[0] && !gone[0]) || (i != 1 && seat[1] && !gone[1]) || (i != 2 && seat[2] && !gone[2]))
+
+/* ghosts for the properties */
+bool empty_wake = false;  /* F1: a wake went out whose trigger found nothing waiting */
+bool self_wake = false;   /* F7: a wake started by the desk's own step, no outside work */
+bool self_loop = false;   /* F7: a run that a self wake started starts another */
+bool miscount = false;    /* F1: a wake the wasted counter misses or credits to another connect */
+bool self_busy = false;   /* F2: a connect refused busy by the desk's own exited connect */
+bool busy_ring = false;   /* F2: a refused (busy) run rings a wake with nothing waiting */
+
+#ifdef MUT_NO_EMPTY_SKIP
+#define SKIP_PASS(tw) true
+#else
+#define SKIP_PASS(tw) ((tw && !TW_GUARD) || WAITING)
+#endif
+
+/* _hold_locked: record an item under the live lease */
+#define HOLD_ITEM held_self = (held -> held_self : true) && sf; held = true
+
+/* post_desk from the empty skip on. The caller sets its locals e (the trigger
+   found nothing waiting), sf (a self trigger, no outside work), sl (the caller
+   is a run a self wake started), br (the caller is a refused run). */
+inline post_desk(tw, tk) {
+  if
+  :: atomic { SKIP_PASS(tw) -> e = !WAITING };                 /* 1403-1421; e: it found nothing waiting */
+     if
+     :: atomic { gate_ep != 0 -> HOLD_ITEM }                   /* _coalesced */
+     :: atomic { gate_ep == 0 -> skip };
+        atomic {                                               /* _hold_or_take(take=True) */
+          if
+          :: gate_ep != 0 -> HOLD_ITEM; tk = 0
+          :: gate_ep == 0 && SKIP_TAKE_ATOMIC && !SKIP_PASS(tw) -> tk = 0   /* proposed: re-check under the lock */
+          :: gate_ep == 0 && !(SKIP_TAKE_ATOMIC && !SKIP_PASS(tw)) -> ep_ctr = ep_ctr % 3 + 1; gate_ep = ep_ctr; tk = gate_ep;
+                     held = false; held_self = false; firing++;
+                     if :: e -> empty_wake = true :: else -> skip fi;
+#if SELFG
+                     if :: sf && !OUTSIDE -> self_wake = true;   /* still no outside work at the take */ selfmask = selfmask | BIT(tk);
+                               if :: sl -> self_loop = true :: else -> skip fi
+                        :: else -> selfmask = selfmask & ~BIT(tk) fi;
+#endif
+                     if :: br && e -> busy_ring = true :: else -> skip fi
+          fi
+        };
+        if
+        :: tk != 0 ->
+           atomic {                                            /* 2xx: a run starts; mark_lease */
+             if :: nfull(pend) -> pend!tk :: full(pend) -> skip fi;
+#if TRACK
+             if :: tr_live -> miscount = true :: else -> skip fi;   /* overwritten, never stamped */
+             tr_live = true; tr_acted = false; tr_run = false; tr_tok = tk;
+#endif
+             firing--
+           }
+        :: else -> skip
+        fi
+     fi
+  :: atomic { !SKIP_PASS(tw) -> skip }                         /* skipped reason=empty */
+  fi
+}
+
+/* push.py ring_waiting, for the desk's own leave (or a frame no socket took) */
+inline ring_waiting(own, tk) {
+  if
+#ifdef MUT_NO_EMPTY_SKIP
+  :: atomic { !SITTING -> e = !WAITING; sf = own && !OUTSIDE };
+#else
+  :: atomic { !SITTING && OWED -> e = !WAITING; sf = own && !OUTSIDE };
+#endif
+     post_desk(false, tk)
+  :: else -> skip
+  fi
+}
+
+/* Hub.add with refuse (the default since card 834). A refusal closes 4409 and
+   returns: no discard, no ring (asgi.py 637-643). */
+inline sit(i, refused) {
+  atomic {
+    !seat[i] && !(SETTLE_OWN && OTHER_SEAT(i) && !OTHER_LIVE(i)) ->
+    if
+    :: OTHER_SEAT(i) -> refused = true;
+       if :: !OTHER_LIVE(i) -> self_busy = true :: else -> skip fi
+    :: else -> refused = false; seat[i] = true; gone[i] = false
+    fi
+  }
+}
+
+/* connect_sync_frame(hold=True), send, ack: every row not taken, plus unread mail */
+inline sync_open() {
+  atomic { dlv = dlv | queued | UNREAD_LEFT; queued = 0; missed = 0; sentm = 0 };
+  atomic { if :: skips < MAXSKIP -> skips++ :: true -> opened = opened | (dlv & mbox) fi }
+}
+
+/* the connect exits; the office discards its socket (at once, or later: ZOMBIE) */
+inline leave(i, tk) {
+#if ZOMBIE
+  atomic { gone[i] = true }                                    /* Reaper discards it */
+#else
+  atomic { seat[i] = false; gone[i] = false };
+#ifndef MUT_NO_LEAVE_RING
+  ring_waiting(true, tk)
+#endif
+#endif
+}
+
+/* an action command (send, note, hold, drop, ...): note_rpc. The acting desk
+   gets no hint of its own change (_poke skip_desk), so no item. */
+inline act(mine) {
+  atomic {
+#if !TRACK
+    skip
+#elif WASTE_FIX
+    if :: tr_live && mine -> tr_acted = true; tr_run = true :: else -> skip fi
+#else
+    if :: tr_live -> tr_acted = true; if :: mine -> tr_run = true :: else -> skip fi :: else -> skip fi
+#endif
+  }
+}
+
+/* a tw-wrapped command ends inside the connect: its exit hop goes in the outbox */
+inline tw_cmd() {
+  atomic { TW && hops < HMAX -> hops++;
+#if SELFG
+    hop_sl = sl
+#endif
+  }
+}
+
+/* One item from another desk (emit / fanout). */
+proctype Emitter(byte i) {
+  bool s, got, e, sf, sl, br;
+  byte tk;
+  atomic { queued = queued | BIT(i); if :: i > 0 -> mbox = mbox | BIT(i) :: else -> skip fi };
+  s = SITTING;                                                 /* HUB.rooms read */
+  if
+  :: s ->
+     atomic {                                                  /* _broadcast, _settle_row */
+       if
+       :: LIVE_ANY -> dlv = dlv | BIT(i); sentm = sentm | (queued & BIT(i)); got = true
+       :: !LIVE_ANY && SITTING && ZOMBIE_SEND_OK -> sentm = sentm | (queued & BIT(i)); got = true
+       :: !LIVE_ANY -> got = false;
+          /* send_text raised: the dead sockets are discarded, the row marked missed */
+          seat[0] = seat[0] && !gone[0]; seat[1] = seat[1] && !gone[1]; seat[2] = seat[2] && !gone[2];
+          gone[0] = gone[0] && seat[0]; gone[1] = gone[1] && seat[1]; gone[2] = gone[2] && seat[2];
+          missed = missed | (queued & BIT(i))
+       fi
+     };
+     if :: !got -> ring_waiting(false, tk) :: else -> skip fi
+  :: !s ->
+     atomic { missed = missed | (queued & BIT(i)); e = false; sf = false };   /* its own row is the work */
+     post_desk(false, tk)
+  fi
+}
+
+/* The office notices a closed socket: Hub.discard, then ring on the last leave. */
+#if ZOMBIE
+proctype Reaper() {
+  bool e, sf, sl, br, lv;
+  byte tk, j;
+end_reap:
+  do
+  :: atomic {
+       if
+       :: seat[0] && gone[0] -> j = 0
+       :: seat[1] && gone[1] -> j = 1
+       :: seat[2] && gone[2] -> j = 2
+       fi;
+       seat[j] = false; gone[j] = false; sl = false; br = false
+     };
+#ifndef MUT_NO_LEAVE_RING
+     ring_waiting(true, tk)
+#else
+     skip
+#endif
+  od
+}
+#endif
+
+/* The sit link sends a tw exit hop while a connect is live; the office runs
+   _h_tw_event, then post_desk after the commit. */
+#if TW
+proctype Hop() {
+  bool e, sf, sl, br;
+  byte tk;
+end_hop:
+  do
+  :: atomic { hops > 0 && LIVE_ANY -> hops--; sl = hop_sl; br = false };
+     atomic { e = !WAITING; sf = !OUTSIDE };
+     post_desk(true, tk)
+  od
+}
+#endif
+
+/* The lease runs out (wake.py lease_s): trail() when it held items back. */
+proctype Clock() {
+  bool e, sf, sl, br, h, hs;
+  byte tk;
+end_clock:
+  do
+  :: atomic { gate_ep != 0 && firing == 0 -> h = held; hs = held_self; gate_ep = 0; held = false;
+              sl = false; br = false;
+#if WASTE_FIX && TRACK
+              tr_live = false
+#else
+              skip
+#endif
+            };
+     if
+     :: h ->
+        if
+        :: atomic { WAITING -> e = !WAITING; sf = hs && !OUTSIDE }; post_desk(false, tk)
+        :: atomic { !WAITING -> skip }
+        fi
+     :: else -> skip
+     fi
+  od
+}
+
+/* mill wake-done --lease TOKEN (lease_done) */
+inline wake_done(mytk, tk) {
+  atomic {
+    if
+    :: gate_ep != mytk -> t = false                            /* stale: nothing ends, no stamp */
+    :: else -> t = held; gate_ep = 0; held = false;
+#if TRACK
+       if :: tr_live -> if :: tr_acted && !tr_run -> miscount = true :: else -> skip fi; tr_live = false
+          :: else -> skip fi                                   /* finish_lease */
+#else
+       skip
+#endif
+    fi
+  };
+  if
+#ifdef MUT_SIT_NOGUARD
+  :: atomic { t && WAITING -> e = !WAITING; sf = !OUTSIDE }; post_desk(false, tk)
+#else
+  :: atomic { t && SITTING -> skip }                           /* #889: sitting, no POST */
+#ifdef MUT_TRAIL_ANY
+  :: atomic { t && !SITTING -> e = !WAITING; sf = !OUTSIDE }; post_desk(false, tk)
+#else
+  :: atomic { t && !SITTING && WAITING -> e = !WAITING; sf = !OUTSIDE }; post_desk(false, tk)
+#endif
+#endif
+  :: else -> skip
+  fi
+}
+
+/* The desk's working session: WK finite connects, each in its own shell call. */
+proctype Worker() {
+  bool e, sf, sl, br, refused;
+  byte k, i, tk;
+  sl = false; br = false;
+  do
+  :: k < WK ->
+     i = k % 2; k++;
+     sit(i, refused);
+     if
+     :: refused -> skip                                        /* busy, exit 0 */
+     :: else ->
+        sync_open();
+        if :: tw_cmd() :: skip fi;
+#if TRACK
+        if :: act(false) :: skip fi;                           /* send, note, drop ... */
+#endif
+        leave(i, tk)
+     fi
+  :: k >= WK -> break
+  od
+}
+
+/* A woken run (the routine behind the webhook): one connect, then done or not. */
+proctype Run() {
+  bool e, sf, sl, br, refused, t, dn;
+  byte mytk, tk;
+end_run:
+  do
+  :: atomic { pend?mytk ->
+#if SELFG
+       sl = ((selfmask & BIT(mytk)) != 0);
+#endif
+       br = false; dn = false };
+     sit(2, refused);
+     if
+     :: refused -> br = true;                                  /* busy, exit 0 */
+        if :: wake_done(mytk, tk) :: skip fi
+     :: else ->
+        sync_open();
+        if :: tw_cmd() :: skip fi;
+#if TRACK
+        if :: act(true) :: skip fi;
+#endif
+        if :: wake_done(mytk, tk); dn = true :: skip fi;       /* done inside the connect */
+        leave(2, tk);
+        if :: !dn -> wake_done(mytk, tk) :: !dn -> skip :: dn -> skip fi
+     fi
+  od
+}
+
+init {
+  byte k;
+  atomic {
+    k = 0;
+    do :: k < N -> run Emitter(k); k++ :: k >= N -> break od;
+    run Worker(); run Run(); run Clock();
+#if ZOMBIE
+    run Reaper();
+#endif
+#if TW
+    run Hop();
+#endif
+  }
+}
+
+ltl no_empty_wake { [] !empty_wake }
+ltl no_self_wake { [] !self_wake }
+ltl no_self_loop { [] !self_loop }
+ltl wake_counted { [] !miscount }
+ltl no_self_busy { [] !self_busy }
+ltl no_busy_ring { [] !busy_ring }
+ltl all_handled { <> (dlv == ALL && (opened & MAILMASK) == MAILMASK) }
+
+#else  /* !LIVE: the model pinned at SYNC */
+
+
 #ifndef LAPSE_FIRING
 #define LAPSE_FIRING 0
 #endif
@@ -685,3 +1184,5 @@ ltl all_handled { <> (dlv == ALL && (!UNREAD || (opened & MAILMASK) == MAILMASK)
 
 /* #322: wake-done never sends its trailing POST while the run's own connect sits. */
 ltl no_dup_done { [] (!dup_done) }
+
+#endif /* LIVE */

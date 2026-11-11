@@ -103,6 +103,26 @@ W30|wake|-DN=2 -DMAXFAIL=1 -DATOMIC_EMIT=1|handled|violated|FINDING: a failed wa
 W31|wake|-DN=2 -DMAXFAIL=1 -DATOMIC_EMIT=1 -DRETRY_UNREAD=1|handled|pass|proposed: retry while unread mail remains: delivered
 M22|wake|-DN=2 -DMAXFAIL=2 -DATOMIC_EMIT=1 -DRETRY827=0|live|violated|pre-#300 _fire: both POSTs fail, no later try
 M23|wake|-DN=2 -DMAXFAIL=0 -DMUT_NO_RERING|handled|violated|mutation of #297: a letter left unread after its push row drained never rings again
+V01|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1|ltl:no_empty_wake|violated|F1 before #416 (main 8bae076): a tw exit hop of its own finite connect, nothing pending, rings a webhook wake (post_desk exempted every watch_id frame)
+V02|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DTW_GUARD=1|ltl:no_empty_wake|pass|F1, #416 (card 1141): a tw exit or crash goes through the empty skip; no wake with nothing waiting
+V03|wake|-DLIVE=1 -DN=2 -DWK=1|ltl:no_empty_wake|pass|F1, no tw: a connect exit (Hub.discard, ring_waiting) never rings with nothing pending, two items
+V04|wake|-DLIVE=1 -DN=1 -DWK=1 -DMUT_NO_EMPTY_SKIP|ltl:no_empty_wake|violated|mutation: no empty skip in post_desk and ring_waiting (keeps V02 and V03 from being vacuous)
+V05|wake|-DLIVE=1 -DN=1 -DWK=1 -DTRACK=1|ltl:wake_counted|violated|F1 count, MODELLED (not measured): note_rpc marks the live tracker acted for any session of the desk and mark_lease overwrites an unstamped tracker, so a wake is miscounted (main and #416)
+V06|wake|-DLIVE=1 -DN=1 -DWK=1 -DTRACK=1 -DWASTE_FIX=1|ltl:wake_counted|pass|proposed (card 1140 a, b): stamp a lapsed lease, only the run holding the token marks it acted; one item
+V07|wake|-DLIVE=1 -DN=1 -DWK=2 -DZOMBIE=1|ltl:no_self_busy|violated|F2 FINDING: the own exited connect of the desk still sits until the office sees the close; a same-desk reconnect after the 1 s + 2 s settle is refused busy
+V08|wake|-DLIVE=1 -DN=1 -DWK=2 -DZOMBIE=1 -DSETTLE_OWN=1|ltl:no_self_busy|pass|proposed: a refused connect keeps retrying while the holder is its own exited connect
+V09|wake|-DLIVE=1 -DN=1 -DWK=1 -DZOMBIE=1|ltl:no_busy_ring|pass|F2: a busy refusal never rings a wake with nothing waiting (the wake-done of a refused run rings only for held work)
+V10|wake|-DLIVE=1 -DN=1 -DWK=1 -DZOMBIE=1 -DMUT_NO_EMPTY_SKIP -DMUT_TRAIL_ANY|ltl:no_busy_ring|violated|mutation: no empty skip and a trailing POST with nothing waiting (keeps V09 from being vacuous)
+V11|wake|-DLIVE=1 -DN=1 -DWK=1 -DZOMBIE=1|handled|pass|F2: with a seat-free delay, every item is still delivered and opened when a frame sent into the dead socket fails
+V12|wake|-DLIVE=1 -DN=1 -DWK=1 -DZOMBIE=1 -DZOMBIE_SEND_OK=1|handled|violated|F2, UNCLEAR in the code: if send_text into the not-yet-closed socket returns, the row is marked sent, nothing rings, and the item waits for the next connect
+V13|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DSELFG=1|ltl:no_self_wake|violated|F7 before #416: the own tw exit hop of the run starts a wake with no outside work
+V14|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DTW_GUARD=1 -DSELFG=1|ltl:no_self_wake|violated|F7 FINDING on #416: pending() counts rows already sent live, so a tw exit after a live item rings a wake for work the desk has
+V15|wake|-DLIVE=1 -DN=2 -DWK=1 -DSELFG=1|ltl:no_self_wake|violated|F7 FINDING, no tw: the wake-done trailing POST (_send_trailing, pending()) rings for a row sent live
+V16|wake|-DLIVE=1 -DN=2 -DWK=1 -DPENDING_OWED=1 -DSKIP_TAKE_ATOMIC=1 -DSELFG=1|ltl:no_self_wake|pass|proposed: count only rows not sent live, and re-check empty under the gate lock: no self wake, two items
+V17|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DTW_GUARD=1 -DPENDING_OWED=1 -DSKIP_TAKE_ATOMIC=1 -DSELFG=1|ltl:no_self_wake|pass|same with tw exit hops on #416
+V18|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DSELFG=1|ltl:no_self_loop|violated|F7 before #416: a run a self wake started rings another self wake (the loop)
+V19|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DTW_GUARD=1 -DSELFG=1|ltl:no_self_loop|pass|F7, #416: no self wake chain beyond one per lease (V18 is its old-shape mutant)
+V20|wake|-DLIVE=1 -DN=1 -DWK=1 -DTW=1 -DTW_GUARD=1 -DPENDING_OWED=1 -DSKIP_TAKE_ATOMIC=1|handled|pass|the proposed fixes lose nothing: every item delivered and opened
 H01|holds|-DDESKS=2 -DPOLICY=0|mutex|pass|mutual exclusion, 2 desks
 H02|holds|-DDESKS=3 -DPOLICY=1|mutex|pass|mutual exclusion, 3 desks
 H03|holds|-DDESKS=3 -DPOLICY=0 -DROUNDS=1|safety|pass|the mill never blocks: no invalid end state
@@ -118,6 +138,10 @@ H12|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|np|pass|card 842: reset or reti
 H13|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1|mutex|pass|card 842: the release keeps mutual exclusion
 M05|holds|-DDESKS=2 -DPOLICY=2 -DDIE=1 -DRESET=1 -DMUT_RESET_KEEPS|np|violated|mutation of card 842: reset that keeps the holds leaves the others stuck
 M03|holds|-DDESKS=2 -DPOLICY=0 -DMUT_HOLD_NOLOCK|mutex|violated|mutation: no FOR UPDATE breaks mutual exclusion
+V21|holds|-DREAD_DROP=1|ltl:sync_fresh|pass|F3: a sync whose hold read starts after the drop commit never shows the hold (each read commits, so a fresh snapshot)
+V22|holds|-DREAD_DROP=1 -DMUT_SNAPSHOT_CARRY|ltl:sync_fresh|violated|mutation: the hold read reuses the first snapshot of the frame (REPEATABLE READ, no commit between reads)
+V23|holds|-DREAD_DROP=1|ltl:sync_after_reply|violated|F3 REACHABLE: a connect sync in a second shell, read before the drop commits, prints after the drop reply and shows the dropped hold
+V24|holds|-DREAD_DROP=1 -DSAME_SHELL=1|ltl:sync_after_reply|pass|F3: in one shell (connect after the drop reply) the sync never shows the dropped hold
 T01|todo|-DCHECK_EDGES|inv|pass|0.8.0 todo at 8a80dc1: every committed move is an edge (guards under the card lock; T8 from open with a volunteer)
 T02|todo|-DCHECK_EDGES -DUNPARK_GUARD=0|inv|violated|mutation (pre-F186): unpark has no status guard; a claimed, shipped or done card goes open
 T03|todo|-DCHECK_EDGES -DASSIGN_LOCKED=0|inv|violated|mutation (pre-F186): assign checks an unlocked read, then writes blind
