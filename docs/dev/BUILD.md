@@ -168,3 +168,5 @@ A failed upload leaves PyPI unchanged for that file; fix and rerun the job. PyPI
 ## Allowlist vs gitignore
 
 `.gitignore` is a denylist (skip these). The wheel allowlist is the opposite: only expected paths may ship. Changing the allowlist is a visible git diff. The pack pipeline is what enforces it.
+
+This line is a card 1127 CI probe and is never merged.
