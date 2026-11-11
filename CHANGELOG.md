@@ -10,6 +10,10 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.12 (2026-11-10)
+
+## Last changes
+
 0.8.11 (2026-11-10)
 
 - card 1103: skip the name-token rule on bot-authored PR bodies
@@ -30,17 +34,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 1120: generate CHANGELOG.md at bump from each PR's one-line Changelog section
 - card 1120: docs-only Changelog exemption diffs base...head in CI
 - docs: hold habit in mill-desk skill (0.8.11)
-
-## Last changes
-
-0.8.10 (2026-11-09)
-
-- card 1098 items 1-2: compress two-state transition cycles into one row with count `n`; admin transitions pane; idempotent migrate adds `transition.n` (#371)
-- card 1098 item 3: tw writes score transitions on start, finish and fail (#373)
-- card 1098 / 1093: `--receipt` on send and reply; unopened receipt dests always wake; Wall Needs human clears once opened (#373)
-- card 1098 item 5: wake owed only on a real miss, automatic wake-done, skip empty wakes (#373)
-- card 1098 / admin book pane: admin window selector, by-pair table, wake health; book tab type table, transitions block, wake-health alerts (#373)
-- card 1098 / docs: `--receipt` and the tw score note, plus the single-host config.toml limit (#373)
-- card 1098 / sql: `sp_cmd.sql` and `sp_push.sql` reload via migrate (#371, #373)
-- card 1095 / card 1097: tw status without a sit; join and connect write the desk pointer (#370)
-- card 970 / pack skill.md: tw habit with `--log FILE` (#368, #369)
