@@ -54,6 +54,8 @@ paths = [
   "tests/install/test_validator_pass_810.py",
   "tests/install/test_validator_status_identity_811.py",
   "tests/tools/test_precheck_959.py",
+  "tests/tools/test_check_install_drift.py",
+  "tools/check_install_drift.py",
   "tools/__init__.py",
   "tools/book_shape.py",
   "tools/check_pack.py",

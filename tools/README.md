@@ -97,6 +97,25 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
+## check_install_drift.py
+
+Card 1145. Dump routine bodies plus table and column schema from a gold
+book and a subject book, normalize them (strip DEFINER, whitespace, and
+AUTO_INCREMENT counters), and diff the per-object hashes. The demo
+starts its own throwaway mysqld and never points at a live office book.
+
+```bash
+python tools/check_install_drift.py --gold-database gold --subject-database subject
+python tools/check_install_drift.py --gold-database gold --subject-database subject --strict
+python tools/check_install_drift.py --demo --root . --workdir DIR
+```
+
+The compare command exits 0 after the report by default, even with
+drift. Not a CI gate. Tests prove normalize/diff fail on doctored input
+and pass on clean input. The live install-then-doctor test is marked
+sql; CI pytest_sql_run is the proof.
+
+
 ## check_repro.py
 
 Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
