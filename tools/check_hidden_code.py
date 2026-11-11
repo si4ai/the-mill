@@ -364,18 +364,14 @@ def section_control(root: Path, base: str, head: str, changes: list[Change], sel
     for ch in changes:
         p = ch.path
         if p.startswith(".github/"):
-            flagged = False
             for n, line in ch.added:
                 s = line.strip()
                 if s.startswith("permissions:") or re.match(r"^[a-z-]+:\s*(write|read|none)\b", s):
                     out.append(Finding(4, p, n, f"permission: {s}"))
-                    flagged = True
                 elif "secrets." in s:
                     out.append(Finding(4, p, n, "reads a secret"))
-                    flagged = True
                 elif "pull_request_target" in s:
                     out.append(Finding(4, p, n, "pull_request_target trigger"))
-                    flagged = True
                 else:
                     m = _USES.match(line)
                     if m:
@@ -389,10 +385,8 @@ def section_control(root: Path, base: str, head: str, changes: list[Change], sel
                             old = _git_bytes(root, "show", f"{base}:{p}") or b""
                             if action.encode() not in old:
                                 out.append(Finding(4, p, n, f"new action: {action}"))
-                        flagged = True
-            if not flagged:
-                verb = {"A": "added", "D": "deleted"}.get(ch.status, "changed")
-                out.append(Finding(4, p, 0, f"control-plane file {verb}"))
+            verb = {"A": "added", "D": "deleted"}.get(ch.status, "changed")
+            out.append(Finding(4, p, 0, f"control-plane file {verb}"))
         if p == MAP_REL:
             old = _git_bytes(root, "show", f"{base}:{p}")
             new = _git_bytes(root, "show", f"{head}:{p}")
