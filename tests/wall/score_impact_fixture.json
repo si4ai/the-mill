@@ -1,0 +1,674 @@
+{
+ "_sample": "SAMPLE fixture for the Score tab redesign. Doing values from mill score Office on 11 Nov 2026; wake rows, activity hours, transitions and finished runs are fake shapes until Builder's seeded data lands.",
+ "now": "2026-11-11T12:00:00-08:00",
+ "kpis": [
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "builder",
+   "value": "1086",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:40:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "builder",
+   "value": "3.3",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:40:00Z"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "builder",
+   "value": "finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:40:00Z"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "builder",
+   "value": "tw_finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:40:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "wall-ui",
+   "value": "1272",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:41:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "wall-ui",
+   "value": "2.8",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:41:00Z"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "wall-ui",
+   "value": "finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:41:00Z"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "wall-ui",
+   "value": "tw_finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:41:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "auditor",
+   "value": "1066",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:42:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "auditor",
+   "value": "3.6",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:42:00Z"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "auditor",
+   "value": "active",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:42:00Z"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "auditor",
+   "value": "tw_finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:42:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "grok-tui",
+   "value": "40",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "grok-tui",
+   "value": "3.5",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_waiting_ms",
+   "owner": "grok-tui",
+   "value": "12906.607",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "grok-tui",
+   "value": "finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "grok-tui",
+   "value": "tw_finished",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "validator",
+   "value": "366220041.908",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:44:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "validator",
+   "value": "3.8",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:44:00Z"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "validator",
+   "value": "failed",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:44:00Z"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "validator",
+   "value": "tw_failed",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:44:00Z"
+  },
+  {
+   "kpi": "doing.task.dwell_active_ms",
+   "owner": "gardener",
+   "value": "365881991.553",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "doing.task.dwell_idle_ms",
+   "owner": "gardener",
+   "value": "3.1",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "doing.task.last_run",
+   "owner": "gardener",
+   "value": "failed",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "doing.task.end_reason",
+   "owner": "gardener",
+   "value": "tw_failed",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "doing.task.wait_by_cause",
+   "owner": "grok-tui",
+   "value": "{\"quiet\":1}",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:43:00Z"
+  },
+  {
+   "kpi": "mill-office.wasted_wake_share",
+   "owner": "mill-host",
+   "value": "0.44",
+   "target": "0",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "mill-office.wasted_wake_n",
+   "owner": "mill-host",
+   "value": "4",
+   "target": "0",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wasted_n",
+   "owner": "builder",
+   "value": "1",
+   "target": "0",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wakes_n",
+   "owner": "builder",
+   "value": "3",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wasted_n",
+   "owner": "validator",
+   "value": "2",
+   "target": "0",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wakes_n",
+   "owner": "validator",
+   "value": "4",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wasted_n",
+   "owner": "wall-ui",
+   "value": "1",
+   "target": "0",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "wake.wakes_n",
+   "owner": "wall-ui",
+   "value": "2",
+   "target": "",
+   "roster_id": "Office",
+   "updated": "2026-11-11T19:45:00Z"
+  },
+  {
+   "kpi": "mill-wall.ws_push",
+   "owner": "Office",
+   "value": "228",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.ws_miss",
+   "owner": "Office",
+   "value": "40",
+   "target": "0",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.api_ms",
+   "owner": "Office",
+   "value": "4163",
+   "target": "100",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.err_n",
+   "owner": "Office",
+   "value": "0",
+   "target": "0",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "wall",
+   "owner": "Office",
+   "value": "162",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.ticks",
+   "owner": "builder",
+   "value": "12",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.idle_verbs",
+   "owner": "builder",
+   "value": "3",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.hint_drop",
+   "owner": "builder",
+   "value": "0",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.ticks",
+   "owner": "validator",
+   "value": "12",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.idle_verbs",
+   "owner": "validator",
+   "value": "3",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.hint_drop",
+   "owner": "validator",
+   "value": "0",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-wall.ticks",
+   "owner": "gardener",
+   "value": "12",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.idle_verbs",
+   "owner": "gardener",
+   "value": "3",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "mill-desk.hint_drop",
+   "owner": "gardener",
+   "value": "0",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "system",
+   "owner": "validator",
+   "value": "402",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "system",
+   "owner": "builder",
+   "value": "311",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "system",
+   "owner": "wall-ui",
+   "value": "97",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "system",
+   "owner": "gardener",
+   "value": "58",
+   "target": "",
+   "roster_id": "Office"
+  },
+  {
+   "kpi": "cards",
+   "owner": "Office",
+   "value": "7",
+   "target": "",
+   "roster_id": "Office"
+  }
+ ],
+ "ctx": {
+  "sample": "Sample fixture. Wake rows, activity, transitions and finished runs are fake until Builder's seeded data lands.",
+  "activity": {
+   "wake": {
+    "hours": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     2,
+     4,
+     6,
+     5,
+     7,
+     3,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "byDesk": {
+     "builder": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "validator": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   "doing": {
+    "hours": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     8,
+     12,
+     9,
+     14,
+     6,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "byDesk": {
+     "builder": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      6,
+      3,
+      5,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "wall-ui": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      2,
+      6,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   "mail": {
+    "hours": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     5,
+     9,
+     4,
+     6,
+     2,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "transitions": {
+   "window": "24h",
+   "by_pair": [
+    {
+     "activity_type": "doing",
+     "from_state": "none",
+     "to_state": "active",
+     "rows": 41,
+     "events": 41,
+     "saved_rows": 0
+    },
+    {
+     "activity_type": "doing",
+     "from_state": "active",
+     "to_state": "finished",
+     "rows": 37,
+     "events": 37,
+     "saved_rows": 0
+    },
+    {
+     "activity_type": "doing",
+     "from_state": "active",
+     "to_state": "waiting",
+     "rows": 6,
+     "events": 9,
+     "saved_rows": 3
+    },
+    {
+     "activity_type": "mail",
+     "from_state": "sent",
+     "to_state": "read",
+     "rows": 88,
+     "events": 90,
+     "saved_rows": 2
+    }
+   ]
+  },
+  "runs": [
+   {
+    "desk": "builder",
+    "phase": "finished",
+    "dwell_active_ms": 1086,
+    "dwell_waiting_ms": 0
+   },
+   {
+    "desk": "builder",
+    "phase": "finished",
+    "dwell_active_ms": 2400
+   },
+   {
+    "desk": "wall-ui",
+    "phase": "finished",
+    "dwell_active_ms": 1272
+   },
+   {
+    "desk": "auditor",
+    "phase": "start"
+   },
+   {
+    "desk": "grok-tui",
+    "phase": "finished",
+    "dwell_active_ms": 40,
+    "dwell_waiting_ms": 12906.607
+   },
+   {
+    "desk": "validator",
+    "phase": "failed",
+    "dwell_active_ms": 366220041.908
+   }
+  ]
+ }
+}

@@ -71,7 +71,7 @@
     },
     score: {
       js: "/score/score.js?v=wow328",
-      css: "/score/score.css?v=wow321",
+      css: "/score/score.css?v=wow342",
       marker: "WALL_UI_DEFAULT_SCORE",
       modules: ["scorePaint"]
     },
@@ -116,9 +116,15 @@
       domain: "mail"
     },
     scorePaint: {
-      js: "/score/score-paint.js?v=wow323",
+      js: "/score/score-paint.js?v=wow342",
       marker: "WALL_UI_DEFAULT_SCORE_PAINT",
-      domain: "score"
+      domain: "score",
+      with: ["scoreImpact"]
+    },
+    /* Score tab redesign: impact-ordered Scores + tw-time Spend. Loads with scorePaint. */
+    scoreImpact: {
+      js: "/score/score-impact.js?v=wow342",
+      marker: "WALL_UI_DEFAULT_SCORE_IMPACT"
     },
     floorPaint: {
       js: "/floor/floor-paint.js?v=wow323",

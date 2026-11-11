@@ -798,9 +798,8 @@
       paintScoreBottlenecks(d);
       paintScoreDeskProgress(d);
       try { paintScoreTaskWrap(d, scoreSelectedDesk); } catch (eTaskCards) {}
-      const spendBlock = millSpend(d);
-      const spendView = document.getElementById("score-spend-view");
-      if (spendView) spendView.innerHTML = spendBlock || `<div class="idle">No mill spend in this window.</div>`;
+      /* Score tab redesign: Scores in impact groups, Spend as tw doing time (score-impact.js). */
+      if (typeof paintScoreImpact === "function") try { paintScoreImpact(); } catch (eImpact) {}
       const legacy = document.getElementById("cards");
       if (legacy) {
         legacy.innerHTML = "";
@@ -832,93 +831,6 @@
       } catch (e) {}
     }
 
-    /* Moved out of boot.js with the pane (#872, wall-contract rule-lazy-panes). */
-    function spendWhatRows(d) {
-      const lines = d.spend_lines || [];
-      let rows = lines.length ? lines : (d.spend || []);
-      if (spendWindow === "today") {
-        const now = new Date();
-        const ymd = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
-        rows = rows.filter(r => rowDay(r) === ymd);
-      }
-      if (spendOwner) {
-        const want = spendOwner.toLowerCase();
-        rows = rows.filter(r => String(r.owner || "").toLowerCase() === want);
-      }
-      return rows;
-    }
-    /* #896 rule-no-activity-weight: never invent spend from activity n and weight.
-     * Prefer spend_lines / spend with reply bytes. If neither is present, say unavailable. */
-    function millSpend(d) {
-      const allLines = (d.spend_lines && d.spend_lines.length) ? d.spend_lines : (d.spend || []);
-      const rows = allLines.length ? spendWhatRows(Object.assign({}, d, { spend_lines: allLines })) : [];
-      const millBytes = rows.reduce((a, r) => a + (Number(r.bytes_out || r.bytes || 0) || 0), 0);
-      const tokens = rows.reduce((a, r) => a + Number(r.tokens || 0), 0);
-      const usd = rows.reduce((a, r) => a + Number(r.usd || 0), 0).toFixed(4);
-      const spendEl = document.getElementById("score-spend");
-      if (spendEl) {
-        if (!allLines.length) {
-          spendEl.innerHTML = `MILL SPEND<b>unavailable</b>`;
-        } else if (millBytes > 0 || rows.some(r => r.bytes_out != null || r.bytes != null)) {
-          spendEl.innerHTML = `MILL SPEND<b>${esc(millBytes)}</b> B | est USD<b>${esc(usd)}</b>`;
-        } else {
-          spendEl.innerHTML = `MILL SPEND<b>${esc(tokens)}</b> | est USD<b>${esc(usd)}</b>`;
-        }
-      }
-      const owners = [...new Set(allLines.map(r => r.owner).filter(Boolean))].sort();
-      const ownerOpts = `<option value="">owner</option>` + owners.map(o =>
-        `<option value="${esc(o)}"${o === spendOwner ? " selected" : ""}>${esc(o)}</option>`
-      ).join("");
-      const ownerSel = owners.length > 1
-        ? `<select id="spend-owner">${ownerOpts}</select>`
-        : "";
-      const cut = allLines.length
-        ? (`<span class="wall-filter spend-cut">` +
-          `<button type="button" data-spend-window="today" class="${spendWindow === "today" ? "on" : ""}">today</button>` +
-          `<button type="button" data-spend-window="all" class="${spendWindow === "all" ? "on" : ""}">all</button>` +
-          `</span>` + ownerSel)
-        : "";
-      const byOwner = {};
-      rows.forEach(r => {
-        const o = String(r.owner || "-");
-        (byOwner[o] = byOwner[o] || []).push(r);
-      });
-      const groups = Object.keys(byOwner).sort((a, b) => {
-        const ta = byOwner[a].reduce((s, r) => s + Number(r.tokens || 0), 0);
-        const tb = byOwner[b].reduce((s, r) => s + Number(r.tokens || 0), 0);
-        return tb - ta || a.localeCompare(b);
-      }).map(owner => {
-        const list = byOwner[owner].slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
-        const tok = list.reduce((s, r) => s + Number(r.tokens || 0), 0);
-        const u = list.reduce((s, r) => s + Number(r.usd || 0), 0);
-        const lines = list.map(r => {
-          const kind = String(r.kind || r.source || "mill");
-          const kcls = kind.toLowerCase().replace(/[^a-z0-9]+/g, "");
-          const what = r.detail || r.note || (millGid(r) ? (String(millGid(r)) + (r.cmds ? " cmds " + r.cmds : "")) : "");
-          return `<div class="spend-row kind-${esc(kcls)}">` +
-            `<span class="when">${esc(dt(r.at))}</span>` +
-            `<span class="k">${esc(kind)}</span>` +
-            `<span class="tok" title="tokens">${esc(r.tokens == null ? "-" : r.tokens)}</span>` +
-            `<span class="usd" title="est USD">${esc(r.usd == null || r.usd === 0 ? "" : ("$" + r.usd))}</span>` +
-            `<span class="what">${esc(what)}</span>` +
-          `</div>`;
-        }).join("");
-        return `<div class="spend-group">` +
-          `<h3>${esc(owner)} <span>${esc(String(tok))} tok` + (u ? ` | $${esc(u.toFixed(4))}` : "") + `</span></h3>` +
-          lines +
-        `</div>`;
-      }).join("");
-      const body = rows.length
-        ? groups
-        : '<div class="idle">nothing in this window yet</div>';
-      return `<div class="spend-chrome">${cut}</div>` +
-        `<div class="spend-summary">` +
-          `<span class="sp-item">Tokens<b>${esc(tokens)}</b></span>` +
-          `<span class="sp-item">est USD<b>${esc(usd)}</b></span>` +
-          `<span class="sp-item">Lines<b>${esc(String(rows.length))}</b></span>` +
-        `</div>` +
-        `<div class="spend-body">${body}</div>`;
-    }
     function scoreKpiCell(k) {
       if (!k) return `<span class="score-lt dim">-</span>`;
       const last = (k.value == null || k.value === "") ? "-" : String(k.value);
@@ -1022,8 +934,9 @@
       const books = [];
       if (_officeScores && Array.isArray(_officeScores.kpis)) books.push(_officeScores.kpis);
       if (d && Array.isArray(d.kpis)) books.push(d.kpis);
-      const showPlatform = !!scoreShown("system");
-      const showFiled = !_scoreGroupOff.office;
+      /* Every score is listed by score-impact.js; the charts always show and the old filed list stays off. */
+      const showPlatform = true;
+      const showFiled = false;
       if (productEl) productEl.hidden = !showPlatform;
       if (!showPlatform && !showFiled) {
         if (humanEl) {
