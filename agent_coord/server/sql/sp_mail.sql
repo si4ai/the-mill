@@ -326,7 +326,13 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'mail: only the sender or an Admin desk may change this letter';
   END IF;
-  UPDATE mail SET body = IFNULL(p_body, body) WHERE id = p_id;
+  -- Card 1133: a write that changes the text stamps it (left to right: stamps before body); mill_body_replace
+  -- checks that stamp.
+  UPDATE mail
+     SET body_updated = IF(p_body IS NULL OR CAST(p_body AS BINARY) = CAST(body AS BINARY), body_updated, v_ts),
+         body_updater_id = IF(body_updated <=> v_ts, v_desk, body_updater_id),
+         body = IFNULL(p_body, body)
+   WHERE id = p_id;
   CALL mill_activity_put('mail', p_id, v_ts, v_desk, v_proj, 'note', LENGTH(p_body));
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, v_ts AS updated;
@@ -453,6 +459,7 @@ BEGIN
          m.roster_id AS sender_roster_id,
          m.roster_id AS roster_id, t.desk_id AS dst_id, m.body,
          t.receipt AS receipt,
+         m.body_updated,  -- card 1133: the text stamp mill_body_replace checks (NULL = never edited; created stands)
          srcn.name AS desk, srcn.type AS desk_type, dstn.name AS dst, dstn.type AS dst_type, affn.name AS roster, affn.type AS roster_type,
          saffn.name AS sender_roster, saffn.type AS sender_roster_type
     FROM mail m

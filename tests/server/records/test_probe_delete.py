@@ -322,7 +322,10 @@ def test_detail_column_counts_characters(cn) -> None:
     body = scalar(cn, "SELECT body FROM todo WHERE id=%s", (rec["id"],))
     if isinstance(body, (bytes, bytearray)):
         body = body.decode()
-    assert json.loads(body)["detail"] == text
+    # card 1133: the body column is the card text itself; MILL_TODO_DOC rebuilds the document readers parse.
+    assert body == text
+    doc = scalar(cn, "SELECT MILL_TODO_DOC(body, meta) FROM todo WHERE id=%s", (rec["id"],))
+    assert json.loads(doc)["detail"] == text
     assert int(scalar(cn, "SELECT CHAR_LENGTH(%s)", (text,)) or 0) == 500
     assert int(scalar(cn, "SELECT LENGTH(%s)", (text,)) or 0) == 1000
     with pytest.raises(CoordError, match="max 4096"):
