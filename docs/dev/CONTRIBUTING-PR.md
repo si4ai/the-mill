@@ -101,6 +101,8 @@ person or host leaks:
    `pytest_no_sql`, `pytest_sql`, and the CodeQL jobs `analyze (python)`
    and `analyze (actions)`. A red PR is not reviewed. A PR from a fork
    runs CI only after a maintainer approves the run.
+   If the PR adds or moves a path that tests should run on, add that
+   pattern to the matching rule in `ci/test-select.toml`.
 
 5. Tell your loop lead the PR number in the card's thread. Merge path:
    [RELEASE-FLOW.md](RELEASE-FLOW.md). Do not merge your own PR.
