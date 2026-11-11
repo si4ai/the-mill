@@ -2,7 +2,9 @@
  * Every score row is listed; nothing is collapsed or hidden. Legend, never 0 for a gap:
  *   "-" (em dash) not fetched | "omitted" leaf not stored | "not filed" kpi key, nothing stored
  *   "no kpi" no key | "not sent" score.updated not in the payload.
- * Time comes only from doing.task.dwell_*_ms. Activity counts and transitions are context. */
+ * Time comes only from doing.task.dwell_*_ms. Activity counts and transitions are context.
+ * Routes (Builder letter 5492): /api/v1/scores rows carry updated; /api/v1/activity-buckets
+ * (bucket=hour, since=, type=, act=) and /api/v1/score-runs feed the context. */
 (function (global) {
   "use strict";
   var DASH = "\u2014";
@@ -185,7 +187,10 @@
     var v = String(row.k.value), t = row.k.target;
     var miss = typeof global.kpiMiss === "function" && global.kpiMiss(v, t);
     return '<td class="num' + (miss ? " si-miss" : "") + '">' + h(v) +
-      (t != null && t !== "" ? '<span class="si-tgt"> / ' + h(t) + "</span>" : "") + "</td>";
+      (t != null && t !== "" ? '<span class="si-tgt"> / ' + h(t) + "</span>" : "") + seedTag(row.k) + "</td>";
+  }
+  function seedTag(k) {
+    return (k && /^SEED_FAKE/.test(String(k.note || ""))) ? ' <span class="si-tag">seed</span>' : "";
   }
   function writtenCell(row) {
     if (!row.k) return '<td class="si-gap">' + DASH + "</td>";
@@ -289,8 +294,9 @@
       runs.forEach(function (r) {
         if (!r || r.phase !== "finished") return;
         var d = String(r.desk || "");
-        var s = sums[d] || (sums[d] = { n: 0, dwell_active_ms: null, dwell_idle_ms: null, dwell_waiting_ms: null });
+        var s = sums[d] || (sums[d] = { n: 0, seed: 0, dwell_active_ms: null, dwell_idle_ms: null, dwell_waiting_ms: null });
         s.n += 1;
+        if (r.seed === true) s.seed += 1;
         ["dwell_active_ms", "dwell_idle_ms", "dwell_waiting_ms"].forEach(function (key) {
           var v = num(r[key]);
           if (v != null) s[key] = (s[key] || 0) + v;
@@ -300,12 +306,17 @@
     var desks = Object.keys(by).filter(function (d) {
       var l = by[d].leaves;
       return l.dwell_active_ms != null || l.dwell_idle_ms != null || l.dwell_waiting_ms != null || l.last_run != null;
-    }).sort();
+    });
+    Object.keys(sums || {}).forEach(function (d) {
+      if (desks.indexOf(d) < 0) { desks.push(d); if (!by[d]) by[d] = { desk: d, leaves: {}, rows: {} }; }
+    });
+    desks.sort();
     var office = null;
     if (sums) {
-      office = { n: 0, dwell_active_ms: 0 };
+      office = { n: 0, seed: 0, dwell_active_ms: 0 };
       Object.keys(sums).forEach(function (d) {
         office.n += sums[d].n;
+        office.seed += sums[d].seed;
         office.dwell_active_ms += sums[d].dwell_active_ms || 0;
       });
     }
@@ -333,7 +344,8 @@
         ' values</b><div class="s">dwell_active_ms per desk \u00b7 not a sum</div></div>' +
       '<div class="si-kpi"><span class="l">Last-run waiting</span><b>' + h(String(sm.waitDesks.length)) + (sm.waitDesks.length === 1 ? " desk" : " desks") + '</b><div class="s">others omitted, not 0</div></div>' +
       '<div class="si-kpi"><span class="l">Finished-run total</span>' + (sm.office
-        ? "<b>" + h(fmtMs(sm.office.dwell_active_ms)) + '</b><div class="s">active, sum of ' + h(String(sm.office.n)) + " finished runs</div>"
+        ? "<b>" + h(fmtMs(sm.office.dwell_active_ms)) + '</b><div class="s">active, sum of ' + h(String(sm.office.n)) + " finished runs" +
+          (sm.office.seed ? " (" + h(String(sm.office.seed)) + " seeded stub)" : "") + "</div>"
         : '<b class="si-gap">unavailable</b><div class="s">no finished-run history in the payload</div>') + "</div></div>";
     var rows = sm.desks.map(function (d) {
       var l = sm.by[d].leaves, rws = sm.by[d].rows;
@@ -352,7 +364,7 @@
         '<td class="' + lrCls + '">' + h(lr || "omitted") + "</td>" +
         "<td" + (er ? "" : ' class="si-gap"') + ">" + h(er || "omitted") + (er && lr === "active" ? ' <span class="si-tag">previous run</span>' : "") + "</td>" +
         '<td class="' + (ts == null ? "si-gap" : "") + '">' + h(writtenText(ts)) + "</td>" +
-        (sm.sums ? (s ? msCell(s.dwell_active_ms, s.n + (s.n === 1 ? " run" : " runs")) : '<td class="num si-gap">none finished</td>') : '<td class="num si-gap">' + DASH + "</td>") +
+        (sm.sums ? (s ? msCell(s.dwell_active_ms, s.n + (s.n === 1 ? " run" : " runs") + (s.seed ? ", " + s.seed + " seed" : "")) : '<td class="num si-gap">none finished</td>') : '<td class="num si-gap">' + DASH + "</td>") +
         '<td class="num si-ctx' + (a ? "" : " si-gap") + '">' + (a ? h(String(a.today)) : DASH) + "</td></tr>";
     }).join("");
     var table = '<table data-table="score-spend-time"><thead><tr><th>desk</th><th class="num">last run active</th><th class="num">last run idle</th>' +
@@ -397,12 +409,119 @@
     });
   }
 
+  /* Context from the routes in letter 5492. Pure: route bodies in, ctx out. A route that did not
+   * answer leaves its part out (em dash); a route that answered with no rows paints 0. */
+  var ACT_TYPES = ["wake", "doing", "mail", "todo", "hold"];
+  function routeRows(body) {
+    if (Array.isArray(body)) return body;
+    if (!body || typeof body !== "object") return null;
+    var list = body.rows || body.buckets || body.runs || body.items;
+    return Array.isArray(list) ? list : null;
+  }
+  function parseLocal(raw) {
+    /* Naive "YYYY-MM-DD HH:MM:SS[.ffffff]" reads as the viewer's local clock. */
+    if (raw == null || raw === "") return null;
+    var t = Date.parse(String(raw).replace(" ", "T"));
+    return Number.isFinite(t) ? t : null;
+  }
+  function hourBuckets(rows, nowMs, wantType, wantAct) {
+    var now = new Date(nowMs == null ? Date.now() : nowMs);
+    var out = { hours: new Array(24).fill(0), byDesk: {} };
+    (rows || []).forEach(function (r) {
+      if (!r) return;
+      if (wantType && r.type !== wantType) return;
+      if (wantAct && r.act != null && r.act !== wantAct) return;
+      var t = parseLocal(r.updated);
+      if (t == null) return;
+      var d = new Date(t);
+      if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth() || d.getDate() !== now.getDate()) return;
+      var n = Number(r.items) || 0, hr = d.getHours(), desk = String(r.desk || "");
+      out.hours[hr] += n;
+      if (desk) {
+        if (!out.byDesk[desk]) out.byDesk[desk] = new Array(24).fill(0);
+        out.byDesk[desk][hr] += n;
+      }
+    });
+    return out;
+  }
+  function scoreImpactCtxFromRoutes(bodies, nowMs) {
+    var ctx = {};
+    var all = routeRows(bodies && bodies.activityAll);
+    var task = routeRows(bodies && bodies.activityTask);
+    if (all || task) {
+      ctx.activity = {};
+      if (all) ACT_TYPES.forEach(function (type) { ctx.activity[type] = hourBuckets(all, nowMs, type, ""); });
+      if (task) ctx.activity.doing = hourBuckets(task, nowMs, "doing", "task");
+      else delete ctx.activity.doing; /* doing items are task-only; all-type doing rows do not stand in */
+    }
+    var runs = routeRows(bodies && bodies.runs);
+    if (runs) ctx.runs = runs;
+    var win = bodies && bodies.transitions;
+    if (win && Array.isArray(win.by_pair)) ctx.transitions = { window: win.window || "24h", by_pair: win.by_pair };
+    return ctx;
+  }
+  function midnightIso(nowMs) {
+    var d = new Date(nowMs == null ? Date.now() : nowMs);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") + "T00:00:00";
+  }
+  function getAll(url) {
+    /* Follow body.next with ?cursor= (limit=500); null when the route is missing or not JSON. */
+    function one(cursor) {
+      return global.fetch(url + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { cache: "no-store" }).then(function (r) {
+        if (!r.ok || (r.headers.get("content-type") || "").toLowerCase().indexOf("json") < 0) return null;
+        return r.json();
+      }).catch(function () { return null; });
+    }
+    function rest(acc, cursor, pages) {
+      if (!cursor || pages >= 20) return acc;
+      return one(cursor).then(function (b) {
+        var more = routeRows(b);
+        if (!more) return acc;
+        return rest(acc.concat(more), b.next, pages + 1);
+      });
+    }
+    return one("").then(function (b) {
+      var rows = routeRows(b);
+      if (!rows) return null;
+      return rest(rows, b.next, 1);
+    });
+  }
+  function glanceTransitions() {
+    /* Card 1098 transition packet already loaded by the Session pane; no second read. */
+    try {
+      /* global _svcPacket */
+      var tr = (typeof _svcPacket !== "undefined" && _svcPacket && _svcPacket.book) ? _svcPacket.book.transition : null;
+      var win = tr && tr.windows && tr.windows["24h"];
+      return win && Array.isArray(win.by_pair) ? { window: "24h", by_pair: win.by_pair } : null;
+    } catch (eTr) { return null; }
+  }
+  var _liveCtx = null, _liveAt = 0, _liveBusy = false;
+  function scoreImpactLoadCtx(force) {
+    if (!global.fetch || _liveBusy) return;
+    if (!force && _liveCtx && Date.now() - _liveAt < 60000) return;
+    _liveBusy = true;
+    _liveAt = Date.now();
+    var q = "project=" + encodeURIComponent("Office") + "&limit=500";
+    var since = "&since=" + encodeURIComponent(midnightIso());
+    Promise.all([
+      getAll("/api/v1/activity-buckets?" + q + "&bucket=hour" + since),
+      getAll("/api/v1/activity-buckets?" + q + "&bucket=hour&type=doing&act=task" + since),
+      getAll("/api/v1/score-runs?" + q)
+    ]).then(function (got) {
+      _liveCtx = scoreImpactCtxFromRoutes({ activityAll: got[0], activityTask: got[1], runs: got[2], transitions: glanceTransitions() });
+      _liveBusy = false;
+      paintScoreImpact();
+    }, function () { _liveBusy = false; });
+  }
+
   /* DOM paint. #score-product (desk/command charts) moves into the System commands slot. */
   function paintScoreImpact() {
     var doc = global.document;
     if (!doc) return;
     var kpis = scoreImpactKpis();
-    var ctx = global._scoreImpactCtx || {};
+    /* _scoreImpactCtx is a test/sample override; otherwise the live routes fill the context. */
+    var ctx = global._scoreImpactCtx || _liveCtx || {};
+    if (!global._scoreImpactCtx) scoreImpactLoadCtx(false);
     var box = doc.getElementById("score-impact");
     if (box) {
       var product = doc.getElementById("score-product");
@@ -430,6 +549,8 @@
     scoreSpendHtml: scoreSpendHtml,
     scoreImpactActivity: activityFor,
     scoreImpactFmtMs: fmtMs,
+    scoreImpactCtxFromRoutes: scoreImpactCtxFromRoutes,
+    scoreImpactLoadCtx: scoreImpactLoadCtx,
     paintScoreImpact: paintScoreImpact
   };
   Object.keys(api).forEach(function (k) { global[k] = api[k]; });
