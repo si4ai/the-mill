@@ -59,7 +59,7 @@ def _job(text: str, name: str) -> str:
 def test_history_jobs_clone_full_history() -> None:
     """check_pack and both pytest jobs scan commit messages; shallow fails closed."""
     text = (WF / "ci.yml").read_text(encoding="utf-8")
-    for name in ("check_pack", "detect_docs_only", "pytest_no_sql_run", "pytest_sql_run"):
+    for name in ("check_pack", "select", "pytest_no_sql_run", "pytest_sql_run"):
         job = _job(text, name)
         assert job.count("fetch-depth: 0") == job.count("actions/checkout@"), name
         assert "fetch-depth: 0" in job, name
@@ -461,31 +461,33 @@ def test_pytest_sql_runs_two_xdist_workers() -> None:
     assert "pytest-xdist==" in lock, "ci.txt must pin pytest-xdist with hashes"
 
 
-def test_docs_detector_has_no_pack_or_database_dependency() -> None:
+def test_selector_has_no_pack_or_database_dependency() -> None:
+    """Card 1127: the select job runs ci/test_select.py with system Python only."""
     text = _code(WF / "ci.yml")
-    job = _job(text, "detect_docs_only")
+    job = _job(text, "select")
     assert "needs:" not in job and "services:" not in job
-    assert "skip_pytest: ${{ steps.detect.outputs.skip_pytest }}" in job
-    assert 'python3 tools/docs_only.py >> "$GITHUB_OUTPUT"' in job
-    assert "id: detect" in job
-    assert "pip install" not in job
+    for name in ("pytest_no_sql_run", "pytest_sql_run"):
+        assert f"{name}: ${{{{ steps.select.outputs.{name} }}}}" in job
+    assert "run: python3 ci/test_select.py --github" in job
+    assert "id: select" in job
+    assert "pip install" not in job and "setup-python" not in job
 
 
 def test_pytest_runners_are_conditional_and_gates_keep_required_names() -> None:
     text = _code(WF / "ci.yml")
     for name in ("pytest_sql", "pytest_no_sql"):
         run = _job(text, name + "_run")
-        assert "needs: [detect_docs_only, build_pack]" in run
-        assert "if: needs.detect_docs_only.outputs.skip_pytest != 'true'" in run
+        assert "needs: [select, build_pack]" in run
+        assert f"if: needs.select.outputs.{name}_run == 'true'" in run
         assert "python -m pytest tests" in run
         gate = _job(text, name)
-        assert f"needs: [detect_docs_only, {name}_run]" in gate
+        assert f"needs: [select, {name}_run]" in gate
         assert "if: always() && !cancelled()" in gate
-        assert "DETECT_RESULT: ${{ needs.detect_docs_only.result }}" in gate
-        assert "SKIP_PYTEST: ${{ needs.detect_docs_only.outputs.skip_pytest }}" in gate
+        assert "SELECT_RESULT: ${{ needs.select.result }}" in gate
+        assert f"SELECTED: ${{{{ needs.select.outputs.{name}_run }}}}" in gate
         assert f"RUN_RESULT: ${{{{ needs.{name}_run.result }}}}" in gate
-        assert 'test "$DETECT_RESULT" = success' in gate
-        assert 'test "$SKIP_PYTEST" = true || test "$RUN_RESULT" = success' in gate
+        assert 'test "$SELECT_RESULT" = success' in gate
+        assert 'test "$SELECTED" = false || test "$RUN_RESULT" = success' in gate
         assert "services:" not in gate and "uses:" not in gate
         assert "build_pack" not in gate
     assert "services:" in _job(text, "pytest_sql_run")
@@ -497,28 +499,28 @@ def test_prose_inspectors_and_codeql_stay_unconditional() -> None:
     for name in ("build_pack", "check_pack", "mill_cli_smoke", "precheck"):
         job = _job(text, name)
         assert not re.search(r"^    if:", job, re.M), name
-        assert "skip_pytest" not in job, name
+        assert "needs.select" not in job, name
     codeql = _code(WF / "codeql.yml")
-    assert "skip_pytest" not in codeql and "detect_docs_only" not in codeql
+    assert "needs.select" not in codeql and "test_select" not in codeql
 
 
-@pytest.mark.parametrize("detect,skip,run,success", [
-    ("success", "true", "skipped", True),
-    ("success", "false", "success", True),
-    ("success", "false", "failure", False),
-    ("success", "false", "cancelled", False),
-    ("success", "false", "skipped", False),
+@pytest.mark.parametrize("select,selected,run,success", [
+    ("success", "false", "skipped", True),
+    ("success", "true", "success", True),
+    ("success", "true", "failure", False),
+    ("success", "true", "cancelled", False),
+    ("success", "true", "skipped", False),
     ("success", "", "skipped", False),
-    ("failure", "true", "skipped", False),
-    ("skipped", "true", "skipped", False),
+    ("failure", "false", "skipped", False),
+    ("skipped", "false", "skipped", False),
 ])
-def test_required_gate_exit_status(detect: str, skip: str, run: str, success: bool) -> None:
+def test_required_gate_exit_status(select: str, selected: str, run: str, success: bool) -> None:
     text = _code(WF / "ci.yml")
     for name in ("pytest_sql", "pytest_no_sql"):
         gate = _job(text, name)
         shell = textwrap.dedent(gate.split("run: |\n", 1)[1])
         result = subprocess.run(
             ["bash", "-e", "-c", shell], capture_output=True, text=True,
-            env={**os.environ, "DETECT_RESULT": detect, "SKIP_PYTEST": skip, "RUN_RESULT": run},
+            env={**os.environ, "SELECT_RESULT": select, "SELECTED": selected, "RUN_RESULT": run},
         )
         assert (result.returncode == 0) is success

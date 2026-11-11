@@ -96,7 +96,7 @@ duplicates, validity, and jobs that must run together rather than be split.
 
 | Check | Role |
 | :--- | :--- |
-| `detect_docs_only` | Decides whether pytest can be skipped on a docs-only change |
+| `select` | Picks the pytest run jobs from the changed files with `ci/test-select.toml` (card 1127); a file in no rule runs none, and a wrapper passes when its run job is not picked |
 | `pytest_sql` | Required wrapper: success if docs-only skip, or if `pytest_sql_run` succeeded |
 | `pytest_sql_run` | The actual server tests that need the book; skipped on docs-only |
 | `pytest_no_sql` | Required wrapper: success if docs-only skip, or if `pytest_no_sql_run` succeeded |
