@@ -50,6 +50,8 @@ person or host leaks:
    from any directory gives the same verdict, and a scan that cannot run
    exits 1 with `hygiene ERROR` (it fails closed). The hooks need
    `python3`, `python` or `py` on PATH (Git Bash on Windows is fine).
+   `mill connect` started inside a the-mill checkout that skipped this step
+   prints one line on stderr saying the hooks are off (card 1174).
    `git commit --no-verify` skips them; CI `check_pack` still fails the PR.
    `python tools/precommit_hygiene.py tree` runs the comment scan over the
    whole tip.

@@ -450,6 +450,11 @@ def note_bridge_ready(desk: str) -> None:
     tip = foreground_tip(who)
     if tip:
         print(tip, file=sys.stderr, flush=True)
+    from agent_coord.client.hooks_check import hooks_off_line
+
+    hooks = hooks_off_line()
+    if hooks:
+        print(hooks, file=sys.stderr, flush=True)
 
 
 def foreground_tip(desk: str) -> str:
