@@ -29,6 +29,12 @@ def _under(label: str, run) -> None:
     assert elapsed < _SLOW_S, "%s took %.3fs" % (label, elapsed)
 
 
+def test_pan_and_home_patterns_compile_on_py310() -> None:
+    assert "?+" not in _PAN.pattern and "++" not in _PAN.pattern
+    pat = _pack()._HOME_PATH_RE.pattern
+    assert "?+" not in pat and "++" not in pat and "}+" not in pat
+
+
 def test_pan_card_and_spaced_card_match_short_does_not() -> None:
     card = "4111" + "1111" + "1111" + "1111"
     spaced = "4111 1111 1111 1111"

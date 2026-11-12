@@ -254,10 +254,10 @@ _HOME_PLACEHOLDERS = frozenset(
 # form; the segment checked is the distro), and Windows user folders seen
 # from WSL as /mnt/<drive>/Users/<login>.
 _HOME_PATH_RE = re.compile(
-    r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]++[Uu][Ss][Ee][Rr][Ss][\\/]++"
+    r"(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]+[Uu][Ss][Ee][Rr][Ss][\\/]+"
     r"|(?<![\w.~-])/(?:home|Users)/"
     r"|(?<![\w.~-])/mnt/[A-Za-z]/[Uu][Ss][Ee][Rr][Ss]/"
-    r"|(?<![\w$.~-])[\\/]{2,}+[Ww][Ss][Ll](?:\$|\.[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt])[\\/]++)"
+    r"|(?<![\w$.~-])[\\/]{2}[Ww][Ss][Ll](?:\$|\.[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt])[\\/]+)"
     r"([^\\/\s\"'`<>()\[\]{}:;,|]*)"
 )
 # Reserved and placeholder email domains (RFC 2606 / RFC 6761), GitLab and GitHub noreply.
