@@ -209,6 +209,24 @@ Config-driven workstation launcher for fresh Grok Build sessions. See `tools/des
 | `desk/desk_start_plan.py` | Pure plan logic + dry-run JSON (CI-tested). |
 | `desk/desks.example.json` | Documented example; copy outside the repo and edit. |
 
+## check_install_drift.py
+
+Card 1145. Dump routine bodies plus table and column schema from a gold
+book and a subject book, normalize them (strip DEFINER, whitespace, and
+AUTO_INCREMENT counters), and diff the per-object hashes. The demo
+starts its own throwaway mysqld and never points at a live office book.
+
+```bash
+python tools/check_install_drift.py --gold-database gold --subject-database subject
+python tools/check_install_drift.py --gold-database gold --subject-database subject --strict
+python tools/check_install_drift.py --demo --root . --workdir DIR
+```
+
+The compare command exits 0 after the report by default, even with
+drift. Not a CI gate. Tests prove normalize/diff fail on doctored input
+and pass on clean input. The live install-then-doctor test is marked
+sql; CI pytest_sql_run is the proof.
+
 ## cold_measure_head.py
 
 Stage a PR-head cold measure kit (card 813 / F212). Copies JOIN.md and the
