@@ -277,12 +277,13 @@ CARD_1133_TABLES = ("activity_history",)
 FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema = 0.8.0 + card 1022 + card 970 + card 1133. Kill/resume tests run apply_080 only; finish with the rest."""
+    """Tip schema = 0.8.0 + card 1022 + card 970 + card 1133 + card 1153. Kill/resume tests run apply_080 only; finish with the rest."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
     migrate.apply_task_970(cn)
     migrate.apply_history_1133(cn)
+    migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -293,6 +294,8 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id", "trashed",
          "meta", "body_updated", "body_updater_id"}  # card 1133 (a plain-text card body stays as it is)
 DROPPED = {"evidence", "weight", "n"}
+# Added on one table only, where the name is common elsewhere: label.updated (card 1153).
+ADDED_IN = {"label": {"updated"}}
 # A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
 # assign).
 SEED_ACT = {"open": "create", "parked": "park", "claimed": "claim", "shipped": "ship", "done": "done"}
@@ -315,7 +318,7 @@ def dump(cn, tables=MAIN_TABLES) -> dict[str, list[tuple]]:
     for t in tables:
         if t not in present:
             continue  # gone after card 1022 fold (push_queue -> wake)
-        cols = [c for c in _cols(cn, t) if c not in ADDED]
+        cols = [c for c in _cols(cn, t) if c not in ADDED and c not in ADDED_IN.get(t, ())]
         sel = ", ".join(f"`{c}`" for c in cols)
         out[t] = (cols, _q(cn, f"SELECT {sel} FROM `{t}` ORDER BY {', '.join(f'`{c}`' for c in _pk(cn, t))}"))
     return out

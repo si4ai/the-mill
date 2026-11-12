@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS label (
   name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'label' CHECK (name_kind = 'label'),   -- BETA: pins the name kind for fk_label_name
   ord         SMALLINT UNSIGNED NOT NULL DEFAULT 65535,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),   -- card 1153: when ord was last set (attach or re-rank)
   PRIMARY KEY (type, id, name_id),
   KEY idx_label_ord (name_id, name_kind, ord, created),
   CONSTRAINT fk_label_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE CASCADE,

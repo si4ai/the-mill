@@ -13,10 +13,14 @@ CREATE PROCEDURE mill_label_put(
 BEGIN
   DECLARE v_n BIGINT UNSIGNED;
   -- NULL ord keeps the stored value. A fresh row takes 65535 (#197).
+  -- card 1153: updated is when ord was last set; a re-rank to a new ord moves it,
+  -- the same ord again does not. It is assigned before ord, so it sees the old ord.
   SET v_n = MILL_NAME_PUT('label', p_label);
   INSERT INTO label (type, id, name_id, ord)
   VALUES (p_type, p_id, v_n, COALESCE(p_ord, 65535))
-  ON DUPLICATE KEY UPDATE ord = COALESCE(p_ord, ord);
+  ON DUPLICATE KEY UPDATE
+    updated = IF(COALESCE(p_ord, ord) <> ord, MILL_NOW(), updated),
+    ord = COALESCE(p_ord, ord);
   SELECT type, id, name_id, ord
     FROM label
    WHERE type = p_type AND id = p_id AND name_id = v_n;
