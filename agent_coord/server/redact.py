@@ -144,7 +144,7 @@ _B64_MAX_RUNS = 32
 
 _SSN = re.compile(r"(?<!\d)(\d{3}-\d{2}-\d{4})(?!\d)")
 # digits only, or a separator only where one is present. no optional separator in the repeat.
-_PAN = re.compile(r"(?<![\d-])(\d{13,19}|\d(?:[ -]\d|\d){12,18})(?![\d-])")
+_PAN = re.compile(r"(?<![\d-])(\d(?:[ -]?+\d){12,18})(?![\d-])")
 _PAN_WORD = re.compile(r"(?i)\b(?:card|visa|mastercard|amex|discover|pan|cc|credit|debit)\b")
 _IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{11,30})\b")
 _ROUTING_ACCT = re.compile(
