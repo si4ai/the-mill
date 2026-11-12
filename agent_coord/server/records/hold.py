@@ -34,7 +34,7 @@ _FIND_SQL = (
     " dn.name AS desk, dn.type AS desk_type,"
     " an.name AS roster, an.type AS roster_type,"
     " rn.name AS resource, rn.type AS resource_type,"
-    " (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')"
+    " (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(IFNULL((SELECT fdn.name FROM seat fs JOIN name fdn ON fdn.id = fs.desk_id AND fdn.deleted IS NULL WHERE fs.focus_label_id = ln.id LIMIT 1), ln.name)) ORDER BY l.ord, ln.name SEPARATOR ','), ']')"
     "    FROM label l JOIN name ln ON ln.id = l.name_id"
     "   WHERE l.type = 'hold' AND l.id = h.id) AS labels"
     " FROM hold h"

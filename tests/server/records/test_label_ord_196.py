@@ -99,9 +99,9 @@ def test_fresh_book_never_has_idx_name(cn) -> None:
     assert "smallint" in kind and "unsigned" in kind
     assert str(col[1]) == "65535"
     assert str(col[2]).upper() == "NO"
-    # 0.8.0: name_kind sits between name_id and ord
-    kind_pos = int(_column(cn, "name_kind")[3])
-    assert int(col[3]) == kind_pos + 1
+    # card 1163: ord follows name_id. The kind column is gone.
+    name_pos = int(_column(cn, "name_id")[3])
+    assert int(col[3]) == name_pos + 1
 
 
 

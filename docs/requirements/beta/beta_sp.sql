@@ -82,6 +82,9 @@ BEGIN
     IF p_type IN ('roster','label') AND b_trust() = 'limited' AND NOT b_is_admin(p_by) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill roster NAME NAME --yes)';
     END IF;
+    IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+    END IF;
     INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name)); SET o_id = LAST_INSERT_ID(); SET o_op = 'created';
   END IF;
 END //
@@ -102,10 +105,13 @@ BEGIN
   SELECT id, deleted INTO v, v_del FROM name WHERE type = 'desk' AND name = TRIM(p_name) FOR UPDATE;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: an Admin reclaims it (mill reclaim)'; END IF;
   IF v IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: that desk is minted'; END IF;
+  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+  END IF;
   INSERT INTO name (type, name) VALUES ('desk', TRIM(p_name)); SET v = LAST_INSERT_ID();
   INSERT INTO seat (desk_id, token_hash) VALUES (v, p_token_hash);
-  INSERT INTO member (name_id, desk_id) VALUES (1, v);
   UPDATE name SET n = n + 1 WHERE id = 1;
+  INSERT INTO member (name_id, desk_id) VALUES (1, v);
   SELECT v AS id, TRIM(p_name) AS name, 'desk' AS name_type, 'created' AS op;
 END //
 
@@ -131,7 +137,7 @@ BEGIN
   IF v_type = 'roster' AND v_id <> 1 AND TRIM(p_new) COLLATE utf8mb4_0900_ai_ci = 'Office' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: Office names roster id 1';
   END IF;
-  IF EXISTS (SELECT 1 FROM name WHERE type = v_type AND name = TRIM(p_new) AND id <> v_id) THEN
+  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_new) AND id <> v_id) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
   END IF;
   UPDATE name SET name = TRIM(p_new) WHERE id = v_id;
@@ -285,9 +291,9 @@ BEGIN
   END IF;
   -- Card 938: roster trash gated the same way as restore/purge (sole member or Admin).
   IF v_type = 'roster' THEN
-    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id;
     SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
-      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+      FROM member WHERE name_id = v_id;
     IF NOT b_is_admin(v_by) THEN
       IF v_members = 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: only Admin can trash a roster with no members';
@@ -326,9 +332,9 @@ BEGIN
   END IF;
   -- Card 931: restore gated the same way as delete (roster: sole member or Admin).
   IF v_type = 'roster' THEN
-    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id;
     SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
-      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+      FROM member WHERE name_id = v_id;
     IF NOT b_is_admin(v_by) THEN
       IF v_members = 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: only Admin can restore a roster with no members';
@@ -385,11 +391,11 @@ BEGIN
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (doing rows); mill retire soft-deletes instead'; END IF;
     SELECT COUNT(*) INTO v_n FROM activity WHERE roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (activity rows); mill retire soft-deletes instead'; END IF;
-    SELECT COUNT(*) INTO v_n FROM human_member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT COUNT(*) INTO v_n FROM human_member WHERE name_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (human roles); mill retire soft-deletes instead'; END IF;
-    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    SELECT COUNT(*) INTO v_members FROM member WHERE name_id = v_id;
     SELECT IFNULL(MAX(desk_id = v_by), 0) INTO v_sole
-      FROM member WHERE name_id = v_id AND name_kind = 'roster';
+      FROM member WHERE name_id = v_id;
     IF v_members > 1 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (members); mill retire soft-deletes instead';
     END IF;
@@ -406,13 +412,13 @@ BEGIN
     IF NOT b_is_admin(v_by) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: Admin only for a label';
     END IF;
-    SELECT COUNT(*) INTO v_n FROM label WHERE name_id = v_id AND name_kind = 'label';
+    SELECT COUNT(*) INTO v_n FROM label WHERE name_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: label is on items; mill retire soft-deletes instead'; END IF;
   ELSE
     IF NOT b_is_admin(v_by) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: Admin only for a tree';
     END IF;
-    SELECT COUNT(*) INTO v_n FROM tree WHERE name_id = v_id AND name_kind = 'tree';
+    SELECT COUNT(*) INTO v_n FROM tree WHERE name_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has nodes; remove them first, or mill retire soft-deletes'; END IF;
     SELECT COUNT(*) INTO v_n FROM tree_read WHERE tree_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has read cursors; clear them, or mill retire soft-deletes'; END IF;
@@ -423,7 +429,7 @@ BEGIN
   CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'purge', NULL);
   SET @mill_allow_name_hard_delete = 1;
   IF v_type = 'roster' THEN
-    DELETE FROM member WHERE name_id = v_id AND name_kind = 'roster';
+    DELETE FROM member WHERE name_id = v_id;
   END IF;
   DELETE FROM name WHERE id = v_id AND type = v_type AND trashed IS NOT NULL;
   SET @mill_allow_name_hard_delete = NULL;

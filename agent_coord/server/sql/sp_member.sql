@@ -30,6 +30,8 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'roster Admin: office host only (loopback)';
   END IF;
   SET v_d = MILL_NAME_GET('desk', p_desk);
+  -- The member insert locks name(id). Hold that row first, then count the new member.
+  SELECT id INTO v_id FROM name WHERE id = v_id FOR UPDATE;
   INSERT IGNORE INTO member (name_id, desk_id) VALUES (v_id, v_d);
   IF ROW_COUNT() = 1 THEN
     UPDATE name SET n = n + 1 WHERE id = v_id;
@@ -71,10 +73,13 @@ CREATE PROCEDURE mill_member_admin_put(
 )
 BEGIN
   DECLARE v_d BIGINT UNSIGNED;
+  DECLARE v_lock BIGINT UNSIGNED;
   SET v_d = MILL_NAME_GET('desk', p_desk);
   IF v_d IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found';
   END IF;
+  -- The member insert locks name(id). Hold Admin first, then count the new member.
+  SELECT id INTO v_lock FROM name WHERE id = 2 FOR UPDATE;
   INSERT IGNORE INTO member (name_id, desk_id) VALUES (2, v_d);
   IF ROW_COUNT() = 1 THEN
     UPDATE name SET n = n + 1 WHERE id = 2;
