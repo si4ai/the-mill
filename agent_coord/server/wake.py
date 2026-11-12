@@ -570,6 +570,10 @@ def test_fire(url: str, key: str, desk: str, *, roster: str = "") -> dict[str, A
 # (one book), so a seat in two offices holds two independent leases.
 _GATE: dict[str, float] = {}
 _GATE_LOCK = threading.Lock()
+# Card 1141 step 2: _hold_or_take returns this when the empty re-check under
+# the gate lock finds nothing waiting (not a lease token; hex tokens cannot
+# collide with this string).
+_SKIP_EMPTY = "skipped-empty"
 # #669: desk -> the lease its held-back items belong to (the gate time), the
 # latest of them and the distinct item keys, for the one trailing POST.
 _TRAIL: dict[str, dict[str, Any]] = {}
@@ -694,18 +698,30 @@ def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | No
 
 
 def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
-                  *, take: bool) -> str | None:
+                  *, take: bool, cn=None, empty_check: bool = False) -> str | None:
     """One lock hold (F144a, card 887). A live lease: record the item it holds back
     and return "" (the first one in a lease schedules the lease-end check, #669).
     No live lease: None, or with take=True start a lease in the same hold and
     return its id, which the caller puts on its POST as is (F144b: never read
-    _EPOCH again, a done or a newer take may have changed it since)."""
+    _EPOCH again, a done or a newer take may have changed it since).
+
+    empty_check (card 1141 step 2, V16/V17): when take=True and the gate is
+    free, re-read the empty skip under this lock so work another run handled
+    between the first check and the take is not woken for again. Returns
+    _SKIP_EMPTY instead of a lease when nothing waits.
+    """
     import time
 
     now = time.monotonic()
     with _GATE_LOCK:
         first = _hold_locked(desk, now, frame, hint_id, reason, room)
         if first is None:
+            if take and empty_check and cn is not None:
+                try:
+                    if not _waiting_work(cn, desk, locked=True):
+                        return _SKIP_EMPTY
+                except Exception:
+                    pass
             return _new_lease(desk, now) if take else None
     if first >= 0:
         _schedule(first + lease_s() - time.monotonic(), trail, desk, first)
@@ -718,14 +734,42 @@ def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: st
     return _hold_or_take(desk, frame, hint_id, reason, room, take=False) == ""
 
 
-def mail_picked_up(cn, desk: str, mid: int) -> bool:
-    """One stop rule shared by fresh, leave, trailing and replay wake paths."""
-    with _GATE_LOCK:
-        if mid in _DONE_MAIL.get(desk, ()):
-            return True
+def mail_picked_up(cn, desk: str, mid: int, *, locked: bool = False) -> bool:
+    """One stop rule shared by fresh, leave, trailing and replay wake paths.
+
+    locked=True when the caller already holds _GATE_LOCK (the empty re-check
+    under that lock must not acquire it again).
+    """
+    if locked:
+        seen = mid in _DONE_MAIL.get(desk, ())
+    else:
+        with _GATE_LOCK:
+            seen = mid in _DONE_MAIL.get(desk, ())
+    if seen:
+        return True
     from agent_coord.server.records import opened
 
     return mid in opened.picked_up_ids(cn, [mid], desk)
+
+
+def _waiting_work(cn, desk: str, *, locked: bool = False) -> bool:
+    """True when the empty skip must not fire: a not-yet-sent push row,
+    unread mail the run has not picked up, or an unopened receipt."""
+    from agent_coord.server import mail_push as mp
+    from agent_coord.server.records import push as rec_push
+    from agent_coord.server.push import unread_mail_frames
+
+    pending0 = rec_push.pending(cn, desk)
+    unread = [
+        f
+        for f in unread_mail_frames(cn, desk)
+        if not mail_picked_up(cn, desk, int(f.get("id") or 0), locked=locked)
+    ]
+    return mp.counts_as_waiting(
+        pending=pending0,
+        unread=bool(unread),
+        unopened_receipt=mp.has_unopened_receipt(cn, desk),
+    )
 
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
@@ -1404,23 +1448,10 @@ def post_desk(
     # Card 1141: only tw stall and match (mid-run alerts, no queue row) are
     # exempt. A tw exit or crash is the desk's own run ending; it rings only
     # when something waits, like every other wake.
-    if not (frame.get("watch_id") and frame.get("kind") in TW_ALERTS):
+    tw_alert = bool(frame.get("watch_id") and frame.get("kind") in TW_ALERTS)
+    if not tw_alert:
         try:
-            from agent_coord.server import mail_push as mp
-            from agent_coord.server.records import push as rec_push
-            from agent_coord.server.push import unread_mail_frames
-
-            pending0 = rec_push.pending(cn, desk)
-            unread = [
-                f
-                for f in unread_mail_frames(cn, desk)
-                if not mail_picked_up(cn, desk, int(f.get("id") or 0))
-            ]
-            if not mp.counts_as_waiting(
-                pending=pending0,
-                unread=bool(unread),
-                unopened_receipt=mp.has_unopened_receipt(cn, desk),
-            ):
+            if not _waiting_work(cn, desk):
                 _wake_log(desk, frame, hint_id, "skipped reason=empty")
                 return "skipped"
         except Exception:
@@ -1453,7 +1484,12 @@ def post_desk(
     # unresolvable target takes no gate, so it never blocks the next valid wake.
     # Taken here (not peeked) so two threads racing past the peek send one POST;
     # the loser is recorded under the winner's lease in the same hold (card 887).
-    lease = _hold_or_take(desk, frame, hint_id, reason, room, take=True)
+    lease = _hold_or_take(
+        desk, frame, hint_id, reason, room, take=True, cn=cn, empty_check=not tw_alert,
+    )
+    if lease is _SKIP_EMPTY:
+        _wake_log(desk, frame, hint_id, "skipped reason=empty")
+        return "skipped"
     if not lease:
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
