@@ -9,11 +9,11 @@ An unknown job name, a broken map or a missing GITHUB_OUTPUT exits 1.
       CI mode. The suites run once per change, on the pull request head:
       that is the run Validator's Pass measures. A pull_request diffs
       base...head and runs every job if any changed file selects one, else
-      none. merge_group is a fingerprint check: if the queued commit's tree
-      is the PR head's tree (refs/pull/N/head, N from the queue ref), that
-      code already ran, so no job; if main moved under it, every job. Any
-      other event, anything it cannot read, a failed diff or an empty diff
-      runs every job.
+      none. merge_group never runs a job: it passes when base_sha is an
+      ancestor of the PR head (refs/pull/N/head, N from the queue ref), so
+      nothing merged ahead of the tested code, and exits 1 otherwise or when
+      it cannot tell, which turns the required gate checks red. Any other
+      event, a malformed sha, a failed diff or an empty diff runs every job.
   python3 ci/test_select.py --base REV [--head REV]
       Local mode. Prints the jobs the map selects, one per line.
 
@@ -47,6 +47,13 @@ QUEUE_REF_RE = re.compile(r"(?:refs/heads/)?gh-readonly-queue/.+/pr-([0-9]+)-[0-
 
 class MapError(Exception):
     """The map file is unreadable, malformed or names an unknown job."""
+
+
+class QueueCheckFailed(Exception):
+    """A merge_group entry whose code is not the code its PR run tested."""
+
+
+MOVED = "main moved after this PR was tested: rebase, re-test on the PR, re-pass"
 
 
 Rules = list[tuple[list[str], list[str]]]
@@ -183,35 +190,28 @@ def _git(*args: str) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
-def tree_of(rev: str) -> str | None:
-    return _git("rev-parse", "--verify", "--quiet", f"{rev}^{{tree}}")
-
-
-def merge_group_selection(event: dict) -> tuple[set[str], str]:
-    """No job when the queued commit's tree is the tested PR head's tree."""
+def merge_group_check(event: dict) -> str:
+    """Pass (a reason) when base_sha is an ancestor of the PR head; else raise."""
     try:
-        head_sha, head_ref = event["merge_group"]["head_sha"], event["merge_group"]["head_ref"]
+        base, head_ref = event["merge_group"]["base_sha"], event["merge_group"]["head_ref"]
     except (KeyError, TypeError):
-        return set(KNOWN_JOBS), "merge_group: no head_sha or head_ref: every job"
+        raise QueueCheckFailed(f"no base_sha or head_ref in the event; {MOVED}") from None
     match = QUEUE_REF_RE.fullmatch(head_ref) if isinstance(head_ref, str) else None
-    if match is None or not (isinstance(head_sha, str) and SHA_RE.fullmatch(head_sha)):
-        return set(KNOWN_JOBS), "merge_group: unreadable queue ref or sha: every job"
+    if match is None or not (isinstance(base, str) and SHA_RE.fullmatch(base)):
+        raise QueueCheckFailed(f"unreadable queue ref or base_sha; {MOVED}")
     number = match.group(1)
     if _git("fetch", "--no-tags", "--quiet", "origin", f"+refs/pull/{number}/head") is None:
-        return set(KNOWN_JOBS), f"merge_group: cannot fetch PR #{number} head: every job"
+        raise QueueCheckFailed(f"cannot fetch PR #{number} head; {MOVED}")
     pr_head = _git("rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}")
-    queued, tested = tree_of(head_sha), tree_of(pr_head) if pr_head else None
-    if queued is None or tested is None:
-        return set(KNOWN_JOBS), f"merge_group: cannot read the trees for PR #{number}: every job"
-    if queued != tested:
-        return set(KNOWN_JOBS), f"merge_group: tree differs from PR #{number} head {pr_head[:12]}: every job"
-    return set(), f"merge_group: tree matches PR #{number} head {pr_head[:12]}, already tested: no job"
+    if pr_head is None or _git("merge-base", "--is-ancestor", base, pr_head) is None:
+        raise QueueCheckFailed(f"queue base {base[:12]} is not an ancestor of PR #{number} head; {MOVED}")
+    return f"merge_group: base {base[:12]} is an ancestor of PR #{number} head {pr_head[:12]}, already tested: no job"
 
 
 def github_selection(rules: Rules, event_name: str, event: dict) -> tuple[set[str], str]:
     """The jobs to run for this event and a one-line reason."""
     if event_name == "merge_group":
-        return merge_group_selection(event)
+        return set(), merge_group_check(event)
     span = pr_range(event) if event_name == "pull_request" else None
     if span is None:
         return set(KNOWN_JOBS), f"{event_name or 'no event'}: every job"
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             paths = changed_paths(args.base, args.head)
             chosen = select_jobs(drop_version_bump(paths, args.base, args.head), rules)
-    except (MapError, OSError) as exc:
+    except (MapError, OSError, QueueCheckFailed) as exc:
         print(f"test_select: {exc}", file=sys.stderr)
         return 1
     for job in KNOWN_JOBS:

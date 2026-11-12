@@ -2,7 +2,8 @@
 
 The suites run once per change: a pull request runs every suite unless its
 diff selects nothing (docs, a version-only pyproject.toml bump), and the
-merge queue runs none when its tree is the tree the PR run tested.
+merge queue never runs them: it passes only if the queue base is an ancestor
+of the PR head (nothing merged ahead), and fails otherwise.
 
 Every map assertion loads the map CI reads, not a copy of it.
 """
@@ -299,8 +300,9 @@ def _queued_squash(repo: Path, base: str, pr_head: str) -> str:
     return _git(repo, "-c", "user.name=q", "-c", "user.email=q@example.com", "commit-tree", tree, "-p", base, "-m", "squash")
 
 
-def test_merge_group_with_the_tested_tree_runs_no_suite(repo: Path, rules: ts.Rules) -> None:
-    """The queued squash has the PR head's tree: that code already ran both suites."""
+def test_merge_group_on_an_ancestor_base_passes_with_no_suite(repo: Path, rules: ts.Rules) -> None:
+    """The queue base is an ancestor of the PR head: nothing merged ahead, so
+    the queued code is what the PR run tested."""
     base = _commit(repo, {"README.md": "a\n"})
     pr_head = _commit(repo, {"agent_coord/server/sql/t.sql": "select 1;\n"})
     queued = _queued_squash(repo, base, pr_head)
@@ -309,18 +311,16 @@ def test_merge_group_with_the_tested_tree_runs_no_suite(repo: Path, rules: ts.Ru
     assert "#7" in reason
 
 
-def test_merge_group_on_a_moved_main_runs_every_suite(repo: Path, rules: ts.Rules) -> None:
-    """Main moved under the PR: the queued tree is not the tested one."""
-    fork = _commit(repo, {"README.md": "a\n"})
+def test_merge_group_on_a_moved_main_fails(repo: Path, rules: ts.Rules) -> None:
+    """Main moved after the PR was tested: the queue fails, it never runs the suites."""
+    _commit(repo, {"README.md": "a\n"})
     _git(repo, "switch", "-q", "-c", "pr")
     pr_head = _commit(repo, {"docs/x.md": "b\n"})
     _git(repo, "switch", "-q", "main")
     base = _commit(repo, {"agent_coord/x.py": "y = 2\n"})
-    assert fork != base
     queued = _commit(repo, {"docs/x.md": "b\n"})
-    chosen, reason = ts.github_selection(rules, "merge_group", _queue(repo, 8, pr_head, queued, base))
-    assert chosen == BOTH
-    assert "differs" in reason
+    with pytest.raises(ts.QueueCheckFailed, match=re.escape(ts.MOVED)):
+        ts.github_selection(rules, "merge_group", _queue(repo, 8, pr_head, queued, base))
 
 
 @pytest.mark.parametrize("merge_group", [
@@ -328,27 +328,32 @@ def test_merge_group_on_a_moved_main_runs_every_suite(repo: Path, rules: ts.Rule
     {"base_sha": "a" * 40, "head_sha": "b" * 40},
     {"base_sha": "a" * 40, "head_sha": "b" * 40, "head_ref": "refs/heads/main"},
     {"base_sha": "a" * 40, "head_sha": "b" * 40, "head_ref": "refs/heads/gh-readonly-queue/main/pr-x-" + "a" * 40},
-    {"base_sha": "a" * 40, "head_sha": "HEAD", "head_ref": "refs/heads/gh-readonly-queue/main/pr-1-" + "a" * 40},
+    {"base_sha": "main", "head_sha": "b" * 40, "head_ref": "refs/heads/gh-readonly-queue/main/pr-1-" + "a" * 40},
 ])
-def test_merge_group_it_cannot_read_runs_every_suite(rules: ts.Rules, merge_group: dict) -> None:
-    assert ts.github_selection(rules, "merge_group", {"merge_group": merge_group})[0] == BOTH
+def test_merge_group_it_cannot_read_fails(rules: ts.Rules, merge_group: dict) -> None:
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", {"merge_group": merge_group})
 
 
-def test_merge_group_without_the_pr_head_runs_every_suite(repo: Path, rules: ts.Rules) -> None:
+def test_merge_group_without_the_pr_head_fails(repo: Path, rules: ts.Rules) -> None:
     """No refs/pull/N/head to fetch (or no origin): fail safe."""
     base = _commit(repo, {"README.md": "a\n"})
     head = _commit(repo, {"README.md": "b\n"})
     event = {"merge_group": {"base_sha": base, "head_sha": head,
                              "head_ref": f"refs/heads/gh-readonly-queue/main/pr-9-{base}"}}
-    assert ts.github_selection(rules, "merge_group", event)[0] == BOTH
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", event)
     _git(repo, "remote", "add", "origin", str(repo))
-    assert ts.github_selection(rules, "merge_group", event)[0] == BOTH
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", event)
 
 
-def test_cli_merge_group_it_cannot_read_writes_true_for_both(tmp_path: Path) -> None:
+def test_cli_merge_group_check_failure_exits_nonzero(tmp_path: Path) -> None:
+    """A failed select job turns the required pytest_sql and pytest_no_sql gates red."""
     proc, out = _run(tmp_path, "--github", name="merge_group", event={"merge_group": {"base_sha": "a" * 40, "head_sha": "b" * 40}})
-    assert proc.returncode == 0, proc.stderr
-    assert out.splitlines() == ["pytest_no_sql_run=true", "pytest_sql_run=true"]
+    assert proc.returncode == 1
+    assert "rebase" in proc.stderr
+    assert out == ""
 
 
 PYPROJECT = '[project]\nname = "the-mill"\nversion = "0.8.13"\ndependencies = ["a>=1"]\n'
