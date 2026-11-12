@@ -26,6 +26,7 @@ def test_script_end_tag_space_is_read() -> None:
     extract = _load().extract_board_inline_js
     assert "danger()" in extract("<script>danger()</script >")
     assert "danger()" in extract("<script>danger()</SCRIPT\t>")
+    assert "danger()" in extract("<script>danger()</script\t\n bar>")
     assert "danger()" in extract("<script>danger()</script>")
     external = extract("<script>src=app.js</script>")
     assert external == ""
