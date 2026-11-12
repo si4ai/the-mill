@@ -79,12 +79,12 @@ def test_loopback_peer_with_forwarded_header_is_not_host(monkeypatch):
 def test_ws_strips_client_internal_underscore_keys(monkeypatch):
     """Server-internal keys supplied by a client are dropped on the /ws path."""
     store: dict = {}
-    monkeypatch.setitem(rpc.HANDLERS, "note", _capture_handler(store))
+    monkeypatch.setitem(rpc.HANDLERS, "todo", _capture_handler(store))
     c = MagicMock(spec=Book)
     rpc.dispatch_ws(
         c,
         "desk-a",
-        "note",
+        "todo",
         {"need": "x", "note": "hi", "_redacted": ["token"], "host": True},
         req_id="r4",
         peer="203.0.113.9",
