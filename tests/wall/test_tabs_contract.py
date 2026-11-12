@@ -37,6 +37,7 @@ def test_marker_wall_logic_tabs_sor():
         ("mail", "ensureMailPaint"),
         ("score", "ensureScorePaint"),
         ("scorecards", "ensureScorePaint"),
+        ("priorities", "ensurePrioritiesPaint"),
         ("session", None),
         ("jobs", None),
         ("plan", None),

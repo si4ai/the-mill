@@ -1,0 +1,447 @@
+{
+ "_sample": "SAMPLE fixture for card 1153, not a live read. Shape: the GET /api/v1/labels contract asked of Loop 2 (rows of label, type, id, ord, updated, card). Real past cases from dogfood-office label reads on 2026-11-11: the validator list (card 1042) and the wall-ui list (card 1038) hold only one parked card each, and human-priorities has cards 985 and 1112 tied at ord 0. Other card ids and needs follow the 2026-11-11 mock; volunteers, ETAs, activity, progress, tw time and needs-you flags are invented for the sample.",
+ "now": "2026-11-11T16:00:00-08:00",
+ "tz": "America/Los_Angeles",
+ "desks": [
+  "builder",
+  "grok-tui",
+  "auditor",
+  "gardener",
+  "validator",
+  "wall-ui",
+  "build-ui"
+ ],
+ "rows": [
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 993,
+   "ord": 11,
+   "updated": "2026-11-10 09:12:00",
+   "card": {
+    "roster": "Office",
+    "need": "gitlab-refs-are-bugs",
+    "status": "claimed",
+    "volunteer": "builder",
+    "eta_at": "2026-11-12 10:00:00",
+    "last_activity_at": "2026-11-11 15:02:10",
+    "last_activity_kind": "tw",
+    "tw_ms": 9900000
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 950,
+   "ord": 30,
+   "card": {
+    "roster": "Office",
+    "need": "desk-start-exit-hang",
+    "status": "claimed",
+    "volunteer": "builder",
+    "eta_at": "2026-11-11 12:00:00"
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 1141,
+   "ord": 90,
+   "card": {
+    "roster": "Office",
+    "need": "sitting-desk-wake-repeats",
+    "status": "claimed",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 282,
+   "ord": 30,
+   "card": {
+    "roster": "Office",
+    "need": "deterministic-office",
+    "status": "open",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 996,
+   "ord": 65535,
+   "card": {
+    "roster": "Office",
+    "need": "auditor-letter-by-ship-step",
+    "status": "open",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 998,
+   "ord": 5,
+   "card": {
+    "roster": "Office",
+    "need": "skill-copy-after-install",
+    "status": "parked",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 999,
+   "ord": 2,
+   "card": {
+    "roster": "Office",
+    "need": "room-read-socket-closed",
+    "status": "done",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 1000,
+   "ord": 1,
+   "card": {
+    "roster": "Office",
+    "need": "hint-drop-on-reconnect",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "builder",
+   "type": "todo",
+   "id": 937,
+   "ord": 40,
+   "card": {
+    "roster": "Office",
+    "need": "pr-title-body-name-token",
+    "status": "claimed",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 954,
+   "ord": 5,
+   "updated": "2026-11-09 14:00:00",
+   "card": {
+    "roster": "Office",
+    "need": "validator-pass-gate-early-green",
+    "status": "claimed",
+    "volunteer": "grok-tui",
+    "last_activity_at": "2026-11-11 13:20:00",
+    "last_activity_kind": "letter"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 987,
+   "ord": 7,
+   "card": {
+    "roster": "Office",
+    "need": "ci-lint-typecheck",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 988,
+   "ord": 8,
+   "card": {
+    "roster": "Office",
+    "need": "ci-coverage-gate",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 989,
+   "ord": 9,
+   "card": {
+    "roster": "Office",
+    "need": "ci-require-precheck-prtext",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 970,
+   "ord": 10,
+   "card": {
+    "roster": "Office",
+    "need": "TaskWrapper",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 1139,
+   "ord": 10,
+   "card": {
+    "roster": "Office",
+    "need": "cleanups-0813",
+    "status": "claimed",
+    "volunteer": "grok-tui"
+   }
+  },
+  {
+   "label": "grok-tui",
+   "type": "todo",
+   "id": 1112,
+   "ord": 20,
+   "card": {
+    "roster": "Office",
+    "need": "desk-identity-direct",
+    "status": "claimed",
+    "volunteer": "grok-tui",
+    "eta_at": "2026-11-11 18:00:00"
+   }
+  },
+  {
+   "label": "auditor",
+   "type": "todo",
+   "id": 890,
+   "ord": 0,
+   "updated": "2026-11-03 10:00:00",
+   "card": {
+    "roster": "Office",
+    "need": "spin-l01-late-token-read",
+    "status": "claimed",
+    "volunteer": "auditor",
+    "eta_at": "2026-11-10 17:00:00",
+    "last_activity_at": "2026-11-05 09:30:00",
+    "last_activity_kind": "claim"
+   }
+  },
+  {
+   "label": "auditor",
+   "type": "todo",
+   "id": 1014,
+   "ord": 10,
+   "card": {
+    "roster": "Office",
+    "need": "audit-anchor-on-guard-line",
+    "status": "open",
+    "volunteer": "",
+    "needs_human": true
+   }
+  },
+  {
+   "label": "auditor",
+   "type": "todo",
+   "id": 1070,
+   "ord": 20,
+   "card": {
+    "roster": "Office",
+    "need": "code-check-inventory",
+    "status": "open",
+    "volunteer": "",
+    "progress": "2/4 steps"
+   }
+  },
+  {
+   "label": "auditor",
+   "type": "todo",
+   "id": 1071,
+   "ord": 30,
+   "card": {
+    "roster": "Office",
+    "need": "audit-script",
+    "status": "open",
+    "volunteer": "",
+    "tw_ms": 3120000
+   }
+  },
+  {
+   "label": "gardener",
+   "type": "todo",
+   "id": 1132,
+   "ord": 60,
+   "card": {
+    "roster": "Office",
+    "need": "loop1-split-0813",
+    "status": "claimed",
+    "volunteer": "gardener",
+    "eta_at": "2026-11-13 12:00:00"
+   }
+  },
+  {
+   "label": "gardener",
+   "type": "todo",
+   "id": 1135,
+   "ord": 70,
+   "card": {
+    "roster": "Office",
+    "need": "replace-body-docs-ab",
+    "status": "claimed",
+    "volunteer": "gardener"
+   }
+  },
+  {
+   "label": "gardener",
+   "type": "todo",
+   "id": 997,
+   "ord": 80,
+   "card": {
+    "roster": "Office",
+    "need": "cold-desk-holds-live-cards",
+    "status": "shipped",
+    "volunteer": "gardener",
+    "needs_human": true
+   }
+  },
+  {
+   "label": "gardener",
+   "type": "todo",
+   "id": 1015,
+   "ord": 90,
+   "card": {
+    "roster": "Office",
+    "need": "cold-line-skill-sha",
+    "status": "parked",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "validator",
+   "type": "todo",
+   "id": 1042,
+   "ord": 10,
+   "updated": "2026-11-01 17:33:04",
+   "card": {
+    "roster": "Office",
+    "need": "apply-gates-priors-3465",
+    "status": "parked",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "wall-ui",
+   "type": "todo",
+   "id": 1038,
+   "ord": 10,
+   "updated": "2026-11-01 17:33:01",
+   "card": {
+    "roster": "Office",
+    "need": "apply-gates-priors-3465-wall",
+    "status": "parked",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 985,
+   "ord": 0,
+   "updated": "2026-11-01 09:01:16",
+   "card": {
+    "roster": "Office",
+    "need": "plain-connect-swallows-push",
+    "status": "claimed",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 1112,
+   "ord": 0,
+   "updated": "2026-11-11 02:51:42",
+   "card": {
+    "roster": "Office",
+    "need": "desk-identity-direct",
+    "status": "claimed",
+    "volunteer": "grok-tui",
+    "eta_at": "2026-11-11 18:00:00"
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 826,
+   "ord": 1,
+   "card": {
+    "roster": "Office",
+    "need": "mail-never-wakes-addressee",
+    "status": "open",
+    "volunteer": ""
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 892,
+   "ord": 2,
+   "card": {
+    "roster": "Office",
+    "need": "reset-seat-wake-lease",
+    "status": "claimed",
+    "volunteer": "gardener"
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 999,
+   "ord": 4,
+   "card": {
+    "roster": "Office",
+    "need": "room-read-socket-closed",
+    "status": "done",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 993,
+   "ord": 11,
+   "card": {
+    "roster": "Office",
+    "need": "gitlab-refs-are-bugs",
+    "status": "claimed",
+    "volunteer": "builder",
+    "eta_at": "2026-11-12 10:00:00",
+    "last_activity_at": "2026-11-11 15:02:10",
+    "last_activity_kind": "tw",
+    "tw_ms": 9900000
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "todo",
+   "id": 1141,
+   "ord": 90,
+   "card": {
+    "roster": "Office",
+    "need": "sitting-desk-wake-repeats",
+    "status": "claimed",
+    "volunteer": "builder"
+   }
+  },
+  {
+   "label": "human-priorities",
+   "type": "mail",
+   "id": 5553,
+   "ord": 3,
+   "updated": "2026-11-11 15:40:00"
+  }
+ ]
+}
