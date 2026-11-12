@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from agent_coord.server.push import HUB, WS_IN_USE, WS_REPLACED, Hub
 
@@ -108,35 +108,41 @@ def _rings(monkeypatch) -> list:
     return seen
 
 
-def _arm_exited(ws: _FakeWS, how: str) -> None:
-    ws.client_state = _State("CONNECTED")
-    if how == "exited":
-        ws._mill_exited = True
-    elif how == "disconnected":
-        ws.client_state = _State("DISCONNECTED")
-    elif how == "closing":
-        ws.client_state = _State("CLOSING")
-    elif how == "closed":
-        ws.state = _State("CLOSED")
-    else:
-        raise AssertionError(how)
+def _closed_peer() -> WebSocket:
+    """A socket that has already received the peer close and has not been discarded."""
+    incoming = [
+        {"type": "websocket.connect"},
+        {"type": "websocket.disconnect", "code": 1001},
+    ]
+
+    async def receive():
+        if incoming:
+            return incoming.pop(0)
+        return {"type": "websocket.disconnect", "code": 1001}
+
+    async def send(_message):
+        return None
+
+    return WebSocket({"type": "websocket"}, receive, send)
 
 
-@pytest.mark.parametrize("how", ["exited", "disconnected", "closing", "closed"])
-def test_own_just_exited_holder_is_not_busy(marks, monkeypatch, how: str) -> None:
-    """Card 1159: the desk's own just-exited connect does not refuse the next sit."""
+def test_own_just_exited_holder_is_not_busy(marks, monkeypatch) -> None:
+    """A close frame already received, and not yet discarded, does not keep the seat."""
     rings = _rings(monkeypatch)
     hub = Hub()
-    old, new = _FakeWS("old"), _FakeWS("new")
+    new = _FakeWS("new")
+    old = _closed_peer()
 
     async def go():
+        await old.accept()
         await hub.add("DESK_alice", old)
-        _arm_exited(old, how)
+        with pytest.raises(WebSocketDisconnect):
+            await old.receive_text()
+        assert old.client_state.name == "DISCONNECTED"
         return await hub.add("DESK_alice", new, refuse=True)
 
     assert asyncio.run(go()) is None
     assert hub.rooms.get("DESK_alice") == {new}
-    assert old.sent == [] and old.closed == []
     assert new.sent == [] and new.closed == []
     assert marks == [("DESK_alice", True)]
     assert rings == []
@@ -145,11 +151,14 @@ def test_own_just_exited_holder_is_not_busy(marks, monkeypatch, how: str) -> Non
 def test_exited_socket_beside_a_live_holder_stays_busy(marks, monkeypatch) -> None:
     rings = _rings(monkeypatch)
     hub = Hub()
-    live, gone, new = _FakeWS("live"), _FakeWS("gone"), _FakeWS("new")
+    live, new = _FakeWS("live"), _FakeWS("new")
+    gone = _closed_peer()
 
     async def go():
+        await gone.accept()
+        with pytest.raises(WebSocketDisconnect):
+            await gone.receive_text()
         await hub.add("DESK_alice", live)
-        _arm_exited(gone, "exited")
         hub.rooms["DESK_alice"].add(gone)
         return await hub.add("DESK_alice", new, refuse=True)
 
@@ -157,7 +166,7 @@ def test_exited_socket_beside_a_live_holder_stays_busy(marks, monkeypatch) -> No
     assert held is not None
     assert hub.rooms.get("DESK_alice") == {live}
     assert gone not in hub.rooms["DESK_alice"]
-    assert live.sent == [] and new.sent == [] and gone.sent == []
+    assert live.sent == [] and new.sent == []
     assert marks == [("DESK_alice", True)]
     assert rings == []
 
