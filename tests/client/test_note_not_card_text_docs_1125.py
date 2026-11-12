@@ -155,6 +155,7 @@ SEP_TOKEN = re.compile(
         |/\s*drop\b
         |[(),+/|'"`]
         |\band\b
+        |\bor\b
         |\.\.\.
     )
     """
@@ -244,9 +245,16 @@ FLAG_VALUE = re.compile(
     """
 )
 # Progress percentage after usage args (`mill note r n 40%`), not a bare `note` 75%.
-PROGRESS_AFTER_USAGE = re.compile(r"\s+\d+%")
+PROGRESS_AFTER_USAGE = re.compile(r"(?i)\s+(?:\d+%|with\s+a\s+progress\s+token\b)")
 # explanatory adjunct after a consumed tie or flag, not a following object.
-TRAILER = re.compile(r"(?ix)\s+(?:when|if|unless|after|before|sets|updates)\b")
+# Only a short self-contained clause is an adjunct ("when it slips", "when
+# blocked", "sets the acceptance line"); anything longer is an object.
+TRAILER = re.compile(
+    r"""(?ix)\s+(?:
+        (?:when|if|unless|after|before)\s+(?:it\s+)?[a-z]+(?![A-Za-z'-])
+        |(?:sets|updates)\s+(?:the\s+acceptance\s+line|progress)\b
+    )"""
+)
 # A table cell whose only object is a progress token (`note` 9/12).
 NOTE_PROGRESS_VALUE = re.compile(
     r"(?i)(?:`mill\s+note`|mill\s+note\b|`note`|(?<![A-Za-z_`-])note(?![A-Za-z_]))\s+\d+(?:/\d+|%)\s*$"
@@ -354,11 +362,12 @@ def _followers_are_spine(rest: str) -> bool:
             saw_tie = True
             progressed = True
             continue
-        if saw_tie and TRAILER.match(s):
-            return True
-        # A usage synopsis may continue with purpose flags or "progress token".
-        if saw_usage and ALLOWED_TIE.search(s):
-            return True
+        if saw_tie:
+            m = TRAILER.match(s)
+            if m:
+                s = s[m.end():]
+                progressed = True
+                continue
         m = RE_CMD_FOLLOW.match(s) or CMD_FOLLOW.match(s)
         if m:
             return True
@@ -392,6 +401,20 @@ def _parenthetical_progress_only(clause: str) -> bool:
     return bool(re.search(r"\([^)]*\bprogress\b[^)]*\)\s*\.?\s*$", clause))
 
 
+def _has_usage_progress(clause: str) -> bool:
+    """`mill note r n 40%`: usage args then a progress percentage."""
+    for m in NOTE_TOKEN.finditer(clause):
+        rest, n = clause[m.end():], 0
+        while True:
+            u = USAGE_ARG.match(rest)
+            if not u or u.end() == 0:
+                break
+            rest, n = rest[u.end():], n + 1
+        if n and PROGRESS_AFTER_USAGE.match(rest):
+            return True
+    return False
+
+
 def clause_allowed(clause: str) -> bool:
     if is_field_or_english(clause):
         return True
@@ -402,7 +425,8 @@ def clause_allowed(clause: str) -> bool:
         return False
     if REDIRECT.search(clause):
         return True
-    if ALLOWED_TIE.search(clause) and not _parenthetical_progress_only(clause):
+    usage_progress = _has_usage_progress(clause)
+    if (ALLOWED_TIE.search(clause) or usage_progress) and not _parenthetical_progress_only(clause):
         # A purpose token in the clause does not hide an object after note.
         if NOTE_TOKEN.search(clause):
             return _note_tokens_have_no_object(clause)
@@ -665,3 +689,25 @@ def test_scanner_is_allow_list():
     assert not bad_lines("`mill note ROSTER NEED 40%` sets progress.")
     # D15: a purpose sibling cell must not bless a note object in another cell.
     assert bad_lines("| close | `note` ETA | `note` the decision |")
+    # D16: a trailer must not end the check; what follows it is still inspected.
+    assert bad_lines("`note` --eta 2h when it slips and the vendor reply")
+    assert bad_lines("`note` --done-when TEXT sets the acceptance line and the meeting notes")
+    assert bad_lines("`note` progress when done, plus the customer's answer")
+    assert bad_lines("`note` ETA if late: the vendor reply")
+    assert bad_lines("`note` --started before the kickoff summary")
+    assert bad_lines("`note` progress after the call with the customer's answer")
+    assert bad_lines("`note` --waiting-on desk unless the root cause is known")
+    assert bad_lines("`note` progress updates the card with the decision text")
+    assert bad_lines("| close | `note` ETA when late plus the root cause |")
+    assert bad_lines("`claim` -> `note` progress when done and the decision -> `pass`")
+    assert not bad_lines("`note` --eta 2h when it slips.")
+    assert not bad_lines("`note` --waiting-on desk when blocked.")
+    assert not bad_lines("`note` --done-when TEXT sets the acceptance line.")
+    # D17: after usage args only purpose flags or progress are consumed.
+    assert bad_lines("`mill note ROSTER NEED the meeting notes and progress`")
+    assert bad_lines("`mill note r n` the decision text, then ETA")
+    assert bad_lines("mill note ROSTER NEED the root cause --eta 2h")
+    assert bad_lines("`note` r n the vendor reply with progress")
+    assert not bad_lines("`mill note r n 40%` sets progress.")
+    assert not bad_lines("`mill note r n --eta 2h`.")
+    assert not bad_lines("`mill note r n 40%.`")
