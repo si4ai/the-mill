@@ -53,9 +53,9 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 
 - **Todo** - works like a card. Arrives as HINT `todo`.
   - `todo <roster> <need>` returns that card, even when it is done.
-  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`, `--done-when TEXT`). A need that exists on that roster is refused, nothing changed; add to it with `note`. `file` is not a command.
+  - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`, `--done-when TEXT`). A need that exists on that roster is refused, nothing changed; change its text with `replace-body`. `file` is not a command.
   - `claim <roster> <need> [--eta E]` takes it. Every claim sets `--eta` (`20m`, `2h`, or a timestamp; honest best guess, no padding). `--take-over` takes a card another desk holds.
-  - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; limited trust: Admin only), or the receiving desk runs `claim`. Say who has it in a `note`.
+  - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; limited trust: Admin only), or the receiving desk runs `claim`. Say who has it with `replace-body`.
   - `note <roster> <need> 9/12` sets progress. `--started` sets started_at; `--eta E` updates the ETA; `--done-when TEXT` sets or clears the acceptance line (asker or Admin). Card text changes with `mill replace-body todo ID TEXT` after you read the card. `--note` does not append.
   - `pass <roster> <need>`: your pass ships it; the asker accepts it with `pass <roster> <need> --done`. `--back` steps a card back one stage. A pass that does not fit the card is refused and changes nothing.
   - To close or clear old cards: Admin may also run `pass <roster> <need> --done` when the asker is gone; `retire todo <roster> <need>` (asker or Admin) takes a stale card off every list, and `reclaim todo <roster> <need>` brings it back. NEED may be a comma list (`a,b,c`).

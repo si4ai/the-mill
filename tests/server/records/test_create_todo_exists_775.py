@@ -48,7 +48,7 @@ def test_second_create_is_refused_and_keeps_the_card(cn, move) -> None:
         rpc._h_open(book, {"need": need, "detail": "dup"}, "unit", "a")
     text = str(err.value)
     assert f"create todo: unit/{need} exists (id {first['id']}, {before[1]})" in text
-    assert f"mill note unit {need} --note TEXT" in text
+    assert f"mill replace-body todo {first['id']} TEXT" in text
     assert _card(cn, need) == before
     assert before[2] == "original text"
 

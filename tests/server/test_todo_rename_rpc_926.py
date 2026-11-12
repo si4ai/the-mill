@@ -61,7 +61,7 @@ def test_non_asker_refused_and_names_next_command(monkeypatch):
         )
     msg = str(exc.value)
     assert "who-may: rename todo is the asker (auditor) or Admin" in msg
-    assert "mill note r926 old-need --note TEXT" in msg
+    assert "--note" not in msg
 
 
 def test_asker_renames(monkeypatch):

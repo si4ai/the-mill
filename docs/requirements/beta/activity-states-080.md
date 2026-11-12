@@ -125,7 +125,7 @@ stateDiagram-v2
 | T11 | shipped | claimed, or open with no volunteer | `mill pass R NEED --back` | `back` | one, `back` |
 | T12 | any status | retired, status kept | `mill retire todo R NEED --yes` | `retire` | none |
 | T13 | retired | the status it had | `mill reclaim todo R NEED --yes` | unchanged (`retire` stays; `deleted` cleared) | none |
-| T14 | any | same status | `mill note R NEED --note T`, `mill note R NEED --done-when T` | `note` | none |
+| T14 | any | same status | `mill replace-body todo N T`, `mill note R NEED --done-when T` | `replace-body`, `note` | none |
 | T15 | live | deleted | none (test-only `probe-delete`) | `remove` | none; the card's move rows stay |
 | T16 | any | same status, new need | `mill rename todo R NEED NEW` | `rename` | one, `rename`, `evidence` holds old, new and why |
 

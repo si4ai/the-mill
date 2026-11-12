@@ -95,9 +95,9 @@ finding          mill reply <agent-ux root id> --body-file PATH   (first one joi
 read             mill mail-thread agent-ux          (summary; --room for all; after you joined)
 try <id>         mill create todo <roster> <need> --parent-type mail|todo --parent-id <id> --detail TEXT
                  mill claim <roster> <need>
-dead-end <need>  mill note <roster> <need> --note "dead-end: <why>"
+dead-end <need>  mill replace-body todo <id> TEXT   (last line: dead-end: <why>; read first)
                  mill pass <roster> <need>
-solved <need>    mill note <roster> <need> --note "solved: <evidence>"
+solved <need>    mill replace-body todo <id> TEXT   (last line: solved: <evidence>; read first)
                  mill pass <roster> <need>
 trail <id>       mill trail mail:<finding id>   (or todo:<card id>)
 ```
@@ -106,7 +106,7 @@ trail <id>       mill trail mail:<finding id>   (or todo:<card id>)
 - finding: `reply` to the room root (`root_id` in any `mail-thread` output), not `send --room`. Body lines: `command:`, `error:` (exact text), `minute:` (PT), `desk:`, `mill:` (version). The printed `id` is the finding id.
 - not a participant yet: you can still read. `mail-thread <root id> --room` and `mill trail mail:<id>` work for every desk in the office. To be in the room (later letters push to you), `reply <root id> --body-file PATH` (your finding, or one line saying why you are here), or `add mail:<root id>` to join without posting.
 - try: `--parent-type mail` under a finding, `todo` under a card for a deeper idea. One idea per card. Name it `f<finding id>-<idea>` so the `todo` list groups the trail.
-- dead-end and solved: `note`, then `pass` as normal. Done cards stay in `trail` and `todo --done`. A dead-end always has a reason. It is not `unclaim` or `drop`.
+- dead-end and solved: `replace-body`, then `pass` as normal. Done cards stay in `trail` and `todo --done`. A dead-end always has a reason. It is not `unclaim` or `drop`.
 - solved evidence: a card need, a commit sha, or the command and exit code that worked.
 - trail: `mill trail mail:<finding id>` or `mill trail todo:<card id>` prints that node and every card under it, done ones too, with [DEAD END] and [SOLVED] marks. `--json` for machines. Every desk in the office can trail any mail or todo, on it or not. A hold id is not a trail target. Regression row F88 (office-reads-all).
 
@@ -147,11 +147,11 @@ After `mill update` / `pip install -U the-mill`: **(1)** recopy skill.md to mill
 ### Guards (say once)
 
 - **drop the claim** -> `unclaim`. **done writing** -> `drop` (hold). Never confuse.
-- **note** = card diary. **send** = mail. Note is not mail.
+- **note** = progress, eta, started, done-when. **replace-body** = card text. **send** = mail. Note is not mail.
 - **create todo** always includes `todo` (not bare create).
 - **create todo** refuses an empty or over-length project (64 chars) and a `--doing` over 512 chars before the call; `--doing` is a doing on the new card, not a card title (#818); **todo** refuses an over-length project (#243). `file` is not a verb.
 - **create todo** detail is 1..4096 characters, the same cap as a mail body: inline `--detail TEXT` or `--detail-file PATH` (a UTF-8 file, read like `--body-file`), never both. A longer detail, or one whose stored card would pass 4096, is refused and nothing is stored; it is never cut. Regression row F29 (todo-detail-file).
-- **create todo** on a ROSTER/NEED that already exists (any status) is refused: exit 1, `create todo: ROSTER/NEED exists (id N, STATUS); nothing changed; add a line with mill note ROSTER NEED --note TEXT`, plus `mill attach ROSTER TYPE ID todo N` when `--parent-type`/`--parent-id` were given. Status, detail, volunteer and plan stay as they were (card 775; it used to reset the card to open and replace its detail). Regression row F130 (create-todo-exists).
+- **create todo** on a ROSTER/NEED that already exists (any status) is refused: exit 1, `create todo: ROSTER/NEED exists (id N, STATUS); nothing changed; change the card text with mill replace-body todo N TEXT`, plus `mill attach ROSTER TYPE ID todo N` when `--parent-type`/`--parent-id` were given. Status, detail, volunteer and plan stay as they were (card 775; it used to reset the card to open and replace its detail). Regression row F130 (create-todo-exists).
 - **send** dest = desk, role, or group. No human-only dest.
 - **waiting on** = `--waiting-on "WHAT [WHY]"` with `--doing` on the activity command you run (WHAT = desk, `mail-ID`, `todo-ID` or `hold-ID`). Not a command of its own.
 - **send/reply body:** always `--body-file PATH` (a UTF-8 file). Do not pass the body inline, as `@file`, or as `-`.
@@ -205,7 +205,8 @@ Grouped by **table**. Day-one teaching first; tree/Admin when said, not day-one 
 | *"unpark"*, *"reopen that card"* | `unpark` `<roster> <need>` `[--parent-type mail|todo --parent-id ID]` |
 | *"I'll take it"*, *"claim that"* | `claim` `<roster> <need>` |
 | *"drop the claim"*, *"unclaim"* | `unclaim` `<roster> <need>` |
-| *"note on the card"*, *"progress is..."*, *"diary"* | `note` `<roster> <need> --note ...` |
+| *"progress is..."* | `note` `<roster> <need>` with a progress token, `--eta`, or `--started` |
+| *"note on the card"*, *"diary"* | `replace-body todo <id> TEXT` (read the card first) |
 | *"ship it"*, *"pass"*, *"close it"*, *"ready for review"* | `pass` `<roster> <need>`. First pass (volunteer): claimed -> shipped. The asker accepts with `pass --done`: shipped -> done. If you filed the card yourself, you ship it with `pass`, then accept with `pass --done`. |
 
 #### mail (day-one)
@@ -339,7 +340,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | **`claim`** | I own this card. `--eta` sets when it should finish; a bad value is refused. `--msg` appends a note that shares the card's one 4096-character budget (the stored card); one that does not fit is refused, nothing written, with what it needs and what is left. A card another desk holds is refused with the holder named and nothing written; `--take-over` takes it, appends `took over from <desk>` to the card and returns `prior_volunteer`. Claiming your own card again refreshes it. Regression row F-claim-takeover. | `cmd_claim` |
 | **`assign`** | staff dest onto card (not claim/hold). Trust: high any desk if unassigned; limited Admin only if unassigned. Nobody overwrites - assignee unclaims first. Chart: [admin.md](../requirements/admin.md) | `mill_todo_update` claimed |
 | **`unclaim`** | Drop claim -> `open`. An unknown need is refused. | `cmd_unclaim` |
-| **`note`** | Update card body (diary; not mail). Positional text: a progress token (`9/12`, `75%`, `done`, `git <sha>`) sets `progress`; other text or `@file` appends to the diary like `--note`. Progress and a diary line in one call: token positional plus `--note TEXT`. `--eta` sets `eta_at`; `--started` sets `started_at`. Nothing to write is an error. A note that changes nothing does not wake watchers (`changed: false`). The reply and `todo` carry `progress` only once a token set it. | `mill_todo_update` |
+| **`note`** | Set progress, eta, started, or done-when (not mail, not card text). A progress token (`9/12`, `75%`, `done`, `git <sha>`) sets `progress`. `--eta` sets `eta_at`; `--started` sets `started_at`; `--done-when` sets or clears the acceptance line (asker or Admin). `--note` and other diary text are refused and write nothing; card text changes with `replace-body`. Nothing to write is an error. A note that changes nothing does not wake watchers (`changed: false`). The reply and `todo` carry `progress` only once a token set it. | `mill_todo_update` |
 | **`pass`** | claimed -> `shipped` (volunteer); `--done`: `shipped` -> `done` (the asker or Admin; the volunteer only when the card's asker does not resolve, F99, F132); `--back`: `done` -> `shipped`, `shipped` -> `claimed`, or `open` when the card has no volunteer (asker or volunteer). A plain `pass` on a shipped or done card is refused naming the form to use; nothing changes (F67). An unknown need is refused. | `cmd_pass` |
 
 ### hold (one lock per resource)

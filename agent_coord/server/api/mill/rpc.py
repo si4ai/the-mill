@@ -1325,12 +1325,11 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
         hint = (
-            f"who-may: rename todo is the asker ({ask}) or Admin; "
-            f"ask them, or mill note {project} {need} --note TEXT"
+            f"who-may: rename todo is the asker ({ask}) or Admin; ask them"
             if ask
             else (
                 "who-may: rename todo is the asker or Admin; the card's asker does not resolve, "
-                f"so only Admin may; mill note {project} {need} --note TEXT"
+                "so only Admin may"
             )
         )
         raise CoordError(hint)
@@ -2735,7 +2734,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         # Card 775: create never rewrites a card. It used to reset status and detail.
         tid = int(hit["id"])
         status = rec_todo.normalize_status(str(hit.get("status") or ""), default="open")
-        forms = f"add a line with mill note {project} {need} --note TEXT"
+        forms = f"change the card text with mill replace-body todo {tid} TEXT"
         if parent_t and parent_id:
             forms += f"; put it under the parent with mill attach {project} {parent_t} {parent_id} todo {tid}"
         raise CoordError(

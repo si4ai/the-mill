@@ -100,7 +100,7 @@ stateDiagram-v2
 | T11 | shipped | claimed, or open when there is no volunteer | `mill pass R NEED --back` | `sp_cmd.sql:216` | output `status` claimed or open |
 | T12 | any status | retired (status kept) | `mill retire todo R NEED --yes` (asker or Admin) | `rpc.py:1217` -> `sp_todo.sql:258` `mill_todo_retire` | output `"op": "retired"`; `mill todo R --done` no longer lists it |
 | T13 | retired | the status it had | `mill reclaim todo R NEED --yes` (asker or Admin) | `rpc.py:1217` -> `sp_todo.sql:293` `mill_todo_reclaim` | output `"op": "reclaimed"`; `mill todo R NEED` shows the old status |
-| T14 | any | same status | `mill note R NEED --note T`, `mill note R NEED --done-when T` | `rpc.py:2586` -> `sp_todo.sql:136` (body only); `sp_cmd.sql:237` `cmd_card_accept` | `mill todo R NEED` shows the new line; status unchanged |
+| T14 | any | same status | `mill replace-body todo N T`, `mill note R NEED --done-when T` | `rpc.py` `_h_replace_body`; `sp_cmd.sql` `cmd_card_accept` | `mill todo R NEED` shows the new text; status unchanged |
 | T15 | live | deleted | none (test-only `probe-delete` RPC, fixture rosters `t-<8 hex>`, the creator) | `agent_coord/server/probe_delete.py:129` -> `sp_todo.sql:192` `mill_todo_delete` | gap: not a mill subcommand |
 
 Refused, nothing changed (the SP text is the refusal code):
