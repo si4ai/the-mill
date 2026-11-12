@@ -98,6 +98,101 @@ def test_refuse_on_empty_seat_sits(marks) -> None:
     assert marks == [("DESK_alice", True)]
 
 
+def _rings(monkeypatch) -> list:
+    seen: list[tuple] = []
+
+    def spy(fn, *args):
+        seen.append((getattr(fn, "__name__", ""), args))
+
+    monkeypatch.setattr("agent_coord.server.push._off_loop", spy)
+    return seen
+
+
+def _arm_exited(ws: _FakeWS, how: str) -> None:
+    ws.client_state = _State("CONNECTED")
+    if how == "exited":
+        ws._mill_exited = True
+    elif how == "disconnected":
+        ws.client_state = _State("DISCONNECTED")
+    elif how == "closing":
+        ws.client_state = _State("CLOSING")
+    elif how == "closed":
+        ws.state = _State("CLOSED")
+    else:
+        raise AssertionError(how)
+
+
+@pytest.mark.parametrize("how", ["exited", "disconnected", "closing", "closed"])
+def test_own_just_exited_holder_is_not_busy(marks, monkeypatch, how: str) -> None:
+    """Card 1159: the desk's own just-exited connect does not refuse the next sit."""
+    rings = _rings(monkeypatch)
+    hub = Hub()
+    old, new = _FakeWS("old"), _FakeWS("new")
+
+    async def go():
+        await hub.add("DESK_alice", old)
+        _arm_exited(old, how)
+        return await hub.add("DESK_alice", new, refuse=True)
+
+    assert asyncio.run(go()) is None
+    assert hub.rooms.get("DESK_alice") == {new}
+    assert old.sent == [] and old.closed == []
+    assert new.sent == [] and new.closed == []
+    assert marks == [("DESK_alice", True)]
+    assert rings == []
+
+
+def test_exited_socket_beside_a_live_holder_stays_busy(marks, monkeypatch) -> None:
+    rings = _rings(monkeypatch)
+    hub = Hub()
+    live, gone, new = _FakeWS("live"), _FakeWS("gone"), _FakeWS("new")
+
+    async def go():
+        await hub.add("DESK_alice", live)
+        _arm_exited(gone, "exited")
+        hub.rooms["DESK_alice"].add(gone)
+        return await hub.add("DESK_alice", new, refuse=True)
+
+    held = asyncio.run(go())
+    assert held is not None
+    assert hub.rooms.get("DESK_alice") == {live}
+    assert gone not in hub.rooms["DESK_alice"]
+    assert live.sent == [] and new.sent == [] and gone.sent == []
+    assert marks == [("DESK_alice", True)]
+    assert rings == []
+
+
+def test_busy_refusal_does_not_ring(marks, monkeypatch) -> None:
+    rings = _rings(monkeypatch)
+    hub = Hub()
+    old, new = _FakeWS("old"), _FakeWS("new")
+    old.client_state = _State("CONNECTED")
+
+    async def go():
+        await hub.add("DESK_alice", old)
+        return await hub.add("DESK_alice", new, refuse=True)
+
+    held = asyncio.run(go())
+    assert held is not None
+    assert hub.rooms.get("DESK_alice") == {old}
+    assert old.sent == [] and new.sent == []
+    assert rings == []
+
+
+def test_last_socket_leave_still_rings(monkeypatch) -> None:
+    rings = _rings(monkeypatch)
+    hub = Hub()
+    old = _FakeWS("old")
+
+    async def go():
+        await hub.add("DESK_alice", old)
+        hub.discard("DESK_alice", old)
+
+    asyncio.run(go())
+    assert hub.rooms.get("DESK_alice") is None
+    assert any(args[-1] == "leave" for _name, args in rings)
+
+
 def test_no_flag_still_replaces(marks) -> None:
     hub = Hub()
     old, new = _FakeWS("old"), _FakeWS("new")

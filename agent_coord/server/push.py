@@ -119,17 +119,23 @@ class Hub:
             if not room_key:
                 return None
             room = self.rooms.setdefault(room_key, set())
+            replaced_exited = False
             if refuse:
-                # A socket already closed but not yet discarded does not hold the seat.
-                for prev in [p for p in room if p is not ws and _ws_gone(p)]:
+                # A closed socket, or this desk's own exited connect, does not hold
+                # the seat. Drop it here, not via discard, so the refusal is not a leave
+                # and does not ring a wake.
+                for prev in [p for p in room if p is not ws and _holder_free(p)]:
                     room.discard(prev)
+                    replaced_exited = True
                 live = [p for p in room if p is not ws]
                 if live:
                     since = min(float(getattr(p, "_mill_sat_at", 0) or 0) for p in live)
                     _bc_log(f"ws refuse desk={stored} reason=in-use")
                     return {"desk": stored, "since": _utc_iso(since)}
             old = [prev for prev in list(room) if prev is not ws]
-            first = not room
+            # replacing our own exited connect is not a new sit, so it does not mark
+            # the seat up again.
+            first = not room and not replaced_exited
             room.add(ws)
             try:
                 ws._mill_sat_at = time.time()
@@ -296,6 +302,20 @@ def _ws_gone(ws: Any) -> bool:
     for attr in ("client_state", "application_state"):
         state = getattr(ws, attr, None)
         if getattr(state, "name", "") == "DISCONNECTED":
+            return True
+    return False
+
+
+def _holder_free(ws: Any) -> bool:
+    """True when this socket must not keep the seat."""
+    # disconnected, closing, or the connect process has exited
+    if getattr(ws, "_mill_exited", False):
+        return True
+    if _ws_gone(ws):
+        return True
+    for attr in ("client_state", "application_state", "state"):
+        state = getattr(ws, attr, None)
+        if getattr(state, "name", "") in ("CLOSING", "CLOSED"):
             return True
     return False
 

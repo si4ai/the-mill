@@ -1067,12 +1067,33 @@ async def _sit_session(
         else:
             print({"HINT": msg}, flush=True)
 
+    # stop is set from another thread (parent exit, SIGTERM, release). Wake the
+    # recv wait so the socket closes instead of sitting until the next frame.
+    # one future per multiplex call: a reconnect starts a new wait.
+    stop_futs: list[asyncio.Future] = []
+
+    def _poke_stop() -> None:
+        for fut in list(stop_futs):
+            if not fut.done():
+                fut.set_result(None)
+
+    def _watch_stop() -> None:
+        stop.wait()
+        try:
+            loop.call_soon_threadsafe(_poke_stop)
+        except RuntimeError:
+            pass
+
+    threading.Thread(target=_watch_stop, name="mill-ws-stop", daemon=True).start()
+
     async def multiplex() -> None:
+        stop_fut = loop.create_future()
+        stop_futs.append(stop_fut)
         ws_task: asyncio.Task | None = asyncio.create_task(ws.recv())
         rpc_task: asyncio.Task | None = asyncio.create_task(rpc_reqs.get())
         try:
             while not stop.is_set():
-                tasks = {t for t in (ws_task, rpc_task) if t is not None}
+                tasks = {t for t in (ws_task, rpc_task, stop_fut) if t is not None}
                 if not tasks:
                     break
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -1124,10 +1145,14 @@ async def _sit_session(
                             pass
                         pending.pop(req_id, None)
                     rpc_task = asyncio.create_task(rpc_reqs.get())
+                if stop.is_set() or stop_fut in done:
+                    break
         finally:
             for t in (ws_task, rpc_task):
                 if t is not None and not t.done():
                     t.cancel()
+            if not stop_fut.done():
+                stop_fut.cancel()
             # Prefer superseded/token-rejected over opaque "sitting socket closed" (#66).
             closed_err = bridge_close_error(err_box.get("exc"))
             for rid, q in list(pending.items()):
