@@ -56,25 +56,51 @@ _PS_DIRECT = (
     "PowerShell, not through cmd /c, Start-Process or a new powershell. "
 )
 # Every mill command runs this way: connect and the command share one parent (0.7.x).
-ONE_LINER = "bash -c 'mill connect DESK >/dev/null 2>&1 & trap \"kill $!\" EXIT; mill COMMAND ARGS'"
-_BASH_RECIPE = "Run it as: " + ONE_LINER + " (connect alone in the foreground just blocks). "
-_PS_RECIPE = (
-    "Run it as: $c = Start-Process mill -ArgumentList 'connect','DESK' -PassThru -NoNewWindow; "
-    "mill COMMAND ARGS; Stop-Process $c.Id (connect alone in the foreground just blocks). "
-)
+_MILL_COMMAND = "mill COMMAND ARGS"
+# tw names its own form, so a desk wrapping git sees tw, not mill (card 1154).
+_TW_COMMAND = "tw CMD ARGS"
 
 
-PS_ONE_LINER = (
-    "$c = Start-Process mill -ArgumentList 'connect','DESK' -PassThru -NoNewWindow; "
-    "mill COMMAND ARGS; Stop-Process $c.Id"
-)
+def _one_liner(command: str) -> str:
+    return "bash -c 'mill connect DESK >/dev/null 2>&1 & trap \"kill $!\" EXIT; " + command + "'"
 
 
-def bridge_hint(os_name: str | None = None) -> str:
+def _ps_one_liner(command: str) -> str:
+    return (
+        "$c = Start-Process mill -ArgumentList 'connect','DESK' -PassThru -NoNewWindow; "
+        + command
+        + "; Stop-Process $c.Id"
+    )
+
+
+ONE_LINER = _one_liner(_MILL_COMMAND)
+PS_ONE_LINER = _ps_one_liner(_MILL_COMMAND)
+
+
+def bridge_hint(os_name: str | None = None, command: str = _MILL_COMMAND) -> str:
     name = os.name if os_name is None else str(os_name)
     if name == "nt":
-        return _BRIDGE_PREFIX + _PS_RECIPE + _PS_DIRECT + _BRIDGE_SUFFIX
-    return _BRIDGE_PREFIX + _BASH_RECIPE + _BASH_DIRECT + _BRIDGE_SUFFIX
+        recipe = "Run it as: " + _ps_one_liner(command) + " (connect alone in the foreground just blocks). "
+        return _BRIDGE_PREFIX + recipe + _PS_DIRECT + _BRIDGE_SUFFIX
+    recipe = "Run it as: " + _one_liner(command) + " (connect alone in the foreground just blocks). "
+    return _BRIDGE_PREFIX + recipe + _BASH_DIRECT + _BRIDGE_SUFFIX
+
+
+def tw_bridge_hint(os_name: str | None = None) -> str:
+    """The no-sitting-connect refusal tw prints, in the tw form (card 1154)."""
+    return bridge_hint(os_name, _TW_COMMAND)
+
+
+def tw_link_lost() -> str:
+    """tw had the sitting connect's link at start and lost it while the command ran (card 1154).
+
+    Not the no-sit refusal: the command started under a sitting connect and keeps running.
+    """
+    return (
+        "tw: the sitting mill connect's tw link closed while the command ran "
+        "(that connect exited or was superseded); the command keeps running, "
+        "but its exit is not recorded on the mill."
+    )
 
 
 def parent_exited_notice(desk: str, os_name: str | None = None, **extra: object) -> dict:

@@ -73,9 +73,9 @@ def test_after_reset_seat_the_next_wake_is_sent_not_coalesced(office, monkeypatc
     cleared: list[str] = []
     real_clear = wake.gate_clear
 
-    def capture(desk):
+    def capture(desk, cn=None):
         cleared.append(desk)
-        return real_clear(desk)
+        return real_clear(desk, cn=cn)
 
     monkeypatch.setattr(wake, "gate_clear", capture)
     # Reset must not need a real book join: stub rec_join.reset and admin gate.
@@ -112,9 +112,9 @@ def test_after_retire_desk_the_next_wake_is_sent_not_coalesced(office, monkeypat
     cleared: list[str] = []
     real_clear = wake.gate_clear
 
-    def capture(desk):
+    def capture(desk, cn=None):
         cleared.append(desk)
-        return real_clear(desk)
+        return real_clear(desk, cn=cn)
 
     monkeypatch.setattr(wake, "gate_clear", capture)
     monkeypatch.setattr(

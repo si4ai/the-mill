@@ -198,6 +198,9 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.wake, State.none, State.unread_owed, Reason.wake_owed),  # W2
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_sent),  # W3a
         (ActivityType.wake, State.unread_owed, State.lease_live, Reason.wake_sent),  # W3b
+        # Card 1140: the lease record (wake_lease.py): the ring starts it (W3c); it ends
+        # done (W9), expired (W12) or cleared by a reset or retire (W12b).
+        (ActivityType.wake, State.ring, State.lease_live, Reason.wake_sent),  # W3c
         (ActivityType.wake, State.push_pending, State.lease_live, Reason.wake_fail),  # W4a
         (ActivityType.wake, State.unread_owed, State.lease_live, Reason.wake_fail),  # W4b
         (ActivityType.wake, State.fail, State.retry_armed, Reason.wake_retry),  # W5
@@ -206,10 +209,11 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.wake, State.retry_armed, State.idle, Reason.wake_drain),  # W6b
         (ActivityType.wake, State.lease_live, State.trail, Reason.wake_trail),  # W7
         (ActivityType.wake, State.left, State.ring, Reason.wake_ring),  # W8
-        (ActivityType.wake, State.lease_live, State.idle, Reason.wake_done),  # W9
+        (ActivityType.wake, State.lease_live, State.done, Reason.wake_done),  # W9
         (ActivityType.wake, State.lease_live, State.idle, Reason.wake_stale),  # W10
         (ActivityType.wake, State.lease_live, State.idle, Reason.wake_sitting),  # W11
-        (ActivityType.wake, State.lease_live, State.expire, Reason.wake_expire),  # W12
+        (ActivityType.wake, State.lease_live, State.expired, Reason.wake_expire),  # W12
+        (ActivityType.wake, State.lease_live, State.cleared, Reason.clear),  # W12b
         (ActivityType.wake, State.any, State.coalesced, Reason.wake_coalesce),  # W13
         (ActivityType.wake, State.any, State.skipped, Reason.wake_skip),  # W14
         (ActivityType.wake, State.any, State.sitting, Reason.wake_sit),  # W15

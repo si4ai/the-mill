@@ -192,13 +192,46 @@ class Link:
         self._kick = threading.Event()
         self._down_marked = False
         self._reconcile_body: dict[str, Any] | None = None
+        self._opened = False
+        self._adopt: threading.Thread | None = None
 
     def start(self) -> None:
+        """Serve this desk's link, unless another connect's link already serves it (card 1154).
+
+        connect opens the link before the seat check, so a second connect for a
+        sitting desk (busy, or --take) gets here too. It must not take the sitting
+        connect's socket and pointer, or delete them when it exits. It waits instead
+        and serves once that link is gone.
+        """
+        if self._transport.live():
+            self._adopt = threading.Thread(
+                target=self._adopt_loop, name="mill-tw-adopt-" + self.desk, daemon=True
+            )
+            self._adopt.start()
+            return
+        try:
+            self._open()
+        except OSError:
+            self.close()
+            raise
+
+    def _adopt_loop(self) -> None:
+        while not self._stop.wait(0.2):
+            if self._transport.live():
+                continue
+            try:
+                self._open()
+            except OSError:
+                self.marks.append("tw.adopt")
+            return
+
+    def _open(self) -> None:
         from agent_coord.client.tw.outbox import Outbox, outbox_path
 
         self._outbox = Outbox(outbox_path(self.desk))
         path = pointer_path(self.desk)
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._opened = True
         path.write_text(kind() + " " + self._transport.address + "\n", encoding="utf-8")
         if os.name != "nt":
             os.chmod(path, 0o600)
@@ -207,12 +240,9 @@ class Link:
         )
         self._thread.start()
         if not self._ready.wait(2.0):
-            self.close()
             raise OSError("tw link did not open")
         if self._error is not None:
-            err = self._error
-            self.close()
-            raise OSError(str(err))
+            raise OSError(str(self._error))
         self._drain_pending()
         self._live_watch_ids = self._reconcile_ghosts()
         self._post_reconcile(self._live_watch_ids)
@@ -663,13 +693,17 @@ class Link:
             return
         self._closed = True
         self._stop.set()
+        adopt = self._adopt
+        if adopt is not None and adopt is not threading.current_thread():
+            adopt.join(3.0)
         with self._peers_lock:
             peers = [peer for peer in self._peers if peer.live]
         for peer in peers:
             for wid in list(peer.watch_ids):
                 self._enqueue(peer, protocol.stop_frame(wid, "sit-end"))
             self._drop_peer(peer)
-        self._wake()
+        if self._opened:
+            self._wake()
         if self._thread is not None:
             self._thread.join(2.0)
         for peer in peers:
@@ -683,6 +717,8 @@ class Link:
             except Exception:
                 pass
             self._outbox = None
+        if not self._opened:
+            return
         try:
             pointer_path(self.desk).unlink()
         except OSError:
