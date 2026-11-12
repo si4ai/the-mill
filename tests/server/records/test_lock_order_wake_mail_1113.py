@@ -233,8 +233,9 @@ def test_card_deletes_on_one_plan_at_once(cn) -> None:
     assert not errs, errs
 
 
-def _locks_held(cn, proc: str, args: list) -> set[tuple[str, str, str]]:
-    """(table, index, mode) record locks one call holds before its commit (request tx kept open)."""
+def _record_locks(cn, proc: str | None, args: list, *, sql: list[tuple[str, tuple]] | None = None
+                  ) -> list[tuple[str, str, str, str]]:
+    """(table, index, mode, lock_data) record locks one call holds before its commit."""
     pf = _direct()
     c = _direct()
     try:
@@ -243,17 +244,83 @@ def _locks_held(cn, proc: str, args: list) -> set[tuple[str, str, str]]:
         k.execute("START TRANSACTION")
         k.execute("SELECT PS_CURRENT_THREAD_ID()")
         (tid,) = k.fetchone()
-        _run_proc(k, proc, args)
+        if sql is not None:
+            for stmt, params in sql:
+                k.execute(stmt, params)
+                try:
+                    k.fetchall()
+                except Exception:
+                    pass
+        else:
+            _run_proc(k, proc, args)
         p = pf.cursor()
-        p.execute("SELECT OBJECT_NAME, INDEX_NAME, LOCK_MODE FROM performance_schema.data_locks"
+        p.execute("SELECT OBJECT_NAME, INDEX_NAME, LOCK_MODE, LOCK_DATA"
+                  " FROM performance_schema.data_locks"
                   " WHERE THREAD_ID = %s AND LOCK_TYPE = 'RECORD'", (tid,))
-        rows = {(str(t), str(i), str(m)) for t, i, m in p.fetchall()}
+        rows = [(str(t or ""), str(i or ""), str(m or ""), str(d or "")) for t, i, m, d in p.fetchall()]
         p.close()
         c.rollback()
         return rows
     finally:
         c.close()
         pf.close()
+
+
+def _locks_held(cn, proc: str, args: list) -> set[tuple[str, str, str]]:
+    """(table, index, mode) record locks one call holds before its commit (request tx kept open)."""
+    return {(t, i, m) for t, i, m, _d in _record_locks(cn, proc, args)}
+
+
+def _wake_row_id(index: str, data: str) -> int | None:
+    """id from LOCK_DATA on wake PRIMARY (type, id) or idx_id (id). None for supremum/gaps."""
+    if not data or "supremum" in data.lower():
+        return None
+    quote = chr(39) + chr(34)
+    parts = [tok.strip().strip(quote) for tok in data.split(",")]
+    for part in reversed(parts):
+        if part.isdigit():
+            return int(part)
+    return None
+
+
+def _wake_ids(cn, *, cause_id: int | None = None, decoys: bool = False,
+              mid: int | None = None) -> set[int]:
+    cur = cn.cursor()
+    if cause_id is not None:
+        cur.execute("SELECT id FROM wake WHERE cause IN ('mail', 'receipt')"
+                    " AND cause_id = %s AND state <> 'taken'", (cause_id,))
+    elif decoys and mid is not None:
+        cur.execute("SELECT id FROM wake WHERE state <> 'taken'"
+                    " AND (cause_id IS NULL OR cause_id <> %s"
+                    "      OR cause NOT IN ('mail', 'receipt'))", (mid,))
+    else:
+        cur.close()
+        raise ValueError("wake id query")
+    ids = {int(r[0]) for r in cur.fetchall()}
+    cur.close()
+    cn.commit()
+    return ids
+
+
+def _assert_only_own_wake_locks(rows: list[tuple[str, str, str, str]],
+                                want_ids: set[int], decoy_ids: set[int]) -> None:
+    """Matching wake rows may be locked exclusive; no S, no GAP, no decoy id."""
+    wake = [r for r in rows if r[0] == "wake"]
+    bad_s = [r for r in wake if r[2].startswith("S")]
+    bad_gap = [r for r in wake if "GAP" in r[2].upper()]
+    locked: set[int] = set()
+    unknown: list[tuple[str, str, str]] = []
+    for _t, index, mode, data in wake:
+        wid = _wake_row_id(index, data)
+        if wid is None:
+            unknown.append((index, mode, data))
+            continue
+        locked.add(wid)
+    assert not bad_s, (bad_s, wake)
+    assert not bad_gap, (bad_gap, wake)
+    assert not unknown, (unknown, wake)
+    assert locked == want_ids, (locked, want_ids, wake)
+    assert not (locked & decoy_ids), (locked & decoy_ids, wake)
 
 
 def test_plan_detach_reads_the_tree_without_a_shared_lock(cn) -> None:
@@ -269,13 +336,17 @@ def test_plan_detach_reads_the_tree_without_a_shared_lock(cn) -> None:
 
 
 def test_mail_delete_locks_only_its_own_wake_rows(cn) -> None:
-    # The payload filter has no index: a locking read there locked every wake row it scanned.
+    # Card 1171: lock identity, not only "no shared". A larger leftover table is
+    # the case where the old JOIN JSON_TABLE could scan wake PRIMARY.
     mid = int(rec_mail.insert(cn, "unit", "a", "b", "one wake")[0]["id"])
     cn.commit()
+    _wakes(cn, "c", "hint", range(910000, 910080))
     _wakes(cn, "b", "mail", [mid, 900001, 900002, 900003])
-    held = _locks_held(cn, "mill_mail_delete", [mid, "a"])
-    wake = {h for h in held if h[0] == "wake"}
-    assert not {h for h in wake if h[2].startswith("S")}, held
+    want = _wake_ids(cn, cause_id=mid)
+    decoys = _wake_ids(cn, decoys=True, mid=mid)
+    assert want and len(decoys) >= 3
+    rows = _record_locks(cn, "mill_mail_delete", [mid, "a"])
+    _assert_only_own_wake_locks(rows, want, decoys)
     cur = _direct()
     try:
         k = cur.cursor()
@@ -285,6 +356,55 @@ def test_mail_delete_locks_only_its_own_wake_rows(cn) -> None:
     finally:
         cur.close()
     assert others >= 3
+
+
+def test_old_mail_delete_wake_join_on_primary_locks_decoys(cn) -> None:
+    # The pre-1171 FROM wake JOIN JSON_TABLE, forced to drive from wake PRIMARY,
+    # locks decoy rows or takes a shared/gap wake lock. mill_mail_delete no
+    # longer uses this join; this pins the plan that broke lock identity.
+    mid = int(rec_mail.insert(cn, "unit", "a", "b", "old join")[0]["id"])
+    cn.commit()
+    _wakes(cn, "c", "hint", range(920000, 920080))
+    _wakes(cn, "b", "mail", [mid, 901001, 901002, 901003])
+    want = _wake_ids(cn, cause_id=mid)
+    decoys = _wake_ids(cn, decoys=True, mid=mid)
+    assert want and len(decoys) >= 3
+    cur = cn.cursor()
+    cur.execute(
+        "SELECT JSON_ARRAYAGG(id) FROM wake WHERE cause IN ('mail', 'receipt')"
+        " AND state <> 'taken'"
+        " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = %s",
+        (mid,),
+    )
+    (v_wakes,) = cur.fetchone()
+    cur.close()
+    cn.commit()
+    if not isinstance(v_wakes, str):
+        v_wakes = json.dumps(v_wakes)
+    sql = [
+        (
+            "SELECT COUNT(*) FROM wake w FORCE INDEX (PRIMARY)"
+            " STRAIGHT_JOIN JSON_TABLE(CAST(%s AS JSON), '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j"
+            " ON w.type = 'wake' AND w.id = j.id FOR UPDATE OF w",
+            (v_wakes,),
+        ),
+        (
+            "INSERT INTO transition (activity_type, activity_id, from_state, to_state,"
+            " reason, desk_id, role)"
+            " SELECT 'wake', w.id, w.state, 'taken', 'wake_deliver', w.desk_id, 'office'"
+            " FROM wake w FORCE INDEX (PRIMARY)"
+            " STRAIGHT_JOIN JSON_TABLE(CAST(%s AS JSON), '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j"
+            " ON w.type = 'wake' AND w.id = j.id WHERE w.state <> 'taken'",
+            (v_wakes,),
+        ),
+    ]
+    rows = _record_locks(cn, None, [], sql=sql)
+    wake = [r for r in rows if r[0] == "wake"]
+    locked = {wid for _t, i, m, d in wake if (wid := _wake_row_id(i, d)) is not None}
+    has_s = any(r[2].startswith("S") for r in wake)
+    has_gap = any("GAP" in r[2].upper() for r in wake)
+    hits_decoy = bool(locked & decoys)
+    assert has_s or has_gap or hits_decoy, (wake, locked, want, decoys)
 
 
 def test_doing_now_takes_no_row_locks(cn) -> None:

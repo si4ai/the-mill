@@ -1832,6 +1832,24 @@ def _ensure_wake_auto_id(cn) -> list[str]:
     return applied
 
 
+
+def _ensure_wake_cause_id_idx(cn) -> list[str]:
+    """card 1171: wake (cause, cause_id, state) for mill_mail_delete's find. Additive; no wipe."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "wake") and not _index_exists(cur, "wake", "idx_cause_id"):
+            cur.execute("ALTER TABLE wake ADD KEY idx_cause_id (cause, cause_id, state)")
+            applied.append("wake.idx_cause_id")
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def apply_transition_1022(cn) -> list[str]:
     """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
@@ -2050,6 +2068,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_wake_lease_edges(cn))
             # card 1113: wake.id is AUTO_INCREMENT, payload first (after the 1022 wake table).
             applied.extend(_ensure_wake_auto_id(cn))
+            # card 1171: after the 1022 wake table exists.
+            applied.extend(_ensure_wake_cause_id_idx(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
             return {"version": 1, "applied": applied, "book": "activity"}

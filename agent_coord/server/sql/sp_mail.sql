@@ -352,6 +352,9 @@ BEGIN
   DECLARE v_sender BIGINT UNSIGNED;
   DECLARE v_lock BIGINT UNSIGNED;
   DECLARE v_wakes JSON;
+  DECLARE v_wid BIGINT UNSIGNED;
+  DECLARE v_i INT DEFAULT 0;
+  DECLARE v_n INT DEFAULT 0;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -377,26 +380,29 @@ BEGIN
     CALL mill_tree_detach('mail', p_id);
   END IF;
   -- card 1022: mark matching wakes taken (no delete) and write transitions.
-  -- Card 1113: no index covers the payload filter, so a locking read here locked every wake row
-  -- it scanned (shared, then exclusive). Find the rows by a plain read, then lock only those, by
-  -- primary key (type, id), before the transition copy and the update.
+  -- Card 1113/1171: a locking read (or a FROM wake JOIN JSON_TABLE) can scan wake PRIMARY
+  -- and take next-key locks on other desks' rows; the plan flips with row counts and stats.
+  -- Find by cause/cause_id (idx_cause_id) with a plain read, then lock, copy, and update
+  -- each row only by primary key (type, id).
   SELECT JSON_ARRAYAGG(id) INTO v_wakes FROM wake
    WHERE cause IN ('mail', 'receipt')
-     AND state <> 'taken'
-     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.id')) AS UNSIGNED) = p_id;
+     AND cause_id = p_id
+     AND state <> 'taken';
   IF v_wakes IS NOT NULL THEN
-    SELECT COUNT(*) INTO v_lock FROM wake w
-      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
-     FOR UPDATE OF w;
-    INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
-    SELECT 'wake', w.id, w.state, 'taken', 'wake_deliver', w.desk_id, 'office'
-      FROM wake w
-      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
-     WHERE w.state <> 'taken';
-    UPDATE wake w
-      JOIN JSON_TABLE(v_wakes, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON w.type = 'wake' AND w.id = j.id
-       SET w.state = 'taken'
-     WHERE w.state <> 'taken';
+    SET v_i = 0;
+    SET v_n = JSON_LENGTH(v_wakes);
+    WHILE v_i < v_n DO
+      SET v_wid = CAST(JSON_UNQUOTE(JSON_EXTRACT(v_wakes, CONCAT('$[', v_i, ']'))) AS UNSIGNED);
+      IF v_wid IS NOT NULL AND v_wid <> 0 THEN
+        SELECT id INTO v_lock FROM wake WHERE type = 'wake' AND id = v_wid FOR UPDATE;
+        INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role)
+        SELECT 'wake', id, state, 'taken', 'wake_deliver', desk_id, 'office'
+          FROM wake WHERE type = 'wake' AND id = v_wid AND state <> 'taken';
+        UPDATE wake SET state = 'taken'
+         WHERE type = 'wake' AND id = v_wid AND state <> 'taken';
+      END IF;
+      SET v_i = v_i + 1;
+    END WHILE;
   END IF;
   DELETE FROM mail WHERE id = p_id;  -- mail_to cascades; mail_no_delete_in_tree still guards
   SET v_gone = ROW_COUNT();
