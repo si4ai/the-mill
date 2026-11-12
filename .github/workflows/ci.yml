@@ -198,7 +198,7 @@ jobs:
             echo "Root commit, nothing to compare: no hidden-code report."
             exit 0
           fi
-          python3 tools/check_hidden_code.py --base "$base" --head "$head" --author "${PR_AUTHOR:-$GITHUB_ACTOR}" || echo "check_hidden_code exited $?; this is a report, not a gate."
+          python3 tools/check_hidden_code.py --base "$base" --head "$head" --author "${PR_AUTHOR:-$GITHUB_ACTOR}"
 
   mill_cli_smoke:
     needs: build_pack
