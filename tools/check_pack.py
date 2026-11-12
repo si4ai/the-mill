@@ -424,9 +424,10 @@ NAME_TOKEN_REVIEWED = frozenset(
 )
 
 
-# The first word of a line, after an optional bullet, list number or card
-# number ("- ", "1. ", "2) ", "#338 "). Sentence case puts a capital there.
-_LINE_START_RE = re.compile(r"^[ \t]*(?:(?:[-*+>]|\d+[.)]|#\d+:?)[ \t]+)*([A-Z][a-z]{2,20})\b", re.MULTILINE)
+# The first word of a line, after an optional bullet, list number, card
+# number ("- ", "1. ", "2) ", "#338 ") or Markdown heading marks ("# " to
+# "###### "). Sentence case puts a capital there.
+_LINE_START_RE = re.compile(r"^[ \t]*(?:(?:[-*+>]|\d+[.)]|#\d+:?|#{1,6})[ \t]+)*([A-Z][a-z]{2,20})\b", re.MULTILINE)
 # The first word of a sentence inside a line: after ".", "!" or "?" (and an
 # optional closing quote or bracket) and a space. Sentence case puts a capital
 # there too, mid-line (#724: "... under 2 KB. Live 0.7.14, ...").
@@ -465,12 +466,12 @@ def ordinary_words(root: Path | None = None, *, staged: bool = False) -> set[str
 def text_has_personal_name_token(text: str, vocab: set[str] | frozenset[str] = frozenset()) -> bool:
     """True when text holds a Title-cased Latin token off the desk-word allow-list.
 
-    The first word of a line (after a bullet, list number or card number) also
-    passes when its lower-case form is in vocab, the ordinary words of the tree
-    (#338). So does the first word of a sentence inside a line, after ". ",
-    "! " or "? " (#724). Any other mid-line token keeps the allow-list rule
-    only, and a token whose lower-case form is not an ordinary word fails at
-    any position.
+    The first word of a line (after a bullet, list number, card number or
+    Markdown heading marks) also passes when its lower-case form is in vocab,
+    the ordinary words of the tree (#338). So does the first word of a
+    sentence inside a line, after ". ", "! " or "? " (#724). Any other
+    mid-line token keeps the allow-list rule only, and a token whose
+    lower-case form is not an ordinary word fails at any position.
     """
     if not text:
         return False
