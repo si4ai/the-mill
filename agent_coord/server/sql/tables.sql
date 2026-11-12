@@ -479,6 +479,7 @@ WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop'
 -- Hand-back does not delete: transition queued -> sent|missed|error -> taken.
 -- Card 1113: wake ids. mill_push_put / mill_push_expire insert a row, take LAST_INSERT_ID() as the
 -- wake (and its activity) id, and delete the row; the AUTO_INCREMENT counter is the sequence.
+-- Card 1171: idx_cause_id (cause, cause_id, state) serves mill_mail_delete's find.
 CREATE TABLE IF NOT EXISTS wake (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,  -- = activity.id where type='wake'; written first (card 1113)
   type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL DEFAULT 'wake',
@@ -494,6 +495,7 @@ CREATE TABLE IF NOT EXISTS wake (
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, id),
   KEY idx_desk_state (desk_id, state),
+  KEY idx_cause_id (cause, cause_id, state),
   CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

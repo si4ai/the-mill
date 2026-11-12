@@ -299,3 +299,10 @@ Items 3 (tw score transitions on start/finish/fail) and 4 (required receipt / `-
 | # | Was | Now | Why | Status |
 |---|-----|-----|-----|--------|
 | 1153a | `label` has `created` only; a re-rank (`mill label ... --ord N`) changes `ord` and writes no stamp and no transition row | `label.updated DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)`; `mill_label_put` moves it when `ord` changes to a new value, not on the same ord or a NULL ord; an existing book adds the column with `updated = created` (`_ensure_label_updated`, idempotent) | the PRIORITIES tab shows when a rank was last set (`GET /api/v1/labels` row `updated`); no other stamp in the book holds it | proposed (needs the owner's review) |
+
+## card 1171 (mail-delete wake lock scope)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1171a | `wake` has no key on (cause, cause_id); `mill_mail_delete` finds wakes by extracting `payload.id` and then `JOIN JSON_TABLE` back to `wake` | `KEY idx_cause_id (cause, cause_id, state)`; the proc finds by `cause`/`cause_id` and locks, copies, and updates each row by primary key only | the JSON_TABLE join can scan `wake` PRIMARY and lock other desks' rows (the plan depends on row counts and stats); card 1171 | proposed |
+
