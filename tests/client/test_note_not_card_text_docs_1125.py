@@ -204,18 +204,27 @@ def clauses(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"(?<=\.)\s+|;\s+|,\s+and\s+", line) if c.strip()]
 
 
-# A purpose flag may take one value (`--eta 2h`, `--done-when TEXT`).
-# Values are consumed only after a flag, so they cannot hide a later object.
-TIE_FLAG = re.compile(
+# A value-taking flag may take one value (`--eta 2h`, `--done-when TEXT`).
+# flagless ties and --started take no value. A value must not start with "-",
+# so "->" is not swallowed. Values are consumed only after a value-taking
+# flag, so they cannot hide a later object.
+TIE_FLAG_VALUE = re.compile(
     r"""(?ix)
     \s*
     (?:
         --eta\b
-        |--started\b
         |--done-when\b
         |--waiting-on
         |--full\b
         |--doing\b
+    )
+    """
+)
+TIE_FLAG_BARE = re.compile(
+    r"""(?ix)
+    \s*
+    (?:
+        --started\b
         |progress\b
         |\bETA\b
         |\bdone-when\b
@@ -230,15 +239,23 @@ FLAG_VALUE = re.compile(
         "[^"]*"
         |'[^']*'
         |`[^`]+`
-        |[A-Za-z0-9_./:-]+
+        |[A-Za-z0-9_./:][A-Za-z0-9_./:-]*
     )
     """
 )
-TIE_END = re.compile(r"""\s*(?:$|[.,;:)"'\]]+\s*$)""")
+# Progress percentage after usage args (`mill note r n 40%`), not a bare `note` 75%.
+PROGRESS_AFTER_USAGE = re.compile(r"\s+\d+%")
+# explanatory adjunct after a consumed tie or flag, not a following object.
+TRAILER = re.compile(r"(?ix)\s+(?:when|if|unless|after|before|sets|updates)\b")
+# A table cell whose only object is a progress token (`note` 9/12).
+NOTE_PROGRESS_VALUE = re.compile(
+    r"(?i)(?:`mill\s+note`|mill\s+note\b|`note`|(?<![A-Za-z_`-])note(?![A-Za-z_]))\s+\d+(?:/\d+|%)\s*$"
+)
+TIE_END = re.compile(r"""\s*(?:$|[.,;:)"'`\]]+\s*$)""")
 # Usage placeholders in a command synopsis, not card text.
 USAGE_ARG = re.compile(
     r"""(?ix)
-    \s+
+    \s*
     (?:
         <[^>]+>
         |\[[^\]]+\]
@@ -267,12 +284,15 @@ def _followers_are_spine(rest: str) -> bool:
     """True when note is followed only by separators, another command, a tie, or end.
 
     A tie or flag after note does not hide a following object: consume the
-    tie (and an optional flag value) and keep inspecting the rest. An arrow
-    starts the next pipeline step. A slash or quoted object is still inspected.
+    tie (and an optional value only after a value-taking flag) and keep
+    inspecting the rest. An arrow starts the next pipeline step. A slash
+    or quoted object is still inspected.
     """
     s = rest
     progressed = True
     saw_sep = False
+    saw_usage = False
+    saw_tie = False
     while s and progressed:
         progressed = False
         if TIE_END.match(s):
@@ -309,16 +329,36 @@ def _followers_are_spine(rest: str) -> bool:
         m = USAGE_ARG.match(s)
         if m:
             s = s[m.end():]
+            saw_usage = True
             progressed = True
             continue
-        m = TIE_FLAG.match(s)
+        if saw_usage:
+            m = PROGRESS_AFTER_USAGE.match(s)
+            if m:
+                s = s[m.end():]
+                saw_tie = True
+                progressed = True
+                continue
+        m = TIE_FLAG_VALUE.match(s)
         if m:
             s = s[m.end():]
             v = FLAG_VALUE.match(s)
             if v:
                 s = s[v.end():]
+            saw_tie = True
             progressed = True
             continue
+        m = TIE_FLAG_BARE.match(s)
+        if m:
+            s = s[m.end():]
+            saw_tie = True
+            progressed = True
+            continue
+        if saw_tie and TRAILER.match(s):
+            return True
+        # A usage synopsis may continue with purpose flags or "progress token".
+        if saw_usage and ALLOWED_TIE.search(s):
+            return True
         m = RE_CMD_FOLLOW.match(s) or CMD_FOLLOW.match(s)
         if m:
             return True
@@ -388,7 +428,8 @@ def allowed(line: str) -> bool:
         and not SINK_INTO_NOTE.search(c)
         and not _parenthetical_progress_only(c)
         # A purpose token in the same cell as a note object does not
-        # bless that object; a sibling purpose cell still can.
+        # bless that object. A sibling purpose cell may bless a bare
+        # note (or note plus a progress token), not a text object.
         and (
             not has_mention(c)
             or clause_allowed(c)
@@ -406,7 +447,14 @@ def allowed(line: str) -> bool:
             continue
         if clause_allowed(part):
             continue
-        if row_has_purpose and not SINK_INTO_NOTE.search(part):
+        if (
+            row_has_purpose
+            and not SINK_INTO_NOTE.search(part)
+            and (
+                _note_tokens_have_no_object(part)
+                or bool(NOTE_PROGRESS_VALUE.search(part))
+            )
+        ):
             continue
         if is_command_spine(part):
             if table and any(SIBLING_SINK.search(c) for c in parts if c != part):
@@ -601,3 +649,19 @@ def test_scanner_is_allow_list():
     assert not bad_lines("`note` --eta 2h")
     assert not bad_lines("`note` progress")
     assert not bad_lines("`claim` + `note` --eta 2h + `pass`")
+    # D13: flagless ties and no-value flags must not eat "->"; trailers after a value stay quiet.
+    assert not bad_lines("`claim` -> `note` progress -> `pass`")
+    assert not bad_lines("`claim` -> `note` ETA -> `pass`")
+    assert not bad_lines("| flow | `claim` -> `note` progress -> `pass` |")
+    assert not bad_lines("`note` progress -> `pass --done`")
+    assert not bad_lines("`note` --started -> `pass`")
+    assert not bad_lines("`note` done-when -> `pass`")
+    assert not bad_lines("`note` waiting_on -> `send`")
+    assert not bad_lines("`note` --waiting-on -> `send`")
+    assert not bad_lines("`note` --waiting-on desk when blocked.")
+    assert not bad_lines("`note` --done-when TEXT sets the acceptance line.")
+    # D14: a progress token after usage args is purpose use, not an object.
+    assert not bad_lines("`mill note r n 40%` sets progress.")
+    assert not bad_lines("`mill note ROSTER NEED 40%` sets progress.")
+    # D15: a purpose sibling cell must not bless a note object in another cell.
+    assert bad_lines("| close | `note` ETA | `note` the decision |")
