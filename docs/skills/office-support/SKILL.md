@@ -44,7 +44,7 @@ ITSM/forge database into mill.
 | triage / own / assign | `claim` / `assign` |
 | drop the claim | `unclaim` |
 | priority (impactxurgency) | todo `detail` (text) |
-| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
+| progress | `todo <roster> <need> --eta E` / `--started` |
 | workaround / diary | `replace-body` |
 | need more info | `send` reporter / `--receipt` + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |

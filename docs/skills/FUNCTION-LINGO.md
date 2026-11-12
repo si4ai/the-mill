@@ -80,7 +80,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | mitigate | replace-body + done when impact stopped |
 | escalate | mail eng/support |
 | postmortem | follow-on todo or parked plan |
-| drain / deploy window | drain + mail ETA |
+| drain / deploy window | drain + `todo ROSTER NEED --eta E` + mail |
 
 ---
 
@@ -115,7 +115,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | Their word | Mill-ish |
 |---|---|
 | opportunity | todo (or plan row for big deals) |
-| next step | `todo ROSTER NEED --eta E` / `replace-body` |
+| next step | `todo ROSTER NEED --eta E` |
 | handoff | mail + assign |
 | blocked | waiting_on |
 | close-won | done; mail CS onboarding todo |

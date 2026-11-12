@@ -9,7 +9,6 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | Effect | Who |
 |---|---|
 | invite door keys (mint + enable + revoke joins) | **Admin** |
-| invite-seat / mint_seat (one agent URL) | trust-gated: high = human badge or Admin; limited = Admin only |
 | rename, retire, reclaim, reset | **Admin** (desk self-rename where hash matches still applies) |
 | `Admin` grant/revoke | **host loopback only**. `mill add roster Admin OTHER`. `mill join --Admin` does **not** grant. connect-on-host does **not** grant. |
 | set trust (`mill trust high` / `mill trust limited`) | **Admin** |

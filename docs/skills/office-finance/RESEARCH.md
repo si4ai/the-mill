@@ -109,7 +109,7 @@ Shared spine (one table for the function):
 | blocked (approver, bank, coding) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake pass |
 | exclusive edit shared invoice pack | TEMPLATE hold; README hold rare (eng/legal/docs) | hold / drop | **omit day-one** (or rare `hold`/`drop` if the office leases a doc res) | don't teach hold unless needed |
 | park / defer | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject bare `create` / `open` |
-| progress / diary | mill-desk replace-body; stub coded/approved | replace-body | **`replace-body`** | replace-body != mail |
+| progress / diary | mill-desk replace-body; stub coded/approved | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
 
 **Stub lingo gaps this harvest fills:** Inputs, Handoffs, Scope, inbox, unclaim vs drop, park, budget/accrual/payment/PO explicit maps, human_required called out on approve, forecast = `score` not product, closed-books folded/dropped as 2nd product, reject open/yield/bare create/teaching done, hold omit-unless-needed.
 
@@ -285,7 +285,7 @@ replacing ERP payment runs inside mill.
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
 | coding (GL / cost center) | `replace-body` (ledger executes coding) |
 | exception | `send` escalate (+ `replace-body` reason) |
-| progress / coded / approved diary | `replace-body` (not mail) |
+| progress / coded / approved diary | `todo <roster> <need> --eta E` / `--started` (not mail) |
 | find work / mail landed | `inbox` |
 | blocked (approver/bank/coding) | waiting_on + `send` |
 | budget / forecast KPI | `score` (last vs target) |

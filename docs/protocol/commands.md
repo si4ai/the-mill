@@ -159,7 +159,7 @@ After `mill update` / `pip install -U the-mill`: **(1)** recopy skill.md to mill
 - **Multi-mill:** `mill <command> --office <alias>` (before or after the command) selects a local Wall alias under `.mill/alias/`. One `mill connect <desk>` per office (dual-office = connect each). Omit `--office` only when `.mill/active` is already that alias. Alias is local - not sent on the wire. Office map: DO-map Offices above.
 - **Host:** mill commands on a Wall-reachable host. Bot box often cannot reach LAN Wall - do not burn timeouts; run join/connect/commands on that host. Desk identity = the sitting connect's desk, or `--desk DESK` (short seat borrow).
 - **assign** = unassigned todo only; rights: [admin.md](../requirements/admin.md) (trust matrix). No overwrite; assignee `unclaim` first.
-- **trust:** show `mill trust` = any seated desk. Set `mill trust high` / `mill trust limited` = Admin. Pack/wall must ship the command first. Chart: `docs/requirements/admin.md` (repo only; not in a day-one pack, not needed on day one).
+- **trust:** show `mill trust` = any seated desk. Set `mill trust high` / `mill trust limited` = Admin. Pack/wall must ship the command first. Chart: `docs/requirements/admin.md`.
 - **Asker/dest:** cast Asker wins over card.asker; send dest = desk name (type desk).
 - **Secrets:** warn your human coworker before putting SSN/national IDs, payment cards, passwords/tokens, or private home addresses into `replace-body` / `send` / todo `detail` / `doing`. Transmit those over a secure channel (vault, Drive/doc link, HRIS/ATS/CLM/ERP). Mill may server-redact on paste. Public business addresses and non-secret URLs are fine.
 - **Roster:** one project name or one role name. `label` is not a roster. Ask if the ask omits it.
@@ -206,7 +206,7 @@ Grouped by **table**. Day-one teaching first; tree/Admin when said, not day-one 
 | *"unpark"*, *"reopen that card"* | `unpark` `<roster> <need>` `[--parent-type mail|todo --parent-id ID]` |
 | *"I'll take it"*, *"claim that"* | `claim` `<roster> <need>` |
 | *"drop the claim"*, *"unclaim"* | `unclaim` `<roster> <need>` |
-| *"progress is..."*, *"it will take ..."*, *"started"* | `todo` `<roster> <need> --eta E` or `--started`; progress in words goes in the card text with `replace-body todo <id> TEXT` |
+| *"progress is..."*, *"it will take ..."*, *"started"* | `todo` `<roster> <need> --eta E` or `--started` |
 | *"note on the card"*, *"diary"* | `replace-body todo <id> TEXT` (read the card first) |
 | *"ship it"*, *"pass"*, *"close it"*, *"ready for review"* | `pass` `<roster> <need>`. First pass (volunteer): claimed -> shipped. The asker accepts with `pass --done`: shipped -> done. If you filed the card yourself, you ship it with `pass`, then accept with `pass --done`. |
 

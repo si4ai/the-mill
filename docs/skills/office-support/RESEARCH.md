@@ -98,7 +98,7 @@ Shared spine (one table for the function):
 | backlog | FL product | create todo parked / open list | open todos / **`create todo` `{status:"parked"}`** for defer | not a product |
 | incident vs service request | FL product words; ITIL | detail | **detail / label** on same ticket spine | not 2nd product; major SEV -> handoff ops |
 | coverage / who's HERE | README presence; ops pattern | presence | presence / agents (glance); mail wake | not inventing coverage command |
-| progress / diary / forge comment crumb | mill-desk replace-body | replace-body | **`replace-body`** | replace-body != mail; forge comment stays on forge |
+| progress / diary / forge comment crumb | mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail; forge comment stays on forge |
 | find work / mail wake | mill-desk | inbox | **`inbox`** | - |
 | blocked (reporter / eng / vendor) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake resolve |
 | exclusive shared file (rare) | README "hold rare - don't teach in support unless needed"; TEMPLATE | hold / drop | **`hold` / `drop`** **omit from day-one teach** unless office leases a shared resource | hold != unclaim |
@@ -271,7 +271,7 @@ ITSM/forge database into mill.
 | triage / own / assign | `claim` / `assign` |
 | drop the claim | `unclaim` |
 | priority (impactxurgency) | todo `detail` (text) |
-| workaround / progress diary | `replace-body` |
+| workaround / progress diary | progress: `todo <roster> <need> --eta E` / `--started`; the workaround: card text (`replace-body`) |
 | need more info | `send` reporter / human_required + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |
 | duplicate | `replace-body` canonical + `pass` |

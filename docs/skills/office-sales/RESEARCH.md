@@ -54,7 +54,7 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Opportunity identity (CRM id / account / deal name) | **Yes** | todo `detail` (link CRM URL/id - don't clone amounts) |
 | Stage / desired outcome (advance, close-won, close-lost, handoff dest) | **Yes** | need + detail; if missing -> `replace-body` gap + `send` asker / `waiting_on` |
 | Owner / role path (SDR, AE, CS, delivery) | Strong | `claim` / `assign`; handoff dest in detail |
-| Next step (call, demo, proposal, legal, pricing) | Strong | `replace-body` progress |
+| Next step (call, demo, proposal, legal, pricing) | Strong | `todo <roster> <need> --eta E` / `--started` |
 | Blockers (legal, pricing, security review) | When blocked | waiting_on + `send` specialized desk |
 | Close facts (won/lost reason; CS onboarding ask) | On close | `replace-body` + `send` CS/`create todo` onboarding |
 
@@ -88,7 +88,7 @@ Shared spine (one table for the function):
 | proposal | FL Sales product words | replace-body, send, hold | **`replace-body`** path + optional `send` legal/finance | hold rare (README: don't teach hold in sales unless needed) |
 | account | FL Sales product words | detail link | **detail / `replace-body`** CRM account id | SoR = CRM; don't clone account DB |
 | renewal | FL Sales product words | create todo, send CS | **`create todo`** renew opp **or** `send` CS | same spine; not 2nd product day-one |
-| next step | FL mill sketch "progress / replace-body"; stub | replace-body | **`replace-body`** | replace-body != mail |
+| next step | FL mill sketch "progress / replace-body"; stub | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
 | handoff (SDR->AE->CS) | FL mill sketch "mail + assign"; stub; FL collab | send, assign | **`send` + `assign`** | escalate always = send (README); not claim steal |
 | blocked (legal/pricing) | FL mill sketch "waiting_on"; FL collab; stub | waiting_on + send | **`waiting_on` + `send`** | don't fake pass |
 | forecast | FL collab; README score row "sales (forecast)"; stub | score | **`score`** (last vs target) | not a product |
@@ -252,7 +252,7 @@ On the desk **before** you can advance or close (else `replace-body` gap + `send
 - **CRM identity** - opportunity/account id or URL in detail (do not clone amounts)
 - **Stage / outcome ask** - advance, close-won, close-lost, or handoff destination
 - **Owner path** - SDR / AE / CS / delivery (for claim/assign)
-- **Next step** - call, demo, proposal, legal, pricing (`replace-body` as you go)
+- **Next step** - call, demo, proposal, legal, pricing (`todo <roster> <need> --eta E` as you go)
 - When blocked: legal/pricing/security context for waiting_on mail
 - On close-won: CS onboarding ask (who/what to mail or todo)
 
@@ -265,7 +265,7 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| next step / progress | `replace-body` |
+| next step / progress | `todo <roster> <need> --eta E` / `--started` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
 | blocked (legal/pricing) | waiting_on + `send` |

@@ -94,8 +94,8 @@ Shared spine (one table for the function):
 | stakeholder comms | FL collab; stub Done mailed | send, replace-body | **`send`** + **`replace-body`** on card | not status-page SoR clone |
 | follow-the-sun | FL collab | unclaim, assign, send | **`unclaim`/`assign`** + **`send`** next shift | presence for who's HERE |
 | postmortem | FL sketch "follow-on todo or parked plan" | create todo parked | **`create todo`** follow-on or `{status:"parked"}` | not day-one product; reject teaching `done` |
-| deploy / rollback | FL product; stub Deploy | create todo, replace-body, pass, send | **`create todo`/`claim`** -> **`todo ROSTER NEED --eta E`** -> **`pass`**; **`send`** ops/eng as needed | forge/CI stay SoR |
-| drain / deploy window | FL sketch "drain + mail ETA"; stub Drain | replace-body, send, pass | office drain path + **`send` ETA**; **`pass`** when clear | reject inventing `drain` CLI |
+| deploy / rollback | FL product; stub Deploy | create todo, todo --eta, pass, send | **`create todo`/`claim`** -> **`todo ROSTER NEED --eta E`** -> **`pass`**; **`send`** ops/eng as needed | forge/CI stay SoR |
+| drain / deploy window | FL sketch "drain + mail ETA"; stub Drain | todo --eta, send, pass | office drain path + **`todo ROSTER NEED --eta E`** + **`send`**; **`pass`** when clear | reject inventing `drain` CLI |
 | runbook | FL product | replace-body, detail | **`replace-body`/detail** pointer to SoR | method, not command |
 | SLO / SLA / uptime KPI | FL product; README score row ops (SLO) | score | **`score`** (last vs target) | not a product |
 | service health / health check failed | FL product; stub When | create todo, inbox, claim | **`inbox`/`create todo`** -> **`claim`** -> mitigate spine | - |
@@ -104,7 +104,7 @@ Shared spine (one table for the function):
 | blocked (eng fix, access, change window) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | park / defer (postmortem, non-urgent) | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | take / give incident | mill-desk; support assign | claim, assign | **`claim` / `assign`** | - |
-| progress diary | mill-desk replace-body; FL mitigate | replace-body | **`replace-body`** | replace-body != mail |
+| progress diary | mill-desk replace-body; FL mitigate | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
 | find ops mail / pages | mill-desk mail; stub | inbox | **`inbox`** | - |
 
 **Stub lingo gaps this harvest fills:** Inputs, SEV->detail, escalate=`send`, postmortem=follow-on/parked, SLO=`score`, waiting_on, assign/unclaim, hold/drop nuance, follow-the-sun handoff, park, reject open/yield/bare create/teaching done.
@@ -271,7 +271,7 @@ office requires one, reconnect spam as a plan.
 | SEV / severity / triage | todo `detail` / `doing` + `replace-body` |
 | IC / take ownership | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| mitigate / progress | `replace-body` (diary; not mail) |
+| mitigate / progress | progress: `todo <roster> <need> --eta E` / `--started`; mitigation steps: card text (`replace-body`; not mail) |
 | stakeholder comms | `send` (+ `replace-body` on card) |
 | escalate | `send` eng/support (optional eng `create todo`) |
 | follow-the-sun | `assign` / `unclaim` + `send` next desk |

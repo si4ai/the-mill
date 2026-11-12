@@ -40,7 +40,7 @@ On the desk **before** draft (else `replace-body` gap + `send` asker / `waiting_
 | park / later | `create todo` `<roster> <need> --status parked` |
 | take / draft | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / brief path | `todo <roster> <need> --eta E` or `replace-body` (path in body/detail) |
+| progress / brief path | `todo <roster> <need> --eta E` / `--started`; the brief path is card text (`replace-body`) |
 | synthesize / revise | `replace-body` |
 | findings | brief section / `replace-body` |
 | recommendation | brief section (not a separate card product) |

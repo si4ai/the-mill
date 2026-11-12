@@ -47,7 +47,7 @@ replacing ERP payment runs inside mill.
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
 | coding (GL / cost center) | `replace-body` (ledger executes coding) |
 | exception | `send` escalate (+ `replace-body` reason) |
-| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
+| progress | `todo <roster> <need> --eta E` / `--started` |
 | coded / approved diary | `replace-body` (not mail) |
 | find work / mail landed | `inbox` |
 | blocked (approver/bank/coding) | waiting_on + `send` |

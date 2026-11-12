@@ -44,7 +44,7 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 | creative / asset work | `claim` + `replace-body` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
+| progress | `todo <roster> <need> --eta E` / `--started` |
 | diary | `replace-body` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |

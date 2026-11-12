@@ -130,7 +130,7 @@ Shared spine (one table for the function):
 | blocked (approver, candidate, IT, legal) | README waiting_on | waiting_on, send, replace-body | **waiting_on** + **`send`** | don't fake `pass` |
 | hiring KPI / time-to-hire | optional; not README people cluster | score | optional **`score`** if office sets target | interview notes != this |
 | take / give loop card | mill-desk | claim, assign | **`claim` / `assign`** | - |
-| progress diary | mill-desk replace-body | replace-body | **`replace-body`** | replace-body != mail |
+| progress diary | mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
 | find people mail | mill-desk mail | inbox | **`inbox`** | - |
 | park / defer req or leftover | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | escalate (to legal/finance/IT) | README escalate = send | send | **`send`** specialized desk (+ optional their `create todo`) | never invent `escalate` command |
@@ -186,7 +186,7 @@ Pattern: README "Escalate always = mill send"; human_required clusters people (o
 **Onboarded**
 
 1. Hire confirmed + checklist items with owners on desk.
-2. Each child `claim`ed/`assign`ed; progress written on the card (`replace-body`); blockers waiting_on + mailed.
+2. Each child `claim`ed/`assign`ed; progress with `todo <roster> <need> --eta E` / `--started`; blockers waiting_on + mailed.
 3. All required children `pass`ed (or explicit parked leftovers); parent `pass`ed; manager/IT mailed as needed.
 
 ---
