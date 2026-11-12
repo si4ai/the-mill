@@ -65,6 +65,11 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
     res for `hold.resource_id`. A collision keeps the highest rank and gives each lower row the next free
     `name-N`. The rank is res, then desk, then roster, then tree, then label. A taken suffix is skipped.
     The migration is a new step. It does not rewrite `migrate_080.sql`, and it does not change `name.type`.
+    A retired or trashed row still holds its string. The collision step renames a retired loser.
+    `name_fixed` still refuses that rename unless the step sets `@mill_allow_retired_rename`.
+    A desk's focus list is `seat.focus_label_id`. The label string follows the rank, so it does not
+    stay equal to the desk name. `label todo`, `trail --label`, `todo --mine` and the connect focus
+    line still address that list by the desk name.
   - Delete is hard to do: Admin retires (soft, `name.deleted`; a trigger refuses DELETE), the name stays reserved
     while retired, and an Admin reclaim restores the same id.
   - Rename is a plain update; related records follow through the id. Admin renames; a desk may rename itself.

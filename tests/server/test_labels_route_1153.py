@@ -220,3 +220,33 @@ def test_seeded_route_over_http(cn, book, monkeypatch) -> None:
     named = client.get("/api/v1/labels?project=Office&limit=500&names=" + book["list"]).json()
     named_ids = {(r["label"], r["id"]) for r in named["rows"]}
     assert {(book["list"], book["on"]), (book["list"], book["off"])} <= named_ids
+
+
+@pytest.mark.sql
+def test_desk_name_addresses_the_focus_list(cn) -> None:
+    """A desk name ranks that desk's focus list. The stored label string is the next free suffix."""
+    from agent_coord.server.records import label as rec_label
+    from agent_coord.server.records import member as rec_member
+    from agent_coord.server.records import todo as rec_todo
+    from tests.server.records.conftest import seed_names
+
+    tag = uuid4().hex[:6]
+    desk, home = f"d1163{tag}", f"r1163{tag}"
+    seed_names(cn, (home, "roster"), (desk, "desk"))
+    rec_member.put(cn, home, desk)
+    card = int(rec_todo.insert(cn, home, desk, "open", "focus")[0]["id"])
+    rec_label.put(cn, "todo", card, desk, 0)
+    cn.commit()
+    assert [r["id"] for r in rec_label.rows_for(cn, desk)] == [card]
+    shown = {r["label"] for r in rec_label.wall_rows(cn) if r["id"] == card}
+    assert shown == {desk}
+    stored = _one(
+        cn,
+        "SELECT n.name FROM label l JOIN name n ON n.id = l.name_id"
+        " WHERE l.type = 'todo' AND l.id = %s",
+        (card,),
+    )
+    assert stored[0] == f"{desk}-1"
+    with pytest.raises(Exception) as e:
+        seed_names(cn, (desk, "label"))
+    assert "name in use" in str(e.value)

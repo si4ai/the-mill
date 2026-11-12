@@ -216,7 +216,8 @@ def test_no_roster_table_and_roster_columns_reference_name(book):
 
 
 # Card 1163: the eleven single-kind name references are a plain id FK to name (id). The type is a BEFORE INSERT
-# and BEFORE UPDATE trigger. seat.desk_id is the twelfth pointer (desk). Constraint names and ON DELETE rules stay.
+# and BEFORE UPDATE trigger. seat.desk_id is the desk pointer. seat.focus_label_id is the focus-list pointer.
+# Constraint names and ON DELETE rules stay.
 # A wrong type is MySQL 1644. A missing id is still the foreign key, MySQL 1452 (F168).
 KIND_FKS = {
     ("member", "fk_member_name"): ("name_id", "roster", "RESTRICT"),
@@ -235,6 +236,8 @@ KIND_FKS = {
 TYPE_TRIGGERS = (
     ("seat_desk_type_ins", "seat", "INSERT", "seat.desk_id must name a desk"),
     ("seat_desk_type_upd", "seat", "UPDATE", "seat.desk_id must name a desk"),
+    ("seat_focus_type_ins", "seat", "INSERT", "seat.focus_label_id must name a label"),
+    ("seat_focus_type_upd", "seat", "UPDATE", "seat.focus_label_id must name a label"),
     ("member_roster_type_ins", "member", "INSERT", "member.name_id must name a roster"),
     ("member_roster_type_upd", "member", "UPDATE", "member.name_id must name a roster"),
     ("human_member_roster_type_ins", "human_member", "INSERT", "human_member.name_id must name a roster"),
@@ -283,6 +286,7 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
         got[(t, fk)] = (cols, rt, rcols, rule)
     want = {key: (c, "name", "id", rule) for key, (c, _k, rule) in KIND_FKS.items()}
     want[("seat", "fk_seat_desk")] = ("desk_id", "name", "id", "RESTRICT")
+    want[("seat", "fk_seat_focus_label")] = ("focus_label_id", "name", "id", "RESTRICT")
     assert got == want, f"FKs to name: {sorted(set(got.items()) ^ set(want.items()))}"
     kind_cols = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS"
                           " WHERE TABLE_SCHEMA = %s AND COLUMN_NAME LIKE '%%\\_kind'", (db,))
@@ -307,7 +311,7 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
         if (got_table, got_event, timing) != (table, event, "BEFORE") or msg not in (stmt or ""):
             bad_tr.append((name, have, msg))
     assert not bad_tr, bad_tr
-    assert len(got_tr) == 24
+    assert len(got_tr) == 26
 
 
 def _signal_ok(exc) -> bool:
@@ -408,6 +412,22 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
     except mysql.connector.Error as exc:
         if not _signal_ok(exc):
             seat_bad.append(("update", exc.errno, str(exc)[:120]))
+    finally:
+        cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "UPDATE seat SET focus_label_id = %s WHERE desk_id = %s", (ids["roster"], desk))
+        seat_bad.append(("focus", "accepted"))
+    except mysql.connector.Error as exc:
+        if not _signal_ok(exc):
+            seat_bad.append(("focus", exc.errno, str(exc)[:120]))
+    finally:
+        cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "UPDATE seat SET focus_label_id = %s WHERE desk_id = %s", (ids["label"], desk))
+    except mysql.connector.Error as exc:
+        seat_bad.append(("focus-label", exc.errno, str(exc)[:120]))
     finally:
         cn.rollback()
     cn.start_transaction()

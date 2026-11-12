@@ -518,7 +518,7 @@ BEGIN
          t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
-         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
+         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(IFNULL((SELECT fdn.name FROM seat fs JOIN name fdn ON fdn.id = fs.desk_id AND fdn.deleted IS NULL WHERE fs.focus_label_id = ln.id LIMIT 1), ln.name)) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
@@ -570,7 +570,7 @@ BEGIN
          t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
-         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
+         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(IFNULL((SELECT fdn.name FROM seat fs JOIN name fdn ON fdn.id = fs.desk_id AND fdn.deleted IS NULL WHERE fs.focus_label_id = ln.id LIMIT 1), ln.name)) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,

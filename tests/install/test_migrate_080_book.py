@@ -292,7 +292,7 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 # Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
 # activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
 # (it is new; main's focus rows keep it NULL).
-ADDED = {"desk_key", "act", "peer_id", "doing_id", "trashed",
+ADDED = {"desk_key", "act", "peer_id", "doing_id", "focus_label_id", "trashed",
          "meta", "body_updated", "body_updater_id"}  # card 1133 (a plain-text card body stays as it is)
 DROPPED = {"evidence", "weight", "n"}
 # Added on one table only, where the name is common elsewhere: label.updated (card 1153).

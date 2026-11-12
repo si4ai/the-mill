@@ -1428,7 +1428,13 @@ def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None)
     for step in STEPS_080:
         if step == "triggers":
             _helpers_080(cn, create=False)
-            n = _timed_080(cn, step, _triggers_080, timings)
+
+            def _triggers_1163(cur) -> int:
+                # The focus trigger reads seat.focus_label_id. The column is not in migrate_080.sql.
+                _ensure_focus_label_column(cur)
+                return _triggers_080(cur)
+
+            n = _timed_080(cn, step, _triggers_1163, timings)
             cn.commit()
         else:
             def run(cur, step=step) -> int:
@@ -2115,8 +2121,61 @@ def _drop_fk(cur, table: str, name: str) -> None:
 
 
 def _name_taken(cur, candidate: str) -> bool:
+    """True when any row holds the string, retired and trashed included."""
     cur.execute("SELECT 1 FROM name WHERE name = %s LIMIT 1", (candidate,))
     return cur.fetchone() is not None
+
+
+def _trigger_statement(text: str, name: str) -> str:
+    """One CREATE TRIGGER body from tables.sql, without the client delimiter."""
+    key = f"CREATE TRIGGER {name}"
+    start = text.index(key)
+    end = text.index("END //", start)
+    return text[start:end].rstrip() + "\nEND"
+
+
+def _install_name_fixed(cur) -> None:
+    """Replace name_fixed so the collision step can rename a retired row."""
+    text = (sql_dir() / "tables.sql").read_text(encoding="utf-8-sig")
+    cur.execute("DROP TRIGGER IF EXISTS name_fixed")
+    cur.execute(_trigger_statement(text, "name_fixed"))
+
+
+def _ensure_focus_label_column(cur) -> None:
+    """seat.focus_label_id, the desk's focus list. Present on a fresh book already."""
+    if not _table_exists(cur, "seat"):
+        return
+    if not _column_exists(cur, "seat", "focus_label_id"):
+        after = " AFTER doing_id" if _column_exists(cur, "seat", "doing_id") else ""
+        cur.execute("ALTER TABLE seat ADD COLUMN focus_label_id BIGINT UNSIGNED NULL" + after)
+    if _index_cols(cur, "seat", "idx_focus_label") != ["focus_label_id"]:
+        _drop_index_if(cur, "seat", "idx_focus_label")
+        cur.execute("ALTER TABLE seat ADD UNIQUE KEY idx_focus_label (focus_label_id)")
+    if not _fk_exists(cur, "seat", "fk_seat_focus_label"):
+        cur.execute(
+            "ALTER TABLE seat ADD CONSTRAINT fk_seat_focus_label "
+            "FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT"
+        )
+
+
+def _link_focus_labels(cur) -> None:
+    """A live label that still shares a live desk's string is that desk's focus list.
+
+    Called before the collision rename, while the two strings still match.
+    A retired or trashed label is renamed with every other loser and is not the list.
+    """
+    if not _column_exists(cur, "seat", "focus_label_id"):
+        return
+    live = "l.deleted IS NULL"
+    if _column_exists(cur, "name", "trashed"):
+        live += " AND l.trashed IS NULL"
+    cur.execute(
+        "UPDATE seat s "
+        "JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.deleted IS NULL "
+        "JOIN name l ON l.type = 'label' AND l.name = d.name AND " + live + " "
+        "SET s.focus_label_id = l.id "
+        "WHERE s.focus_label_id IS NULL"
+    )
 
 
 def _rename_name_collisions(cur) -> int:
@@ -2213,8 +2272,8 @@ def name_type_trigger_sql(text: str) -> list[tuple[str, str]]:
 
 def _install_name_type_triggers(cur) -> int:
     found = name_type_trigger_sql((sql_dir() / "tables.sql").read_text(encoding="utf-8-sig"))
-    if len(found) != 24:
-        raise Migrate1163Refused(f"expected 24 name-type triggers, parsed {len(found)}")
+    if len(found) != 26:
+        raise Migrate1163Refused(f"expected 26 name-type triggers, parsed {len(found)}")
     for name, stmt in found:
         cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
         cur.execute(stmt)
@@ -2248,9 +2307,17 @@ def apply_1163(cn) -> list[str]:
             return []
         already = _book_is_1163(cn)
         _preflight_name_types(cur)
+        # The trigger on an older book refuses a retired rename. Install the flag form first.
+        _install_name_fixed(cur)
+        _ensure_focus_label_column(cur)
         renamed = 0
         if not already:
-            renamed = _rename_name_collisions(cur)
+            _link_focus_labels(cur)
+            cur.execute("SET @mill_allow_retired_rename = 1")
+            try:
+                renamed = _rename_name_collisions(cur)
+            finally:
+                cur.execute("SET @mill_allow_retired_rename = NULL")
             _reshape_1163(cur)
             cur.execute("ALTER TABLE name AUTO_INCREMENT = 100")
         _install_name_type_triggers(cur)

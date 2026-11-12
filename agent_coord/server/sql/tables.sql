@@ -110,13 +110,18 @@ CREATE TABLE IF NOT EXISTS seat (
   -- 0.8.0 (the owner, 2026-10-26): the desk's focus, its newest focus row (act focus or clear; never a move row).
   -- NULL until the desk's first doing row. fk_seat_doing is added after doing (the two tables reference each other).
   doing_id        BIGINT UNSIGNED NULL,
+  -- card 1163: the label that is this desk's focus list. The label string cannot equal the desk name.
+  -- Commands and card labels still address that list by the desk name. NULL until the list exists.
+  focus_label_id  BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY idx_desk (desk_id),
+  UNIQUE KEY idx_focus_label (focus_label_id),
   KEY idx_doing (doing_id, desk_id),
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
-  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_seat_focus_label FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1022: System seat (no token, never connects) so desk FKs hold for desk_id 0.
@@ -707,6 +712,8 @@ DROP TRIGGER IF EXISTS name_no_delete;
 DROP TRIGGER IF EXISTS name_fixed;
 DROP TRIGGER IF EXISTS seat_desk_type_ins;
 DROP TRIGGER IF EXISTS seat_desk_type_upd;
+DROP TRIGGER IF EXISTS seat_focus_type_ins;
+DROP TRIGGER IF EXISTS seat_focus_type_upd;
 DROP TRIGGER IF EXISTS member_roster_type_ins;
 DROP TRIGGER IF EXISTS member_roster_type_upd;
 DROP TRIGGER IF EXISTS human_member_roster_type_ins;
@@ -819,6 +826,28 @@ BEGIN
   SELECT type INTO v_type FROM name WHERE id = NEW.desk_id;
   IF v_type IS NOT NULL AND v_type <> 'desk' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.desk_id must name a desk';
+  END IF;
+END //
+
+CREATE TRIGGER seat_focus_type_ins BEFORE INSERT ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.focus_label_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.focus_label_id must name a label';
+  END IF;
+END //
+
+CREATE TRIGGER seat_focus_type_upd BEFORE UPDATE ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.focus_label_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.focus_label_id must name a label';
   END IF;
 END //
 
@@ -1075,7 +1104,8 @@ BEGIN
   END IF;
 END //
 
--- 0.8.0 (name restore): a name keeps its type and id, and a retired name is not renamed (reclaim first).
+-- 0.8.0 (name restore): a name keeps its type and id. A retired name is not renamed
+-- unless the card 1163 collision step sets @mill_allow_retired_rename. Reclaim stays the normal path.
 -- Clearing deleted is sp_name_reclaim's (Admin); the app user cannot UPDATE (EXECUTE-only).
 CREATE TRIGGER name_fixed BEFORE UPDATE ON name
 FOR EACH ROW
@@ -1083,7 +1113,8 @@ BEGIN
   IF NEW.type <> OLD.type OR NEW.id <> OLD.id THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: type and id are fixed';
   END IF;
-  IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name THEN
+  IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name
+     AND IFNULL(@mill_allow_retired_rename, 0) <> 1 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: mill reclaim first';
   END IF;
 END //

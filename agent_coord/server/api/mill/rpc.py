@@ -3960,7 +3960,8 @@ def _h_trail_label(c: Book, body: dict[str, Any], project: str, owner: str | Non
     if not owner:
         raise CoordError("trail: owner required")
     stored = rec_name.bare(tag, CONST_LABEL)
-    if rec_name.get(c._cn, stored, CONST_LABEL) is None:
+    # A desk name is that desk's focus list (card 1163). A desk with no list is an empty read.
+    if rec_name.get(c._cn, stored, CONST_LABEL) is None and rec_label.focus_label_id(c._cn, stored) is None:
         return {
             "label": stored,
             "hint": unused_label(stored, mill_catalog_open(CONST_LABEL)),
