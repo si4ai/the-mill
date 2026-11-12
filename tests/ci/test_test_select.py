@@ -423,3 +423,33 @@ def test_failed_or_empty_diff_runs_every_job(repo: Path, rules: ts.Rules) -> Non
     assert ts.github_selection(rules, "pull_request", _pr(head, head)) == (BOTH, "empty diff: every job")
     chosen, reason = ts.github_selection(rules, "pull_request", _pr("1" * 40, head))
     assert chosen == BOTH and reason.startswith("diff failed")
+
+
+def test_merge_group_failed_fetch_with_a_stale_fetch_head_fails(repo: Path, rules: ts.Rules) -> None:
+    """A failed fetch of refs/pull/N/head must fail the check, even when an
+    earlier fetch left a FETCH_HEAD whose commit would pass."""
+    base = _commit(repo, {"README.md": "a\n"})
+    pr_head = _commit(repo, {"README.md": "b\n"})
+    queued = _queued_squash(repo, base, pr_head)
+    ts.github_selection(rules, "merge_group", _queue(repo, 7, pr_head, queued, base))
+    event = {"merge_group": {"base_sha": base, "head_sha": queued,
+                             "head_ref": f"refs/heads/gh-readonly-queue/main/pr-9-{base}"}}
+    with pytest.raises(ts.QueueCheckFailed, match="cannot fetch PR #9"):
+        ts.github_selection(rules, "merge_group", event)
+
+
+def _ci_job(name: str) -> str:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    m = re.search(rf"^  {name}:\n(?:(?:    .*)?\n)+", text, re.M)
+    assert m, name
+    return m.group(0)
+
+
+@pytest.mark.parametrize("name", ["select", "pytest_sql", "pytest_no_sql"])
+def test_queue_gate_jobs_cannot_swallow_a_failure(name: str) -> None:
+    """The ancestry check fails the queue only if nothing masks select's exit."""
+    job = _ci_job(name)
+    assert "continue-on-error" not in job, name
+    assert not re.search(r"\|\|\s*(true|:|exit 0)\b", job), name
+    if name == "select":
+        assert re.search(r"^        run: python3 ci/test_select.py --github$", job, re.M), job
