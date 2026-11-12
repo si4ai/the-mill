@@ -307,7 +307,8 @@ def _assert_only_own_wake_locks(rows: list[tuple[str, str, str, str]],
     """Matching wake rows may be locked exclusive; no S, no GAP, no decoy id."""
     wake = [r for r in rows if r[0] == "wake"]
     bad_s = [r for r in wake if r[2].startswith("S")]
-    bad_gap = [r for r in wake if "GAP" in r[2].upper()]
+    # LOCK_MODE "X,REC_NOT_GAP" contains the letters GAP; the gap flag is the token GAP.
+    bad_gap = [r for r in wake if "GAP" in {p.strip() for p in r[2].upper().split(",")}]
     locked: set[int] = set()
     unknown: list[tuple[str, str, str]] = []
     for _t, index, mode, data in wake:
@@ -402,7 +403,7 @@ def test_old_mail_delete_wake_join_on_primary_locks_decoys(cn) -> None:
     wake = [r for r in rows if r[0] == "wake"]
     locked = {wid for _t, i, m, d in wake if (wid := _wake_row_id(i, d)) is not None}
     has_s = any(r[2].startswith("S") for r in wake)
-    has_gap = any("GAP" in r[2].upper() for r in wake)
+    has_gap = any("GAP" in {p.strip() for p in r[2].upper().split(",")} for r in wake)
     hits_decoy = bool(locked & decoys)
     assert has_s or has_gap or hits_decoy, (wake, locked, want, decoys)
 
