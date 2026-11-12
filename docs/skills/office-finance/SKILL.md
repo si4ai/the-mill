@@ -30,7 +30,7 @@ On the desk **before** you can approve or mark paid (else `replace-body` gap + `
 - **Request identity** - invoice / PO / spend id or URL in detail (do not clone ledger amounts as SoR)
 - **Outcome ask** - approve, withhold/reject, mark paid, or exception path
 - **Approver / chain** - who must human-click (`assign` + `send` / `reply` `--receipt`)
-- **Coding / cost center hint** - when office requires (note; coding runs in ledger)
+- **Coding / cost center hint** - when office requires (`replace-body`; coding runs in ledger)
 - When exception: reason / policy cite for escalate mail
 - On paid: payment / remittance pointer from ledger
 
@@ -55,7 +55,7 @@ replacing ERP payment runs inside mill.
 | paid / closed | `replace-body` payment pointer + `pass` |
 | withhold / reject | `replace-body` reason + `send` asker; `pass` or waiting_on revision |
 | park / later | `create todo` `<roster> <need> --status parked` |
-| accrual / period-close step | `note` / optional todo on same spine (ledger SoR) |
+| accrual / period-close step | `replace-body` / optional todo on same spine (ledger SoR) |
 
 Do **not** teach `hold`/`drop` day-one unless the office leases a shared invoice/PO doc.
 Never teach `open` / `yield` / bare `create` / `done`.

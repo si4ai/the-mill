@@ -2996,7 +2996,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
 
     if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
         # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
-        raise CoordError("note: --done-when goes alone; send the note in its own mill note. Nothing changed")
+        raise CoordError("note: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed")
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:

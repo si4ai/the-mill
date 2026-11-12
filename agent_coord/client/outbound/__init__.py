@@ -300,7 +300,7 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
 # Card 866: a done-when note writes only the done-when, so other note fields beside it would be lost.
 _NOTE_WITH_DONE_WHEN = ("text", "note", "eta", "started")
 _NOTE_TEXT = "note: card text changes only through mill replace-body todo ID TEXT; nothing changed"
-_DONE_WHEN_ALONE = "note: --done-when goes alone; send the note in its own mill note. Nothing changed"
+_DONE_WHEN_ALONE = "note: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed"
 
 
 def _replace_body_fields(args: Any, body: dict[str, Any]) -> None:

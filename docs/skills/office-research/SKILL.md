@@ -67,7 +67,7 @@ On the desk **before** draft (else `replace-body` gap + `send` asker / `waiting_
 
 ## Must-not
 - Bypass mill-desk HINT routing.
-- Replace source/wiki/CRM/Drive SoR - link in detail/note.
+- Replace source/wiki/CRM/Drive SoR - link in detail via `replace-body`.
 - Invent mill commands for analyst slang (`brief`, `synthesize`, `decide`).
 - Confuse brief delivery with eng ship or QA Pass.
 - Endless research without `pass` / waiting_on / parked.
