@@ -181,6 +181,24 @@ python tools/probe_deleted_rows.py delete --type todo --id N
 
 See [docs/dev/PROBE-DELETED-ROWS.md](../docs/dev/PROBE-DELETED-ROWS.md).
 
+## check_flake_reruns.py
+
+Card 1148. From a list of GitHub workflow runs, report flakes:
+the same head sha and workflow with a failed attempt followed by a later
+success. Pass-then-fail is a regression, not a flake. Sorted, no
+timestamps. Prefer `--fixtures` for tests; live mode reads the workflow
+API when a token is in the environment (the token is never printed).
+
+```bash
+python tools/check_flake_reruns.py --fixtures runs.json
+python tools/check_flake_reruns.py --fixtures runs.json --strict
+python tools/check_flake_reruns.py --repo si4ai/the-mill --since YYYY-MM-DD
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Tests prove --strict fails on a doctored run list and passes on a clean
+one.
+
 ## desk/
 
 Config-driven workstation launcher for fresh Grok Build sessions. See `tools/desk/README.md`.
