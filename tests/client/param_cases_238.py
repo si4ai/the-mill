@@ -73,7 +73,7 @@ KIND = {
     ("create todo", "status"): "enum", ("create todo", "parent_type"): "enum",
     ("create todo", "parent_id"): "id",
     ("note", "project"): "name", ("note", "need"): "name", ("note", "text"): "text",
-    ("note", "note"): "text", ("note", "eta"): "eta", ("note", "supersedes"): "text",
+    ("note", "note"): "text", ("note", "eta"): "eta",
     ("claim", "project"): "name", ("claim", "need"): "name",
     ("claim", "eta"): "eta", ("claim", "msg"): "text",
     ("unclaim", "project"): "name", ("unclaim", "need"): "name",

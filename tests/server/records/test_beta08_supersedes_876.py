@@ -32,19 +32,20 @@ def test_supersedes_and_done_when_keep_each_other(cn):
     rpc._h_open(
         book, {"need": "b876-keep", "detail": "old line", "done_when": "first"}, "unit", "a876"
     )
-    rpc._h_note(
-        book,
-        {"need": "b876-keep", "supersedes": "old line", "note": "new line"},
-        "unit",
-        "a876",
-    )
+    with pytest.raises(CoordError, match="mill replace-body"):
+        rpc._h_note(
+            book,
+            {"need": "b876-keep", "supersedes": "old line", "note": "new line"},
+            "unit",
+            "a876",
+        )
     card = _card(cn, "b876-keep")
     assert card["done_when"] == "first"
-    assert _detail(cn, "b876-keep") == "[superseded] old line\nnew line"
+    assert _detail(cn, "b876-keep") == "old line"
     rpc._h_note(book, {"need": "b876-keep", "done_when": "second"}, "unit", "a876")
     card = _card(cn, "b876-keep")
     assert card["done_when"] == "second"
-    assert _detail(cn, "b876-keep") == "[superseded] old line\nnew line"
+    assert _detail(cn, "b876-keep") == "old line"
 
 
 def test_one_call_mix_is_refused_and_changes_nothing(cn):

@@ -52,7 +52,7 @@ Refused, nothing changed:
 Gaps:
 
 - No command deletes a letter (M9). If `mill_mail_delete` runs, it deletes the letter (its `mail_to` rows cascade) and stamps `activity.deleted`. The activity row stays as a tombstone, and so do its labels, because the label foreign key cascades only on an activity delete (`tables.sql:77`).
-- No command edits a letter: `sp_mail.sql:287` `mill_mail_update` has no caller.
+- A letter's text changes with `mill replace-body mail ID TEXT` (`mill_body_replace`). `mill_mail_update` is gone.
 - No command puts a letter back to unread. Handled is final for that desk.
 - Required receipt: `send` / `reply` `--receipt` sets `mail_to.receipt=1` on every dest; the first open (`mark`, `reply`, whole-letter `mail-thread`) stamps `opened` and pushes one `{kind: receipt}` to the sender (`sp_opened.sql` / `push_receipt`).
 

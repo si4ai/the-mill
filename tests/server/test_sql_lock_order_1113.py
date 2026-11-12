@@ -151,10 +151,6 @@ def test_check_flags_a_card_write_without_its_seat_lock(tmp_path: Path, proc: st
     ("sp_tree.sql", "mill_tree_detach",
      "  SET v_name = NULL;\n  SELECT MIN(name_id) INTO v_name FROM tree WHERE type = p_type AND id = p_id;\n  WHILE",
      "  SET v_name = (SELECT MIN(name_id) FROM tree WHERE type = p_type AND id = p_id);\n  WHILE"),
-    # The letter read by a SET subquery, no lock first.
-    ("sp_mail.sql", "mill_mail_update",
-     "  SET v_sender = NULL;\n  SELECT desk_id, roster_id INTO v_sender, v_proj FROM mail WHERE id = p_id FOR UPDATE;",
-     "  SET v_sender = (SELECT desk_id FROM mail WHERE id = p_id);\n  SET v_proj = (SELECT roster_id FROM mail WHERE id = p_id);"),
 ])
 def test_check_flags_each_fixed_shape_when_planted_back(tmp_path: Path, file: str, proc: str, old, new) -> None:
     if proc == "mill_join_touch":

@@ -1,8 +1,7 @@
-"""Notes append; a replace request is refused and writes nothing (#539). Regression row F62 (note-no-replace).
+"""A note does not replace or append card text (card 1125). Regression row F62.
 
-The CLI has no --replace flag (#143 dropped it). The wall still overwrote a
-card's detail when a raw request carried replace=true, which skipped the
-append-only history that note --supersedes keeps (F45).
+The CLI has no --replace flag and no --supersedes flag. Card text is
+mill replace-body. A raw replace=true or a note line writes nothing.
 """
 from __future__ import annotations
 
@@ -41,18 +40,19 @@ def _note(body):
     return rpc._h_note(MagicMock(), dict(need="c539", **body), "cold-test", "asker-desk")
 
 
-@pytest.mark.parametrize("extra", [{}, {"supersedes": "1. first"}])
+@pytest.mark.parametrize("extra", [{}, {"supersedes": "1. first"}, {"replace": False}])
 def test_replace_is_refused_and_nothing_is_written(card, extra):
-    with pytest.raises(CoordError, match="notes append; there is no replace") as ei:
+    with pytest.raises(CoordError, match="mill replace-body"):
         _note({"note": "only-this", "replace": True, **extra})
-    assert "--supersedes" in str(ei.value)
     assert card["writes"] == 0
     assert json.loads(card["body"])["detail"] == DETAIL
 
 
-def test_replace_false_is_a_plain_append(card):
-    _note({"note": "later", "replace": False})
-    assert json.loads(card["body"])["detail"] == DETAIL + "\nlater"
+def test_a_note_line_is_refused(card):
+    with pytest.raises(CoordError, match="mill replace-body"):
+        _note({"note": "later", "replace": False})
+    assert card["writes"] == 0
+    assert json.loads(card["body"])["detail"] == DETAIL
 
 
 def test_cli_never_sends_replace(monkeypatch):
@@ -60,9 +60,11 @@ def test_cli_never_sends_replace(monkeypatch):
     from agent_coord.client import outbound
 
     monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda _x="": "asker-desk")
-    a = _build_parser().parse_args(["note", "cold-test", "c539", "--note", "x"])
+    a = _build_parser().parse_args(["note", "cold-test", "c539", "--eta", "2h"])
     a.replace = True  # no such flag; a stray attribute must not reach the wall
     assert "replace" not in outbound.body_from_args(a)
+    with pytest.raises(CoordError, match="mill replace-body"):
+        outbound.body_from_args(_build_parser().parse_args(["note", "cold-test", "c539", "--note", "x"]))
     with pytest.raises(SystemExit):
         _build_parser().parse_args(["note", "cold-test", "c539", "--note", "x", "--replace"])
 

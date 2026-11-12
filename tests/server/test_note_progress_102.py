@@ -42,10 +42,10 @@ def test_client_sends_text_eta_started(no_owner):
 def test_client_reads_at_file(no_owner, tmp_path):
     f = tmp_path / "note.txt"
     f.write_text("diary from a file\nline two\n", encoding="utf-8")
-    b = body_from_args(_args(text=f"@{f}"))
-    assert b["text"] == "diary from a file\nline two"
-    b2 = body_from_args(_args(note=f"@{f}"))
-    assert b2["note"].startswith("diary from a file")
+    with pytest.raises(CoordError, match="mill replace-body"):
+        body_from_args(_args(text=f"@{f}"))
+    with pytest.raises(CoordError, match="mill replace-body"):
+        body_from_args(_args(note=f"@{f}"))
 
 
 def test_client_missing_at_file_errors(no_owner, tmp_path):
@@ -53,11 +53,9 @@ def test_client_missing_at_file_errors(no_owner, tmp_path):
         body_from_args(_args(text=f"@{tmp_path / 'nope.txt'}"))
 
 
-def test_client_plain_note_unchanged(no_owner):
-    b = body_from_args(_args(note="just a note"))
-    assert b["note"] == "just a note"
-    for k in ("text", "pct", "n", "of", "eta", "started"):
-        assert k not in b
+def test_client_plain_note_is_refused(no_owner):
+    with pytest.raises(CoordError, match="mill replace-body"):
+        body_from_args(_args(note="just a note"))
 
 
 @pytest.mark.parametrize(
@@ -120,17 +118,19 @@ def test_text_progress_token_is_progress_not_diary(store):
     assert r["detail"] == "seed"
 
 
-def test_text_from_file_appends_diary(store):
-    r = _note({"text": "long diary line from @file"})
-    assert r["detail"] == "seed\nlong diary line from @file"
-    assert "progress" not in r  # #330: never-set progress is left out
-    assert store.updates == 1
+def test_text_from_file_is_refused(store):
+    with pytest.raises(CoordError, match="mill replace-body"):
+        _note({"text": "long diary line from @file"})
+    assert json.loads(store.body)["detail"] == "seed"
+    assert store.updates == 0
 
 
-def test_note_and_text_both_land(store):
-    r = _note({"note": "flag note", "text": "90%"})
-    assert r["detail"] == "seed\nflag note"
-    assert r["progress"] == "90%"
+def test_note_and_progress_together_write_nothing(store):
+    with pytest.raises(CoordError, match="mill replace-body"):
+        _note({"note": "flag note", "text": "90%"})
+    assert json.loads(store.body)["detail"] == "seed"
+    assert "progress" not in json.loads(store.body)
+    assert store.updates == 0
 
 
 def test_eta_and_started_stamped(store):

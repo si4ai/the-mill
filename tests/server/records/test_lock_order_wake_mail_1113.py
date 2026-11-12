@@ -177,13 +177,17 @@ def test_two_mail_deletes_at_once(cn) -> None:
     assert not errs, errs
 
 
-def test_mail_update_from_four_sessions(cn) -> None:
+def test_mail_replace_from_four_sessions(cn) -> None:
     mid = int(rec_mail.insert(cn, "unit", "a", "b", "edit me")[0]["id"])
     cn.commit()
 
     def edit(c) -> None:
         for k in range(10):
-            _call(c, "mill_mail_update", [mid, "a", "", f"edit {k}"])
+            cur = c.cursor()
+            cur.execute("SELECT IFNULL(body_updated, created) FROM mail WHERE id = %s", (mid,))
+            (stamp,) = cur.fetchone()
+            cur.close()
+            _tolerant(c, "mill_body_replace", ["mail", mid, "a", f"edit {k}", stamp])
 
     assert not _race([edit] * 4)
 

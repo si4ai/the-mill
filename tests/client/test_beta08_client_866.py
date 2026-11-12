@@ -177,7 +177,7 @@ def test_glance_is_read_live_not_from_a_cache():
 
 @pytest.mark.parametrize(
     "extra",
-    [["9/12"], ["--note", "x"], ["--eta", "2h"], ["--started"], ["--supersedes", "old", "--note", "new"]],
+    [["9/12"], ["--note", "x"], ["--eta", "2h"], ["--started"]],
 )
 def test_note_refuses_done_when_with_other_note_fields(extra):
     # A done-when note writes only the done-when; anything beside it would be dropped.

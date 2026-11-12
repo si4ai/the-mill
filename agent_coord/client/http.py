@@ -771,8 +771,12 @@ def mill_http_from_args(args: Any) -> int:
     rooms_block: dict | None = None
     # Lock: never let argv --owner rewrite session active / Bearer.
     body = body_from_args(args)
+    from agent_coord.client import body_read
+
+    body_read.prepare_replace(body)
     mine = todo_rows.mine_applies(args)
     row = _todo_call(args, body)
+    body_read.remember(str(body.get("sender_desk") or body.get("owner") or ""), args, row)
     if mine and isinstance(row, dict) and row.get("ok") is True:
         # #373: only the sitting desk's cards, before --find and paging cut the list.
         from agent_coord.client import focus as _focus

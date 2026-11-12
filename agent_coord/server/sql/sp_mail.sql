@@ -286,58 +286,6 @@ BEGIN
   SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, MILL_NAME_GET(v_to_type, v_to) AS dest_id;
 END //
 
-CREATE PROCEDURE mill_mail_update(
-  IN p_id   BIGINT UNSIGNED,
-  IN p_desk VARCHAR(64),
-  IN p_dst  VARCHAR(64),
-  IN p_body VARCHAR(4096)
-)
-BEGIN
-  -- #656: only the letter's sender or an Admin desk may rewrite it; anyone else
-  -- is refused and nothing changes.
-  DECLARE v_ts DATETIME(6);
-  DECLARE v_proj BIGINT UNSIGNED;
-  DECLARE v_desk BIGINT UNSIGNED;
-  DECLARE v_sender BIGINT UNSIGNED;
-  DECLARE v_lock BIGINT UNSIGNED;
-  DECLARE EXIT HANDLER FOR SQLEXCEPTION
-  BEGIN
-    ROLLBACK;
-    RESIGNAL;
-  END;
-  IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
-  SET v_ts = MILL_NOW();
-  SET v_desk = MILL_NAME_GET('desk', p_desk);
-  -- Lock order (card 1113, F183): the editing desk's seat, then the letter, both exclusive, before
-  -- the letter is read (as mill_mail_delete). A SET subquery in a routine reads shared, and the
-  -- UPDATE below then wanted the row exclusive (two edits deadlocked); the activity row's FK check
-  -- reads the seat shared later.
-  SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
-  SET v_sender = NULL;
-  SELECT desk_id, roster_id INTO v_sender, v_proj FROM mail WHERE id = p_id FOR UPDATE;
-  IF v_sender IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mail: no such letter';
-  END IF;
-  -- An unknown caller desk (NULL) is never the sender and never Admin.
-  IF IFNULL(v_desk, 0) <> v_sender
-     AND NOT EXISTS (SELECT 1 FROM member
-                      WHERE name_id = 2  -- the reserved Admin roster (#722)
-                        AND desk_id = IFNULL(v_desk, 0)) THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'mail: only the sender or an Admin desk may change this letter';
-  END IF;
-  -- Card 1133: a write that changes the text stamps it (left to right: stamps before body); mill_body_replace
-  -- checks that stamp.
-  UPDATE mail
-     SET body_updated = IF(p_body IS NULL OR CAST(p_body AS BINARY) = CAST(body AS BINARY), body_updated, v_ts),
-         body_updater_id = IF(body_updated <=> v_ts, v_desk, body_updater_id),
-         body = IFNULL(p_body, body)
-   WHERE id = p_id;
-  CALL mill_activity_put('mail', p_id, v_ts, v_desk, v_proj, 'note', LENGTH(p_body));
-  IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT p_id AS id, v_ts AS updated;
-END //
-
 CREATE PROCEDURE mill_mail_delete(
   IN p_id   BIGINT UNSIGNED,
   IN p_desk VARCHAR(64)
@@ -416,7 +364,7 @@ BEGIN
   IF p_project IS NULL OR p_project = '' THEN
     SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
            m.roster_id AS sender_roster_id,
-           m.roster_id AS roster_id, m.body,
+           m.roster_id AS roster_id, m.body, m.body_updated, bun.name AS body_updater,
            srcn.name AS desk, srcn.type AS desk_type, affn.name AS roster, affn.type AS roster_type,
            affn.name AS sender_roster, affn.type AS sender_roster_type,
            JSON_ARRAYAGG(JSON_OBJECT(
@@ -428,13 +376,14 @@ BEGIN
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
+      LEFT JOIN name bun ON bun.id = m.body_updater_id
      GROUP BY m.type, m.id
      ORDER BY m.id DESC;
   ELSE
     SET v_proj = MILL_NAME_GET('roster', p_project);
     SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
            m.roster_id AS sender_roster_id,
-           m.roster_id AS roster_id, m.body,
+           m.roster_id AS roster_id, m.body, m.body_updated, bun.name AS body_updater,
            srcn.name AS desk, srcn.type AS desk_type, affn.name AS roster, affn.type AS roster_type,
            affn.name AS sender_roster, affn.type AS sender_roster_type,
            JSON_ARRAYAGG(JSON_OBJECT(
@@ -447,6 +396,7 @@ BEGIN
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
+      LEFT JOIN name bun ON bun.id = m.body_updater_id
      GROUP BY m.type, m.id
      ORDER BY m.id DESC;
   END IF;
@@ -460,6 +410,7 @@ BEGIN
          m.roster_id AS roster_id, t.desk_id AS dst_id, m.body,
          t.receipt AS receipt,
          m.body_updated,  -- card 1133: the text stamp mill_body_replace checks (NULL = never edited; created stands)
+         bun.name AS body_updater,
          srcn.name AS desk, srcn.type AS desk_type, dstn.name AS dst, dstn.type AS dst_type, affn.name AS roster, affn.type AS roster_type,
          saffn.name AS sender_roster, saffn.type AS sender_roster_type
     FROM mail m
@@ -468,6 +419,7 @@ BEGIN
     LEFT JOIN name dstn ON dstn.id = t.desk_id
     LEFT JOIN name affn ON affn.id = m.roster_id
     LEFT JOIN name saffn ON saffn.id = m.roster_id
+    LEFT JOIN name bun ON bun.id = m.body_updater_id
    WHERE m.id = p_id;
 END //
 
@@ -516,6 +468,7 @@ BEGIN
            m.roster_id AS sender_roster_id,
            m.roster_id AS roster_id, t.desk_id AS dst_id, m.body,
            t.receipt AS receipt, t.opened AS opened,
+           m.body_updated, bun.name AS body_updater,
            srcn.name AS desk, srcn.type AS desk_type, dstn.name AS dst, dstn.type AS dst_type, affn.name AS roster, affn.type AS roster_type,
            affn.name AS sender_roster, affn.type AS sender_roster_type
       FROM (SELECT id, desk_id, receipt, opened FROM mail_to
@@ -525,12 +478,14 @@ BEGIN
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
+      LEFT JOIN name bun ON bun.id = m.body_updater_id
      ORDER BY t.id DESC;
   ELSE
     SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
            m.roster_id AS sender_roster_id,
            m.roster_id AS roster_id, t.desk_id AS dst_id, m.body,
            t.receipt AS receipt, t.opened AS opened,
+           m.body_updated, bun.name AS body_updater,
            srcn.name AS desk, srcn.type AS desk_type, dstn.name AS dst, dstn.type AS dst_type, affn.name AS roster, affn.type AS roster_type,
            affn.name AS sender_roster, affn.type AS sender_roster_type
       FROM (SELECT id, desk_id, receipt, opened FROM mail_to
@@ -540,6 +495,7 @@ BEGIN
       LEFT JOIN name srcn ON srcn.id = m.desk_id
       LEFT JOIN name dstn ON dstn.id = t.desk_id
       LEFT JOIN name affn ON affn.id = m.roster_id
+      LEFT JOIN name bun ON bun.id = m.body_updater_id
      ORDER BY t.id DESC;
   END IF;
 END //

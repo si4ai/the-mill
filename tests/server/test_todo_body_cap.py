@@ -195,7 +195,7 @@ def test_note_over_stored_size_refuses(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.server.records.todo.update", fake_update)
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
     book = MagicMock()
-    with pytest.raises(CoordError, match="refused, nothing written"):
+    with pytest.raises(CoordError, match="mill replace-body"):
         rpc._h_note(
             book,
             {"need": "note-cap", "note": _fit_detail("note-cap", "", 1)},
@@ -230,14 +230,14 @@ def test_note_after_overhead_4095_and_4096_kept(monkeypatch) -> None:
         assert len(json.dumps(payload)) == want
         stored = {"body": json.dumps({"slug": "note-cap", "doing": "", "detail": ""})}
         book = _note_book(monkeypatch, stored)
-        rec = rpc._h_note(
-            book,
-            {"need": "note-cap", "note": text},
-            "the-mill",
-            "builder",
-        )
-        assert rec["detail"] == text
-        assert stored["len"] == want
+        with pytest.raises(CoordError, match="mill replace-body"):
+            rpc._h_note(
+                book,
+                {"need": "note-cap", "note": text},
+                "the-mill",
+                "builder",
+            )
+        assert stored.get("n", 0) == 0
 
 
 def test_note_after_overhead_4097_refuses(monkeypatch) -> None:
@@ -249,7 +249,7 @@ def test_note_after_overhead_4097_refuses(monkeypatch) -> None:
     stored = {"body": json.dumps({"slug": "note-cap", "doing": "", "detail": ""}), "n": 0}
     book = _note_book(monkeypatch, stored)
     before = stored["body"]
-    with pytest.raises(CoordError, match="refused, nothing written"):
+    with pytest.raises(CoordError, match="mill replace-body"):
         rpc._h_note(
             book,
             {"need": "note-cap", "note": text},
@@ -277,11 +277,11 @@ def test_note_at_stored_boundary_keeps_text(monkeypatch) -> None:
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
     book = MagicMock()
     text = _fit_detail("note-cap", "", 0)
-    rec = rpc._h_note(
-        book,
-        {"need": "note-cap", "note": text},
-        "the-mill",
-        "builder",
-    )
-    assert rec["detail"] == text
-    assert len(stored["body"]) <= rec_todo.BODY_MAX
+    with pytest.raises(CoordError, match="mill replace-body"):
+        rpc._h_note(
+            book,
+            {"need": "note-cap", "note": text},
+            "the-mill",
+            "builder",
+        )
+    assert stored["body"] == json.dumps({"slug": "note-cap", "doing": "", "detail": ""})

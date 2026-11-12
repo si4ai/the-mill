@@ -217,17 +217,6 @@ def test_mail_replace_sender_or_admin_and_receipts_untouched(cn):
     assert _q(cn, "SELECT act FROM activity WHERE type = 'mail' AND id = %s", (mid,))[0]["act"] == "replace"
 
 
-def test_mail_update_stamps_only_a_text_change(cn):
-    mid = int(rec_mail.insert(cn, ROSTER, "h_ask", "h_peer", "same")[0]["id"])
-    rec_mail.update(cn, mid, "h_ask", None, "same")
-    assert _q(cn, "SELECT body_updated FROM mail WHERE id = %s", (mid,))[0]["body_updated"] is None
-    rec_mail.update(cn, mid, "h_ask", None, "edited")
-    row = _q(cn, "SELECT body_updated, body_updater_id FROM mail WHERE id = %s", (mid,))[0]
-    assert row["body_updated"] is not None and row["body_updater_id"] == _desk(cn, "h_ask")
-    with pytest.raises(Exception, match="body:stale"):  # the edit moved the stamp
-        rec_body.replace(cn, "mail", mid, "h_ask", "late", call(cn, "mill_mail_get", [mid])[0]["created"])
-
-
 def test_unique_old_updated_refuses_a_second_row_for_one_version(cn):
     tid = _card(cn, "unique-version", "a")
     out = rec_body.replace(cn, "todo", tid, "h_ask", "b", _stamp(_card_row(cn, tid)))

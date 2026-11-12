@@ -46,6 +46,7 @@ WRITE_COMMANDS = frozenset({
     "join", "claim", "unclaim", "pass", "hold", "assign",
     # #818 PR B: --doing text rides on these too.
     "mark", "drop", "unpark",
+    "replace-body",
 })
 
 TEXT_KEYS = frozenset({

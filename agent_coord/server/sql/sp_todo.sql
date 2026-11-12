@@ -484,12 +484,13 @@ BEGIN
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
            ORDER BY d.id DESC LIMIT 1) AS evidence,
          -- card 1133: the text stamp mill_body_replace checks (NULL = never edited; created stands)
-         t.body_updated
+         t.body_updated, bun.name AS body_updater
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
   LEFT JOIN name sn ON sn.id = t.assigned_id
   LEFT JOIN name un ON un.id = t.updated_id
+  LEFT JOIN name bun ON bun.id = t.body_updater_id
   WHERE t.id = p_id;
 END //
 
@@ -522,12 +523,14 @@ BEGIN
          -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
          (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence
+           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         t.body_updated, bun.name AS body_updater
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
   LEFT JOIN name sn ON sn.id = t.assigned_id
   LEFT JOIN name un ON un.id = t.updated_id
+  LEFT JOIN name bun ON bun.id = t.body_updater_id
   LEFT JOIN LATERAL (
     SELECT MIN(x.name_id) AS tree_id FROM tree x WHERE x.type = 'todo' AND x.id = t.id
   ) tr ON TRUE
@@ -572,12 +575,14 @@ BEGIN
          -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
          (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
            WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence
+           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         t.body_updated, bun.name AS body_updater
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
   LEFT JOIN name cn ON cn.id = t.creator_id
   LEFT JOIN name sn ON sn.id = t.assigned_id
   LEFT JOIN name un ON un.id = t.updated_id
+  LEFT JOIN name bun ON bun.id = t.body_updater_id
   LEFT JOIN LATERAL (
     SELECT MIN(x.name_id) AS tree_id FROM tree x WHERE x.type = 'todo' AND x.id = t.id
   ) tr ON TRUE

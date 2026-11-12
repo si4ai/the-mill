@@ -1,4 +1,4 @@
-"""#485 mill note appends detail by default."""
+"""Card 1125: mill note does not append detail. Card text is mill replace-body."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -48,10 +48,9 @@ def test_note_appends_detail(monkeypatch):
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
 
     book = MagicMock()
-    r1 = rpc._h_note(book, {"need": "loop2-note", "note": "first"}, "PROJ_the-mill", "DESK_builder")
-    assert "seed-text" in r1["detail"] and "first" in r1["detail"]
-    r2 = rpc._h_note(book, {"need": "loop2-note", "note": "second"}, "PROJ_the-mill", "DESK_builder")
-    assert "seed-text" in r2["detail"] and "first" in r2["detail"] and "second" in r2["detail"]
+    with pytest.raises(CoordError, match="mill replace-body"):
+        rpc._h_note(book, {"need": "loop2-note", "note": "first"}, "PROJ_the-mill", "DESK_builder")
+    assert stored.get("payload_detail") in (None, "seed-text")
 
 
 def test_note_replace_is_refused(monkeypatch):
@@ -82,7 +81,7 @@ def test_note_replace_is_refused(monkeypatch):
 
     book = MagicMock()
     # #539: notes append; a replace request is refused and the detail stays.
-    with pytest.raises(CoordError, match="there is no replace"):
+    with pytest.raises(CoordError, match="mill replace-body"):
         rpc._h_note(
             book,
             {"need": "loop2-note", "note": "only-this", "replace": True},

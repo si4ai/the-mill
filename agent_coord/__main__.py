@@ -1384,14 +1384,12 @@ def _build_parser() -> MillArgumentParser:
         "text",
         nargs="?",
         default="",
-        help="9/12, 75%%, done or git <sha> = progress; other text = diary line; @file reads a file",
+        help="9/12, 75%%, done or git <sha> sets progress; other text is refused (mill replace-body)",
     )
-    pg.add_argument("--note", default="")
     pg.add_argument(
-        "--supersedes",
-        default=None,
-        metavar="OLD_LINE",
-        help="asker or Admin: mark this exact detail line superseded and put --note under it",
+        "--note",
+        default="",
+        help="refused: card text changes with mill replace-body todo ID TEXT",
     )
     pg.add_argument("--eta", default="", help="20m / 2h / datetime so the other desk can see when you expect to finish")
     pg.add_argument("--started", action="store_true", help="set started_at to now")
@@ -1405,6 +1403,31 @@ def _build_parser() -> MillArgumentParser:
         default=None,
         dest="done_when",
         help="set or clear the acceptance line (asker or Admin); a blank value clears it",
+    )
+
+    rb = sub.add_parser(
+        "replace-body",
+        help="replace the text of one letter or card (sender, asker, or Admin)",
+        description=(
+            "Read the letter or card first. Pass the new text or --body-file, not both. "
+            "Quote the text. The same text changes nothing. "
+            "--history lists the old text, newest first; --order oldest lists the first text first."
+        ),
+    )
+    rb.add_argument("kind", choices=("mail", "todo"), help="mail or todo")
+    rb.add_argument("id", type=int, help="letter id or card id")
+    rb.add_argument("text", nargs="?", default=None, help="the new text, quoted; or use --body-file")
+    rb.add_argument("--body-file", default="", dest="body_file", help="UTF-8 file of the new text")
+    rb.add_argument(
+        "--history",
+        action="store_true",
+        help="list the old text instead of replacing it",
+    )
+    rb.add_argument(
+        "--order",
+        choices=("newest", "oldest"),
+        default="newest",
+        help="with --history: newest (default) or oldest",
     )
 
     vo = sub.add_parser("claim", help="claim a card")

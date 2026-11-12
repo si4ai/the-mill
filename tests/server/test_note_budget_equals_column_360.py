@@ -61,30 +61,24 @@ def test_body_max_is_the_todo_body_column():
     assert sizes == {BODY_MAX}
 
 
-def test_a_note_that_fills_the_column_exactly_is_kept(monkeypatch):
+def test_a_text_note_does_not_fill_the_column(monkeypatch):
     stored = _card(monkeypatch, "")
-    left = BODY_MAX - len(stored["body"])
-    rec = rpc._h_note(MagicMock(), {"need": "budget", "note": "z" * left}, "the-mill", "builder")
-    assert len(stored["body"]) == BODY_MAX
-    assert rec["detail_left"] == 0
-    with pytest.raises(CoordError, match="has 0 left of its %d" % BODY_MAX):
-        rpc._h_note(MagicMock(), {"need": "budget", "note": "y"}, "the-mill", "builder")
-
-
-def test_supersedes_over_the_column_names_the_room_left(monkeypatch):
-    base = "keep\n" + "d" * 3900
-    stored = _card(monkeypatch, base)
     before = stored["body"]
-    left = BODY_MAX - len(before)
-    with pytest.raises(CoordError) as e:
+    with pytest.raises(CoordError, match="mill replace-body"):
+        rpc._h_note(MagicMock(), {"need": "budget", "note": "z" * 20}, "the-mill", "builder")
+    assert stored["body"] == before and stored["n"] == 0
+
+
+def test_supersedes_is_refused_and_writes_nothing(monkeypatch):
+    stored = _card(monkeypatch, "keep")
+    before = stored["body"]
+    with pytest.raises(CoordError, match="mill replace-body"):
         rpc._h_note(
             MagicMock(),
-            {"need": "budget", "supersedes": "keep", "note": "n" * (left + 400)},
+            {"need": "budget", "supersedes": "keep", "note": "n" * 20},
             "the-mill",
             "builder",
         )
-    msg = str(e.value)
-    assert "refused, nothing written" in msg and f"has {left} left of its {BODY_MAX}" in msg
     assert stored["body"] == before and stored["n"] == 0
 
 

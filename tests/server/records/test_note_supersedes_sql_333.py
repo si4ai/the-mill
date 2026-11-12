@@ -21,20 +21,15 @@ def _detail(cn) -> str:
     return str(rec_todo.unpack(hit.get("body") or "", hit.get("id"))["detail"])
 
 
-def test_asker_supersedes_and_other_desk_is_refused(cn) -> None:
+def test_note_text_and_supersedes_leave_the_detail(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("c333-asker", "desk"), ("c333-other", "desk"))
     book = _Book(cn)
     rpc._h_open(book, {"need": "c333-card", "detail": "1. connect old-pilot\n2. read"}, "unit", "c333-asker")
-
-    with pytest.raises(CoordError, match="asker"):
-        rpc._h_note(book, {"need": "c333-card", "supersedes": "1. connect old-pilot", "note": "x"}, "unit", "c333-other")
-    assert _detail(cn) == "1. connect old-pilot\n2. read"
-
-    r = rpc._h_note(
-        book,
+    original = "1. connect old-pilot\n2. read"
+    for body in (
+        {"need": "c333-card", "note": "later"},
         {"need": "c333-card", "supersedes": "1. connect old-pilot", "note": "1. connect github-pilot"},
-        "unit",
-        "c333-asker",
-    )
-    assert r["changed"] is True
-    assert _detail(cn) == "[superseded] 1. connect old-pilot\n1. connect github-pilot\n2. read"
+    ):
+        with pytest.raises(CoordError, match="mill replace-body"):
+            rpc._h_note(book, body, "unit", "c333-asker")
+        assert _detail(cn) == original
