@@ -72,7 +72,7 @@ KIND = {
     ("create todo", "status"): "enum", ("create todo", "parent_type"): "enum",
     ("create todo", "parent_id"): "id",
     # Card 1125: the card's own fields ride todo ROSTER NEED.
-    ("todo", "eta"): "eta", ("todo", "done_when"): "text", ("todo", "doing"): "text",
+    ("todo", "eta"): "eta", ("todo", "progress"): "text", ("todo", "done_when"): "text", ("todo", "doing"): "text",
     ("claim", "project"): "name", ("claim", "need"): "name",
     ("claim", "eta"): "eta", ("claim", "msg"): "text",
     ("unclaim", "project"): "name", ("unclaim", "need"): "name",

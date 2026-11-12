@@ -46,7 +46,7 @@ def test_note_reply_leaves_out_empty_progress(monkeypatch):
 
     with pytest.raises(CoordError, match="mill replace-body"):
         rpc._h_note(MagicMock(), {"need": "c330", "note": "first note"}, "cold-test", "w1")
-    r2 = rpc._h_note(MagicMock(), {"need": "c330", "text": "75%"}, "cold-test", "w1")
+    r2 = rpc._h_note(MagicMock(), {"need": "c330", "progress": "75%"}, "cold-test", "w1")
     assert r2["detail"] == "seed"
     assert r2["progress"] == "75%"
 

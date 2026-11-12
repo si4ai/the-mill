@@ -45,7 +45,7 @@ office requires one, reconnect spam as a plan.
 | SEV / severity / triage | todo `detail` / `doing` + `replace-body` |
 | IC / take ownership | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress | `todo <roster> <need> --eta E` / `--started` |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | mitigate / diary | `replace-body` (not mail) |
 | stakeholder comms | `send` (+ `replace-body` on card) |
 | escalate | `send` eng/support (optional eng `create todo`) |

@@ -21,7 +21,7 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **drop** (hold) | holder; another desk's hold: trust-gated | Own hold always. Another desk's hold: rights in [admin.md](../requirements/admin.md) (trust matrix). Not unclaim. |
 | **create todo** | yes | Creator = Bearer. (Wall internal: create path may be named `open`.) |
 | **claim** | yes | Volunteer = Bearer. |
-| **todo ROSTER NEED --eta/--started/--done-when** / **pass** / **unclaim** | assignee rules | `--done-when`: asker or Admin. Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
+| **todo ROSTER NEED --eta/--started/--progress/--done-when** / **pass** / **unclaim** | assignee rules | `--done-when`: asker or Admin. Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
 | **assign** | trust + unassigned | Rights: [admin.md](../requirements/admin.md) (trust matrix). Nobody overwrites. |
 | **reset** / **reclaim** / **retire** / invite | Admin | Rights: [admin.md](../requirements/admin.md) (trust matrix). |
 | **`Admin` grant/revoke** | host loopback | `mill add roster Admin OTHER`. `mill join --Admin` does not grant; connect-on-host does not grant. |

@@ -101,7 +101,7 @@ Shared spine (one table for the function):
 | escalate to counsel | FL collab; stub | send | **`send`** counsel/specialist desk (+ optional `assign`) | never invent `escalate` command |
 | take / give review | mill-desk; support/sales assign | claim, assign | **`claim` / `assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
-| progress / diary / redline summary | mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress / diary / redline summary | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | find review mail | mill-desk mail; stub | inbox | **`inbox`** | - |
 | blocked waiting on eng/sales/finance answer | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | park / defer (non-urgent review) | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
@@ -288,7 +288,7 @@ body dumped into mill as SoR.
 | opinion | `replace-body` and/or `send` memo/link |
 | audit trail | `send` + `replace-body` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
-| progress / diary | `todo <roster> <need> --eta E` / `--started` (not mail) |
+| progress / diary | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` (not mail) |
 | blocked on others | waiting_on + `send` |
 | park / defer | `create todo` `{status:"parked"}` |
 | cycle-time KPI (optional) | `score` |

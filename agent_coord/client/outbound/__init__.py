@@ -272,7 +272,7 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
-# Card 1125: mill todo ROSTER NEED --eta / --started / --done-when sets the card's own fields.
+# Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when sets the card's own fields.
 _TODO_LIST_FLAGS = ("mine", "find", "page", "group_by", "status", "done", "all", "full")
 
 
@@ -281,18 +281,22 @@ def _todo_card_fields(args: Any, body: dict[str, Any]) -> None:
 
     eta = str(getattr(args, "eta", "") or "").strip()
     started = bool(getattr(args, "started", False))
+    progress = str(getattr(args, "progress", "") or "").strip()
     raw_dw = getattr(args, "done_when", None)
-    if not eta and not started and raw_dw is None:
+    if not eta and not started and not progress and raw_dw is None:
         if str(getattr(args, "doing", "") or "").strip():
-            raise CoordError("todo: --doing goes with --eta, --started or --done-when; nothing was changed")
+            raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
         body.pop("eta", None)
+        body.pop("progress", None)
         return
     if not str(getattr(args, "project", "") or "").strip() or not str(getattr(args, "need", "") or "").strip():
-        raise CoordError("todo: --eta, --started and --done-when need ROSTER NEED; nothing changed")
+        raise CoordError("todo: --eta, --started, --progress and --done-when need ROSTER NEED; nothing changed")
     if any(getattr(args, k, None) not in (None, "", False, 0) for k in _TODO_LIST_FLAGS):
-        raise CoordError("todo: --eta, --started and --done-when change one card; drop the list flags. Nothing changed")
+        raise CoordError(
+            "todo: --eta, --started, --progress and --done-when change one card; drop the list flags. Nothing changed"
+        )
     if raw_dw is not None:
-        if eta or started:
+        if eta or started or progress:
             raise CoordError("todo: --done-when goes alone; send it by itself. Nothing changed")
         dw = str(raw_dw).strip()
         if len(dw) > 1000:
@@ -303,6 +307,8 @@ def _todo_card_fields(args: Any, body: dict[str, Any]) -> None:
         body["eta"] = eta
     if started:
         body["started"] = True
+    if progress:
+        body["progress"] = progress
 
 
 def _replace_body_fields(args: Any, body: dict[str, Any]) -> None:

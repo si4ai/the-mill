@@ -265,7 +265,7 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| next step / progress | `todo <roster> <need> --eta E` / `--started` |
+| next step / progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
 | blocked (legal/pricing) | waiting_on + `send` |

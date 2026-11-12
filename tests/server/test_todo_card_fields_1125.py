@@ -1,4 +1,4 @@
-"""Card 1125: mill todo ROSTER NEED --eta / --started / --done-when sets the card's own fields."""
+"""Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when sets the card's own fields."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ from agent_coord.server.records import todo as rec_todo
 
 
 def _args(**kw):
-    base = dict(cmd="todo", project="the-mill", need="c1125", eta="", started=False, done_when=None)
+    base = dict(cmd="todo", project="the-mill", need="c1125", eta="", started=False, progress="", done_when=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -34,7 +34,23 @@ def test_client_sends_eta_and_started(no_owner):
 
 def test_client_plain_peek_sends_no_card_fields(no_owner):
     b = body_from_args(_args())
+    assert not ({"eta", "started", "progress", "done_when"} & set(b))
+
+
+def test_client_sends_progress(no_owner):
+    b = body_from_args(_args(progress=" 9/12 "))
+    assert b["progress"] == "9/12"
     assert not ({"eta", "started", "done_when"} & set(b))
+
+
+def test_client_done_when_goes_alone_with_progress(no_owner):
+    with pytest.raises(CoordError, match="--done-when goes alone"):
+        body_from_args(_args(progress="9/12", done_when="tests pass"))
+
+
+def test_client_doing_rides_progress(no_owner):
+    b = body_from_args(_args(progress="75%", doing="sweeping docs"))
+    assert b["progress"] == "75%"
 
 
 def test_client_card_fields_need_roster_and_need(no_owner):
@@ -127,3 +143,41 @@ def test_same_eta_twice_no_second_poke(store, monkeypatch):
     r = _todo({"eta": "2h"})
     assert r["changed"] is False
     assert (store.updates, store.pokes) == (1, 1)
+
+
+def test_progress_token_stored(store):
+    r = _todo({"progress": "9/12"})
+    body = json.loads(store.body)
+    assert body["progress"] == rec_todo.format_progress("9/12")
+    assert body["detail"] == "seed"
+    assert r["changed"] is True
+    assert (store.updates, store.pokes) == (1, 1)
+
+
+def test_progress_routes_without_eta(store):
+    # A progress-only call is a card write, not a board read; --doing may ride it.
+    assert rpc._doing_text("todo", {"doing": "sweeping", "progress": "done"}) == "sweeping"
+    _todo({"progress": "done"})
+    assert json.loads(store.body)["progress"]
+
+
+@pytest.mark.parametrize("text", ["waiting on legal", "1" * 70])
+def test_progress_non_token_refused_nothing_changed(store, text):
+    seed = store.body
+    with pytest.raises(CoordError, match="mill replace-body todo ID TEXT"):
+        _todo({"progress": text})
+    assert (store.updates, store.pokes) == (0, 0)
+    assert store.body == seed
+
+
+def test_progress_with_done_when_refused(store):
+    seed = store.body
+    with pytest.raises(CoordError, match="--done-when goes alone"):
+        _todo({"progress": "9/12", "done_when": "tests pass"})
+    assert (store.updates, store.pokes) == (0, 0)
+    assert store.body == seed
+
+
+def test_nothing_to_write_names_progress(store):
+    with pytest.raises(CoordError, match="--progress"):
+        rpc._h_note(MagicMock(), {"need": "n1125"}, "the-mill", "builder")

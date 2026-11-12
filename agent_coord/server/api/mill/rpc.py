@@ -578,10 +578,10 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     from agent_coord.server.records import todo as rec_todo
 
     raw_need = str(body.get("need") or body.get("need_id") or "").strip()
-    if "done_when" in body or body.get("eta") or body.get("started"):
-        # Card 1125: mill todo ROSTER NEED --eta / --started / --done-when.
+    if _has_card_field(body):
+        # Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when.
         if not raw_need:
-            raise CoordError("todo: --eta, --started and --done-when need ROSTER NEED; nothing changed")
+            raise CoordError("todo: --eta, --started, --progress and --done-when need ROSTER NEED; nothing changed")
         return _card_fields(c, body, project, owner)
     want = slug(raw_need) if raw_need else ""
     # agent-ux 1215: honor --status and --done like the CLI help says.
@@ -941,9 +941,9 @@ def _doing_text(command: str, body: dict[str, Any]) -> str:
     A --waiting-on (#822) is checked here too, so a bad one runs nothing."""
     raw = body.get("doing") if command in DOING_COMMANDS else None
     text = " ".join(str(raw).replace("\x00", "").split()) if raw is not None else ""
-    if command == "todo" and text and not ("done_when" in body or body.get("eta") or body.get("started")):
+    if command == "todo" and text and not _has_card_field(body):
         # Card 1125: a doing rides only a card-field write, never a board read.
-        raise CoordError("todo: --doing goes with --eta, --started or --done-when; nothing was changed")
+        raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
     if len(text) > 512:
         raise CoordError(f"{command}: --doing must be 1..512 characters; nothing stored")
     _doing_waiting(command, body, text)
@@ -2993,15 +2993,24 @@ def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return read_glance(c._cn)
 
 
-_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started")
-# Card 1125: card text changes only through mill replace-body. A note may set
-# progress, eta, started, or done-when. It does not append a line.
+_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started", "progress")
+# Card 1125: card text changes only through mill replace-body. mill todo ROSTER NEED
+# may set progress, eta, started, or done-when. It does not append a line.
 _NOTE_TEXT = "note: card text changes only through mill replace-body todo ID TEXT; nothing changed"
+_PROGRESS_TEXT = (
+    "todo: --progress takes a short token: 9/12, 75%%, done, or git <sha>; got %r. "
+    "Longer text is card text: mill replace-body todo ID TEXT. Nothing changed"
+)
+
+
+def _has_card_field(body: dict[str, Any]) -> bool:
+    """Card 1125: this todo call writes the card's own fields, not a board read."""
+    return "done_when" in body or any(body.get(k) for k in ("eta", "started", "progress"))
 
 
 def _card_fields(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """mill todo ROSTER NEED --eta / --started / --done-when (card 1125): only those fields reach the card."""
-    keep = {k: body[k] for k in ("need", "eta", "started", "done_when") if k in body}
+    """mill todo ROSTER NEED --eta / --started / --progress / --done-when (card 1125): only those fields reach the card."""
+    keep = {k: body[k] for k in ("need", "eta", "started", "progress", "done_when") if k in body}
     return _h_note(c, keep, project, owner)
 
 
@@ -3021,21 +3030,18 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     payload = fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]}
     before = dict(payload)
     note_s = str(body.get("note") or body.get("detail") or "").strip()
-    # #102: positional text. A progress token (9/12, 75%, done, git <sha>) is
-    # progress. Any other text is a card-text change and is refused (card 1125).
-    text_s = str(body.get("text") or "").strip()
-    prog_text = ""
-    if text_s and rec_todo.is_progress_token(text_s):
-        prog_text = text_s
-    elif text_s:
-        note_s = text_s
-    if "supersedes" in body or body.get("replace") or note_s:
+    if "supersedes" in body or body.get("replace") or note_s or str(body.get("text") or "").strip():
         raise CoordError(_NOTE_TEXT)
+    # Card 1125: --progress takes only a token (9/12, 75%, done, git <sha>);
+    # any other text is card text and is refused, nothing changed.
+    prog_text = str(body.get("progress") or "").strip()
+    if prog_text and not rec_todo.is_progress_token(prog_text):
+        raise CoordError(_PROGRESS_TEXT % prog_text[:64])
     eta_raw = str(body.get("eta") or "").strip()
     started = bool(body.get("started"))
     if not (prog_text or eta_raw or started):
         raise CoordError(
-            "todo: nothing to write (give --eta, --started or --done-when)"
+            "todo: nothing to write (give --eta, --started, --progress or --done-when)"
         )
     progress = rec_todo.format_progress(prog_text)
     if progress:

@@ -104,7 +104,7 @@ Shared spine (one table for the function):
 | blocked (eng fix, access, change window) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | park / defer (postmortem, non-urgent) | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | take / give incident | mill-desk; support assign | claim, assign | **`claim` / `assign`** | - |
-| progress diary | mill-desk replace-body; FL mitigate | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress diary | mill-desk replace-body; FL mitigate | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | find ops mail / pages | mill-desk mail; stub | inbox | **`inbox`** | - |
 
 **Stub lingo gaps this harvest fills:** Inputs, SEV->detail, escalate=`send`, postmortem=follow-on/parked, SLO=`score`, waiting_on, assign/unclaim, hold/drop nuance, follow-the-sun handoff, park, reject open/yield/bare create/teaching done.
@@ -271,7 +271,7 @@ office requires one, reconnect spam as a plan.
 | SEV / severity / triage | todo `detail` / `doing` + `replace-body` |
 | IC / take ownership | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| mitigate / progress | progress: `todo <roster> <need> --eta E` / `--started`; mitigation steps: card text (`replace-body`; not mail) |
+| mitigate / progress | progress: `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; mitigation steps: card text (`replace-body`; not mail) |
 | stakeholder comms | `send` (+ `replace-body` on card) |
 | escalate | `send` eng/support (optional eng `create todo`) |
 | follow-the-sun | `assign` / `unclaim` + `send` next desk |

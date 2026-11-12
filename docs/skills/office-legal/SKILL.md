@@ -51,7 +51,7 @@ body dumped into mill as SoR.
 | opinion | `replace-body` and/or `send` memo/link |
 | audit trail | `send` + `replace-body` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
-| progress | `todo <roster> <need> --eta E` / `--started` |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | diary | `replace-body` (not mail) |
 | blocked on others | waiting_on + `send` |
 | park / defer | `create todo` `<roster> <need> --status parked` |

@@ -51,13 +51,13 @@ def test_a_text_note_is_refused_and_names_replace_body(monkeypatch):
 
 def test_progress_reply_names_the_room_left(monkeypatch):
     stored = _card(monkeypatch, "first line")
-    rec = rpc._h_note(MagicMock(), {"need": "budget", "text": "9/12"}, "the-mill", "builder")
+    rec = rpc._h_note(MagicMock(), {"need": "budget", "progress": "9/12"}, "the-mill", "builder")
     assert rec["detail_left"] == rec_todo.budget_left(json.loads(stored["body"]))
 
 
 def test_a_note_that_changes_nothing_still_names_the_room_left(monkeypatch):
     stored = _card(monkeypatch, "kept")
-    rec = rpc._h_note(MagicMock(), {"need": "budget", "eta": "", "started": False, "text": "9/12"},
+    rec = rpc._h_note(MagicMock(), {"need": "budget", "eta": "", "started": False, "progress": "9/12"},
                       "the-mill", "builder")
     assert rec["detail_left"] <= BODY_MAX - len(json.dumps({"slug": "budget", "doing": "", "detail": "kept"}))
     assert stored["n"] in (0, 1)

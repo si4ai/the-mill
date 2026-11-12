@@ -68,9 +68,9 @@ def test_254_kept_and_renamed_parse() -> None:
     # create todo and unpark keep --parent-type / --parent-id.
     ct = p.parse_args(["create", "todo", "p", "n", "--parent-type", "todo", "--parent-id", "4"])
     assert ct.parent_type == "todo" and ct.parent_id == 4
-    # Card 1125: todo ROSTER NEED takes --eta and --started for the card's own fields.
-    n = p.parse_args(["todo", "p", "n", "--eta", "2h", "--started"])
-    assert n.eta == "2h" and n.started is True
+    # Card 1125: todo ROSTER NEED takes --eta, --started and --progress for the card's own fields.
+    n = p.parse_args(["todo", "p", "n", "--eta", "2h", "--started", "--progress", "9/12"])
+    assert n.eta == "2h" and n.started is True and n.progress == "9/12"
     # todo --fixtures stays for tools, hidden from help.
     assert p.parse_args(["todo", "p", "--fixtures"]).fixtures is True
 

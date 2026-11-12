@@ -100,7 +100,7 @@ Shared spine (one table for the function) - **every row cites FL**:
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | find work / mail landed | mill-desk mail | inbox | **`inbox`** | - |
 | ping / tell reviewer or next owner | mill-desk send; README "Need eyes" | send | **`send`** | dest=desk/role, not email To:human |
-| progress / diary on card | mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress / diary on card | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | exclusive edit shared creative | stub "hold if exclusive"; TEMPLATE hold | hold, drop | **`hold`** / **`drop`** when office leases asset station | README: hold rare - teach only for exclusive creative write, not day-one chatter |
 | park / file for later | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject bare `create` / `open` |
 | Wall glance after launch | FL mill sketch "optional wall glance" | - (wall) | optional Wall - not a write command | wall = human glance (FL legend) |
@@ -271,7 +271,7 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 | creative / asset work | `claim` + `replace-body` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / diary | `todo <roster> <need> --eta E` / `--started` |
+| progress / diary | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send`; human_required if policy |

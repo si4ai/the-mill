@@ -94,7 +94,7 @@ Shared spine (one table for the function):
 | Claims landed / find work | stub Find Claims; mill-desk mail | inbox | **`inbox`** | - |
 | take remasure card | mill-desk; eng claim | claim, assign | **`claim`** / **`assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
-| progress / method diary | mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress / method diary | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | blocked (env, Claims, access) | README waiting_on pattern | waiting_on + send | **`waiting_on` + `send`** | don't fake Pass or card `pass` |
 | exclusive evidence file | eng hold pattern; TEMPLATE | hold / drop | **`hold` / `drop`** | rare; hold = lock file, not unclaim |
 | quality KPI / escape rate | README score row clusters | score | **`score`** optional | QA not in README score row cluster (ops/support/sales/marketing) - omit unless office sets KPI |

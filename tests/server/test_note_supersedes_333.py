@@ -64,7 +64,7 @@ def test_card_text_is_refused_and_nothing_is_written(card, body):
 
 
 def test_progress_still_writes_and_leaves_the_detail(card):
-    r = _note({"text": "9/12"})
+    r = _note({"progress": "9/12"})
     assert r["progress"] == "9/12"
     assert _detail(card) == DETAIL
     assert card["writes"] == 1

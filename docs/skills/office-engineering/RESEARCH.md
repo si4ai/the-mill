@@ -101,7 +101,7 @@ Shared spine (one table for the function):
 | take card / I'll implement | mill-desk; stub Take card | claim, assign | **`claim` / `assign`** | - |
 | drop the claim | mill-desk; stub | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | exclusive tree/file | FL hold on tree; stub; README hold rare eng | hold / drop | **`hold` / `drop`** | hold = lock resource; drop != unclaim |
-| progress / Claims paths | stub; mill-desk replace-body | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress / Claims paths | stub; mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | ask remasure / Claims ready | stub Handoffs/Verbs; README Prove it | send | **`send`** -> validator/QA with Claims | escalate pattern = send |
 | Validator Fail / fix after remasure | stub Inputs/When; qa RESEARCH | inbox, claim, replace-body | **`inbox`** Fail -> **`claim`**/`replace-body` fix -> re-`send` Claims | - |
 | close after Pass | stub; mill-desk pass lifecycle | pass | **`pass`** (again to done per office) | reject teaching `done` |
@@ -152,7 +152,7 @@ Pattern: README "Escalate always = mill send"; qa Fail->Engineering; ops->Engine
 **Working software / package**
 
 1. Card + scope crumbs were on the desk (or waiting_on/parked mailed).
-2. Implement under claim; `hold`/`drop` shared paths when needed; progress with `todo <roster> <need> --eta E` / `--started` (PR/artifact links in SoR).
+2. Implement under claim; `hold`/`drop` shared paths when needed; progress with `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` (PR/artifact links in SoR).
 3. Claims `send`ed to validator when remasure needed; Fail path: inbox -> fix -> re-send.
 4. Behavior/package runnable; evidence paths on Claims mail; card `pass`ed after Pass/pack gate (shipped->done as office says) **or** clean waiting_on **or** parked - never silent claimed forever.
 5. Ops/support/auditor mailed when ball leaves eng.
@@ -278,7 +278,7 @@ Not inputs: vague "make it better," no card, or implementing while QA owns Pass/
 | drop the claim | `unclaim` |
 | PR / branch | todo card + link in `detail`/`replace-body`; forge SoR (not a mill PR command) |
 | exclusive tree/file | `hold` / `drop` |
-| progress / CI links / artifact path | progress: `todo <roster> <need> --eta E` / `--started`; links and paths: card text (`replace-body`; not mail) |
+| progress / CI links / artifact path | progress: `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; links and paths: card text (`replace-body`; not mail) |
 | review / approve / request changes | `send` reviewer (+ optional second `claim`); forge review SoR |
 | ask remasure / Claims ready | `send` -> validator/QA with Claims |
 | Validator Fail / re-fix | `inbox` -> fix on card -> `replace-body` -> re-`send` Claims |

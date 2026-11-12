@@ -1377,6 +1377,12 @@ def _build_parser() -> MillArgumentParser:
     nd.add_argument("--eta", default="", help="with ROSTER NEED: 20m / 2h / datetime, when you expect to finish")
     nd.add_argument("--started", action="store_true", help="with ROSTER NEED: set started_at to now")
     nd.add_argument(
+        "--progress",
+        default="",
+        help="with ROSTER NEED: a short progress token: 9/12, 75%%, done, or git <sha>; "
+        "longer text is card text: mill replace-body",
+    )
+    nd.add_argument(
         "--done-when",
         default=None,
         dest="done_when",

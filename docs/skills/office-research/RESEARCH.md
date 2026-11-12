@@ -76,7 +76,7 @@ Shared spine (one table for the function):
 | park / file for later | mill-desk; stub "park" | create todo parked, plan upcoming | **`create todo` `{status:"parked"}`** | reject stub "plan upcoming / parked" - not a mill command |
 | take / draft brief | stub | claim, assign | **`claim`** (+ `assign` if given) | - |
 | drop claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
-| progress / path / diary | stub "replace-body path"; mill-desk | todo --eta/--started | **`todo <roster> <need> --eta E`** / `--started` | replace-body != mail |
+| progress / path / diary | stub "replace-body path"; mill-desk | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | synthesize / revise findings | stub | replace-body, detail update | **`replace-body`** (path + deltas) | no new command |
 | challenge / peer review | stub | send, claim steal | **`send`** | handoff != steal; reviewer claims own card or replies mail |
 | need eyes / escalate | README pattern | send | **`send`** | escalate always = send to specialized desk |
@@ -236,7 +236,7 @@ Competitive/market *asks* use this same product (mode in detail), not a second p
 | park / later | `create todo` `{status:"parked"}` |
 | take / draft | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / brief path | `todo <roster> <need> --eta E` / `--started`; the brief path is card text (`replace-body`) |
+| progress / brief path | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; the brief path is card text (`replace-body`) |
 | synthesize / revise | `replace-body` |
 | challenge / review | mill `send` |
 | blocked (SME/source) | `waiting_on` + `send` |
