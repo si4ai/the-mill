@@ -71,6 +71,7 @@ paths = [
   "**/*.py",
   "tests/**",
   "tools/**",
+  "tests/tools/test_check_dead_commands.py",
   "scripts/**",
   "verify/**",
   ".githooks/**",

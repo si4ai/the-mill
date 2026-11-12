@@ -124,6 +124,21 @@ It starts from `pyproject.toml` console scripts (`mill`, `mill-hold`, `agent-coo
 
 A module can be an orphan and still be a stub you meant to keep. The scan does not decide keep or delete.
 
+## check_dead_commands.py
+
+Card 1147. Scan `mill ...` examples that check_doc_commands does not cover
+(all docs markdown, verify skills, and hint or usage strings in
+`agent_coord/`), check them against the same CLI parser, and print only
+findings that tool does not already report. Sorted, no timestamps.
+
+```bash
+python tools/check_dead_commands.py          # report; exit 0 even with findings
+python tools/check_dead_commands.py --strict # exit 1 when a new dead form is found
+```
+
+Not a CI gate. Tests prove --strict fails on a doctored tree and passes on
+a clean one.
+
 ## probe_deleted_rows.py
 
 Test-only. Makes a deleted todo row and a deleted score row live, on the calling desk's own `t-<8 hex>` fixture rows only, so the deleted state can be checked on events, activity between, and the Wall pill (#160). Run it as a child of the shell that started `mill connect`. Needs an office at 0.6.30 or later.
