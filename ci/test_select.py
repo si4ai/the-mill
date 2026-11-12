@@ -6,11 +6,19 @@ that matches no rule runs nothing. "**" is zero or more directories.
 An unknown job name, a broken map or a missing GITHUB_OUTPUT exits 1.
 
   python3 ci/test_select.py --github
-      CI mode. pull_request diffs base...head, merge_group diffs
-      base_sha..head_sha. Any other event, a malformed sha, a failed diff
-      or an empty diff runs every job.
+      CI mode. The suites run once per change, on the pull request head:
+      that is the run Validator's Pass measures. A pull_request diffs
+      base...head and runs every job if any changed file selects one, else
+      none. merge_group is a fingerprint check: if the queued commit's tree
+      is the PR head's tree (refs/pull/N/head, N from the queue ref), that
+      code already ran, so no job; if main moved under it, every job. Any
+      other event, anything it cannot read, a failed diff or an empty diff
+      runs every job.
   python3 ci/test_select.py --base REV [--head REV]
-      Local mode. Prints the selected jobs, one per line.
+      Local mode. Prints the jobs the map selects, one per line.
+
+A pyproject.toml whose only changed lines are `version = "..."` counts as
+unchanged, so a release bump (that line plus CHANGELOG.md) selects nothing.
 """
 
 from __future__ import annotations
@@ -32,6 +40,9 @@ KNOWN_JOBS = ("pytest_no_sql_run", "pytest_sql_run")
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 ZERO_SHA = "0" * 40
+VERSION_LINE_RE = re.compile(r'version = "[^"]*"')
+# The suffix sha is the queue's base commit, not the PR head.
+QUEUE_REF_RE = re.compile(r"(?:refs/heads/)?gh-readonly-queue/.+/pr-([0-9]+)-[0-9a-f]{40}")
 
 
 class MapError(Exception):
@@ -128,36 +139,94 @@ def changed_paths(base: str, head: str, separator: str = "...") -> list[str]:
     return [name for name in proc.stdout.decode("utf-8", "surrogateescape").split("\0") if name]
 
 
-def event_range(event_name: str, event: dict) -> tuple[str, str, str] | None:
-    """(base, head, separator) to diff, or None to run every job."""
+def version_only(base: str, head: str, separator: str = "...") -> bool:
+    """True when every changed pyproject.toml line is a `version = "..."` line.
+    A failed diff, or one that adds or deletes the file, is not version-only."""
+    proc = subprocess.run(
+        ["git", "diff", "-U0", "--no-renames", "--no-color", f"{base}{separator}{head}", "--", "pyproject.toml"],
+        cwd=ROOT, check=False, capture_output=True, timeout=60,
+    )
+    if proc.returncode != 0:
+        return False
+    lines = proc.stdout.decode("utf-8", "replace").splitlines()
+    first_hunk = next((i for i, line in enumerate(lines) if line.startswith("@@")), len(lines))
+    if any(line.startswith(("new file", "deleted file")) for line in lines[:first_hunk]):
+        return False
+    changed = [line[1:] for line in lines[first_hunk:] if line[:1] in "+-"]
+    return bool(changed) and all(VERSION_LINE_RE.fullmatch(line) for line in changed)
+
+
+def drop_version_bump(paths: list[str], base: str, head: str, separator: str = "...") -> list[str]:
+    """paths, less a pyproject.toml whose only change is its version."""
+    if "pyproject.toml" in paths and version_only(base, head, separator):
+        return [p for p in paths if p != "pyproject.toml"]
+    return paths
+
+
+def pr_range(event: dict) -> tuple[str, str] | None:
+    """(base, head) of a pull_request event, or None to run every job."""
     try:
-        if event_name == "pull_request":
-            base, head, sep = event["pull_request"]["base"]["sha"], event["pull_request"]["head"]["sha"], "..."
-        elif event_name == "merge_group":
-            # Two dots: everything the queued squash adds on top of its base.
-            base, head, sep = event["merge_group"]["base_sha"], event["merge_group"]["head_sha"], ".."
-        else:
-            return None
+        base, head = event["pull_request"]["base"]["sha"], event["pull_request"]["head"]["sha"]
     except (KeyError, TypeError):
         return None
     if not all(isinstance(s, str) and SHA_RE.fullmatch(s) for s in (base, head)) or base == ZERO_SHA:
         return None
-    return base, head, sep
+    return base, head
+
+
+def _git(*args: str) -> str | None:
+    """stdout of a git command run in ROOT, or None if it failed."""
+    try:
+        proc = subprocess.run(["git", *args], cwd=ROOT, check=False, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def tree_of(rev: str) -> str | None:
+    return _git("rev-parse", "--verify", "--quiet", f"{rev}^{{tree}}")
+
+
+def merge_group_selection(event: dict) -> tuple[set[str], str]:
+    """No job when the queued commit's tree is the tested PR head's tree."""
+    try:
+        head_sha, head_ref = event["merge_group"]["head_sha"], event["merge_group"]["head_ref"]
+    except (KeyError, TypeError):
+        return set(KNOWN_JOBS), "merge_group: no head_sha or head_ref: every job"
+    match = QUEUE_REF_RE.fullmatch(head_ref) if isinstance(head_ref, str) else None
+    if match is None or not (isinstance(head_sha, str) and SHA_RE.fullmatch(head_sha)):
+        return set(KNOWN_JOBS), "merge_group: unreadable queue ref or sha: every job"
+    number = match.group(1)
+    if _git("fetch", "--no-tags", "--quiet", "origin", f"+refs/pull/{number}/head") is None:
+        return set(KNOWN_JOBS), f"merge_group: cannot fetch PR #{number} head: every job"
+    pr_head = _git("rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}")
+    queued, tested = tree_of(head_sha), tree_of(pr_head) if pr_head else None
+    if queued is None or tested is None:
+        return set(KNOWN_JOBS), f"merge_group: cannot read the trees for PR #{number}: every job"
+    if queued != tested:
+        return set(KNOWN_JOBS), f"merge_group: tree differs from PR #{number} head {pr_head[:12]}: every job"
+    return set(), f"merge_group: tree matches PR #{number} head {pr_head[:12]}, already tested: no job"
 
 
 def github_selection(rules: Rules, event_name: str, event: dict) -> tuple[set[str], str]:
     """The jobs to run for this event and a one-line reason."""
-    span = event_range(event_name, event)
+    if event_name == "merge_group":
+        return merge_group_selection(event)
+    span = pr_range(event) if event_name == "pull_request" else None
     if span is None:
         return set(KNOWN_JOBS), f"{event_name or 'no event'}: every job"
-    base, head, sep = span
+    base, head = span
     try:
-        paths = changed_paths(base, head, sep)
+        paths = changed_paths(base, head)
+        if not paths:
+            return set(KNOWN_JOBS), "empty diff: every job"
+        paths = drop_version_bump(paths, base, head)
     except (OSError, subprocess.SubprocessError) as exc:
         return set(KNOWN_JOBS), f"diff failed ({exc}): every job"
-    if not paths:
-        return set(KNOWN_JOBS), "empty diff: every job"
-    return select_jobs(paths, rules), f"{len(paths)} changed file(s) in {base[:12]}{sep}{head[:12]}"
+    where = f"{len(paths)} changed file(s) in {base[:12]}...{head[:12]}"
+    if not select_jobs(paths, rules):
+        return set(), f"{where}: none selects a job"
+    return set(KNOWN_JOBS), f"{where}: every job"
 
 
 def write_output(chosen: set[str], dest: str) -> None:
@@ -190,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
             write_output(chosen, dest)
             print(f"test_select: {reason}")
         else:
-            chosen = select_jobs(changed_paths(args.base, args.head), rules)
+            paths = changed_paths(args.base, args.head)
+            chosen = select_jobs(drop_version_bump(paths, args.base, args.head), rules)
     except (MapError, OSError) as exc:
         print(f"test_select: {exc}", file=sys.stderr)
         return 1

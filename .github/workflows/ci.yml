@@ -33,8 +33,12 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # Card 1127: pick the test jobs that verify the changed files, from
-  # ci/test-select.toml. No pack or database dependency, nothing installed.
+  # Card 1127: pick the test jobs from ci/test-select.toml. No pack or
+  # database dependency, nothing installed. The suites run once per change:
+  # a pull request runs both on its head unless no changed file selects a
+  # job (docs only, or a version-only pyproject.toml bump), and merge_group
+  # runs neither, since its squash is the code the PR run tested. Push to
+  # main, tags (workflow_call) and dispatch run both.
   select:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
@@ -345,7 +349,8 @@ jobs:
           path: pytest-sql-junit.xml
           if-no-files-found: warn
 
-  # Keep the required check names present even when the heavy jobs skip.
+  # Keep the required check names present even when the heavy jobs skip,
+  # as they do on every merge_group run.
   # A failed selector, or a selected runner that failed or skipped, never turns green.
   pytest_sql:
     needs: [select, pytest_sql_run]
