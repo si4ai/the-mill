@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Card 1141 step 1: a tw exit or crash hop is the desk's own run ending.
+"""Card 1141: a tw exit or crash hop is the desk's own run ending.
 
-It rings a webhook wake only when something waits for the desk (push row,
-unread letter, unopened receipt), like every other wake. stall and match stay
-mid-run alerts and ring on an empty queue. Invariants F1, F7, I1, I2, I3/I4.
+Step 1: it rings a webhook wake only when something waits for the desk (push
+row, unread letter, unopened receipt), like every other wake. stall and match
+stay mid-run alerts and ring on an empty queue. Invariants F1, F7, I1, I2, I3/I4.
+
+Step 2 (F7 residual, V14/V15): pending() excludes rows already handed over
+live (state sent), so a tw exit or wake-done trailing POST does not ring for
+work the desk already has. Tests that pin this use a real sent row, not the
+pending() stub in the desk fixture. The empty skip is re-checked under the
+gate lock (V16/V17).
 """
 from __future__ import annotations
 
@@ -136,3 +142,156 @@ def test_old_done_after_expiry_does_not_end_exit_lease(desk, monkeypatch) -> Non
     assert wake._EPOCH.get(name) == second
     assert wake.post_desk(object(), name, _tw("exit", exit_code=0)) == "coalesced"
     assert len(posts) == 2
+
+# --- Card 1141 step 2 (F7 / V14 / V15 / V16 / V17): real sent rows, no pending() stub. ---
+
+
+def _sql_desk(cn, name: str) -> str:
+    from tests.server.records.conftest import admin_desk
+
+    return admin_desk(cn, name)
+
+
+def _arm_http(monkeypatch, posts: list, lines: list) -> None:
+    """Stub only the HTTP side. pending() and the book stay real."""
+    from agent_coord.server.records import join as rec_join
+
+    monkeypatch.setattr(push, "_bc_log", lines.append)
+    monkeypatch.setattr(rec_join, "wake_target", lambda cn, d: ("https://hooks.example.test/x", "k"))
+    monkeypatch.setattr(rec_join, "wake_state", lambda cn, d: {"armed": True, "wake_on": "addressed"})
+    monkeypatch.setattr(wake, "check_url", lambda u: (u, "hooks.example.test"))
+    monkeypatch.setattr(wake, "public_host", lambda h: True)
+    monkeypatch.setattr(wake, "desk_roster", lambda cn, d: "")
+    monkeypatch.setattr(wake, "_schedule", lambda *a, **k: None)
+    monkeypatch.setattr("agent_coord.server.wasted_wake.mark_lease", lambda *a, **k: None)
+    monkeypatch.setattr("agent_coord.server.wasted_wake.finish_lease", lambda *a, **k: None)
+    monkeypatch.setattr(wake, "_post_status", lambda url, body, **kw: posts.append(dict(body)) or (200, None))
+
+
+def _put_missed(cn, desk: str, item_id: int) -> int:
+    from agent_coord.server.records import push as rec_push
+
+    rows = rec_push.put(cn, desk, "hint", {"type": "todo", "id": item_id}, "missed")
+    cn.commit()
+    return int(rows[0]["id"])
+
+
+def _mark_sent(cn, wid: int) -> None:
+    from agent_coord.server.records import push as rec_push
+
+    assert rec_push.mark(cn, wid, "sent") == 1
+    cn.commit()
+
+
+def _second_cn():
+    """A second connection to the shared tip book (not the test's cn)."""
+    import mysql.connector
+    from tests import sql_book
+    from agent_coord.server.records.db import conn_kwargs
+
+    kw = dict(conn_kwargs())
+    kw["database"] = sql_book.shared_db_name()
+    return mysql.connector.connect(**kw)
+
+
+@pytest.mark.sql
+def test_pending_excludes_a_real_sent_row(cn) -> None:
+    """V14/V15 root: a row handed over live is not waiting work."""
+    from agent_coord.server.records import push as rec_push
+
+    desk = _sql_desk(cn, "s2-pend-1141")
+    assert rec_push.pending(cn, desk) == 0
+    wid = _put_missed(cn, desk, 114101)
+    assert rec_push.pending(cn, desk) == 1
+    _mark_sent(cn, wid)
+    assert rec_push.pending(cn, desk) == 0
+    _put_missed(cn, desk, 114102)
+    assert rec_push.pending(cn, desk) == 1
+
+
+@pytest.mark.sql
+def test_exit_after_a_real_sent_row_rings_no_wake(cn, monkeypatch) -> None:
+    """V14: a tw exit after a live item does not ring for work the desk already has."""
+    from agent_coord.server.records import push as rec_push
+
+    desk = _sql_desk(cn, "s2-exit-1141")
+    posts: list[dict] = []
+    lines: list[str] = []
+    _arm_http(monkeypatch, posts, lines)
+    wake.gate_clear(desk)
+    try:
+        wid = _put_missed(cn, desk, 114111)
+        _mark_sent(cn, wid)
+        assert rec_push.pending(cn, desk) == 0
+        frame = {"watch_id": "w-sent", "desk": desk, "kind": "exit", "exit_code": 0}
+        assert wake.post_desk(cn, desk, frame) == "skipped"
+        assert posts == []
+        assert any("skipped reason=empty" in ln for ln in lines)
+        assert wake._gate_open(desk, time.monotonic())
+    finally:
+        wake.gate_clear(desk)
+
+
+@pytest.mark.sql
+def test_trailing_after_a_real_sent_row_sends_no_wake(cn, monkeypatch) -> None:
+    """V15: wake-done's trailing POST does not ring for a row already sent live."""
+    from agent_coord.server.records import push as rec_push
+
+    desk = _sql_desk(cn, "s2-trail-1141")
+    posts: list[dict] = []
+    lines: list[str] = []
+    _arm_http(monkeypatch, posts, lines)
+    wake.gate_clear(desk)
+    try:
+        wid1 = _put_missed(cn, desk, 114121)
+        assert rec_push.pending(cn, desk) == 1
+        assert wake.post_desk(cn, desk, {"kind": "hint", "type": "todo", "id": 114121}, hint_id=wid1) == "sent"
+        assert len(posts) == 1
+        wid2 = _put_missed(cn, desk, 114122)
+        assert wake.post_desk(cn, desk, {"kind": "hint", "type": "todo", "id": 114122}, hint_id=wid2) == "coalesced"
+        _mark_sent(cn, wid1)
+        _mark_sent(cn, wid2)
+        assert rec_push.pending(cn, desk) == 0
+        assert wake.lease_done(cn, desk) == "none"
+        assert len(posts) == 1
+        assert any("wake=none reason=drained" in ln for ln in lines)
+    finally:
+        wake.gate_clear(desk)
+
+
+@pytest.mark.sql
+def test_empty_recheck_under_gate_lock_skips_when_row_is_sent(cn, monkeypatch) -> None:
+    """V16/V17: if another connection marks the row sent between the empty
+    skip and the take, the re-check under the gate lock skips and takes no
+    lease. The mark is committed on a second connection, not post_desk's cn,
+    so a stale REPEATABLE READ snapshot cannot hide the hand-over (D1/T1).
+    """
+    from agent_coord.server.records import push as rec_push
+
+    desk = _sql_desk(cn, "s2-race-1141")
+    posts: list[dict] = []
+    lines: list[str] = []
+    _arm_http(monkeypatch, posts, lines)
+    wake.gate_clear(desk)
+    wid = _put_missed(cn, desk, 114131)
+
+    def mark_sent_from_other(url):
+        # After the first empty check, before the take: same window as
+        # _settle_row, which marks sent on its own Book() connection.
+        c2 = _second_cn()
+        try:
+            rec_push.mark(c2, wid, "sent")
+            c2.commit()
+        finally:
+            c2.close()
+        return (url, "hooks.example.test")
+
+    monkeypatch.setattr(wake, "check_url", mark_sent_from_other)
+    try:
+        frame = {"watch_id": "w-race", "desk": desk, "kind": "exit", "exit_code": 0}
+        assert wake.post_desk(cn, desk, frame) == "skipped"
+        assert posts == []
+        assert any("skipped reason=empty" in ln for ln in lines)
+        assert wake._gate_open(desk, time.monotonic())
+    finally:
+        wake.gate_clear(desk)

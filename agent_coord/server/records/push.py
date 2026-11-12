@@ -322,12 +322,18 @@ def waiting(cn, desk: str) -> dict | None:
 
 
 def pending(cn, desk: str) -> int:
-    """How many push rows wait for this desk's next sync (#618 wake body). 0 on error."""
+    """How many push rows still wait for this desk (#618 wake body). 0 on error.
+
+    Rows already handed over live (state 'sent') and rows a sync took
+    (state 'taken') do not count. Card 1141 step 2: the empty skip and
+    _send_trailing use this, so a tw exit or trailing POST does not ring
+    for work the desk already has (V14/V15).
+    """
     cur = cn.cursor()
     try:
         count_rows = (
             "SELECT COUNT(*) FROM wake p JOIN name d ON d.id = p.desk_id"
-            " WHERE d.type = 'desk' AND d.name = %s AND p.state <> 'taken'"
+            " WHERE d.type = 'desk' AND d.name = %s AND p.state NOT IN ('sent', 'taken')"
         )
         cur.execute(count_rows, (str(desk or "").strip(),))
         row = cur.fetchone()

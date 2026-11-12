@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import threading
 import time
 from typing import Any, Callable
@@ -98,6 +99,16 @@ def hold(
         name="mill-connect-project-%s" % slug_desk(desk),
         daemon=True,
     ).start()
+
+    def _on_term(_signum: int, _frame: Any) -> None:
+        # A shell trap kills this process with SIGTERM. Close the socket first.
+        running.stop.set()
+
+    previous = None
+    try:
+        previous = signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):
+        previous = None
     try:
         try:
             while not running.stop.is_set():
@@ -116,6 +127,11 @@ def hold(
             return 0
         return int(running.outcome.get("exit") or 0)
     finally:
+        if previous is not None:
+            try:
+                signal.signal(signal.SIGTERM, previous)
+            except (ValueError, OSError):
+                pass
         release(running)
 
 

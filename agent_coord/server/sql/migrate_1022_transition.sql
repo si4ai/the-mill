@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS wake (
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, id),
   KEY idx_desk_state (desk_id, state),
+  KEY idx_cause_id (cause, cause_id, state),
   CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
