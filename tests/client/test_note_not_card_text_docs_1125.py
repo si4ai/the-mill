@@ -35,6 +35,8 @@ FIELD_OR_ENGLISH = re.compile(
     |\blast\s+note\b
     |\band\s+the\s+note\b
     |\bthe\s+note\b
+    |\ba\s+note\s+that\b
+    |\bappends\s+a\s+note\b
     |\bjoin\s+note\b
     |\bnote\s+re-install\b
     |\bnote\s+the\s+biggest\s+risk\b
@@ -202,30 +204,125 @@ def clauses(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"(?<=\.)\s+|;\s+|,\s+and\s+", line) if c.strip()]
 
 
+# A purpose flag may take one value (`--eta 2h`, `--done-when TEXT`).
+# Values are consumed only after a flag, so they cannot hide a later object.
+TIE_FLAG = re.compile(
+    r"""(?ix)
+    \s*
+    (?:
+        --eta\b
+        |--started\b
+        |--done-when\b
+        |--waiting-on
+        |--full\b
+        |--doing\b
+        |progress\b
+        |\bETA\b
+        |\bdone-when\b
+        |waiting[_-]on
+    )
+    """
+)
+FLAG_VALUE = re.compile(
+    r"""(?x)
+    \s+
+    (?:
+        "[^"]*"
+        |'[^']*'
+        |`[^`]+`
+        |[A-Za-z0-9_./:-]+
+    )
+    """
+)
+TIE_END = re.compile(r"""\s*(?:$|[.,;:)"'\]]+\s*$)""")
+# Usage placeholders in a command synopsis, not card text.
+USAGE_ARG = re.compile(
+    r"""(?ix)
+    \s+
+    (?:
+        <[^>]+>
+        |\[[^\]]+\]
+        |\bROSTER\b
+        |\bNEED\b
+        |\bID\b
+        |\bTEXT\b
+        |\bWHAT\b
+        |(?<![A-Za-z])[rni](?![A-Za-z])
+    )
+    """
+)
+STMT_BREAK = re.compile(r"\s*[;]\s+")
+ARROW_NEXT = re.compile(r"\s*(?:->|\u2192)")
+NOTE_DEFINITION = re.compile(r"\s*:\s*")
+ADVERBIAL = re.compile(r"(?i)\s+as\s+you\s+go")
+RE_CMD_FOLLOW = re.compile(
+    r"(?i)\s*(?:re-)?"
+    r"(?:`(?:create\s+todo|claim|unclaim|assign|send|reply|inbox|hold|drop|pass|unpark|mark|todo|doing)`"
+    r"|\b(?:create\s+todo|claim|unclaim|assign|send|reply|inbox|hold|drop|pass|unpark|mark)\b"
+    r"|`note`|(?<![A-Za-z_`-])note(?![A-Za-z_]))"
+)
+
+
 def _followers_are_spine(rest: str) -> bool:
-    """True when note is followed only by separators, another command, a tie, or end."""
+    """True when note is followed only by separators, another command, a tie, or end.
+
+    A tie or flag after note does not hide a following object: consume the
+    tie (and an optional flag value) and keep inspecting the rest. An arrow
+    starts the next pipeline step. A slash or quoted object is still inspected.
+    """
     s = rest
-    if TIE_OR_END.match(s):
-        return True
     progressed = True
+    saw_sep = False
     while s and progressed:
         progressed = False
-        m = QUOTED_ATOM.match(s)
+        if TIE_END.match(s):
+            return True
+        if STMT_BREAK.match(s):
+            return True
+        if ARROW_NEXT.match(s):
+            return True
+        m = ADVERBIAL.match(s)
         if m:
             s = s[m.end():]
             progressed = True
             continue
+        m = NOTE_DEFINITION.match(s)
+        if m:
+            after = s[m.end():]
+            if ALLOWED_TIE.search(after) or REDIRECT.search(after):
+                return True
+            s = after
+            progressed = True
+            continue
+        if saw_sep:
+            m = QUOTED_ATOM.match(s)
+            if m:
+                s = s[m.end():]
+                progressed = True
+                continue
         m = SEP_TOKEN.match(s)
         if m:
             s = s[m.end():]
+            saw_sep = True
             progressed = True
             continue
-        if TIE_OR_END.match(s):
-            return True
-        m = CMD_FOLLOW.match(s)
+        m = USAGE_ARG.match(s)
+        if m:
+            s = s[m.end():]
+            progressed = True
+            continue
+        m = TIE_FLAG.match(s)
+        if m:
+            s = s[m.end():]
+            v = FLAG_VALUE.match(s)
+            if v:
+                s = s[v.end():]
+            progressed = True
+            continue
+        m = RE_CMD_FOLLOW.match(s) or CMD_FOLLOW.match(s)
         if m:
             return True
-    return not s.strip() or bool(TIE_OR_END.match(s))
+    return not s.strip() or bool(TIE_END.match(s))
 
 
 def _note_tokens_have_no_object(clause: str) -> bool:
@@ -266,6 +363,9 @@ def clause_allowed(clause: str) -> bool:
     if REDIRECT.search(clause):
         return True
     if ALLOWED_TIE.search(clause) and not _parenthetical_progress_only(clause):
+        # A purpose token in the clause does not hide an object after note.
+        if NOTE_TOKEN.search(clause):
+            return _note_tokens_have_no_object(clause)
         return True
     return False
 
@@ -287,6 +387,13 @@ def allowed(line: str) -> bool:
         ALLOWED_TIE.search(c)
         and not SINK_INTO_NOTE.search(c)
         and not _parenthetical_progress_only(c)
+        # A purpose token in the same cell as a note object does not
+        # bless that object; a sibling purpose cell still can.
+        and (
+            not has_mention(c)
+            or clause_allowed(c)
+            or (NOTE_TOKEN.search(c) and _note_tokens_have_no_object(c))
+        )
         for c in parts
     )
     def part_mentions(part: str) -> bool:
@@ -483,3 +590,14 @@ def test_scanner_is_allow_list():
     assert not bad_lines("Set acceptance with `note --done-when TEXT`.")
     assert not bad_lines("Card text: `mill replace-body todo ID TEXT`.")
     assert not bad_lines("See release notes.")
+    # D12 / W2: a tie or flag after note must not hide a following object.
+    assert bad_lines("`note` progress and the customer's answer")
+    assert bad_lines("`claim` -> `note` progress and the customer's answer -> `pass`")
+    assert bad_lines("| close | `pass` + `note` ETA plus the root cause |")
+    assert bad_lines("`claim`, `note` --eta 2h and the vendor reply, `pass`.")
+    assert bad_lines("`claim` + `note` / the decision text")
+    assert bad_lines("`claim` + `note` 'decision' + `pass`")
+    # Purpose-only ties without a following object stay quiet.
+    assert not bad_lines("`note` --eta 2h")
+    assert not bad_lines("`note` progress")
+    assert not bad_lines("`claim` + `note` --eta 2h + `pass`")
