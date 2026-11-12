@@ -37,6 +37,7 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - ci: let a hidden-code scanner crash show red (card 1155)
 - card 1171: mill_mail_delete finds wakes by cause/cause_id and locks each row by primary key only
 - card 1125: delete the note command; `mill todo ROSTER NEED --eta/--started/--done-when/--progress` sets card fields and `mill replace-body` changes card and letter text; replace-body rights follow office trust (matrix in docs/requirements/admin.md)
+- check_pack: markdown heading marks are a line-start prefix for the name-token rule
 
 ## Last changes
 
