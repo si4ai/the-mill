@@ -1719,6 +1719,30 @@ def _ensure_transition_n(cn) -> list[str]:
     return applied
 
 
+def _ensure_label_updated(cn) -> list[str]:
+    """card 1153: label.updated, when ord was last set. Idempotent ADD COLUMN; an
+    existing row starts at its created stamp (the only ord time the book has)."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "label"):
+            return applied
+        if not _column_exists(cur, "label", "updated"):
+            cur.execute(
+                "ALTER TABLE label ADD COLUMN updated DATETIME(6) NOT NULL"
+                " DEFAULT CURRENT_TIMESTAMP(6) AFTER created"
+            )
+            cur.execute("UPDATE label SET updated = created")
+            applied.append("label.updated")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 
 def _ensure_wake_retry_edge(cn) -> list[str]:
     """card 1111: wake error -> retry_armed / wake_retry. Idempotent INSERT IGNORE."""
@@ -1734,6 +1758,32 @@ def _ensure_wake_retry_edge(cn) -> list[str]:
         )
         if cur.rowcount:
             applied.append("transition_edge.wake_retry_from_error")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
+def _ensure_wake_lease_edges(cn) -> list[str]:
+    """card 1140: wake lease edges (ring, done, expired, cleared). Idempotent INSERT IGNORE."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition_edge"):
+            return applied
+        cur.execute(
+            "INSERT IGNORE INTO transition_edge"
+            " (activity_type, from_state, to_state, reason) VALUES"
+            " ('wake', 'ring', 'lease_live', 'wake_sent'),"
+            " ('wake', 'lease_live', 'done', 'wake_done'),"
+            " ('wake', 'lease_live', 'expired', 'wake_expire'),"
+            " ('wake', 'lease_live', 'cleared', 'clear')"
+        )
+        if cur.rowcount:
+            applied.append("transition_edge.wake_lease_1140")
             cn.commit()
     except Exception:
         cn.rollback()
@@ -1950,6 +2000,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(apply_roster_070(cn))
             # Column before the procedure refresh, so mill_label_select can read l.ord.
             applied.extend(_ensure_label_ord(cn))
+            # card 1153: label.updated before the refresh too (mill_label_put sets it on a re-rank).
+            applied.extend(_ensure_label_updated(cn))
             # Column before the procedure refresh: mill_join_wake_* name it (#618).
             applied.extend(_ensure_join_endpoint_key(cn))
             applied.extend(_ensure_join_wake_on(cn))
@@ -1995,6 +2047,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             # card 1098: transition.n (after 1022 table exists)
             applied.extend(_ensure_transition_n(cn))
             applied.extend(_ensure_wake_retry_edge(cn))
+            applied.extend(_ensure_wake_lease_edges(cn))
             # card 1113: wake.id is AUTO_INCREMENT, payload first (after the 1022 wake table).
             applied.extend(_ensure_wake_auto_id(cn))
             if did_1022:

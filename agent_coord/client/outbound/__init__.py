@@ -390,6 +390,14 @@ def body_from_args(args: Any) -> dict[str, Any]:
         if val is None or val == "":
             continue
         body[key] = str(val)
+    # Card 1140: a woken run that exported MILL_LEASE (its wake.lease) carries it on
+    # every command, so the office renews that lease while the run works.
+    if not body.get("lease"):
+        import os
+
+        held = str(os.environ.get("MILL_LEASE") or "").strip()
+        if held:
+            body["lease"] = held
     for key in _INT:
         if not hasattr(args, key):
             continue

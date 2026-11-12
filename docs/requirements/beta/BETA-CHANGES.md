@@ -294,3 +294,8 @@ Items 3 (tw score transitions on start/finish/fail) and 4 (required receipt / `-
 | 1133c | `todo.body` is one JSON document (slug, detail, progress, eta_at, started_at, aliases) | `todo.body` is the card text (the old detail); `todo.meta` JSON holds the rest; `todo.body_updated`, `todo.body_updater_id`; card state stays in status/assigned_id/claimed_at, its history in doing | the text can be replaced and kept apart from what the server keeps on a card; `migrate_1133_history.sql` splits existing cards (idempotent) | proposed |
 | 1133d | `activity.act` / `doing.act` end at `task` | both gain `replace` (appended; existing books via `migrate_1133_history.sql`) | the timeline row of a replace (`mill_body_replace`) | proposed |
 
+## card 1153 (Wall PRIORITIES tab: re-rank stamp)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1153a | `label` has `created` only; a re-rank (`mill label ... --ord N`) changes `ord` and writes no stamp and no transition row | `label.updated DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)`; `mill_label_put` moves it when `ord` changes to a new value, not on the same ord or a NULL ord; an existing book adds the column with `updated = created` (`_ensure_label_updated`, idempotent) | the PRIORITIES tab shows when a rank was last set (`GET /api/v1/labels` row `updated`); no other stamp in the book holds it | proposed (needs the owner's review) |

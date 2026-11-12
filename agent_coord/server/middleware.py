@@ -417,6 +417,31 @@ def _json(obj: Any) -> bytes:
     return dumps_mill_bytes(obj)
 
 
+_LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _labels_read(qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """Card 1153: GET /api/v1/labels for the Wall PRIORITIES tab. Read-only.
+
+    Labels are office-wide, so the only scope is ?project=Office. names=a,b picks
+    labels; omitted means every desk-named label plus human-priorities. {rows, next,
+    checks} pages like /scores. A refusal is 400 {"error"}.
+    """
+    from agent_coord.server.records import floor as rec_floor
+
+    def one(key: str) -> str:
+        return str((qs.get(key) or [""])[0] or "").strip()
+
+    if one("project").casefold() != CONST_OFFICE.casefold() or one("role") or one("lan"):
+        return 400, {"error": "GET /api/v1/labels requires ?project=Office (labels are office-wide)"}
+    names = [x.strip() for x in one("names").split(",") if x.strip()]
+    if any(not _LABEL_NAME.fullmatch(n) for n in names) or len(names) > 100:
+        return 400, {"error": "GET /api/v1/labels: names= is up to 100 label names, comma separated"}
+    page_lim, page_cur = rec_floor.parse_list_page(qs)
+    with _office() as c:
+        return 200, rec_floor.v1_labels(c._cn, names=names or None, limit=page_lim, cursor=page_cur)
+
+
 _DOING_ITEM = re.compile(r"(mail|todo|hold|score)-([1-9][0-9]{0,18})")
 
 
@@ -1862,6 +1887,14 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                         _json({"error": err_text(e)}),
                         "application/json; charset=utf-8",
                     )
+                return
+
+            if path == "/api/labels":
+                try:
+                    code, payload = _labels_read(parse_qs(urlparse(self.path).query))
+                except Exception as e:
+                    code, payload = 500, {"error": err_text(e)}
+                self._send(code, _json(payload), "application/json; charset=utf-8")
                 return
 
             if path in ("/api/doing", "/api/doing/history"):

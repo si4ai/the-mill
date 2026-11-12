@@ -16,6 +16,7 @@ PIPE_WAIT = 0x00000000
 PIPE_REJECT_REMOTE_CLIENTS = 0x00000008
 ERROR_PIPE_CONNECTED = 535
 ERROR_BROKEN_PIPE = 109
+ERROR_PIPE_BUSY = 231
 ERROR_OPERATION_ABORTED = 995
 ERROR_IO_PENDING = 997
 PIPE_UNLIMITED_INSTANCES = 255
@@ -308,6 +309,15 @@ class Pipe:
         if last is not None:
             raise last
         raise OSError("pipe")
+
+    def live(self) -> bool:
+        """True when another link already serves this desk's pipe (card 1154)."""
+        try:
+            conn = open(self.address, "r+b", buffering=0)
+        except OSError as exc:
+            return getattr(exc, "winerror", None) == ERROR_PIPE_BUSY
+        conn.close()
+        return True
 
     def cleanup(self) -> None:
         return None
