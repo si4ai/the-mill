@@ -97,6 +97,21 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
+## check_failure_classes.py
+
+Card 1151. Read `docs/dev/FAILURE-CLASSES.md`, check each class for an
+owner (N/A may use `-`), a covering check path that exists in the repo,
+and evidence dated within N days (default 14, pinned with `--as-of`).
+Sorted findings, no timestamps.
+
+```bash
+python tools/check_failure_classes.py --repo . --as-of YYYY-MM-DD
+python tools/check_failure_classes.py --repo . --as-of YYYY-MM-DD --strict
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Tests prove --strict fails on a doctored table and passes on a clean one.
+
 ## check_repro.py
 
 Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
