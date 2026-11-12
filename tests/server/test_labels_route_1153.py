@@ -113,36 +113,42 @@ def book(cn):
     from tests.server.records.conftest import seed_names
 
     tag = uuid4().hex[:6]
-    desk, home, away = f"d1153{tag}", f"r1153{tag}", f"x1153{tag}"
-    seed_names(cn, (home, "roster"), (away, "roster"), (desk, "desk"), (desk, "label"),
+    desk, home, away, label = f"d1153{tag}", f"r1153{tag}", f"x1153{tag}", f"l1153{tag}"
+    seed_names(cn, (home, "roster"), (away, "roster"), (desk, "desk"), (label, "label"),
                ("human-priorities", "label"), (f"misc{tag}", "label"))
     rec_member.put(cn, home, desk)
     on_home = int(rec_todo.insert(cn, home, desk, "open", "on a member roster")[0]["id"])
     off_home = int(rec_todo.insert(cn, away, desk, "parked", "on another roster")[0]["id"])
-    rec_label.put(cn, "todo", on_home, desk, 5)
-    rec_label.put(cn, "todo", off_home, desk, 0)
+    rec_label.put(cn, "todo", on_home, label, 5)
+    rec_label.put(cn, "todo", off_home, label, 0)
     rec_label.put(cn, "todo", on_home, "human-priorities", 0)
     rec_label.put(cn, "todo", on_home, f"misc{tag}", 1)
     cn.commit()
-    return {"desk": desk, "home": home, "away": away, "on": on_home, "off": off_home, "misc": f"misc{tag}"}
+    return {"desk": desk, "home": home, "away": away, "on": on_home, "off": off_home,
+            "list": label, "misc": f"misc{tag}"}
 
 
 @pytest.mark.sql
 def test_seeded_rows_cards_and_off_roster_check(cn, book) -> None:
     from agent_coord.server.records import label as rec_label
+    from tests.server.records.conftest import seed_names
 
+    with pytest.raises(Exception) as e:
+        seed_names(cn, (book["desk"], "label"))
+    assert "name in use" in str(e.value)
     rows = [r for r in rec_label.wall_rows(cn) if r["id"] in (book["on"], book["off"])]
-    assert {r["label"] for r in rows} == {book["desk"], "human-priorities"}  # misc is not a desk list
-    mine = [r for r in rows if r["label"] == book["desk"]]
+    assert {r["label"] for r in rows} == {"human-priorities"}
+    assert book["desk"] not in {r["label"] for r in rows}
+    mine = [r for r in rec_label.wall_rows(cn, [book["list"]]) if r["id"] in (book["on"], book["off"])]
     assert [(r["id"], r["ord"]) for r in mine] == [(book["off"], 0), (book["on"], 5)]
-    for r in rows:
+    for r in mine:
         assert set(r) == ROW_KEYS | {"card"} and r["updated"]
         assert CARD_KEYS <= set(r["card"]) <= CARD_KEYS | OPTIONAL
         assert "tw_ms" not in r["card"] and "needs_human" not in r["card"]
     on, off = mine[1]["card"], mine[0]["card"]
     assert (on["roster"], on["status"], on["volunteer"]) == (book["home"], "open", "")
     assert (off["roster"], off["status"]) == (book["away"], "parked")
-    assert off.get("off_roster") is True and "off_roster" not in on
+    assert "off_roster" not in on and "off_roster" not in off
     picked = rec_label.wall_rows(cn, [book["misc"]])
     assert [r["id"] for r in picked] == [book["on"]]
 
@@ -152,7 +158,7 @@ def test_seeded_last_activity_kind_from_the_card_move(cn, book) -> None:
     from agent_coord.server.records import label as rec_label
 
     def card():
-        return [r for r in rec_label.wall_rows(cn, [book["desk"]]) if r["id"] == book["on"]][0]["card"]
+        return [r for r in rec_label.wall_rows(cn, [book["list"]]) if r["id"] == book["on"]][0]["card"]
 
     assert "last_activity_kind" not in card()  # create is not one of claim, note, pass, letter, tw
     _exec(cn, "UPDATE activity SET act = 'claim' WHERE type = 'todo' AND id = %s", (book["on"],))
@@ -169,16 +175,16 @@ def test_rerank_moves_updated_and_same_ord_does_not(cn, book) -> None:
     where = ("FROM label l JOIN name n ON n.id = l.name_id"
              " WHERE l.type = 'todo' AND l.id = %s AND n.name = %s")
     _exec(cn, "UPDATE label l JOIN name n ON n.id = l.name_id SET l.updated = %s"
-              " WHERE l.type = 'todo' AND l.id = %s AND n.name = %s", (old, book["on"], book["desk"]))
+              " WHERE l.type = 'todo' AND l.id = %s AND n.name = %s", (old, book["on"], book["list"]))
 
     def stamp() -> str:
-        return str(_one(cn, "SELECT l.updated " + where, (book["on"], book["desk"]))[0])
+        return str(_one(cn, "SELECT l.updated " + where, (book["on"], book["list"]))[0])
 
-    rec_label.put(cn, "todo", book["on"], book["desk"], 5)
-    rec_label.put(cn, "todo", book["on"], book["desk"], None)
+    rec_label.put(cn, "todo", book["on"], book["list"], 5)
+    rec_label.put(cn, "todo", book["on"], book["list"], None)
     cn.commit()
     assert stamp().startswith("2026-01-01")
-    rec_label.put(cn, "todo", book["on"], book["desk"], 2)
+    rec_label.put(cn, "todo", book["on"], book["list"], 2)
     cn.commit()
     assert not stamp().startswith("2026-01-01")
 
@@ -205,7 +211,12 @@ def test_existing_book_gains_label_updated_from_created(cn, book) -> None:
 
 @pytest.mark.sql
 def test_seeded_route_over_http(cn, book, monkeypatch) -> None:
-    body = _client(monkeypatch, cn).get("/api/v1/labels?project=Office&limit=500").json()
+    client = _client(monkeypatch, cn)
+    body = client.get("/api/v1/labels?project=Office&limit=500").json()
     ids = {(r["label"], r["id"]) for r in body["rows"]}
-    assert {(book["desk"], book["on"]), (book["desk"], book["off"]), ("human-priorities", book["on"])} <= ids
-    assert {"label": book["desk"], "id": book["off"], "roster": book["away"]} in body["checks"]["off_roster"]
+    assert ("human-priorities", book["on"]) in ids
+    assert (book["desk"], book["on"]) not in ids and (book["desk"], book["off"]) not in ids
+    assert all(c["label"] != book["desk"] for c in body["checks"]["off_roster"])
+    named = client.get("/api/v1/labels?project=Office&limit=500&names=" + book["list"]).json()
+    named_ids = {(r["label"], r["id"]) for r in named["rows"]}
+    assert {(book["list"], book["on"]), (book["list"], book["off"])} <= named_ids

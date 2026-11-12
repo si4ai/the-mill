@@ -740,7 +740,10 @@ END //
 CREATE TRIGGER todo_no_delete_in_tree BEFORE DELETE ON todo
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'todo' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'todo' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'todo: still in tree (mill_tree_remove first)';
   END IF;
@@ -749,7 +752,10 @@ END //
 CREATE TRIGGER mail_no_delete_in_tree BEFORE DELETE ON mail
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'mail' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'mail' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'mail: still in tree (mill_tree_remove first)';
   END IF;
@@ -767,7 +773,10 @@ END //
 CREATE TRIGGER doing_no_delete_in_tree BEFORE DELETE ON doing
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'doing' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'doing' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'doing: still in tree (mill_tree_remove first)';
   END IF;
@@ -776,7 +785,10 @@ END //
 CREATE TRIGGER score_no_delete_in_tree BEFORE DELETE ON score
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'score' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'score' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'score: still in tree (mill_tree_remove first)';
   END IF;
