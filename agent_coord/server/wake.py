@@ -708,7 +708,11 @@ def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason:
     empty_check (card 1141 step 2, V16/V17): when take=True and the gate is
     free, re-read the empty skip under this lock so work another run handled
     between the first check and the take is not woken for again. Returns
-    _SKIP_EMPTY instead of a lease when nothing waits.
+    _SKIP_EMPTY instead of a lease when nothing waits. The re-check ends
+    cn's open REPEATABLE READ snapshot first (commit if a transaction is
+    open), so a sent mark committed on another connection is visible. A
+    fresh Book() here would miss uncommitted waiting rows on cn (put/mark
+    in push.py before post_desk) and can stall the pool under this lock.
     """
     import time
 
@@ -718,6 +722,8 @@ def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason:
         if first is None:
             if take and empty_check and cn is not None:
                 try:
+                    if getattr(cn, "in_transaction", False):
+                        cn.commit()
                     if not _waiting_work(cn, desk, locked=True):
                         return _SKIP_EMPTY
                 except Exception:

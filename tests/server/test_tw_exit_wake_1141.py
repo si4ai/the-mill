@@ -183,6 +183,17 @@ def _mark_sent(cn, wid: int) -> None:
     cn.commit()
 
 
+def _second_cn():
+    """A second connection to the shared tip book (not the test's cn)."""
+    import mysql.connector
+    from tests import sql_book
+    from agent_coord.server.records.db import conn_kwargs
+
+    kw = dict(conn_kwargs())
+    kw["database"] = sql_book.shared_db_name()
+    return mysql.connector.connect(**kw)
+
+
 @pytest.mark.sql
 def test_pending_excludes_a_real_sent_row(cn) -> None:
     """V14/V15 root: a row handed over live is not waiting work."""
@@ -250,8 +261,11 @@ def test_trailing_after_a_real_sent_row_sends_no_wake(cn, monkeypatch) -> None:
 
 @pytest.mark.sql
 def test_empty_recheck_under_gate_lock_skips_when_row_is_sent(cn, monkeypatch) -> None:
-    """V16/V17: if the row is handed over live between the empty skip and the
-    take, the re-check under the gate lock skips and takes no lease."""
+    """V16/V17: if another connection marks the row sent between the empty
+    skip and the take, the re-check under the gate lock skips and takes no
+    lease. The mark is committed on a second connection, not post_desk's cn,
+    so a stale REPEATABLE READ snapshot cannot hide the hand-over (D1/T1).
+    """
     from agent_coord.server.records import push as rec_push
 
     desk = _sql_desk(cn, "s2-race-1141")
@@ -260,24 +274,24 @@ def test_empty_recheck_under_gate_lock_skips_when_row_is_sent(cn, monkeypatch) -
     _arm_http(monkeypatch, posts, lines)
     wake.gate_clear(desk)
     wid = _put_missed(cn, desk, 114131)
-    real_pending = rec_push.pending
-    seen = {"n": 0}
 
-    def pending_then_hand_over(c, d):
-        n = real_pending(c, d)
-        seen["n"] += 1
-        if seen["n"] == 1 and n > 0:
-            rec_push.mark(c, wid, "sent")
-            c.commit()
-        return n
+    def mark_sent_from_other(url):
+        # After the first empty check, before the take: same window as
+        # _settle_row, which marks sent on its own Book() connection.
+        c2 = _second_cn()
+        try:
+            rec_push.mark(c2, wid, "sent")
+            c2.commit()
+        finally:
+            c2.close()
+        return (url, "hooks.example.test")
 
-    monkeypatch.setattr("agent_coord.server.records.push.pending", pending_then_hand_over)
+    monkeypatch.setattr(wake, "check_url", mark_sent_from_other)
     try:
         frame = {"watch_id": "w-race", "desk": desk, "kind": "exit", "exit_code": 0}
         assert wake.post_desk(cn, desk, frame) == "skipped"
         assert posts == []
         assert any("skipped reason=empty" in ln for ln in lines)
         assert wake._gate_open(desk, time.monotonic())
-        assert seen["n"] >= 2
     finally:
         wake.gate_clear(desk)
