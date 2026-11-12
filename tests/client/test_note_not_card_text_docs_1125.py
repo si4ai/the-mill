@@ -29,7 +29,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 NOTE_WORD = re.compile(r"(?i)\bnote\b")
 # SQL and DDL strings are code, not hint text.
-SQL_START = re.compile(r"^(?:SELECT|CREATE|ALTER|ENUM)\b")
+SQL_START = re.compile(r"^(?:SELECT\b.+\bFROM\b|CREATE\s+TABLE\b|ALTER\s+TABLE\b|ENUM\()")
 # A hanging line that starts a new markdown block is not a soft wrap.
 BLOCK_START = re.compile(r"^(?:[#|>]|```|~~~|<!--|[-*+] |\d+\.\s)")
 
@@ -585,6 +585,7 @@ FLAG_FIXTURES = [
     '`mill note r n` the decision text, then ETA',
     'mill note ROSTER NEED the root cause --eta 2h',
     '`note` r n the vendor reply with progress',
+    'CREATE the card, then note the decision text on it',
 ]
 
 
@@ -794,6 +795,26 @@ def test_trailing_punctuation_is_not_stripped():
         "note: card text:",
     ):
         assert flags_in([("string", collapse(bad))], FIX_PY, str_allow), bad
+
+
+
+def test_sql_exemption_requires_sql_shape():
+    # M13: a prose string that merely starts with CREATE/SELECT/ALTER/ENUM must flag
+    probe = "CREATE the card, then note the decision text on it"
+    assert string_units_from_text("x = %r" % probe)
+    assert flags_in(
+        string_units_from_text("x = %r" % probe),
+        "agent_coord/server/api/mill/rpc.py",
+        ALLOW_SET,
+    )
+    # real SQL shapes stay exempt
+    for ok in (
+        "CREATE TABLE IF NOT EXISTS score_point (note INT)",
+        "ALTER TABLE score ADD COLUMN better ENUM('up','down') AFTER note",
+        "ENUM('create','note','pass')",
+        "SELECT s.note FROM score s",
+    ):
+        assert string_units_from_text("x = %r" % ok) == [], ok
 
 
 def test_non_mentions_are_not_units():
