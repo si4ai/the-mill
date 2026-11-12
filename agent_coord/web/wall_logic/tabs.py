@@ -35,6 +35,7 @@ SCORE_ALIASES = frozenset({"score", "scorecards"})
 HASH_SHOW_TAB = frozenset({
     "session", "jobs", "plan", "backlog", "board", "issues",
     "mail", "wire", "stations", "score", "scorecards", "guide", "admin", "floor",
+    "priorities",
 })
 
 # Tab name (after alias normalize of plan family) -> ensure* paint hook
@@ -43,6 +44,7 @@ ENSURE_PAINT = {
     "mail": "ensureMailPaint",
     "score": "ensureScorePaint",
     "scorecards": "ensureScorePaint",
+    "priorities": "ensurePrioritiesPaint",  # card 1153
 }
 
 # Main nav order lock (WALL-UI-LOCK) - default pack chrome; offices may tweak live later

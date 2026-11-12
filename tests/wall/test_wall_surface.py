@@ -45,9 +45,9 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow342",
+    "boot.js": "wow344",
     "board.css": "wow343",
-    "lazy.js": "wow342",
+    "lazy.js": "wow344",
     "shell.css": "wow270",
     "shell-early.js": "wow283",
     "theme.css": "wow165",
@@ -69,6 +69,8 @@ LAZY_PINS = (
     "/lists/lists-paint.js?v=wow321",
     "/admin/mint-paint.js?v=wow322",
     "/doing/doing.css?v=wow324",
+    "/priorities/priorities-paint.js?v=wow344",
+    "/priorities/priorities.css?v=wow344",
     "/mail/mail.js?v=wow285",
     "/score/score.js?v=wow328",
     "/todo/todo.js?v=wow320",
@@ -85,6 +87,7 @@ VOID = {
 STRIP = (
     ("session", "CONNECTED"),
     ("jobs", "TODO"),
+    ("priorities", "PRIORITIES"),
     ("mail", "MAIL"),
     ("score", "SCORE"),
     ("floor", "COLLAB"),
@@ -95,6 +98,7 @@ REQUIRED_IDS = (
     "pane-todo",
     "pane-mail",
     "pane-score",
+    "pane-priorities",
     "pane-floor",
     "here-scores",
     "rail",

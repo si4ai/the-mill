@@ -96,6 +96,7 @@
   <nav class="tabs" aria-label="office panes">
     <button type="button" data-tab="session" class="on" title="Desks connected now, and what they are doing">CONNECTED</button>
     <button type="button" data-tab="jobs" title="Open cards">TODO</button>
+    <button type="button" data-tab="priorities" title="Each desk's ranked list, as its connect focus line prints it">PRIORITIES</button>
     <button type="button" data-tab="mail" title="Letters between desks">MAIL</button>
     <button type="button" data-tab="score" title="Last against target">SCORE</button>
     <button type="button" data-tab="floor" title="Activity between desks">COLLAB</button>
@@ -439,6 +440,10 @@
       <div class="cards" id="cards" hidden></div>
       </div>
     </div>
+    <div class="pane" id="pane-priorities">
+      <div class="pane-head"><h2>PRIORITIES</h2></div>
+      <div class="prio-body" id="priorities-body" aria-label="Each desk's ranked list"></div>
+    </div>
 
     <div class="pane" id="pane-admin">
       <div class="admin-chrome">
@@ -649,6 +654,7 @@
     <ul>
       <li><button type="button" class="jump" data-tab="session" data-hi="sec-here"><b>CONNECTED</b></button> - who is connected, and the open desk.</li>
       <li><button type="button" class="jump" data-tab="jobs" data-hi="sec-wanted"><b>TODO</b></button> - Board, List, and Plan. Board is the five columns.</li>
+      <li><button type="button" class="jump" data-tab="priorities" data-hi="pane-priorities"><b>PRIORITIES</b></button> - each desk's ranked list, top five as its connect prints them, with checks.</li>
       <li><button type="button" class="jump" data-tab="mail" data-hi="sec-mail"><b>MAIL</b></button> - Rooms, Thread, and Party, or every letter.</li>
       <li><button type="button" class="jump" data-tab="score" data-hi="pane-score"><b>SCORE</b></button> - Last against target. Off target also sits in the ticker.</li>
       <li><button type="button" class="jump" data-tab="floor" data-hi="floor-map"><b>COLLAB</b></button> - desks that share a letter, a card, or a promise, and the timeline.</li>
@@ -670,7 +676,7 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow342"></script>
+  <script defer src="/lib/lazy.js?v=wow344"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
@@ -754,6 +760,6 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow342"></script>
+<script defer src="/boot.js?v=wow344"></script>
 </body>
 </html>
