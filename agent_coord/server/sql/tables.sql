@@ -614,9 +614,10 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','fail','retry_armed','wake_retry'),
   ('wake','error','retry_armed','wake_retry'),
   ('wake','idle','push_pending','wake_queue'),
-  ('wake','lease_live','expire','wake_expire');
+  ('wake','lease_live','cleared','clear'),
+  ('wake','lease_live','expired','wake_expire');
 INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
-  ('wake','lease_live','idle','wake_done'),
+  ('wake','lease_live','done','wake_done'),
   ('wake','lease_live','idle','wake_sitting'),
   ('wake','lease_live','idle','wake_stale'),
   ('wake','lease_live','trail','wake_trail'),
@@ -629,6 +630,7 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','push_pending','drained','wake_deliver'),
   ('wake','push_pending','lease_live','wake_fail'),
   ('wake','push_pending','lease_live','wake_sent'),
+  ('wake','ring','lease_live','wake_sent'),
   ('wake','queued','error','wake_fail'),
   ('wake','queued','missed','wake_owed'),
   ('wake','queued','sent','wake_sent'),
