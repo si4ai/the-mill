@@ -34,11 +34,11 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | **Onboarded** (completed onboarding checklist) | **KEEP** | Other half of catalog. Stub: completed onboarding checklist; FL: onboarding -> checklist todos; claim per owner. Distinct artifact after hire. |
 | Requisition / req as standalone product | **DROP** | FL sketch: plan or parent todo - **structure**, not the shippable people artifact. Lives under Hired as parent card. |
 | Interview loop as product | **DROP** | FL sketch: child todos per interviewer - collab structure for Hired, not a 2nd SKILL product. |
-| Interview notes as product | **DROP** | FL product *word*; fulfillment = `note` / mail debrief evidence on loop cards - not mill `score` KPI and not a day-one product noun. |
+| Interview notes as product | **DROP** | FL product *word*; fulfillment = `replace-body` / mail debrief evidence on loop cards - not mill `score` KPI and not a day-one product noun. |
 | Candidate pipeline / ATS board as product | **DROP** | ATS is SoR (README pattern; stub "not an ATS"). Mill links ids; does not clone stages/PII. |
 | Offer letter / packet as mill product | **DROP** | Offer = **human_required gate** (FL + README); document/e-sign lives in ATS/HRIS. Mill records gate + outcome, not the letter SoR. |
-| Debrief / panel as product | **DROP** | FL sketch: mail thread / note - collab move on Hired spine. |
-| Reject / advance as product | **DROP** | Stub + FL collab: `note` + next `assign` - stage motion, not artifact. |
+| Debrief / panel as product | **DROP** | FL sketch: mail thread / replace-body - collab move on Hired spine. |
+| Reject / advance as product | **DROP** | Stub + FL collab: `replace-body` + next `assign` - stage motion, not artifact. |
 | Time-to-hire / recruiting KPI as product | **DROP** | Optional `score` if office sets KPI; not a product. README score row clusters do not name people day-one. |
 
 **Kept products (day-one): 2 - Hired; Onboarded** (shared lingo spine; sequential but separate Inputs/Done).
@@ -56,18 +56,18 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Input | Required? | Mill fulfillment |
 |---|---|---|
 | Req identity (role, ATS/req id, hiring manager) | **Yes** | parent `create todo` + `detail` (link ATS - don't clone PII dump) |
-| Candidate pointer (ATS id / initials per policy) | **Yes** | detail/`note`; minimize PII (stub Must-not) |
+| Candidate pointer (ATS id / initials per policy) | **Yes** | detail/`replace-body`; minimize PII (stub Must-not) |
 | Loop plan (interviewers / panel slots) | Strong | child `create todo` per interviewer (FL); `assign` / `claim` |
-| Debrief / advance-reject decision | Before offer | `note` + `send` HM/recruiter; next `assign` |
+| Debrief / advance-reject decision | Before offer | `replace-body` + `send` HM/recruiter; next `assign` |
 | Offer packet ready + approver | Before offer | human_required gate; `send` approver; ATS/HRIS for letter |
-| Outcome (accepted / declined / withdrawn) | On close | `note` + parent `pass` when filled; or parked/waiting_on |
+| Outcome (accepted / declined / withdrawn) | On close | `replace-body` + parent `pass` when filled; or parked/waiting_on |
 
 Not inputs: "fill all reqs," paste full SSN/resume into mill, skip human_required when office requires it, invent ATS inside mill.
 
 ### Done looks like (Hired)
 
-- Interview loop children `pass`ed or cleanly dropped/`unclaim`ed with `note`; debrief `note`d / mailed.
-- Offer: human_required satisfied; outcome `note`d; ATS updated **outside** mill.
+- Interview loop children `pass`ed or cleanly dropped/`unclaim`ed with `replace-body`; debrief written on the card (`replace-body`) / mailed.
+- Offer: human_required satisfied; outcome written on the card (`replace-body`); ATS updated **outside** mill.
 - Parent req card `pass`ed when filled **or** clean `waiting_on` (approver / candidate / legal) - don't fake `pass`.
 - On accept: optional handoff -> Onboarded checklist `create todo`s + `assign` owners / `send` people desk.
 
@@ -100,7 +100,7 @@ Not inputs: "make them productive," dump medical/payroll PII into mill, close pa
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). Tree `attach` when said - not day-one teaching.  
 **Do not confuse** interview "score row" with mill `score` (KPI last vs target).
@@ -112,25 +112,25 @@ Shared spine (one table for the function):
 | Their word | Source | Candidate commands | Chosen day-one | Reject / notes |
 |---|---|---|---|---|
 | req / requisition | FL sketch "plan or parent todo"; stub | create todo, detail | **`create todo`** parent + `detail` (ATS/req link) | reject bare `create`; plan row = parent todo day-one (no invent `plan` CLI) |
-| candidate | FL product | detail, note | **`detail` / `note`** pointer (ATS id); minimize PII | not a mill command; ATS SoR |
+| candidate | FL product | detail, replace-body | **`detail` / `replace-body`** pointer (ATS id); minimize PII | not a mill command; ATS SoR |
 | interview loop | FL sketch "child todos per interviewer"; stub | create todo, assign, claim | child **`create todo`** per interviewer + **`assign`/`claim`** | reject inventing `loop` CLI |
-| panel | FL collab; stub panel/debrief | send, note, assign | **`send`/`note`** + panelist **`assign`** | - |
-| debrief | FL sketch "mail thread / note"; stub | send, note | **`send`** + **`note`** on card | note != mail |
-| interview notes | FL product word | note, send | **`note`** ratings/summary (+ `send` HM) | **!=** mill `score`; no invent `score row` CLI |
+| panel | FL collab; stub panel/debrief | send, replace-body, assign | **`send`** + panelist **`assign`** | - |
+| debrief | FL sketch "mail thread / replace-body"; stub | send, replace-body | **`send`** + **`replace-body`** on card | replace-body != mail |
+| interview notes | FL product word | replace-body, send | **`replace-body`** ratings/summary (+ `send` HM) | **!=** mill `score`; no invent `score row` CLI |
 | hiring manager | FL collab | assign, send, claim | **`assign`/`send`** HM desk; HM may **`claim`** | role on owner, not new command |
 | recruiter | FL collab | claim, assign, send | **`claim`/`assign`** recruiter; **`send`** for wakes | - |
-| advance | FL collab reject/advance; stub | note, assign | **`note`** decision + **`assign`** next step | - |
-| reject (candidate) | FL collab; stub | note, pass, send | **`note`** reason; close loop children; parent may stay open or park | reject teaching `done` |
-| offer | FL sketch "human_required gate"; stub; README | human_required, send, note, pass | **human_required** + **`send`** approver + **`note`** outcome; then parent path to **`pass`** | never invent `offer` CLI; letter/e-sign = ATS/HRIS |
+| advance | FL collab reject/advance; stub | replace-body, assign | **`replace-body`** decision + **`assign`** next step | - |
+| reject (candidate) | FL collab; stub | replace-body, pass, send | **`replace-body`** reason; close loop children; parent may stay open or park | reject teaching `done` |
+| offer | FL sketch "human_required gate"; stub; README | human_required, send, replace-body, pass | **human_required** + **`send`** approver + **`replace-body`** outcome; then parent path to **`pass`** | never invent `offer` CLI; letter/e-sign = ATS/HRIS |
 | onboarding | FL sketch "checklist todos; claim per owner"; stub | create todo, claim, assign | checklist **`create todo`**s + **`claim`/`assign`** per owner | - |
 | done onboarding / checklist complete | stub "all children passed" | pass | children + parent **`pass`** | reject teaching `done` / status speech as command |
-| filled req / hired | README product; stub Done | pass, note, send | **`note`** outcome + **`pass`** parent; **`send`** onboarding kickoff | reject teaching `done` |
+| filled req / hired | README product; stub Done | pass, replace-body, send | **`replace-body`** outcome + **`pass`** parent; **`send`** onboarding kickoff | reject teaching `done` |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | exclusive offer-doc edit | TEMPLATE hold; legal-ish rare | hold, drop | **`hold`/`drop`** if the office leases a res for the packet | rare; README hold clusters eng/legal - people only if leased |
-| blocked (approver, candidate, IT, legal) | README waiting_on | waiting_on, send, note | **waiting_on** + **`send`/`note`** | don't fake `pass` |
+| blocked (approver, candidate, IT, legal) | README waiting_on | waiting_on, send, replace-body | **waiting_on** + **`send`** | don't fake `pass` |
 | hiring KPI / time-to-hire | optional; not README people cluster | score | optional **`score`** if office sets target | interview notes != this |
 | take / give loop card | mill-desk | claim, assign | **`claim` / `assign`** | - |
-| progress diary | mill-desk note | note | **`note`** | note != mail |
+| progress diary | mill-desk replace-body | replace-body | **`replace-body`** | replace-body != mail |
 | find people mail | mill-desk mail | inbox | **`inbox`** | - |
 | park / defer req or leftover | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | escalate (to legal/finance/IT) | README escalate = send | send | **`send`** specialized desk (+ optional their `create todo`) | never invent `escalate` command |
@@ -160,7 +160,7 @@ Pattern: README "Escalate always = mill send"; human_required clusters people (o
 ## Must-not - SoR outside mill
 
 - Bypass mill-desk HINT routing.
-- Replace domain SoR: **ATS / HRIS** (Greenhouse, Lever, Workday, etc.), e-sign, background-check vendor - **link** in note/mail; don't clone stages, full resumes, or payroll.
+- Replace domain SoR: **ATS / HRIS** (Greenhouse, Lever, Workday, etc.), e-sign, background-check vendor - **link** in card text/mail; don't clone stages, full resumes, or payroll.
 - Store sensitive candidate PII in mill beyond what policy allows (stub).
 - Skip **human_required** on offer if office requires it (stub + README).
 - Invent mill commands for recruiting slang (`offer`, `advance`, `reject`, `debrief`, `req`, `loop` as CLI).
@@ -178,15 +178,15 @@ Pattern: README "Escalate always = mill send"; human_required clusters people (o
 **Hired**
 
 1. Req + candidate pointer on desk (ATS link; PII minimized).
-2. Loop children owned (`claim`/`assign`); debriefs `note`d/`send`ed; advance/reject recorded.
-3. Offer: human_required cleared; outcome `note`d; ATS updated outside mill.
+2. Loop children owned (`claim`/`assign`); debriefs written on the card (`replace-body`) or `send`ed; advance/reject recorded.
+3. Offer: human_required cleared; outcome written on the card (`replace-body`); ATS updated outside mill.
 4. Parent req `pass`ed when filled **or** clean waiting_on **or** parked - never silent open forever.
 5. On accept: onboarding checklist todos created/assigned and/or people `send`ed.
 
 **Onboarded**
 
 1. Hire confirmed + checklist items with owners on desk.
-2. Each child `claim`ed/`assign`ed; progress `note`d; blockers waiting_on + mailed.
+2. Each child `claim`ed/`assign`ed; progress written on the card (`replace-body`); blockers waiting_on + mailed.
 3. All required children `pass`ed (or explicit parked leftovers); parent `pass`ed; manager/IT mailed as needed.
 
 ---
@@ -213,14 +213,14 @@ Pattern: README "Escalate always = mill send"; human_required clusters people (o
 | `docs/skills/office-people/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-sales/SKILL.md` + sales RESEARCH | Close-won -> CS onboarding mail/todo adjacency; dual-product RESEARCH shape |
 | `docs/skills/office-ops/RESEARCH.md` (backup mill-docs) | RESEARCH + TEMPLATE brief section pattern |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
 
 ### Public industry practice (thin)
 
 | Cite | Takeaway for mill map |
 |---|---|
 | Common ATS practice (req -> pipeline -> interview -> offer -> hire) | Stages stay in ATS; mill mirrors collab ownership + durable handoffs |
-| Interview loop / panel / debrief norms | One owner per interview card; debrief = shared note/mail before offer |
+| Interview loop / panel / debrief norms | One owner per interview card; debrief = shared card text/mail before offer |
 | Offer approval chains | Matches README human_required cluster for people (offer) |
 | Onboarding checklist RACI | FL: claim per owner - IT/facilities/manager slices as child todos |
 
@@ -241,7 +241,7 @@ Pattern: README "Escalate always = mill send"; human_required clusters people (o
 3. Is **human_required** always mandatory for offer on every office, or only when policy/label says so (stub: "if office requires it")?
 4. Must onboarding parent wait for **all** children `pass`, or may parent `pass` with explicit parked leftovers?
 5. Teach tree **`attach`** for req->loop children in Lingo, or day-one only parallel todos + detail links?
-6. May mill store interview **score row** ratings in `note`, or must ratings stay ATS-only with mill holding "debrief complete" only?
+6. May mill store interview **score row** ratings in `replace-body`, or must ratings stay ATS-only with mill holding "debrief complete" only?
 7. Optional **`score`** (time-to-hire) in day-one Lingo, or omit until office sets KPI?
 
 ---
@@ -291,10 +291,10 @@ Pull **mill-desk** first. One card, then **STOP**.
    `pass`ed (access, equipment, training, paperwork pointers).
 
 Req / interview loop / debrief are **structure and collab** under Hired, not
-extra products. Interview "score row" evidence = `note`/`send` - not mill `score`.
+extra products. Interview "score row" evidence = `send` - not mill `score`.
 
 ## Inputs
-On the desk **before** advance/offer/onboard (else `note` gap + `send` / `waiting_on`):
+On the desk **before** advance/offer/onboard (else `replace-body` gap + `send` / `waiting_on`):
 
 **Hired**
 - **Req identity** - role, ATS/req id, hiring manager (`create todo` parent + `detail` link)
@@ -313,21 +313,21 @@ replace ATS/HRIS, invent recruiting CLI commands.
 | Their word | Mill |
 |---|---|
 | req / requisition | parent `create todo` + `detail` (ATS link) |
-| candidate | `detail` / `note` pointer (minimize PII; ATS SoR) |
+| candidate | `detail` / `replace-body` pointer (minimize PII; ATS SoR) |
 | interview loop | child `create todo` per interviewer + `assign` / `claim` |
-| panel | `assign` panelists + `send` / `note` |
-| debrief | `send` + `note` (note != mail) |
-| interview notes | `note` (+ `send` HM) - **not** mill `score` |
+| panel | `assign` panelists + `send` |
+| debrief | `send` + `replace-body` (replace-body != mail) |
+| interview notes | `replace-body` (+ `send` HM) - **not** mill `score` |
 | hiring manager / recruiter | `assign` / `claim` / `send` |
-| advance / reject | `note` decision + next `assign` (or park) |
+| advance / reject | `replace-body` decision + next `assign` (or park) |
 | drop the claim | `unclaim` |
-| offer | **human_required** + `send` approver + `note` outcome |
+| offer | **human_required** + `send` approver + `replace-body` outcome |
 | onboarding | checklist `create todo`s + `claim` / `assign` per owner |
-| blocked (approver / candidate / IT / legal) | waiting_on + `send` / `note` |
+| blocked (approver / candidate / IT / legal) | waiting_on + `send` |
 | escalate | `send` legal/finance/IT (optional their `create todo`) |
 | exclusive offer-doc file | `hold` / `drop` (rare; if the office leases a res name) |
 | hiring KPI (optional) | `score` last vs target - != interview notes |
-| filled req / hired | `note` outcome + parent `pass`; `send` onboarding kickoff |
+| filled req / hired | `replace-body` outcome + parent `pass`; `send` onboarding kickoff |
 | checklist complete / onboarded | children + parent `pass` |
 | park / defer | `create todo` `{status:"parked"}` |
 | find people mail | `inbox` |

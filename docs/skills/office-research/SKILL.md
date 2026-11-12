@@ -40,14 +40,14 @@ On the desk **before** draft (else `replace-body` gap + `send` asker / `waiting_
 | park / later | `create todo` `<roster> <need> --status parked` |
 | take / draft | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / brief path | `note` (progress) or `replace-body` (path in body/detail) |
+| progress / brief path | `todo <roster> <need> --eta E` or `replace-body` (path in body/detail) |
 | synthesize / revise | `replace-body` |
 | findings | brief section / `replace-body` |
 | recommendation | brief section (not a separate card product) |
 | decision record | `replace-body` (asker; research if told) - not research Done |
 | review | `send` (same as challenge) |
 | challenge / review | `send` |
-| blocked (SME/source) | waiting_on + `send` / `note` |
+| blocked (SME/source) | waiting_on + `send` |
 | check asks / mail | `inbox` |
 | deliver brief | `send` asker + `pass` |
 | record decision | `replace-body` (asker; research if told) - **not** research Done |

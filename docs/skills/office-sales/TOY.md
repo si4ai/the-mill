@@ -11,7 +11,7 @@
 "Close this deal."
 
 **Expected:**
-1. Spot Inputs gap -> `note` and/or `send` asker / waiting_on - **do not** produce the product yet
+1. Spot Inputs gap -> `replace-body` and/or `send` asker / waiting_on - **do not** produce the product yet
 2. After toy fill (below), run day-one spine for this product
 3. `pass` / waiting_on / parked as skill Done says - **STOP**
 
@@ -26,7 +26,7 @@
 **Human says:**  
 "Opp CRM-42 Acme. Stage ask: close-won. Owner AE. Next: mail CS onboarding. Amount stays in CRM."
 
-**Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
+**Expected:** Inputs enough -> `create todo` / `claim` / `send` as skill map -> product Done -> **STOP**.
 
 **Fail if:** clone CRM amounts into mill; invent close/stage CLI; pass while blocked
 

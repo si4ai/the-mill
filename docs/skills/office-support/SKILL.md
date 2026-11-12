@@ -44,13 +44,13 @@ ITSM/forge database into mill.
 | triage / own / assign | `claim` / `assign` |
 | drop the claim | `unclaim` |
 | priority (impactxurgency) | todo `detail` (text) |
-| progress | `note` |
+| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
 | workaround / diary | `replace-body` |
 | need more info | `send` reporter / `--receipt` + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |
 | duplicate | `replace-body` canonical + `pass` |
 | resolve / close | `pass` when user unblocked **or** fix owned elsewhere |
-| blocked (reporter/eng/vendor) | `waiting_on` + `send` / `note` |
+| blocked (reporter/eng/vendor) | `waiting_on` + `send` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | SLA (and optional CSAT) | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | exclusive file lock | omit day-one (`hold`/`drop` only if office leases) |
@@ -71,7 +71,7 @@ ITSM/forge database into mill.
 - Skip forge link in detail when the report came from GitLab/GitHub.
 - Invent mill commands (`escalate`, `resolve`, `triage`, `priority` as CLI).
 - Teach `open` / `yield` / bare `create` / teaching `done`.
-- Confuse `drop` (hold) with `unclaim`; confuse `note` with `send`.
+- Confuse `drop` (hold) with `unclaim`; confuse `replace-body` (card text) with `send` (mail).
 - Teach `hold` day-one unless the office leases shared resources.
 
 ## Done looks like

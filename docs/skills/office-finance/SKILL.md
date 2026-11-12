@@ -47,10 +47,10 @@ replacing ERP payment runs inside mill.
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
 | coding (GL / cost center) | `replace-body` (ledger executes coding) |
 | exception | `send` escalate (+ `replace-body` reason) |
-| progress | `note` |
+| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
 | coded / approved diary | `replace-body` (not mail) |
 | find work / mail landed | `inbox` |
-| blocked (approver/bank/coding) | waiting_on + `send` / `note` |
+| blocked (approver/bank/coding) | waiting_on + `send` |
 | budget / forecast KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | paid / closed | `replace-body` payment pointer + `pass` |
 | withhold / reject | `replace-body` reason + `send` asker; `pass` or waiting_on revision |

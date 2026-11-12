@@ -251,7 +251,7 @@ def test_claim_doing_then_pass_ends_it_and_pass_with_doing_starts_next(w):
     res = w.ok(["claim", R, need, "--doing", "fixing it"])
     assert res["doing_entry"]["on"] == f"todo-{tid}"
     assert w.me()["doing"] == "fixing it"
-    w.ok(["note", R, need, "--started", "--doing", "testing it"])
+    w.ok(["todo", R, need, "--started", "--doing", "testing it"])
     assert w.me()["doing"] == "testing it"
     w.ok(["pass", R, need])
     view = w.me()
@@ -511,7 +511,7 @@ def test_rows_from_before_818_are_not_a_doing(w):
 def test_history_says_how_an_entry_ended(w):
     need, tid = w.card()
     w.ok(["claim", R, need, "--doing", "first"])
-    w.ok(["note", R, need, "--started", "--doing", "second"])
+    w.ok(["todo", R, need, "--started", "--doing", "second"])
     w.ok(["pass", R, need])
     rows = w.ok(["connected", "--history", "--who", ME])["history"]
     by = {r["doing"]: r for r in rows[:2]}
@@ -570,7 +570,7 @@ def test_a_later_note_or_someone_elses_done_never_ends_a_card_doing(w):
     w.ok(["claim", R, need])
     w.ok(["pass", R, need, "--doing", "waiting on review"])
     assert w.me()["doing"] == "waiting on review"
-    w.ok(["note", R, need, "--started"])
+    w.ok(["todo", R, need, "--started"])
     assert w.me()["doing"] == "waiting on review"
     w.ok(["pass", R, need, "--done"], desk=PEER)
     view = w.me()
@@ -594,7 +594,7 @@ def test_done_by_the_desk_itself_ends_its_card_doing(w):
     need, tid = w.card(desk=ME)
     w.ok(["claim", R, need], desk=PEER)
     w.ok(["pass", R, need], desk=PEER)
-    w.ok(["note", R, need, "--started", "--doing", "reviewing the ship"])
+    w.ok(["todo", R, need, "--started", "--doing", "reviewing the ship"])
     assert w.me()["doing"] == "reviewing the ship"
     w.ok(["pass", R, need, "--done"])
     assert w.me()["doing"] == ""

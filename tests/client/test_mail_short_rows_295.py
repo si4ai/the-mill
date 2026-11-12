@@ -1,4 +1,4 @@
-"""inbox, mail-thread --room and the note reply print short rows; --full keeps today's reply (#295).
+"""inbox and mail-thread --room print short rows; --full keeps today's reply (#295).
 
 Regression row F53 (mail-short-rows).
 """
@@ -182,28 +182,6 @@ def test_room_other_reads_unchanged_and_page_refused(monkeypatch, capsys, kw):
         _run(capsys, "mail-thread", page=2, **kw)
 
 
-# --- note ----------------------------------------------------------------
-
-def _note_result():
-    return {"need_id": "lean-default-replies", "id": 295,
-            "detail": "first line\nsecond line\n\nLive repro: 85594 B.", "changed": True}
-
-
-def test_note_reply_drops_the_detail(monkeypatch, capsys):
-    _wall(monkeypatch, _note_result(), "note")
-    rc, _, row = _run(capsys, "note", project="the-mill", need="lean-default-replies")
-    assert rc == 0
-    r = row["result"]
-    assert "detail" not in r and r["detail_chars"] == len(_note_result()["detail"])
-    assert r["last_line"] == "Live repro: 85594 B." and r["id"] == 295 and r["changed"] is True
-
-
-def test_note_empty_detail(monkeypatch, capsys):
-    _wall(monkeypatch, dict(_note_result(), detail=""), "note")
-    _, _, row = _run(capsys, "note")
-    assert row["result"]["detail_chars"] == 0 and "last_line" not in row["result"]
-
-
 # --- --full is today's reply byte-for-byte -------------------------------
 
 def _full_lines(monkeypatch, capsys):
@@ -212,8 +190,6 @@ def _full_lines(monkeypatch, capsys):
     out.append(_run(capsys, "inbox", full=True)[1])
     _wall(monkeypatch, room(MAIL_PAGE + 20, body="GO at 0123abc.\n- ok"), "mail-thread")
     out.append(_run(capsys, "mail-thread", scope="room", full=True)[1])
-    _wall(monkeypatch, _note_result(), "note")
-    out.append(_run(capsys, "note", full=True)[1])
     return out
 
 
@@ -234,7 +210,6 @@ def test_parser_flags():
     a = p.parse_args(["mail-thread", "9", "--full", "--room"])
     assert a.scope == "room" and a.full is True
     assert p.parse_args(["mail-thread", "9", "--room", "--page", "3"]).page == 3
-    assert p.parse_args(["note", "r", "n", "--note", "x", "--full"]).full is True
 
 
 @pytest.mark.parametrize("argv", [["inbox", "--page", "0"], ["inbox", "--full", "--page", "2"],
@@ -255,7 +230,7 @@ def test_bad_pairs_exit_2(argv):
 
 
 @pytest.mark.parametrize("command,flags", [("inbox", ("--full", "--page")),
-                                        ("mail-thread", ("--full", "--page")), ("note", ("--full",))])
+                                        ("mail-thread", ("--full", "--page"))])
 def test_help_names_the_flags(capsys, command, flags):
     with pytest.raises(SystemExit):
         main([command, "--help"])

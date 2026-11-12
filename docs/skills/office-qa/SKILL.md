@@ -50,9 +50,9 @@ Not inputs: vague "improve quality," implement-while-checking, Builder suite as 
 | sign-off | Pass `send`; asker/eng may `pass` the **implement** card |
 | reject / send back | `send` Fail + repro |
 | defect / bug | `create todo` + `label todo <id> bug`; `send` eng |
-| re-test / confirmation | same card after eng fix (`claim` / `note` / `send`) |
+| re-test / confirmation | same card after eng fix (`claim` / `send`) |
 | regression | follow-on `create todo` + same spine |
-| blocked (Claims/env) | waiting_on + `send` / `note` |
+| blocked (Claims/env) | waiting_on + `send` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | exclusive evidence file | `hold` / `drop` `<resource>` (rare) |
 | close QA remasure card | `pass` (QA card only unless office says validator closes eng) |

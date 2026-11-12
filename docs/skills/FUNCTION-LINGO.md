@@ -38,7 +38,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 |---|---|
 | PR / change | todo (implement) + hold on tree |
 | review / approve | mail handoff; optional second desk claim |
-| merge / ship | note progress; done after Pass/pack gate |
+| merge / ship | `todo ROSTER NEED --eta E`; done after Pass/pack gate |
 | RC / release | pack cut; Validator remasure Last |
 | hotfix | urgent todo + ops handoff |
 
@@ -115,7 +115,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | Their word | Mill-ish |
 |---|---|
 | opportunity | todo (or plan row for big deals) |
-| next step | progress / note |
+| next step | `todo ROSTER NEED --eta E` / `replace-body` |
 | handoff | mail + assign |
 | blocked | waiting_on |
 | close-won | done; mail CS onboarding todo |

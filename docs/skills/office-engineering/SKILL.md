@@ -46,15 +46,15 @@ Not inputs: vague "make it better," no card, or implementing while QA owns Pass/
 | drop the claim | `unclaim` |
 | PR / branch | todo card + link in `detail`/`replace-body`; forge SoR (not a mill PR command) |
 | exclusive tree/file | `hold` / `drop` |
-| progress | `note` |
+| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
 | CI links / artifact path / diary | `replace-body` (not mail) |
 | review / approve / request changes | `send` reviewer (+ optional second `claim`); forge review SoR |
 | ask remasure / Claims ready | `send` -> validator/QA with Claims |
-| Validator Fail / re-fix | `inbox` -> fix on card -> `note` -> re-`send` Claims |
+| Validator Fail / re-fix | `inbox` -> fix on card -> `replace-body` -> re-`send` Claims |
 | merge / ship | `replace-body` forge merge/link; `pass` after Pass/pack gate |
 | RC / release / pack Last | pack cut + `send` validator; `pass` after gate |
 | hotfix | urgent `create todo`/`claim` + `send` ops when runtime |
-| blocked (review/QA/CI/ops) | waiting_on + `send` / `note` |
+| blocked (review/QA/CI/ops) | waiting_on + `send` |
 | park / spike later | `create todo` `<roster> <need> --status parked` |
 | find Fail / eng mail | `inbox` |
 | close after Pass | `pass` (shipped->done per mill-desk; no teaching `done`) |

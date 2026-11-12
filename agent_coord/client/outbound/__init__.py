@@ -239,35 +239,10 @@ def resolve_body_file(path: str, what: str = "body") -> str:
     return s
 
 
-def _note_text(raw: Any) -> str:
-    """note text: '@path' reads a UTF-8 file, '-' reads stdin, else inline."""
-    s = "" if raw is None else str(raw)
-    if s == "-" or (s.startswith("@") and len(s) > 1):
-        return resolve_send_body(s)
-    return s.strip()
-
-
-def _note_fields(args: Any, body: dict[str, Any]) -> None:
-    """mill note: send the positional text, @file, --note, --eta, --started (#102).
-
-    Progress is the positional token (9/12, 75%, done, git <sha>).
-    """
-    text = _note_text(getattr(args, "text", ""))
-    if text:
-        body["text"] = text
-    if body.get("note"):
-        body["note"] = _note_text(body["note"])
-    eta = str(getattr(args, "eta", "") or "").strip()
-    if eta:
-        body["eta"] = eta
-    if bool(getattr(args, "started", False)):
-        body["started"] = True
-
-
 # Commands whose project and --doing are checked before the call (#243-#245).
 _PROJECT_GUARD = {"open", "todo", "label-add", "label-remove", "unpark"}
 # #818 PR B: every command that takes --doing (the doing entry links to its item).
-_DOING_GUARD = {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score"}
+_DOING_GUARD = {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
 DOING_MAX = 512
 
 
@@ -297,10 +272,37 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
-# Card 866: a done-when note writes only the done-when, so other note fields beside it would be lost.
-_NOTE_WITH_DONE_WHEN = ("text", "note", "eta", "started")
-_NOTE_TEXT = "note: card text changes only through mill replace-body todo ID TEXT; nothing changed"
-_DONE_WHEN_ALONE = "note: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed"
+# Card 1125: mill todo ROSTER NEED --eta / --started / --done-when sets the card's own fields.
+_TODO_LIST_FLAGS = ("mine", "find", "page", "group_by", "status", "done", "all", "full")
+
+
+def _todo_card_fields(args: Any, body: dict[str, Any]) -> None:
+    from agent_coord.helpers.errors import CoordError
+
+    eta = str(getattr(args, "eta", "") or "").strip()
+    started = bool(getattr(args, "started", False))
+    raw_dw = getattr(args, "done_when", None)
+    if not eta and not started and raw_dw is None:
+        if str(getattr(args, "doing", "") or "").strip():
+            raise CoordError("todo: --doing goes with --eta, --started or --done-when; nothing was changed")
+        body.pop("eta", None)
+        return
+    if not str(getattr(args, "project", "") or "").strip() or not str(getattr(args, "need", "") or "").strip():
+        raise CoordError("todo: --eta, --started and --done-when need ROSTER NEED; nothing changed")
+    if any(getattr(args, k, None) not in (None, "", False, 0) for k in _TODO_LIST_FLAGS):
+        raise CoordError("todo: --eta, --started and --done-when change one card; drop the list flags. Nothing changed")
+    if raw_dw is not None:
+        if eta or started:
+            raise CoordError("todo: --done-when goes alone; send it by itself. Nothing changed")
+        dw = str(raw_dw).strip()
+        if len(dw) > 1000:
+            raise CoordError("done-when would be %s chars (max 1000); refused, nothing changed" % len(dw))
+        body["done_when"] = dw
+        return
+    if eta:
+        body["eta"] = eta
+    if started:
+        body["started"] = True
 
 
 def _replace_body_fields(args: Any, body: dict[str, Any]) -> None:
@@ -431,28 +433,16 @@ def body_from_args(args: Any) -> dict[str, Any]:
                     "pass: evidence would be %s chars (max 2000); refused, nothing changed" % len(ev)
                 )
             body["evidence"] = ev
-    if command in ("open", "note"):
+    if command == "open":
         raw_dw = getattr(args, "done_when", None)
         if raw_dw is not None:
             dw = str(raw_dw).strip()
             if len(dw) > 1000:
-                tail = "nothing stored" if command == "open" else "nothing changed"
-                raise CoordError(
-                    "done-when would be %s chars (max 1000); refused, %s" % (len(dw), tail)
-                )
-            if command == "note" or dw:
+                raise CoordError("done-when would be %s chars (max 1000); refused, nothing stored" % len(dw))
+            if dw:
                 body["done_when"] = dw
-            if command == "note" and any(
-                getattr(args, k, None) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN
-            ):
-                raise CoordError(_DONE_WHEN_ALONE)
-    if command == "note":
-        from agent_coord.server.records.todo import is_progress_token
-
-        note_txt = str(getattr(args, "note", "") or "").strip()
-        text_txt = str(getattr(args, "text", "") or "").strip()
-        if note_txt or (text_txt and not is_progress_token(text_txt)):
-            raise CoordError(_NOTE_TEXT)
+    if command == "todo":
+        _todo_card_fields(args, body)
     if command == "glance":
         body.pop("project", None)
     if bool(getattr(args, "yes", False)):
@@ -596,8 +586,6 @@ def body_from_args(args: Any) -> dict[str, Any]:
         body["dead"] = True
     if command == "score" and bool(getattr(args, "retire_score", False)):
         body["retire"] = True
-    if command == "note":
-        _note_fields(args, body)
     if command == "label-add" and hasattr(args, "ord") and getattr(args, "ord") is not None:
         from agent_coord.helpers.label_ord import parse_label_ord
 

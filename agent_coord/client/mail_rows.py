@@ -22,7 +22,6 @@ from agent_coord.helpers.errors import CoordError
 MAIL_PAGE = 50
 BODY_PREVIEW = 100
 FULL_HINT = "short rows; --full prints every field of every letter"
-NOTE_FULL_HINT = "--full prints the whole detail"
 
 
 def _page(args: Any) -> int:
@@ -57,11 +56,6 @@ def room_applies(args: Any) -> bool:
     if bool(getattr(args, "raw", False)):
         return _refuse_page("mail-thread", "--raw prints every letter", args)
     return True
-
-
-def note_applies(args: Any) -> bool:
-    return str(getattr(args, "cmd", "") or "") == "note" and not bool(getattr(args, "full", False)) \
-        and not bool(getattr(args, "raw", False))
 
 
 def _block(command: str, n: int, total: int) -> tuple[int, int, dict]:
@@ -141,15 +135,3 @@ def short_room(result: dict) -> dict:
     return out
 
 
-def short_note(result: Any) -> Any:
-    """The note reply without the whole detail: its size and last line."""
-    if not isinstance(result, dict) or "detail" not in result:
-        return result
-    detail = str(result.get("detail") or "")
-    out = {k: v for k, v in result.items() if k != "detail"}
-    out["detail_chars"] = len(detail)
-    lines = [ln for ln in detail.split("\n") if ln.strip()]
-    if lines:
-        out["last_line"] = lines[-1]
-    out["full"] = NOTE_FULL_HINT
-    return out

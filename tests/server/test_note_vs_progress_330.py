@@ -51,10 +51,10 @@ def test_note_reply_leaves_out_empty_progress(monkeypatch):
     assert r2["progress"] == "75%"
 
 
-def test_help_says_where_a_note_goes():
+def test_help_says_where_card_fields_and_text_go():
     row = next(
         ln for ln in (ROOT / "docs/protocol/cli-desk.md").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("| `note` |")
+        if ln.startswith("| `todo` (card fields) |")
     )
-    assert "detail" in row
-    assert "peer reads" in row
+    assert "replace-body" in row
+    assert "--eta" in row and "--started" in row and "--done-when" in row

@@ -74,18 +74,4 @@ def test_cli_has_no_supersedes_flag():
     from agent_coord.__main__ import _build_parser
 
     with pytest.raises(SystemExit):
-        _build_parser().parse_args(["note", "cold-test", "c333", "--supersedes", "old", "--note", "new"])
-
-
-def test_cli_note_text_is_refused(monkeypatch):
-    from agent_coord.__main__ import _build_parser
-    from agent_coord.client import outbound
-
-    monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda _x="": "asker-desk")
-    args = _build_parser().parse_args(["note", "cold-test", "c333", "--note", "x"])
-    with pytest.raises(CoordError, match=REFUSED):
-        outbound.body_from_args(args)
-    prog = _build_parser().parse_args(["note", "cold-test", "c333", "3/9"])
-    body = outbound.body_from_args(prog)
-    assert body["text"] == "3/9"
-    assert "supersedes" not in body and "note" not in body
+        _build_parser().parse_args(["todo", "cold-test", "c333", "--supersedes", "old"])

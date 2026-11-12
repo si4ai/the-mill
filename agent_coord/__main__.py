@@ -524,7 +524,7 @@ WAITING_ON_HELP = (
     "(--waiting-on \"gardener the column names\"). mill connected shows it, and the desk you wait on sees you"
 )
 DOING_FLAG_COMMANDS = (
-    "send", "reply", "mark", "create", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score",
+    "send", "reply", "mark", "create", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score",
 )
 
 
@@ -1373,36 +1373,14 @@ def _build_parser() -> MillArgumentParser:
         action="store_true",
         help=argparse.SUPPRESS,
     )
-
-    pg = sub.add_parser(
-        "note",
-        help="set progress, --eta, --started or --done-when (card text: mill replace-body)",
-    )
-    pg.add_argument("project")
-    pg.add_argument("need")
-    pg.add_argument(
-        "text",
-        nargs="?",
-        default="",
-        help="9/12, 75%%, done or git <sha> sets progress; other text is refused (mill replace-body)",
-    )
-    pg.add_argument(
-        "--note",
-        default="",
-        help="refused: card text changes with mill replace-body todo ID TEXT",
-    )
-    pg.add_argument("--eta", default="", help="20m / 2h / datetime so the other desk can see when you expect to finish")
-    pg.add_argument("--started", action="store_true", help="set started_at to now")
-    pg.add_argument(
-        "--full",
-        action="store_true",
-        help="reply with the card's whole detail (default: detail_chars and the last line)",
-    )
-    pg.add_argument(
+    # Card 1125: the card's own fields on ROSTER NEED. Card text: mill replace-body.
+    nd.add_argument("--eta", default="", help="with ROSTER NEED: 20m / 2h / datetime, when you expect to finish")
+    nd.add_argument("--started", action="store_true", help="with ROSTER NEED: set started_at to now")
+    nd.add_argument(
         "--done-when",
         default=None,
         dest="done_when",
-        help="set or clear the acceptance line (asker or Admin); a blank value clears it",
+        help="with ROSTER NEED, alone: set the acceptance line (asker or Admin); a blank value clears it",
     )
 
     rb = sub.add_parser(

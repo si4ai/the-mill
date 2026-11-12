@@ -172,7 +172,7 @@ the item, so reading an item's move rows in id order (`idx_on`) rebuilds `todo.s
 | `create` | a card was filed (`mill todo`, open), a score defined, or another item's first row | card: open, no volunteer |
 | `send` | a letter was sent (`mill send`) | activity only |
 | `reply` | a letter was sent under another (`mill reply`) | activity only |
-| `note` | a card's or a letter's body changed with no move (`mill note`) | activity only; no doing row |
+| `note` | a card's or a letter's body changed with no move (`mill replace-body`, or `mill todo ROSTER NEED --eta/--started/--done-when`) | activity only; no doing row |
 | `park` | a card was filed parked (status parked at create); no command parks a filed card | card: parked |
 | `claim` | a desk became the volunteer (`mill claim`, a take-over too; peer = the previous volunteer) | card: claimed, volunteer = desk |
 | `unclaim` | the volunteer let go (`mill unclaim`) | card: open, no volunteer |

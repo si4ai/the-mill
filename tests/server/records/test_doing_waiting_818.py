@@ -160,10 +160,10 @@ def test_blocked_on_a_card_hold_or_letter_reads_back_to_its_desk(w):
     w.ok(["claim", R, need, "--doing", "after the card", "--waiting-on", f"todo-{c_id} schema first"])
     assert [x for x in _blocked(w, THIRD) if x["desk"] == ME and x["on"] == f"todo-{c_id}"]
     h = int(w.ok(["hold", "d818w-lock-b"], desk=THIRD)["id"])
-    w.ok(["note", R, need, "--started", "--doing", "after the lock", "--waiting-on", f"hold-{h}"])
+    w.ok(["todo", R, need, "--started", "--doing", "after the lock", "--waiting-on", f"hold-{h}"])
     assert [x for x in _blocked(w, THIRD) if x["desk"] == ME and x["on"] == f"hold-{h}"]
     mid = int(w.ok(["send", "--to-desk", THIRD, "--body-file", str(w.body)])["id"])
-    w.ok(["note", R, need, "--started", "--doing", "after the answer", "--waiting-on", f"mail-{mid} an answer"])
+    w.ok(["todo", R, need, "--started", "--doing", "after the answer", "--waiting-on", f"mail-{mid} an answer"])
     assert [x for x in _blocked(w, THIRD) if x["desk"] == ME and x["on"] == f"mail-{mid}"]
     # The waiting desk is never listed as blocked on itself (it sent the letter).
     assert not [x for x in _blocked(w, ME) if x["desk"] == ME]
@@ -191,10 +191,10 @@ def test_blocked_on_ends_with_its_entry(w):
     need, _ = w.card()
     w.ok(["claim", R, need, "--doing", "wiring", "--waiting-on", f"{PEER} names"])
     assert [x for x in _blocked(w, PEER) if x["desk"] == ME]
-    w.ok(["note", R, need, "--started", "--doing", "unblocked now"])
+    w.ok(["todo", R, need, "--started", "--doing", "unblocked now"])
     assert not [x for x in _blocked(w, PEER) if x["desk"] == ME]
     assert "waiting_on" not in w.me(ME)
-    w.ok(["note", R, need, "--started", "--doing", "blocked again", "--waiting-on", f"{PEER} names"])
+    w.ok(["todo", R, need, "--started", "--doing", "blocked again", "--waiting-on", f"{PEER} names"])
     w.ok(["pass", R, need])
     assert not [x for x in _blocked(w, PEER) if x["desk"] == ME]
 

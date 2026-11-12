@@ -21,9 +21,9 @@
 "Research whether we should put mill connect in the cloud."
 
 **Expected (agent):**
-1. Notice Inputs gap (no decide-by / who decides / scope) -> `note` gap and/or `send` asker / waiting_on - **do not** invent a recommendation yet
+1. Notice Inputs gap (no decide-by / who decides / scope) -> `replace-body` gap and/or `send` asker / waiting_on - **do not** invent a recommendation yet
 2. When Inputs filled (toy fill below), `create todo` + `claim`
-3. Draft brief path on card via `note`
+3. Draft brief path on card via `replace-body`
 4. `send` asker with path + restated ask
 5. `pass` (decision-ready) - **not** required to record the decision outcome
 
@@ -41,7 +41,7 @@ Decide by Friday; asker = office human; scope = Bot vs LAN host only; out = rewr
 
 **Expected:**
 1. `create todo` (need slug ok) with detail carrying ask
-2. `claim` -> brief file/path -> `note` path
+2. `claim` -> brief file/path -> `replace-body` path
 3. Brief has BLUF + options incl. do-nothing + recommendation + limits
 4. `send` the host/asker + `pass`
 

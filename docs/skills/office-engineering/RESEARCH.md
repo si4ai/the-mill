@@ -31,8 +31,8 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | **Working software / package** | **KEEP** | Catalog product. Stub: change users/agents can run (merged code, published package, live service behavior). README: working software (not other eng). Wake: software/package. |
 | Pull request / change as product | **DROP** | FL sketch: PR/change -> todo (implement) + hold on tree. Forge PR is **SoR** (README wake; stub Must-not: invent commands for git/CI slang - PR/merge stay forge SoR + card). Card coordinates; PR is not the mill artifact. |
 | Code review / approve as product | **DROP** | FL collab + sketch: review/approve -> mail handoff; optional second desk claim. Collab move, not shippable eng artifact. |
-| Merge / ship ceremony as product | **DROP** | FL sketch: note progress; done after Pass/pack gate. Merge stays forge SoR; mill `pass` closes card after gate. |
-| RC / release / GA / changelog as product | **DROP** (day-one) | FL sketch: RC/release -> pack cut; Validator remasure Last. Mode of ship path (pack + QA), not 2nd SKILL product. Changelog = note/SoR. |
+| Merge / ship ceremony as product | **DROP** | FL sketch: replace-body progress; done after Pass/pack gate. Merge stays forge SoR; mill `pass` closes card after gate. |
+| RC / release / GA / changelog as product | **DROP** (day-one) | FL sketch: RC/release -> pack cut; Validator remasure Last. Mode of ship path (pack + QA), not 2nd SKILL product. Changelog = replace-body/SoR. |
 | Hotfix as separate product | **DROP** (day-one) | FL sketch: urgent todo + ops handoff. Same implement spine + priority in detail; not a 2nd product. |
 | Deploy as eng product | **DROP** | Runtime deploy/uptime = **office-ops** product. Eng may hand off; does not own "deploy succeeded." |
 | Build artifact / CI green alone | **DROP** | Build/CI checks are forge/CI SoR + evidence paths; product is **runnable** change, not a green check badge. |
@@ -54,8 +54,8 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Input | Required? | Mill fulfillment |
 |---|---|---|
 | Card (claimed or assigned; need + detail locked enough to build, or explicit spike) | **Yes** | `claim` / `assign`; else `send` asker / park (`create todo` `{status:"parked"}`) - stub Inputs |
-| Scope crumbs (repo/path, pack, or service named; acceptance in detail or linked Claims) | **Yes** | todo `detail` / `note`; link forge SoR - don't clone tree into mill |
-| If remasure Fail - Validator Fail mail + evidence paths | When fix-after-fail | `inbox` Fail mail; `note` repro paths (stub; qa->eng handoff) |
+| Scope crumbs (repo/path, pack, or service named; acceptance in detail or linked Claims) | **Yes** | todo `detail` / `replace-body`; link forge SoR - don't clone tree into mill |
+| If remasure Fail - Validator Fail mail + evidence paths | When fix-after-fail | `inbox` Fail mail; `replace-body` repro paths (stub; qa->eng handoff) |
 | If touching shared files - ready to `hold` those paths before write | When shared tree | `hold` / `drop` on the res name (FL: PR/change + hold on tree; stub) |
 | Claims / acceptance pointer for remasure ask | Before ask remasure | detail / Claims; then `send` validator (stub Ask remasure) |
 
@@ -66,13 +66,13 @@ Not inputs: vague "make it better," no card, implementing while QA owns Pass/Fai
 - Behavior/package exists; Claims mail has evidence; card closable after Pass (stub Done).
 - Implement card: `pass` (claimed->shipped) after work ready for remasure/pack; `pass` again to done after Pass gate / office close path (mill-desk: `pass` advances shipped->done; stub "Close after Pass").
 - Or clean `waiting_on` (blocked on review/QA/ops/human) **or** parked - never silent open forever / claimed+100% without `pass` (stub Must-not).
-- Forge PR merged/published package is **evidence in SoR**, pointed from `note`/`send` - mill does not become GitHub.
+- Forge PR merged/published package is **evidence in SoR**, pointed from `send` - mill does not become GitHub.
 
 ---
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `label-add` for bugs is mill-desk idiomatic (stub) - cite, not invent. Tree attach/move = when said, not day-one teach (mill-desk).
 
@@ -83,29 +83,29 @@ Shared spine (one table for the function):
 | Their word | Source | Candidate commands | Chosen day-one | Reject / notes |
 |---|---|---|---|---|
 | change / implement work | FL product; stub Product | create todo, claim | **`create todo`** then **`claim`/`assign`** | reject bare `create` / `open` |
-| branch | FL product | note, detail | **`note`/detail** pointer to forge branch | branch lives in forge SoR - no `branch` mill command |
-| pull request (PR) | FL sketch "todo (implement) + hold on tree"; README forge PR SoR | create todo, hold, note | **todo card** + optional **`hold`** on tree/paths; **link PR in `note`/detail** | reject inventing `pr`/`open-pr` CLI; PR != mill product |
+| branch | FL product | replace-body, detail | **`replace-body`/detail** pointer to forge branch | branch lives in forge SoR - no `branch` mill command |
+| pull request (PR) | FL sketch "todo (implement) + hold on tree"; README forge PR SoR | create todo, hold, replace-body | **todo card** + optional **`hold`** on tree/paths; **link PR in `replace-body`/detail** | reject inventing `pr`/`open-pr` CLI; PR != mill product |
 | review / code review | FL collab + sketch "mail handoff; optional second desk claim" | send, claim | **`send`** reviewer desk; optional second **`claim`** | collab, not product |
-| approve / request changes | FL product/collab | send, note | **`send`** + **`note`** on card | forge review UI stays SoR |
-| merge | FL sketch "note progress; done after Pass/pack gate" | note, pass | **`note`** merge/link; **`pass`** after Pass/pack gate | merge = forge SoR action |
-| ship | FL collab; mill-desk "ship it" -> pass | pass, note, send | **`pass`** (lifecycle); Claims **`send`** as needed | reject teaching `done` |
-| build / CI checks | FL product/collab | note, waiting_on | **`note`** CI links/paths; **`waiting_on`** if red blocks | CI = SoR; no `ci` command |
-| artifact (wheel/image/package) | FL product; stub published package | note, pass | **`note`** artifact path/id; card **`pass`** when shippable | package is product mode of working software |
-| release candidate (RC) / release / GA | FL sketch "pack cut; Validator remasure Last" | note, send, pass | pack cut + **`send`** validator (Last remasure); **`pass`** after gate | not 2nd product; reject `release` CLI |
+| approve / request changes | FL product/collab | send, replace-body | **`send`** + **`replace-body`** on card | forge review UI stays SoR |
+| merge | FL sketch "replace-body progress; done after Pass/pack gate" | replace-body, pass | **`replace-body`** merge/link; **`pass`** after Pass/pack gate | merge = forge SoR action |
+| ship | FL collab; mill-desk "ship it" -> pass | pass, replace-body, send | **`pass`** (lifecycle); Claims **`send`** as needed | reject teaching `done` |
+| build / CI checks | FL product/collab | replace-body, waiting_on | **`replace-body`** CI links/paths; **`waiting_on`** if red blocks | CI = SoR; no `ci` command |
+| artifact (wheel/image/package) | FL product; stub published package | replace-body, pass | **`replace-body`** artifact path/id; card **`pass`** when shippable | package is product mode of working software |
+| release candidate (RC) / release / GA | FL sketch "pack cut; Validator remasure Last" | replace-body, send, pass | pack cut + **`send`** validator (Last remasure); **`pass`** after gate | not 2nd product; reject `release` CLI |
 | hotfix | FL sketch "urgent todo + ops handoff" | create todo, claim, send | **`create todo`** (priority in detail) -> **`claim`** -> **`send`** ops when runtime | same spine |
-| changelog | FL product | note | **`note`** / SoR doc link | not a command |
+| changelog | FL product | replace-body | **`replace-body`** / SoR doc link | not a command |
 | contributor / maintainer | FL collab | claim, assign, presence | **`claim`/`assign`**; presence glance | roles, not commands |
 | reviewer | FL collab | send, claim | **`send`** / optional **`claim`** | - |
-| merge queue | FL collab | waiting_on, note | **`waiting_on` + `note`** | forge queue SoR |
+| merge queue | FL collab | waiting_on, replace-body | **`waiting_on` + `replace-body`** | forge queue SoR |
 | bug / issue | mill-desk; stub New eng card/bug | create todo + label | **`create todo`** + `label-add ... bug` | - |
 | take card / I'll implement | mill-desk; stub Take card | claim, assign | **`claim` / `assign`** | - |
 | drop the claim | mill-desk; stub | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | exclusive tree/file | FL hold on tree; stub; README hold rare eng | hold / drop | **`hold` / `drop`** | hold = lock resource; drop != unclaim |
-| progress / Claims paths | stub; mill-desk note | note | **`note`** | note != mail |
+| progress / Claims paths | stub; mill-desk replace-body | replace-body | **`replace-body`** | replace-body != mail |
 | ask remasure / Claims ready | stub Handoffs/Verbs; README Prove it | send | **`send`** -> validator/QA with Claims | escalate pattern = send |
-| Validator Fail / fix after remasure | stub Inputs/When; qa RESEARCH | inbox, claim, note | **`inbox`** Fail -> **`claim`**/`note` fix -> re-`send` Claims | - |
+| Validator Fail / fix after remasure | stub Inputs/When; qa RESEARCH | inbox, claim, replace-body | **`inbox`** Fail -> **`claim`**/`replace-body` fix -> re-`send` Claims | - |
 | close after Pass | stub; mill-desk pass lifecycle | pass | **`pass`** (again to done per office) | reject teaching `done` |
-| blocked (review/QA/CI/ops) | README waiting_on | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake `pass` |
+| blocked (review/QA/CI/ops) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | park / spike later | mill-desk; stub park | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | find eng mail / Fail | mill-desk mail | inbox | **`inbox`** | - |
 | eng KPI (optional) | README score row clusters exclude eng | score | **`score`** only if office sets eng KPI | omit unless office KPI - not README cluster |
@@ -137,7 +137,7 @@ Pattern: README "Escalate always = mill send"; qa Fail->Engineering; ops->Engine
 - Ship without a visible card - stub.
 - Leave claimed+100% without `pass` - stub.
 - Invent mill commands for git/CI slang (`pr`, `merge`, `rebase`, `ci`, `release` as CLI) - stub; FL how-to-talk #4.
-- Replace forge (GitHub/GitLab), CI, artifact registry, package index - **link** in note/mail; don't clone.
+- Replace forge (GitHub/GitLab), CI, artifact registry, package index - **link** in card text/mail; don't clone.
 - Teach `open` / `yield` / bare `create` / `done` (mill-desk alpha hard-cut #60).
 - Confuse `drop` (hold release) with `unclaim`.
 - Confuse forge "approve/merge" with mill `pass` - `pass` closes/advances the **card** after office Pass/pack gate.
@@ -152,7 +152,7 @@ Pattern: README "Escalate always = mill send"; qa Fail->Engineering; ops->Engine
 **Working software / package**
 
 1. Card + scope crumbs were on the desk (or waiting_on/parked mailed).
-2. Implement under claim; `hold`/`drop` shared paths when needed; progress/`note`d (PR/artifact links in SoR).
+2. Implement under claim; `hold`/`drop` shared paths when needed; progress in card text (`replace-body`) (PR/artifact links in SoR).
 3. Claims `send`ed to validator when remasure needed; Fail path: inbox -> fix -> re-send.
 4. Behavior/package runnable; evidence paths on Claims mail; card `pass`ed after Pass/pack gate (shipped->done as office says) **or** clean waiting_on **or** parked - never silent claimed forever.
 5. Ops/support/auditor mailed when ball leaves eng.
@@ -181,7 +181,7 @@ Pattern: README "Escalate always = mill send"; qa Fail->Engineering; ops->Engine
 | `docs/skills/office-engineering/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-qa/SKILL.md` + `RESEARCH.md` | Claims/Fail handoff mirror; Pass mail -> asker/eng `pass`; RESEARCH shape |
 | `docs/skills/office-ops/SKILL.md` + `RESEARCH.md` | Deploy/incident handoff; hotfix runtime; RESEARCH shape |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass lifecycle; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; pass lifecycle; no open/yield/teaching done |
 | `docs/protocol/commands.md` | Confirm create todo / unclaim replaces yield / pass shipped->done; hold/drop; score |
 
 ### Public industry practice (thin)
@@ -261,7 +261,7 @@ Review, RC/release, and hotfix are **modes or collab** on this spine (same
 commands), not second day-one products. The PR object lives in forge SoR - link it.
 
 ## Inputs
-On the desk **before** implement (else `note` gap + `send` asker / `waiting_on`
+On the desk **before** implement (else `replace-body` gap + `send` asker / `waiting_on`
 or `create todo` `{status:"parked"}`):
 - **Card** - claimed or assigned; need + detail locked enough to build (or explicit spike)
 - **Scope crumbs** - repo/path, pack, or service named; acceptance in detail or linked Claims
@@ -276,16 +276,16 @@ Not inputs: vague "make it better," no card, or implementing while QA owns Pass/
 | change / bug / feature | `create todo` (+ `label-add ... bug` when bug) |
 | take / give work | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| PR / branch | todo card + link in `detail`/`note`; forge SoR (not a mill PR command) |
+| PR / branch | todo card + link in `detail`/`replace-body`; forge SoR (not a mill PR command) |
 | exclusive tree/file | `hold` / `drop` |
-| progress / CI links / artifact path | `note` (diary; not mail) |
+| progress / CI links / artifact path | `replace-body` (diary; not mail) |
 | review / approve / request changes | `send` reviewer (+ optional second `claim`); forge review SoR |
 | ask remasure / Claims ready | `send` -> validator/QA with Claims |
-| Validator Fail / re-fix | `inbox` -> fix on card -> `note` -> re-`send` Claims |
-| merge / ship | `note` forge merge/link; `pass` after Pass/pack gate |
+| Validator Fail / re-fix | `inbox` -> fix on card -> `replace-body` -> re-`send` Claims |
+| merge / ship | `replace-body` forge merge/link; `pass` after Pass/pack gate |
 | RC / release / pack Last | pack cut + `send` validator; `pass` after gate |
 | hotfix | urgent `create todo`/`claim` + `send` ops when runtime |
-| blocked (review/QA/CI/ops) | waiting_on + `send` / `note` |
+| blocked (review/QA/CI/ops) | waiting_on + `send` |
 | park / spike later | `create todo` `{status:"parked"}` |
 | find Fail / eng mail | `inbox` |
 | close after Pass | `pass` (shipped->done per mill-desk; no teaching `done`) |

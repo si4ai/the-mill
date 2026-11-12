@@ -41,15 +41,15 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 |---|---|
 | brief | `create todo` + detail |
 | campaign | `create todo` (CMS/campaign id in detail) |
-| creative / asset work | `claim` + `note` (+ `hold`/`drop` if exclusive asset station) |
+| creative / asset work | `claim` + `replace-body` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress | `note` |
+| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
 | diary | `replace-body` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send` / `reply` `--receipt` if policy |
-| embargo / wait | waiting_on + `note` / `send` |
+| embargo / wait | waiting_on + `send` |
 | channel | detail / `replace-body` |
 | handoff to sales/support | `send` + `assign` |
 | KPI (reach/conversion) | `score` - a row in the score table (`kpi`, `value`, `target`) |

@@ -54,7 +54,7 @@ At a glance the human must see: who mill connect is up for, the plan (TODO), mai
 
 - Measure: mill score (read Wall / mill-perf). mill_cli_smoke. mill connected ROSTER (who has mill connect up).
 - Judge: mill MAIL to role `Admin` on 500. Wall SCORE.
-- Decide: `mill create todo` one card (`parked` or `open`). `mill claim` / `note` / `pass`. Bugs: card + label `bug`.
+- Decide: `mill create todo` one card (`parked` or `open`). `mill claim` / `mill todo ROSTER NEED --eta E` / `mill pass`. Bugs: card + label `bug`.
 
 ## PARKED (docs sanitize)
 

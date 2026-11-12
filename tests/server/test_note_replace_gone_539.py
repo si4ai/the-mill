@@ -60,13 +60,11 @@ def test_cli_never_sends_replace(monkeypatch):
     from agent_coord.client import outbound
 
     monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda _x="": "asker-desk")
-    a = _build_parser().parse_args(["note", "cold-test", "c539", "--eta", "2h"])
+    a = _build_parser().parse_args(["todo", "cold-test", "c539", "--eta", "2h"])
     a.replace = True  # no such flag; a stray attribute must not reach the wall
     assert "replace" not in outbound.body_from_args(a)
-    with pytest.raises(CoordError, match="mill replace-body"):
-        outbound.body_from_args(_build_parser().parse_args(["note", "cold-test", "c539", "--note", "x"]))
     with pytest.raises(SystemExit):
-        _build_parser().parse_args(["note", "cold-test", "c539", "--note", "x", "--replace"])
+        _build_parser().parse_args(["todo", "cold-test", "c539", "--eta", "2h", "--replace"])
 
 
 def test_dead_note_helpers_are_gone():

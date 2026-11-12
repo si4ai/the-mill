@@ -43,7 +43,7 @@ body dumped into mill as SoR.
 |---|---|
 | review request | `inbox` / `create todo` -> `claim` / `assign` |
 | contract (pointer) | todo `detail` / `replace-body` link; **CLM SoR outside** |
-| redline / exclusive edit | `hold` / `drop` on doc station (+ `note`) |
+| redline / exclusive edit | `hold` / `drop` on doc station (+ `replace-body`) |
 | approval / clear authority | `send` / `reply` `--receipt` (+ `assign` as needed) |
 | escalate to counsel | `send` (optional `assign`) |
 | hold / block ship / withhold | waiting_on on eng/sales card + `send`/`replace-body` reason (**!=** mill `hold`) |
@@ -51,9 +51,9 @@ body dumped into mill as SoR.
 | opinion | `replace-body` and/or `send` memo/link |
 | audit trail | `send` + `replace-body` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
-| progress | `note` |
+| progress | `todo <roster> <need> --eta E`; progress text in `replace-body todo <id>` |
 | diary | `replace-body` (not mail) |
-| blocked on others | waiting_on + `send` / `note` |
+| blocked on others | waiting_on + `send` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | cycle-time KPI (optional) | `score` - a row in the score table (`kpi`, `value`, `target`) |
 

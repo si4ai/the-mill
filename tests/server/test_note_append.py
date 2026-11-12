@@ -1,4 +1,4 @@
-"""Card 1125: mill note does not append detail. Card text is mill replace-body."""
+"""Card 1125: the server note path does not append detail. Card text is mill replace-body."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

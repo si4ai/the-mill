@@ -60,6 +60,6 @@ def test_client_done_when_and_evidence_are_stored_by_the_server(cn):
     assert _read(cn, "b866-c")["evidence"] == "CI run 1 green"
     raw = rec_todo.find(cn, "unit", "b866-c").get("body") or ""
     assert "CI run 1 green" not in raw and "CI green" not in raw
-    cleared = rpc._h_note(book, _client_body(["note", "unit", "b866-c", "--done-when", ""]), "unit", "a866")
+    cleared = rpc._h_todo(book, _client_body(["todo", "unit", "b866-c", "--done-when", ""]), "unit", "a866")
     assert cleared["done_when"] is None
     assert "done_when" not in _read(cn, "b866-c")

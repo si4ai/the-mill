@@ -578,6 +578,11 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     from agent_coord.server.records import todo as rec_todo
 
     raw_need = str(body.get("need") or body.get("need_id") or "").strip()
+    if "done_when" in body or body.get("eta") or body.get("started"):
+        # Card 1125: mill todo ROSTER NEED --eta / --started / --done-when.
+        if not raw_need:
+            raise CoordError("todo: --eta, --started and --done-when need ROSTER NEED; nothing changed")
+        return _card_fields(c, body, project, owner)
     want = slug(raw_need) if raw_need else ""
     # agent-ux 1215: honor --status and --done like the CLI help says.
     # --status X lists only X; --done adds done cards; default hides done.
@@ -927,7 +932,7 @@ def _doing_page(raw: Any) -> int:
     return n
 # #818 PR B: commands whose --doing writes a doing entry on the item they wrote.
 DOING_COMMANDS = frozenset(
-    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score"}
+    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "todo", "unpark", "hold", "drop", "score"}
 )
 
 
@@ -936,6 +941,9 @@ def _doing_text(command: str, body: dict[str, Any]) -> str:
     A --waiting-on (#822) is checked here too, so a bad one runs nothing."""
     raw = body.get("doing") if command in DOING_COMMANDS else None
     text = " ".join(str(raw).replace("\x00", "").split()) if raw is not None else ""
+    if command == "todo" and text and not ("done_when" in body or body.get("eta") or body.get("started")):
+        # Card 1125: a doing rides only a card-field write, never a board read.
+        raise CoordError("todo: --doing goes with --eta, --started or --done-when; nothing was changed")
     if len(text) > 512:
         raise CoordError(f"{command}: --doing must be 1..512 characters; nothing stored")
     _doing_waiting(command, body, text)
@@ -987,7 +995,7 @@ def _doing_item(c: Book, command: str, body: dict[str, Any], out: Any, project: 
     if command == "mark":
         ids = res.get("ids") or []
         return ("mail", int(ids[0])) if ids else None
-    if command in ("open", "claim", "unclaim", "assign", "pass", "note", "unpark"):
+    if command in ("open", "claim", "unclaim", "assign", "pass", "note", "todo", "unpark"):
         if command == "open" and res.get("id"):
             return ("todo", int(res["id"]))
         from agent_coord.server.records import todo as rec_todo
@@ -2991,12 +2999,18 @@ _NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started"
 _NOTE_TEXT = "note: card text changes only through mill replace-body todo ID TEXT; nothing changed"
 
 
+def _card_fields(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill todo ROSTER NEED --eta / --started / --done-when (card 1125): only those fields reach the card."""
+    keep = {k: body[k] for k in ("need", "eta", "started", "done_when") if k in body}
+    return _h_note(c, keep, project, owner)
+
+
 def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import todo as rec_todo
 
     if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
         # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
-        raise CoordError("note: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed")
+        raise CoordError("todo: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed")
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
@@ -3021,7 +3035,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     started = bool(body.get("started"))
     if not (prog_text or eta_raw or started):
         raise CoordError(
-            "note: nothing to write (give text such as 9/12 or 75%, --eta, or --started)"
+            "todo: nothing to write (give --eta, --started or --done-when)"
         )
     progress = rec_todo.format_progress(prog_text)
     if progress:
@@ -3030,7 +3044,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         try:
             eta_at = rec_todo.parse_eta(eta_raw)
         except ValueError as e:
-            raise CoordError(f"note: {e}") from e
+            raise CoordError(f"todo: {e}") from e
         if eta_at is not None:
             payload["eta_at"] = eta_at.isoformat(sep=" ", timespec="seconds")
     if started:

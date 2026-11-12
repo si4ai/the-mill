@@ -21,7 +21,7 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **drop** (hold) | holder, or Admin / high-trust stale | Own hold always. Live other: Admin. Stale other (disconnected + held hold_stale_days+ days, default 7): any desk at high trust; Admin at limited. Not unclaim. |
 | **create todo** | yes | Creator = Bearer. (Wall internal: create path may be named `open`.) |
 | **claim** | yes | Volunteer = Bearer. |
-| **note** / **pass** / **unclaim** | assignee rules | Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
+| **todo ROSTER NEED --eta/--started/--done-when** / **pass** / **unclaim** | assignee rules | `--done-when`: asker or Admin. Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
 | **assign** | trust + unassigned | high: any desk if no assignee; limited: Admin if no assignee. Nobody overwrites. |
 | **reset** / **reclaim** / **retire** / invite | Admin | Always Admin either trust. |
 | **`Admin` grant/revoke** | host loopback | `mill add roster Admin OTHER`. `mill join --Admin` does not grant; connect-on-host does not grant. |

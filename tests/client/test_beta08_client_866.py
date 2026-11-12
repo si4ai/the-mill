@@ -75,15 +75,15 @@ def test_create_refuses_a_long_done_when():
         body_from_args(args)
 
 
-def test_note_sends_done_when_and_a_blank_clears_it():
-    args = _build_parser().parse_args(["note", "unit", "n1", "--done-when", "  "])
+def test_todo_sends_done_when_and_a_blank_clears_it():
+    args = _build_parser().parse_args(["todo", "unit", "n1", "--done-when", "  "])
     body = body_from_args(args)
-    assert body["verb"] == "note"
+    assert body["verb"] == "todo"
     assert body["done_when"] == ""
 
 
-def test_note_refuses_a_long_done_when():
-    args = _build_parser().parse_args(["note", "unit", "n1", "--done-when", "y" * 1001])
+def test_todo_refuses_a_long_done_when():
+    args = _build_parser().parse_args(["todo", "unit", "n1", "--done-when", "y" * 1001])
     with pytest.raises(CoordError, match="nothing changed"):
         body_from_args(args)
 
@@ -177,11 +177,11 @@ def test_glance_is_read_live_not_from_a_cache():
 
 @pytest.mark.parametrize(
     "extra",
-    [["9/12"], ["--note", "x"], ["--eta", "2h"], ["--started"]],
+    [["--eta", "2h"], ["--started"]],
 )
-def test_note_refuses_done_when_with_other_note_fields(extra):
-    # A done-when note writes only the done-when; anything beside it would be dropped.
-    args = _build_parser().parse_args(["note", "unit", "n1", *extra, "--done-when", "tests green"])
+def test_todo_refuses_done_when_with_other_card_fields(extra):
+    # A done-when write changes only the done-when; anything beside it would be dropped.
+    args = _build_parser().parse_args(["todo", "unit", "n1", *extra, "--done-when", "tests green"])
     with pytest.raises(CoordError, match="--done-when goes alone"):
         body_from_args(args)
 
@@ -190,7 +190,7 @@ def test_note_refuses_done_when_with_other_note_fields(extra):
     "extra",
     [{"text": "9/12"}, {"note": "x"}, {"detail": "x"}, {"eta": "2h"}, {"started": True}, {"supersedes": "old"}],
 )
-def test_server_note_refuses_done_when_with_other_note_fields(extra):
+def test_server_card_fields_refuse_done_when_with_other_fields(extra):
     from agent_coord.server.api.mill.rpc import _h_note
 
     body = {"verb": "note", "need": "n1", "done_when": "tests green", **extra}

@@ -32,10 +32,10 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | **Close-won / handoff** | **KEEP** | Catalog product. FUNCTION-LINGO: close-won -> done + mail CS onboarding; handoff SDR->AE->CS -> mail + assign. Stub already dual: closed deal **or** clean next-stage handoff. |
 | Lead / MQL / SQL as product | **DROP** | FUNCTION-LINGO product *words*, not shippable mill artifact. Lead intake = `create todo` (or CRM create + mill link). Qualification is a **stage note**, not a second SKILL product. |
 | Pipeline (as view/product) | **DROP** | Pipeline is CRM SoR / Wall glance over cards - not an office artifact mill ships. |
-| Proposal / quote pack | **DROP** (day-one) | Proposal is a **step** inside an opportunity card (`note` path + optional legal/finance handoff). Alone overlaps office-legal / finance SoR. Revisit if office runs standing proposal desk. |
+| Proposal / quote pack | **DROP** (day-one) | Proposal is a **step** inside an opportunity card (`replace-body` path + optional legal/finance handoff). Alone overlaps office-legal / finance SoR. Revisit if office runs standing proposal desk. |
 | Forecast as product | **DROP** | Collab/KPI: README score row cluster "sales (forecast)" -> `score`, not a product. |
 | Account / renewal as separate product | **DROP** (day-one) | Account lives in CRM. Renewal = same opportunity spine (new/renewed opp todo) or CS handoff - not a 2nd day-one product unless office splits AE vs CS renewals later. |
-| Close-lost as separate product | **DROP** | Outcome mode of the same card: `pass` + `note` why (stub). Not a second artifact. |
+| Close-lost as separate product | **DROP** | Outcome mode of the same card: `pass` + `replace-body` why (stub). Not a second artifact. |
 
 **Kept products (day-one): 1 - Close-won / handoff** (dual outcome on one spine).
 
@@ -52,18 +52,18 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Input | Required? | Mill fulfillment |
 |---|---|---|
 | Opportunity identity (CRM id / account / deal name) | **Yes** | todo `detail` (link CRM URL/id - don't clone amounts) |
-| Stage / desired outcome (advance, close-won, close-lost, handoff dest) | **Yes** | need + detail; if missing -> `note` gap + `send` asker / `waiting_on` |
+| Stage / desired outcome (advance, close-won, close-lost, handoff dest) | **Yes** | need + detail; if missing -> `replace-body` gap + `send` asker / `waiting_on` |
 | Owner / role path (SDR, AE, CS, delivery) | Strong | `claim` / `assign`; handoff dest in detail |
-| Next step (call, demo, proposal, legal, pricing) | Strong | `note` progress |
+| Next step (call, demo, proposal, legal, pricing) | Strong | `replace-body` progress |
 | Blockers (legal, pricing, security review) | When blocked | waiting_on + `send` specialized desk |
-| Close facts (won/lost reason; CS onboarding ask) | On close | `note` + `send` CS/`create todo` onboarding |
+| Close facts (won/lost reason; CS onboarding ask) | On close | `replace-body` + `send` CS/`create todo` onboarding |
 
 Not inputs: "grow pipeline," replace CRM amounts, fan-out assign to `*` + role + desk.
 
 ### Done looks like (this product)
 
 - **Close-won:** card `pass`; CRM updated *outside* mill; CS/delivery **mailed** (`send`) and/or onboarding `create todo` + `assign`.
-- **Close-lost:** card `pass` with `note` why; no fake waiting_on.
+- **Close-lost:** card `pass` with `replace-body` why; no fake waiting_on.
 - **Stage handoff:** next owner `assign`ed and/or `send` mailed; prior owner `unclaim` if needed; waiting_on cleared; CRM stage advanced outside mill.
 - Else: clean **waiting_on** (legal/pricing/human) - don't fake `pass`.
 
@@ -71,7 +71,7 @@ Not inputs: "grow pipeline," replace CRM amounts, fan-out assign to `*` + role +
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `unpark` exists but is not day-one teach unless human says it.
 
@@ -82,18 +82,18 @@ Shared spine (one table for the function):
 | Their word | Source (FL cite) | Candidate commands | Chosen day-one | Reject / notes |
 |---|---|---|---|---|
 | lead | FL Sales product words | create todo, open | **`create todo`** (link CRM lead id in detail) | reject `open`; CRM remains SoR |
-| MQL / SQL | FL Sales product words | note, create todo | **`note`** stage on opp todo (or new todo if office splits) | not mill commands; qualification != invent `qualify` |
+| MQL / SQL | FL Sales product words | replace-body, create todo | **`replace-body`** stage on opp todo (or new todo if office splits) | not mill commands; qualification != invent `qualify` |
 | opportunity | FL mill sketch "todo (or plan row for big deals)" | create todo | **`create todo`** | plan row = later/not day-one teach; stub "lead / opportunity -> create todo" |
 | pipeline | FL Sales product words | todo list, wall | **`todo`** glance / Wall - not a write product | reject inventing `pipeline` command |
-| proposal | FL Sales product words | note, send, hold | **`note`** path + optional `send` legal/finance | hold rare (README: don't teach hold in sales unless needed) |
-| account | FL Sales product words | detail link | **detail / `note`** CRM account id | SoR = CRM; don't clone account DB |
+| proposal | FL Sales product words | replace-body, send, hold | **`replace-body`** path + optional `send` legal/finance | hold rare (README: don't teach hold in sales unless needed) |
+| account | FL Sales product words | detail link | **detail / `replace-body`** CRM account id | SoR = CRM; don't clone account DB |
 | renewal | FL Sales product words | create todo, send CS | **`create todo`** renew opp **or** `send` CS | same spine; not 2nd product day-one |
-| next step | FL mill sketch "progress / note"; stub | note | **`note`** | note != mail |
+| next step | FL mill sketch "progress / replace-body"; stub | replace-body | **`replace-body`** | replace-body != mail |
 | handoff (SDR->AE->CS) | FL mill sketch "mail + assign"; stub; FL collab | send, assign | **`send` + `assign`** | escalate always = send (README); not claim steal |
-| blocked (legal/pricing) | FL mill sketch "waiting_on"; FL collab; stub | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake pass |
+| blocked (legal/pricing) | FL mill sketch "waiting_on"; FL collab; stub | waiting_on + send | **`waiting_on` + `send`** | don't fake pass |
 | forecast | FL collab; README score row "sales (forecast)"; stub | score | **`score`** (last vs target) | not a product |
 | close-won | FL mill sketch "done; mail CS onboarding todo"; stub | pass, send, create todo | **`pass`** + **`send`** CS + optional onboarding **`create todo`/`assign`** | reject teaching `done` as speech - mill-desk: ship/pass/close -> `pass` |
-| close-lost | stub | pass + note | **`pass`** + **`note`** why | same card close path |
+| close-lost | stub | pass + replace-body | **`pass`** + **`replace-body`** why | same card close path |
 | own / work deal | stub; mill-desk claim | claim, assign | **`claim`** / **`assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | find work / mail landed | mill-desk mail; support inbox pattern | inbox | **`inbox`** | - |
@@ -117,7 +117,7 @@ Shared spine (one table for the function):
 | **office-engineering / office-qa** | Security review, POC build, or Claims remasure for deal - `send` (+ eng/qa todo if work) |
 | **Asker / AE / SDR peer** | Missing stage outcome, CRM id, or next-step criteria - `send` / `waiting_on` |
 
-Pattern borrow: support "escalate = mill send"; README "Escalate always = mill send to a more specialized desk"; marketing <-> sales handoff is mail, not new command. CRM stage/amount updates happen **in CRM**, then `note` the fact on the mill card.
+Pattern borrow: support "escalate = mill send"; README "Escalate always = mill send to a more specialized desk"; marketing <-> sales handoff is mail, not new command. CRM stage/amount updates happen **in CRM**, then `replace-body` the fact on the mill card.
 
 ---
 
@@ -142,7 +142,7 @@ Pattern borrow: support "escalate = mill send"; README "Escalate always = mill s
 1. CRM id + stage/outcome were on the desk (or waiting_on mailed).
 2. Progress/`next step` noted; blockers mailed to specialized desks when needed.
 3. **Close-won:** card `pass`; CS/delivery mailed and/or onboarding todo created/assigned; CRM closed-won outside mill.
-4. **Close-lost:** card `pass` + note why.
+4. **Close-lost:** card `pass` + reason in card text.
 5. **Handoff:** next owner assigned and/or mailed; prior claim cleared; CRM stage advanced outside mill.
 6. Never silent open forever - `pass`, clean waiting_on, or parked.
 
@@ -150,7 +150,7 @@ Pattern borrow: support "escalate = mill send"; README "Escalate always = mill s
 
 ## Scope note
 
-- **In:** Opportunity collab on a mill office - create/claim/note/send/pass spine; SDR->AE->CS handoffs; blocked->waiting_on; forecast glance via `score`; close-won/lost card close with CS mail on win.
+- **In:** Opportunity collab on a mill office - create/claim/replace-body/send/pass spine; SDR->AE->CS handoffs; blocked->waiting_on; forecast glance via `score`; close-won/lost card close with CS mail on win.
 - **Out:** CRM data model, quote engines, marketing launch product, support resolve, legal clear/hold, finance approve/paid, eng ship, QA Pass/Fail evidence.
 - **Day-one:** single dual product (close-won **or** clean handoff); lead/MQL/SQL/proposal/renewal/forecast = inputs, stages, steps, or score - not second SKILL products.
 - Adapter stays thin - pull mill-desk first; one card, then STOP.
@@ -164,21 +164,21 @@ Pattern borrow: support "escalate = mill send"; README "Escalate always = mill s
 
 | Source | Used for |
 |---|---|
-| `docs/skills/README.md` | Catalog **Close-won / handoff**; spine create todo->claim->note->send->pass; hold rare sales/support; score row cluster sales forecast; escalate = send |
+| `docs/skills/README.md` | Catalog **Close-won / handoff**; spine create todo->claim->todo --eta->send->pass; hold rare sales/support; score row cluster sales forecast; escalate = send |
 | `docs/skills/TEMPLATE.md` | Required SKILL shape: Product, Inputs, Lingo, Handoffs, Must-not, Done |
 | `docs/skills/FUNCTION-LINGO.md` S **Sales / pipeline (common CRM)** | **Required** product words (lead, MQL/SQL, opportunity, pipeline, proposal, close-won/lost, account, renewal); collab (handoff SDR->AE->CS, next step, blocked legal/pricing, forecast); mill sketch rows |
 | `docs/skills/MILL-OFFICE-SKILL-SCOUT.md` | Loop-1 SoR: RESEARCH + TEMPLATE brief; no SKILL patch; day-one command reject list |
 | `docs/skills/office-sales/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-support/SKILL.md` | Sibling: escalate = send; SoR outside mill; waiting_on pattern |
 | `docs/skills/office-marketing/SKILL.md` | Sibling: launch/publish; KPI score row; handoff-to-sales spirit |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
 
 ### Public industry practice (thin)
 
 | Cite | Takeaway for mill map |
 |---|---|
 | Common CRM practice (Salesforce/HubSpot-style) - lead -> MQL/SQL -> opportunity -> close | Stages are **CRM SoR**; mill card tracks collab ownership + next step + handoff mail (aligns FL) |
-| Close-won / close-lost | Terminal opportunity outcomes -> mill `pass` + note; win triggers CS onboarding handoff (FL sketch) |
+| Close-won / close-lost | Terminal opportunity outcomes -> mill `pass` + reason in card text; win triggers CS onboarding handoff (FL sketch) |
 | SDR / AE / CS handoff | Role chain = mill `send` + `assign`, not a new command |
 | Sales forecast | Pipeline coverage / commit vs target -> mill `score` / score rows (README cluster), CRM keeps detailed forecast SoR |
 
@@ -245,14 +245,14 @@ mailed) **or** a clean stage handoff (SDR->AE->CS/delivery) with owner + next st
 CRM stays system of record for amounts, accounts, and stage history.
 
 Lead/MQL/SQL, proposal, renewal, and forecast are **stages, steps, or score** on
-this spine - not second day-one products. Close-lost = same card `pass` + note why.
+this spine - not second day-one products. Close-lost = same card `pass` + reason in card text.
 
 ## Inputs
-On the desk **before** you can advance or close (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can advance or close (else `replace-body` gap + `send` asker / `waiting_on`):
 - **CRM identity** - opportunity/account id or URL in detail (do not clone amounts)
 - **Stage / outcome ask** - advance, close-won, close-lost, or handoff destination
 - **Owner path** - SDR / AE / CS / delivery (for claim/assign)
-- **Next step** - call, demo, proposal, legal, pricing (note as you go)
+- **Next step** - call, demo, proposal, legal, pricing (`replace-body` as you go)
 - When blocked: legal/pricing/security context for waiting_on mail
 - On close-won: CS onboarding ask (who/what to mail or todo)
 
@@ -262,17 +262,17 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | Their word | Mill |
 |---|---|
 | lead / opportunity | `create todo` (CRM id in detail) |
-| MQL / SQL / stage | `note` on opp card (CRM stage outside mill) |
+| MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| next step / progress | `note` |
+| next step / progress | `replace-body` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
-| blocked (legal/pricing) | waiting_on + `send` / `note` |
-| proposal path | `note` (+ `send` legal/finance if gate) |
+| blocked (legal/pricing) | waiting_on + `send` |
+| proposal path | `replace-body` (+ `send` legal/finance if gate) |
 | forecast / KPI | `score` |
 | close-won | `pass` + `send` CS/delivery (+ optional onboarding `create todo` / `assign`) |
-| close-lost | `pass` + `note` why |
+| close-lost | `pass` + `replace-body` why |
 | park / later | `create todo` `{status:"parked"}` |
 | renewal | same spine: `create todo` renew opp **or** `send` CS |
 
@@ -299,7 +299,7 @@ Never teach `open` / `yield` / bare `create` / `done`.
 
 ## Done looks like
 - Close-won: card `pass`ed; CS/delivery mailed (and/or onboarding todo assigned); CRM closed outside mill.
-- Close-lost: card `pass`ed with note why.
+- Close-lost: card `pass`ed with the reason in card text.
 - Handoff: next owner assigned and/or mailed; waiting_on cleared or explicit.
 - Else clean waiting_on or parked - never silent open.
 ```

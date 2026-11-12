@@ -29,7 +29,7 @@ On the desk **before** you can advance or close (else `replace-body` gap + `send
 - **CRM identity** - opportunity/account id or URL in detail (do not clone amounts)
 - **Stage / outcome ask** - advance, close-won, close-lost, or handoff destination
 - **Owner path** - SDR / AE / CS / delivery (for claim/assign)
-- **Next step** - call, demo, proposal, legal, pricing (progress via `note` as you go)
+- **Next step** - call, demo, proposal, legal, pricing (progress via `replace-body todo <id>` as you go)
 - When blocked: legal/pricing/security context for waiting_on mail
 - On close-won: CS onboarding ask (who/what to mail or todo)
 
@@ -42,10 +42,10 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| next step / progress | `note` |
+| next step / progress | `todo <roster> <need> --eta E`; next step in `replace-body todo <id>` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
-| blocked (legal/pricing) | waiting_on + `send` / `note` |
+| blocked (legal/pricing) | waiting_on + `send` |
 | proposal path | `replace-body` (+ `send` legal/finance if gate) |
 | forecast / KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | close-won | `pass` + `send` CS/delivery (+ optional onboarding `create todo` / `assign`) |
