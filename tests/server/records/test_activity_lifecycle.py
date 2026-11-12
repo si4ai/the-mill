@@ -31,7 +31,7 @@ def test_mail_update_then_delete_keeps_activity_and_id(cn) -> None:
     from agent_coord.server.records.db import call
 
     got = call(cn, "mill_mail_get", [mid])[0]
-    rec_body.replace(cn, "mail", mid, "life_mail", "two", got["body_updated"] or got["created"])
+    rec_body.replace(cn, "mail", mid, "life_mail_d", "two", got["body_updated"] or got["created"])
     _has(cn, "mail", mid)
     aff = scalar(cn, "SELECT roster_id FROM activity WHERE type='mail' AND id=%s", (mid,))
     desk = scalar(cn, "SELECT desk_id FROM activity WHERE type='mail' AND id=%s", (mid,))
