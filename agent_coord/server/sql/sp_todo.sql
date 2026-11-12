@@ -129,6 +129,8 @@ BEGIN
   IF v_name IS NULL THEN
     -- 0.8.0: a parent touch is the office's (desk NULL): a desk column holds a seat, never roster id 1.
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
+    -- The tree insert locks name(id). Hold the plan before that shared check.
+    SELECT id INTO v_lock FROM name WHERE id = v_name FOR UPDATE;
     CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, NULL, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);

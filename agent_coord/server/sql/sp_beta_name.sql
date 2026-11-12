@@ -111,8 +111,8 @@ BEGIN
   END IF;
   INSERT INTO name (type, name) VALUES ('desk', TRIM(p_name)); SET v = LAST_INSERT_ID();
   INSERT INTO seat (desk_id, token_hash) VALUES (v, p_token_hash);
-  INSERT INTO member (name_id, desk_id) VALUES (1, v);
   UPDATE name SET n = n + 1 WHERE id = 1;
+  INSERT INTO member (name_id, desk_id) VALUES (1, v);
   SELECT v AS id, TRIM(p_name) AS name, 'desk' AS name_type, 'created' AS op;
 END //
 

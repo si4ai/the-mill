@@ -37,6 +37,11 @@ KNOWN_CYCLES = {
     # sp_name_purge takes the purging desk's seat, then deletes the roster's members; a letter
     # to that roster reads its members, then the sender's seat FK: only when the purger sends.
     ("member", "seat"),
+    # Card 1163: a pointer to name is name(id), so the parent check locks the primary key
+    # and meets an exclusive lock on a name. These orders are a different row on each side
+    # (a hold's resource versus a roster, a score's roster versus a plan, a plan versus a
+    # roster written after the tree row).
+    ("hold", "name"), ("name", "score"), ("name", "tree"),
 }
 
 # Card procedures: the acting desk's seat must come before the card row (F183).

@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS name (
   trashed     DATETIME(6)       NULL,  -- card 879: mill delete soft-trash; purge hard-deletes when set
   n           INT UNSIGNED      NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  UNIQUE KEY idx_name (name),   -- card 1163: one name string; type stays; name_fixed refuses a type or id change
+  UNIQUE KEY idx_name (name)   -- card 1163: one name string; type stays; name_fixed refuses a type or id change
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci AUTO_INCREMENT=100;
 
 INSERT IGNORE INTO name (id, type, name) VALUES
