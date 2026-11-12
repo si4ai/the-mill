@@ -1743,6 +1743,32 @@ def _ensure_wake_retry_edge(cn) -> list[str]:
     return applied
 
 
+def _ensure_wake_lease_edges(cn) -> list[str]:
+    """card 1140: wake lease edges (ring, done, expired, cleared). Idempotent INSERT IGNORE."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition_edge"):
+            return applied
+        cur.execute(
+            "INSERT IGNORE INTO transition_edge"
+            " (activity_type, from_state, to_state, reason) VALUES"
+            " ('wake', 'ring', 'lease_live', 'wake_sent'),"
+            " ('wake', 'lease_live', 'done', 'wake_done'),"
+            " ('wake', 'lease_live', 'expired', 'wake_expire'),"
+            " ('wake', 'lease_live', 'cleared', 'clear')"
+        )
+        if cur.rowcount:
+            applied.append("transition_edge.wake_lease_1140")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def _ensure_wake_auto_id(cn) -> list[str]:
     """card 1113: wake is payload first, as mail and todo. wake.id is AUTO_INCREMENT, past every wake id in
     activity (rollup deletes wake rows and keeps their activity rows), and fk_wake_activity is gone (the
@@ -1995,6 +2021,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             # card 1098: transition.n (after 1022 table exists)
             applied.extend(_ensure_transition_n(cn))
             applied.extend(_ensure_wake_retry_edge(cn))
+            applied.extend(_ensure_wake_lease_edges(cn))
             # card 1113: wake.id is AUTO_INCREMENT, payload first (after the 1022 wake table).
             applied.extend(_ensure_wake_auto_id(cn))
             if did_1022:

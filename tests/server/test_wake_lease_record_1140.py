@@ -230,3 +230,44 @@ def test_live_lease_survives_a_wall_restart(hook) -> None:
     cn.commit()
     assert [r[2] for r in _rows(cn, token)] == ["lease_live", "done"]
     assert len(hook["posts"]) == n + 1
+
+
+def test_migrate_adds_the_lease_edges_once(cn):
+    """Existing books get the 1140 edges from migrate; a second run adds nothing."""
+    from agent_coord.install import migrate
+
+    edges = (
+        ("ring", "lease_live", "wake_sent"),
+        ("lease_live", "done", "wake_done"),
+        ("lease_live", "expired", "wake_expire"),
+        ("lease_live", "cleared", "clear"),
+    )
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "DELETE FROM transition_edge WHERE activity_type='wake' AND ("
+            " (from_state, to_state, reason) IN "
+            " (('ring','lease_live','wake_sent'),"
+            "  ('lease_live','done','wake_done'),"
+            "  ('lease_live','expired','wake_expire'),"
+            "  ('lease_live','cleared','clear')))"
+        )
+        cn.commit()
+    finally:
+        cur.close()
+    assert migrate._ensure_wake_lease_edges(cn) == ["transition_edge.wake_lease_1140"]
+    assert migrate._ensure_wake_lease_edges(cn) == []
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT from_state, to_state, reason FROM transition_edge"
+            " WHERE activity_type='wake' AND (from_state, to_state, reason) IN "
+            " (('ring','lease_live','wake_sent'),"
+            "  ('lease_live','done','wake_done'),"
+            "  ('lease_live','expired','wake_expire'),"
+            "  ('lease_live','cleared','clear'))"
+        )
+        got = {tuple(r) for r in cur.fetchall()}
+    finally:
+        cur.close()
+    assert got == set(edges)
