@@ -2,19 +2,31 @@
 # select job.
 #
 # Each path pattern maps to the test jobs that verify that file. A changed
-# file runs the union of jobs from every rule it matches. A file that
-# matches no rule runs no test job and never fails for being unlisted
+# file selects the union of jobs from every rule it matches. A file that
+# matches no rule selects no test job and never fails for being unlisted
 # (docs, README.md, CHANGELOG.md, LICENSE, .gitattributes, .gitignore).
+#
+# The suites run once per change, on the pull request head, the run
+# Validator's Pass measures. A pull request runs both suites, the whole
+# tree, if any changed file selects a job here, and none if no file does
+# (docs only). The merge queue never runs a suite: the select job passes
+# when the queue base is an ancestor of the PR head (nothing merged ahead
+# of the tested code) and fails otherwise, which turns the required
+# pytest_sql and pytest_no_sql gates red. A pyproject.toml whose only changed lines are `version = "..."`
+# counts as unchanged, so a release bump (that line plus CHANGELOG.md) runs
+# no suite; any other pyproject.toml line, a dependency pin, still runs both.
 #
 # Schema:
 #   [[rule]]
 #   paths = ["repo-relative glob", ...]   "**" is zero or more directories
 #   jobs  = ["job", ...]                  pytest_no_sql_run, pytest_sql_run
 #
-# build_pack, check_pack, mill_cli_smoke and precheck are not in this map:
-# they scan or install the whole pack, commit messages and diff lines, so
-# they run on every change. Push to main, tags, dispatch and an all-zero
-# base run every job.
+# build_pack, check_pack, mill_cli_smoke, precheck and hidden_code_report
+# are not in this map: they scan or install the whole pack, commit messages
+# and diff lines, so they run on every event, the merge queue included.
+# A push to main or a v* tag (release.yml calls ci.yml) runs no suite:
+# that code ran them on its PR. workflow_dispatch and an all-zero PR base
+# run every job. The same code never runs the suites twice.
 #
 # To add a file pattern: put it in the rule whose jobs verify that file.
 # A new SQL-marked test, or a tests/ or tools/ file one imports or loads

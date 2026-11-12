@@ -33,8 +33,16 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # Card 1127: pick the test jobs that verify the changed files, from
-  # ci/test-select.toml. No pack or database dependency, nothing installed.
+  # Card 1127: pick the test jobs from ci/test-select.toml. No pack or
+  # database dependency, nothing installed. The suites run once per change:
+  # a pull request runs both on its head unless no changed file selects a
+  # job (docs only, or a version-only pyproject.toml bump). merge_group
+  # never runs them: this job passes only if merge_group.base_sha is an
+  # ancestor of the PR head (nothing merged ahead of the tested code) and
+  # fails otherwise ("main moved after this PR was tested"), which turns
+  # the required pytest_sql and pytest_no_sql gates red. A push to main or
+  # a v* tag (release.yml's workflow_call, whose event is the tag push) runs
+  # neither: that code ran them on its PR. workflow_dispatch runs both.
   select:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
@@ -345,7 +353,8 @@ jobs:
           path: pytest-sql-junit.xml
           if-no-files-found: warn
 
-  # Keep the required check names present even when the heavy jobs skip.
+  # Keep the required check names present even when the heavy jobs skip,
+  # as they do on every merge_group, push and tag run.
   # A failed selector, or a selected runner that failed or skipped, never turns green.
   pytest_sql:
     needs: [select, pytest_sql_run]

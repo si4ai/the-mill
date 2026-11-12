@@ -1,5 +1,12 @@
 """Card 1127: ci/test_select.py and the real ci/test-select.toml.
 
+The suites run once per change: a pull request runs every suite unless its
+diff selects nothing (docs, a version-only pyproject.toml bump), and the
+merge queue never runs them: it passes only if the queue base is an ancestor
+of the PR head (nothing merged ahead), and fails otherwise. A push to main
+or a tag (release.yml calls ci.yml, so its event is the tag push) runs none:
+the same code never runs the suites twice. workflow_dispatch runs both.
+
 Every map assertion loads the map CI reads, not a copy of it.
 """
 from __future__ import annotations
@@ -208,10 +215,23 @@ def _run(tmp_path: Path, *args: str, event: dict | None = None, name: str = "pus
     return proc, out.read_text(encoding="utf-8") if out.exists() else ""
 
 
-def test_cli_push_runs_every_job_and_writes_output(tmp_path: Path) -> None:
-    proc, out = _run(tmp_path, "--github")
+def test_cli_push_runs_no_suite_and_writes_output(tmp_path: Path) -> None:
+    """A push to main or a v* tag carries code its PR run already tested."""
+    for ref in ("refs/heads/main", "refs/tags/v0.8.15"):
+        proc, out = _run(tmp_path, "--github", event={"ref": ref})
+        assert proc.returncode == 0, proc.stderr
+        assert out.splitlines()[-2:] == ["pytest_no_sql_run=false", "pytest_sql_run=false"]
+
+
+def test_cli_dispatch_runs_every_job(tmp_path: Path) -> None:
+    proc, out = _run(tmp_path, "--github", name="workflow_dispatch")
     assert proc.returncode == 0, proc.stderr
     assert out.splitlines() == ["pytest_no_sql_run=true", "pytest_sql_run=true"]
+
+
+def test_push_selects_no_suite(rules: ts.Rules) -> None:
+    assert ts.github_selection(rules, "push", {"ref": "refs/tags/v0.8.15"})[0] == set()
+    assert ts.github_selection(rules, "push", {})[0] == set()
 
 
 def test_cli_unknown_job_exits_nonzero_and_writes_nothing(tmp_path: Path) -> None:
@@ -255,12 +275,15 @@ def _pr(base: str, head: str) -> dict:
     return {"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}
 
 
-def test_pull_request_selects_from_the_diff(repo: Path, rules: ts.Rules) -> None:
+def test_pull_request_runs_every_suite_unless_nothing_is_selected(repo: Path, rules: ts.Rules) -> None:
+    """The PR run is the one Validator measures: any mapped change runs both
+    suites on the whole branch, not the subset the map names."""
     base = _commit(repo, {"README.md": "a\n"})
     docs = _commit(repo, {"README.md": "b\n", "docs/JOIN.md": "c\n"})
     assert ts.github_selection(rules, "pull_request", _pr(base, docs))[0] == set()
     tool = _commit(repo, {"tools/check_pr_text.py": "x = 1\n"})
-    assert ts.github_selection(rules, "pull_request", _pr(docs, tool))[0] == {"pytest_no_sql_run"}
+    assert ts.select_jobs(["tools/check_pr_text.py"], rules) == {"pytest_no_sql_run"}
+    assert ts.github_selection(rules, "pull_request", _pr(docs, tool))[0] == BOTH
     sql = _commit(repo, {"agent_coord/server/sql/t.sql": "select 1;\n"})
     assert ts.github_selection(rules, "pull_request", _pr(base, sql))[0] == BOTH
 
@@ -276,23 +299,120 @@ def test_pull_request_diffs_from_the_merge_base(repo: Path, rules: ts.Rules) -> 
     assert ts.github_selection(rules, "pull_request", _pr(main, head))[0] == set()
 
 
-def test_merge_group_selects_from_base_to_queued_head(repo: Path, rules: ts.Rules) -> None:
+def _queue(repo: Path, number: int, pr_head: str, queued: str, base: str) -> dict:
+    """A merge_group event whose PR head is published as refs/pull/N/head on
+    an origin that is the repo itself, as GitHub serves it."""
+    if not _git(repo, "remote"):
+        _git(repo, "remote", "add", "origin", str(repo))
+    _git(repo, "update-ref", f"refs/pull/{number}/head", pr_head)
+    ref = f"refs/heads/gh-readonly-queue/main/pr-{number}-{base}"
+    return {"merge_group": {"base_sha": base, "head_sha": queued, "head_ref": ref}}
+
+
+def _queued_squash(repo: Path, base: str, pr_head: str) -> str:
+    """The commit the queue builds: the PR head's tree on top of base."""
+    tree = _git(repo, "rev-parse", f"{pr_head}^{{tree}}")
+    return _git(repo, "-c", "user.name=q", "-c", "user.email=q@example.com", "commit-tree", tree, "-p", base, "-m", "squash")
+
+
+def test_merge_group_on_an_ancestor_base_passes_with_no_suite(repo: Path, rules: ts.Rules) -> None:
+    """The queue base is an ancestor of the PR head: nothing merged ahead, so
+    the queued code is what the PR run tested."""
     base = _commit(repo, {"README.md": "a\n"})
-    head = _commit(repo, {"scripts/bootstrap.sh": "echo\n"})
-    event = {"merge_group": {"base_sha": base, "head_sha": head}}
-    chosen, reason = ts.github_selection(rules, "merge_group", event)
-    assert chosen == {"pytest_no_sql_run"}
-    assert ".." in reason and "..." not in reason
+    pr_head = _commit(repo, {"agent_coord/server/sql/t.sql": "select 1;\n"})
+    queued = _queued_squash(repo, base, pr_head)
+    chosen, reason = ts.github_selection(rules, "merge_group", _queue(repo, 7, pr_head, queued, base))
+    assert chosen == set()
+    assert "#7" in reason
+
+
+def test_merge_group_on_a_moved_main_fails(repo: Path, rules: ts.Rules) -> None:
+    """Main moved after the PR was tested: the queue fails, it never runs the suites."""
+    _commit(repo, {"README.md": "a\n"})
+    _git(repo, "switch", "-q", "-c", "pr")
+    pr_head = _commit(repo, {"docs/x.md": "b\n"})
+    _git(repo, "switch", "-q", "main")
+    base = _commit(repo, {"agent_coord/x.py": "y = 2\n"})
+    queued = _commit(repo, {"docs/x.md": "b\n"})
+    with pytest.raises(ts.QueueCheckFailed, match=re.escape(ts.MOVED)):
+        ts.github_selection(rules, "merge_group", _queue(repo, 8, pr_head, queued, base))
+
+
+@pytest.mark.parametrize("merge_group", [
+    {},
+    {"base_sha": "a" * 40, "head_sha": "b" * 40},
+    {"base_sha": "a" * 40, "head_sha": "b" * 40, "head_ref": "refs/heads/main"},
+    {"base_sha": "a" * 40, "head_sha": "b" * 40, "head_ref": "refs/heads/gh-readonly-queue/main/pr-x-" + "a" * 40},
+    {"base_sha": "main", "head_sha": "b" * 40, "head_ref": "refs/heads/gh-readonly-queue/main/pr-1-" + "a" * 40},
+])
+def test_merge_group_it_cannot_read_fails(rules: ts.Rules, merge_group: dict) -> None:
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", {"merge_group": merge_group})
+
+
+def test_merge_group_without_the_pr_head_fails(repo: Path, rules: ts.Rules) -> None:
+    """No refs/pull/N/head to fetch (or no origin): fail safe."""
+    base = _commit(repo, {"README.md": "a\n"})
+    head = _commit(repo, {"README.md": "b\n"})
+    event = {"merge_group": {"base_sha": base, "head_sha": head,
+                             "head_ref": f"refs/heads/gh-readonly-queue/main/pr-9-{base}"}}
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", event)
+    _git(repo, "remote", "add", "origin", str(repo))
+    with pytest.raises(ts.QueueCheckFailed):
+        ts.github_selection(rules, "merge_group", event)
+
+
+def test_cli_merge_group_check_failure_exits_nonzero(tmp_path: Path) -> None:
+    """A failed select job turns the required pytest_sql and pytest_no_sql gates red."""
+    proc, out = _run(tmp_path, "--github", name="merge_group", event={"merge_group": {"base_sha": "a" * 40, "head_sha": "b" * 40}})
+    assert proc.returncode == 1
+    assert "rebase" in proc.stderr
+    assert out == ""
+
+
+PYPROJECT = '[project]\nname = "the-mill"\nversion = "0.8.13"\ndependencies = ["a>=1"]\n'
+
+
+def test_version_only_bump_pull_request_runs_no_suite(repo: Path, rules: ts.Rules) -> None:
+    base = _commit(repo, {"pyproject.toml": PYPROJECT, "CHANGELOG.md": "a\n"})
+    head = _commit(repo, {"pyproject.toml": PYPROJECT.replace("0.8.13", "0.8.14"), "CHANGELOG.md": "b\n"})
+    assert ts.github_selection(rules, "pull_request", _pr(base, head))[0] == set()
+
+
+def test_pyproject_change_beyond_the_version_runs_every_suite(repo: Path, rules: ts.Rules) -> None:
+    base = _commit(repo, {"pyproject.toml": PYPROJECT})
+    head = _commit(repo, {"pyproject.toml": PYPROJECT.replace("0.8.13", "0.8.14").replace("a>=1", "a>=2")})
+    assert ts.github_selection(rules, "pull_request", _pr(base, head))[0] == BOTH
+    pin = _commit(repo, {"pyproject.toml": PYPROJECT.replace("0.8.13", "0.8.14").replace("a>=1", "a>=3")})
+    assert ts.github_selection(rules, "pull_request", _pr(head, pin))[0] == BOTH
+
+
+def test_version_bump_with_a_mapped_file_runs_every_suite(repo: Path, rules: ts.Rules) -> None:
+    base = _commit(repo, {"pyproject.toml": PYPROJECT})
+    head = _commit(repo, {"pyproject.toml": PYPROJECT.replace("0.8.13", "0.8.14"), "tools/check_pr_text.py": "x = 1\n"})
+    assert ts.github_selection(rules, "pull_request", _pr(base, head))[0] == BOTH
+
+
+def test_new_pyproject_is_not_a_version_only_change(repo: Path, rules: ts.Rules) -> None:
+    base = _commit(repo, {"README.md": "a\n"})
+    head = _commit(repo, {"pyproject.toml": 'version = "0.8.14"\n'})
+    assert ts.github_selection(rules, "pull_request", _pr(base, head))[0] == BOTH
+
+
+def test_local_mode_skips_a_version_only_bump(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    base = _commit(repo, {"pyproject.toml": PYPROJECT})
+    _commit(repo, {"pyproject.toml": PYPROJECT.replace("0.8.13", "0.8.14")})
+    assert ts.main(["--base", base]) == 0
+    assert capsys.readouterr().out.splitlines() == ["pytest_no_sql_run=false", "pytest_sql_run=false"]
 
 
 @pytest.mark.parametrize("name,event", [
-    ("push", {}),
     ("workflow_dispatch", {}),
     ("", {}),
     ("pull_request", {}),
     ("pull_request", _pr("0" * 40, "a" * 40)),
     ("pull_request", _pr("main", "HEAD")),
-    ("merge_group", {"merge_group": {"base_sha": "x"}}),
 ])
 def test_other_events_and_bad_shas_run_every_job(rules: ts.Rules, name: str, event: dict) -> None:
     assert ts.github_selection(rules, name, event)[0] == BOTH
@@ -303,3 +423,33 @@ def test_failed_or_empty_diff_runs_every_job(repo: Path, rules: ts.Rules) -> Non
     assert ts.github_selection(rules, "pull_request", _pr(head, head)) == (BOTH, "empty diff: every job")
     chosen, reason = ts.github_selection(rules, "pull_request", _pr("1" * 40, head))
     assert chosen == BOTH and reason.startswith("diff failed")
+
+
+def test_merge_group_failed_fetch_with_a_stale_fetch_head_fails(repo: Path, rules: ts.Rules) -> None:
+    """A failed fetch of refs/pull/N/head must fail the check, even when an
+    earlier fetch left a FETCH_HEAD whose commit would pass."""
+    base = _commit(repo, {"README.md": "a\n"})
+    pr_head = _commit(repo, {"README.md": "b\n"})
+    queued = _queued_squash(repo, base, pr_head)
+    ts.github_selection(rules, "merge_group", _queue(repo, 7, pr_head, queued, base))
+    event = {"merge_group": {"base_sha": base, "head_sha": queued,
+                             "head_ref": f"refs/heads/gh-readonly-queue/main/pr-9-{base}"}}
+    with pytest.raises(ts.QueueCheckFailed, match="cannot fetch PR #9"):
+        ts.github_selection(rules, "merge_group", event)
+
+
+def _ci_job(name: str) -> str:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    m = re.search(rf"^  {name}:\n(?:(?:    .*)?\n)+", text, re.M)
+    assert m, name
+    return m.group(0)
+
+
+@pytest.mark.parametrize("name", ["select", "pytest_sql", "pytest_no_sql"])
+def test_queue_gate_jobs_cannot_swallow_a_failure(name: str) -> None:
+    """The ancestry check fails the queue only if nothing masks select's exit."""
+    job = _ci_job(name)
+    assert "continue-on-error" not in job, name
+    assert not re.search(r"\|\|\s*(true|:|exit 0)\b", job), name
+    if name == "select":
+        assert re.search(r"^        run: python3 ci/test_select.py --github$", job, re.M), job
