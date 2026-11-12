@@ -366,12 +366,18 @@ def _safe_static(name: str) -> Path | None:
         if rel.startswith("lib/"):
             under = rel[len("lib/") :]
             if under and ".." not in under.split("/"):
-                cand = (WALL_UI_LIB / under).resolve()
+                # containment before any stat. an absolute tail must not be opened.
+                root = WALL_UI_LIB.resolve()
+                joined = WALL_UI_LIB / under
                 try:
-                    if cand.is_file() and cand.relative_to(WALL_UI_LIB.resolve()):
-                        return cand
+                    joined.relative_to(root)
+                    cand = joined.resolve()
+                    cand.relative_to(root)
                 except ValueError:
                     pass
+                else:
+                    if cand.is_file():
+                        return cand
         for folder in (WALL_UI_DEFAULT, WALL_UI_COMPONENTS, WALL_UI_LIB, STATIC_DIR):
             cand = (folder / rel).resolve()
             try:
@@ -393,7 +399,12 @@ def _safe_static(name: str) -> Path | None:
         if cand.is_file():
             return cand
     if base.lower() == "usecases.md":
-        cand = (_PKG.parent / "docs" / "protocol" / "usecases.md").resolve()
+        root = (_PKG.parent / "docs" / "protocol").resolve()
+        cand = (root / "usecases.md").resolve()
+        try:
+            cand.relative_to(root)
+        except ValueError:
+            return None
         if cand.is_file():
             return cand
     return None
