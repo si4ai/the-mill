@@ -85,9 +85,9 @@ def test_done_when_is_the_asker_or_admin(book, cn, monkeypatch, trust):
     monkeypatch.setenv("AGENT_COORD_TRUST", trust)
     need = _open(book, f"mw-{trust}")
     with pytest.raises(CoordError, match="who-may: done-when is the asker or Admin"):
-        rpc._h_note(book, {"need": need, "done_when": "x"}, "unit", PLAIN)
-    assert rpc._h_note(book, {"need": need, "done_when": "y"}, "unit", ADMIN)["done_when"] == "y"
-    assert rpc._h_note(book, {"need": need, "done_when": "z"}, "unit", ASKER)["done_when"] == "z"
+        rpc._card_fields(book, {"need": need, "done_when": "x"}, "unit", PLAIN)
+    assert rpc._card_fields(book, {"need": need, "done_when": "y"}, "unit", ADMIN)["done_when"] == "y"
+    assert rpc._card_fields(book, {"need": need, "done_when": "z"}, "unit", ASKER)["done_when"] == "z"
 
 
 # sec 2: trust-gated.

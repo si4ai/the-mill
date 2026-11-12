@@ -50,7 +50,6 @@ CASES = [
     ("score", {"name": "k", "value": "1", "target": "{t}"}, "target"),
     ("score", {"name": "k", "value": "1", "note": "n {t}"}, "note"),
     ("send", {"body": "key {t}"}, "body"),
-    ("note", {"need": "n1", "note": "key {t}"}, "note"),
 ]
 
 
@@ -90,7 +89,7 @@ def test_read_commands_are_left_alone(monkeypatch):
 
 
 def test_every_text_command_is_listed():
-    for command in ("send", "reply", "note", "open", "score", "join", "claim", "unclaim", "pass", "hold", "assign", "mark", "drop", "unpark"):
+    for command in ("send", "reply", "open", "score", "join", "claim", "unclaim", "pass", "hold", "assign", "mark", "drop", "unpark", "replace-body"):
         assert command in WRITE_COMMANDS
     for key in ("body", "doing", "msg", "note", "detail", "value", "target"):
         assert key in TEXT_KEYS

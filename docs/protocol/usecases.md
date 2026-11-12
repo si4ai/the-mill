@@ -12,7 +12,7 @@ Idle is mill connect + HINT. Never dump `/api/floor`.
 |---|---|---|---|---|
 | **Be here** | agent | `mill connect`, PING | mill connect every turn | mill connect `/ws` until HINT |
 | **Talk** | agent | `send`, `{kind: mail}`, `inbox` unread | dump all mail / `/api/v1` | push -> unread dests; act or ignore |
-| **Work a card** | agent | `create todo` `claim` `todo --eta` `pass` | list every todo every turn | HINT `TODO` -> one card |
+| **Work a card** | agent | `create todo` `claim` `todo --eta/--started/--progress` `pass` | list every todo every turn | HINT `TODO` -> one card |
 | **Don't stomp a file** | agent | `hold` / `drop` | ignore hold, retry, mail storms | HINT `HOLD` / refuse |
 | **Glance** | **human** | Wall SESSION / MAIL / TODO | agent `GET /api/floor` into the model | humans use the Wall; agents never dump floor |
 | **Host is broken** | mill-wall -> Admin | MAIL to `Admin` | 500s with no dest | Admin mill connect + inbox |
@@ -115,7 +115,7 @@ Per-listener detail / custom recipes: [hints.md](hints.md).
 | M2/M3 | same as N2 | none | none | optional STOP | **no** |
 | **Talk** | `send` | none. `mail_to` dests | `{kind: mail}` | `inbox` unread (all) | **yes** |
 | mill-wall 500 | mill_admin_alert | `mail` to `Admin` | `{kind: mail}` | Admin inbox | yes |
-| **Card** | `create todo` `claim` `assign` `todo --eta` `pass` | `todo`, todo.id | **`TODO`** | dest desk: claimer; assigner STOP | **yes** |
+| **Card** | `create todo` `claim` `assign` `todo --eta/--started/--progress` `pass` | `todo`, todo.id | **`TODO`** | dest desk: claimer; assigner STOP | **yes** |
 | Keep-alive | Hub 20s `PING` | nobody | **`PING`** | ignore | Hub loop (mill connect does **not** POST `heartbeat`) |
 | **Hold** | `hold` / `drop` | `hold`, hold.id | **`HOLD`** | mill hold / don't write | **yes** |
 | **Score** | `score` | `score`, score.id | **`SCORE`** | glance / mill score | **yes** |

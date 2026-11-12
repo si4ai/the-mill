@@ -37,9 +37,10 @@ def test_client_plain_peek_sends_no_card_fields(no_owner):
     assert not ({"eta", "started", "progress", "done_when"} & set(b))
 
 
-def test_client_sends_progress(no_owner):
-    b = body_from_args(_args(progress=" 9/12 "))
-    assert b["progress"] == "9/12"
+@pytest.mark.parametrize("raw,want", [(" 9/12 ", "9/12"), (" 75% ", "75%")])
+def test_client_sends_progress(no_owner, raw, want):
+    b = body_from_args(_args(progress=raw))
+    assert b["progress"] == want
     assert not ({"eta", "started", "done_when"} & set(b))
 
 
@@ -180,4 +181,19 @@ def test_progress_with_done_when_refused(store):
 
 def test_nothing_to_write_names_progress(store):
     with pytest.raises(CoordError, match="--progress"):
-        rpc._h_note(MagicMock(), {"need": "n1125"}, "the-mill", "builder")
+        rpc._card_fields(MagicMock(), {"need": "n1125"}, "the-mill", "builder")
+
+
+def test_help_lists_progress():
+    from agent_coord.__main__ import _build_parser
+
+    parser = _build_parser()
+    todo = None
+    for action in parser._actions:
+        if getattr(action, "choices", None) and "todo" in (action.choices or {}):
+            todo = action.choices["todo"]
+            break
+    assert todo is not None
+    text = todo.format_help()
+    assert "--progress" in text
+    assert "9/12" in text and "75%" in text

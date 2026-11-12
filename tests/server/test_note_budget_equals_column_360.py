@@ -61,25 +61,6 @@ def test_body_max_is_the_todo_body_column():
     assert sizes == {BODY_MAX}
 
 
-def test_a_text_note_does_not_fill_the_column(monkeypatch):
-    stored = _card(monkeypatch, "")
-    before = stored["body"]
-    with pytest.raises(CoordError, match="mill replace-body"):
-        rpc._h_note(MagicMock(), {"need": "budget", "note": "z" * 20}, "the-mill", "builder")
-    assert stored["body"] == before and stored["n"] == 0
-
-
-def test_supersedes_is_refused_and_writes_nothing(monkeypatch):
-    stored = _card(monkeypatch, "keep")
-    before = stored["body"]
-    with pytest.raises(CoordError, match="mill replace-body"):
-        rpc._h_note(
-            MagicMock(),
-            {"need": "budget", "supersedes": "keep", "note": "n" * 20},
-            "the-mill",
-            "builder",
-        )
-    assert stored["body"] == before and stored["n"] == 0
 
 
 def test_claim_msg_over_the_column_names_the_room_left(monkeypatch):

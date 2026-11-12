@@ -31,7 +31,6 @@ ACTION_COMMANDS = frozenset(
         "send",
         "reply",
         "claim",
-        "note",
         "pass",
         "hold",
         "label",

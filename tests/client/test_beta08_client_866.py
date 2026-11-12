@@ -188,11 +188,11 @@ def test_todo_refuses_done_when_with_other_card_fields(extra):
 
 @pytest.mark.parametrize(
     "extra",
-    [{"text": "9/12"}, {"note": "x"}, {"detail": "x"}, {"eta": "2h"}, {"started": True}, {"supersedes": "old"}],
+    [{"eta": "2h"}, {"started": True}, {"progress": "9/12"}],
 )
 def test_server_card_fields_refuse_done_when_with_other_fields(extra):
-    from agent_coord.server.api.mill.rpc import _h_note
+    from agent_coord.server.api.mill.rpc import _card_fields
 
-    body = {"verb": "note", "need": "n1", "done_when": "tests green", **extra}
+    body = {"verb": "todo", "need": "n1", "done_when": "tests green", **extra}
     with pytest.raises(CoordError, match="--done-when goes alone"):
-        _h_note(None, body, "unit", "builder")
+        _card_fields(None, body, "unit", "builder")

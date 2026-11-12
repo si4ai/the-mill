@@ -15,13 +15,10 @@ from typing import Any
 from agent_coord.helpers.ident import slug
 
 # Day-one card-targeting commands (skill.md todo spine).
-CARD_COMMANDS = frozenset({"claim", "assign", "note", "pass", "unclaim"})
+CARD_COMMANDS = frozenset({"claim", "assign", "pass", "unclaim"})
 
 # Start (or reset) a claim window.
 _START_COMMANDS = frozenset({"claim", "assign"})
-
-# Note spam: count in notes=, not verbs=.
-_NOTE_COMMAND = "note"
 
 KPI_COMMANDS_TO_DONE = "mill-office.verbs_to_done"
 BOOK_PERF: dict[str, str] = {
@@ -114,10 +111,7 @@ def note_card(
         if v == "unclaim":
             _sessions.pop(need, None)
             return
-        if v == _NOTE_COMMAND:
-            sess["notes"] = int(sess.get("notes") or 0) + 1
-            return
-        # pass / other non-note card commands
+        # pass / other card commands
         sess["verbs"] = int(sess.get("verbs") or 0) + 1
         if v == "pass" and str(result.get("status") or "") == "done":
             t0 = float(sess.get("t0") or time.perf_counter())

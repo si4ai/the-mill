@@ -29,24 +29,23 @@ def test_card_with_progress_shows_it_and_has_no_title():
     assert card["progress"] == "9/12"
 
 
-def test_note_reply_leaves_out_empty_progress(monkeypatch):
+def test_progress_reply_leaves_the_detail_and_shows_the_token(monkeypatch):
     import json
     from unittest.mock import MagicMock
 
-    body = {"b": json.dumps({"slug": "c330", "doing": "", "detail": "seed"})}
+    stored = {"b": json.dumps({"slug": "c330", "doing": "", "detail": "seed"})}
     monkeypatch.setattr(
-        "agent_coord.server.records.todo.find", lambda cn, p, n: {"id": 330, "body": body["b"]}
+        "agent_coord.server.records.todo.find", lambda cn, p, n: {"id": 330, "body": stored["b"]}
     )
 
-    monkeypatch.setattr(
-        "agent_coord.server.records.todo.update", lambda cn, tid, desk, **kw: [{"id": tid}]
-    )
+    def upd(cn, tid, desk, body=None, **kw):
+        if body is not None:
+            stored["b"] = body
+        return [{"id": tid}]
+
+    monkeypatch.setattr("agent_coord.server.records.todo.update", upd)
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
-    from agent_coord.helpers.errors import CoordError
-
-    with pytest.raises(CoordError, match="mill replace-body"):
-        rpc._h_note(MagicMock(), {"need": "c330", "note": "first note"}, "cold-test", "w1")
-    r2 = rpc._h_note(MagicMock(), {"need": "c330", "progress": "75%"}, "cold-test", "w1")
+    r2 = rpc._card_fields(MagicMock(), {"need": "c330", "progress": "75%"}, "cold-test", "w1")
     assert r2["detail"] == "seed"
     assert r2["progress"] == "75%"
 
@@ -57,4 +56,4 @@ def test_help_says_where_card_fields_and_text_go():
         if ln.startswith("| `todo` (card fields) |")
     )
     assert "replace-body" in row
-    assert "--eta" in row and "--started" in row and "--done-when" in row
+    assert "--eta" in row and "--started" in row and "--progress" in row and "--done-when" in row

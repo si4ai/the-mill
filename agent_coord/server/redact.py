@@ -40,9 +40,9 @@ LOG_PH = "[redacted]"
 ALL_CLASSES = frozenset(PH)
 
 # Every command that stores text a reader will see (0.7.5: reply, doing, join,
-# claim, unclaim, pass, hold and assign joined send, note, open and score).
+# claim, unclaim, pass, hold and assign joined send, open and score).
 WRITE_COMMANDS = frozenset({
-    "send", "reply", "note", "create", "open", "update", "score", "patch", "set",
+    "send", "reply", "create", "open", "update", "score", "patch", "set",
     "join", "claim", "unclaim", "pass", "hold", "assign",
     # #818 PR B: --doing text rides on these too.
     "mark", "drop", "unpark",

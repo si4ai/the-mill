@@ -21,7 +21,6 @@ COMMANDS = frozenset(
         "claim",
         "assign",
         "unclaim",
-        "note",
         "pass",
         "todo",
         "send",

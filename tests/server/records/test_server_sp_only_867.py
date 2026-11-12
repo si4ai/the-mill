@@ -173,10 +173,10 @@ def test_card_carries_done_when_and_only_the_asker_changes_it(cn):
     card = _read(cn, "w867-a")
     assert card["done_when"] == "CI green and Validator PASS"
     with pytest.raises(CoordError, match="who-may: done-when is the asker or Admin"):
-        rpc._h_note(book, {"need": "w867-a", "done_when": "other"}, "unit", OTHER)
-    rpc._h_note(book, {"need": "w867-a", "done_when": "merged on main"}, "unit", ASKER)
+        rpc._card_fields(book, {"need": "w867-a", "done_when": "other"}, "unit", OTHER)
+    rpc._card_fields(book, {"need": "w867-a", "done_when": "merged on main"}, "unit", ASKER)
     assert _read(cn, "w867-a")["done_when"] == "merged on main"
-    rpc._h_note(book, {"need": "w867-a", "done_when": ""}, "unit", ASKER)
+    rpc._card_fields(book, {"need": "w867-a", "done_when": ""}, "unit", ASKER)
     assert "done_when" not in _read(cn, "w867-a")
 
 

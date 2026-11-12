@@ -932,7 +932,7 @@ def _doing_page(raw: Any) -> int:
     return n
 # #818 PR B: commands whose --doing writes a doing entry on the item they wrote.
 DOING_COMMANDS = frozenset(
-    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "todo", "unpark", "hold", "drop", "score"}
+    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
 )
 
 
@@ -995,7 +995,7 @@ def _doing_item(c: Book, command: str, body: dict[str, Any], out: Any, project: 
     if command == "mark":
         ids = res.get("ids") or []
         return ("mail", int(ids[0])) if ids else None
-    if command in ("open", "claim", "unclaim", "assign", "pass", "note", "todo", "unpark"):
+    if command in ("open", "claim", "unclaim", "assign", "pass", "todo", "unpark"):
         if command == "open" and res.get("id"):
             return ("todo", int(res["id"]))
         from agent_coord.server.records import todo as rec_todo
@@ -2993,10 +2993,9 @@ def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return read_glance(c._cn)
 
 
-_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started", "progress")
+_CARD_FIELDS_WITH_DONE_WHEN = ("eta", "started", "progress")
 # Card 1125: card text changes only through mill replace-body. mill todo ROSTER NEED
 # may set progress, eta, started, or done-when. It does not append a line.
-_NOTE_TEXT = "note: card text changes only through mill replace-body todo ID TEXT; nothing changed"
 _PROGRESS_TEXT = (
     "todo: --progress takes a short token: 9/12, 75%%, done, or git <sha>; got %r. "
     "Longer text is card text: mill replace-body todo ID TEXT. Nothing changed"
@@ -3010,14 +3009,10 @@ def _has_card_field(body: dict[str, Any]) -> bool:
 
 def _card_fields(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """mill todo ROSTER NEED --eta / --started / --progress / --done-when (card 1125): only those fields reach the card."""
-    keep = {k: body[k] for k in ("need", "eta", "started", "progress", "done_when") if k in body}
-    return _h_note(c, keep, project, owner)
-
-
-def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import todo as rec_todo
 
-    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
+    body = {k: body[k] for k in ("need", "eta", "started", "progress", "done_when") if k in body}
+    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _CARD_FIELDS_WITH_DONE_WHEN):
         # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
         raise CoordError("todo: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed")
     need = slug(str(body.get("need") or ""))
@@ -3029,9 +3024,6 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
     payload = fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]}
     before = dict(payload)
-    note_s = str(body.get("note") or body.get("detail") or "").strip()
-    if "supersedes" in body or body.get("replace") or note_s or str(body.get("text") or "").strip():
-        raise CoordError(_NOTE_TEXT)
     # Card 1125: --progress takes only a token (9/12, 75%, done, git <sha>);
     # any other text is card text and is refused, nothing changed.
     prog_text = str(body.get("progress") or "").strip()
@@ -3076,15 +3068,16 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     }
     if kept.get("progress"):
         rec["progress"] = kept["progress"]
-    # #360: the room left on this card, so the cap shows before a note hits it.
+    # #360: the room left on this card, so the cap shows before a write hits it.
     rec["detail_left"] = rec_todo.budget_left(payload if changed else before)
     for k in ("eta_at", "started_at"):
         if payload.get(k):
             rec[k] = payload[k]
     if changed:
-        # A note that changes nothing does not wake watchers.
+        # A write that changes nothing does not wake watchers.
         _poke(c, "todo", tid, "note", owner=owner)
     return rec
+
 
 
 def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -4503,7 +4496,6 @@ HANDLERS = {
     "unclaim": _h_yield,
     "pass": _h_pass,
     "glance": _h_glance,
-    "note": _h_note,
     "hold": _h_hold,
     "drop": _h_drop,
     "score": _h_score,

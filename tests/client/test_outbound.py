@@ -32,7 +32,6 @@ def test_skill_md_commands():
         "claim",
         "assign",
         "unclaim",
-        "note",
         "pass",
         "todo",
         "send",
@@ -43,8 +42,10 @@ def test_skill_md_commands():
         "label-add",
         "member-add",
         "score",
+        "replace-body",
     ):
         assert v in COMMANDS
+    assert "note" not in COMMANDS
 
 
 def test_old_command_names_are_not_rewritten():

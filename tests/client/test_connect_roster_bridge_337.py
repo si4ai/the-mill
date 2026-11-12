@@ -28,7 +28,7 @@ def test_explicit_roster_is_left_alone(roster):
     assert ws_cli.with_connect_roster("send", args) == args
 
 
-@pytest.mark.parametrize("command", ["inbox", "todo", "note", "mark", "hold"])
+@pytest.mark.parametrize("command", ["inbox", "todo", "claim", "mark", "hold"])
 def test_other_commands_are_left_alone(command):
     assert ws_cli.with_connect_roster(command, {"project": "x"}) == {"project": "x"}
 

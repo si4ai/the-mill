@@ -59,7 +59,7 @@ def _open_claim(cn, need, asker="a955", vol="v955", roster="unit"):
 def test_claim_started_pass_done_fill_hour_and_day(cn):
     book, asker, vol = _open_claim(cn, "kpi-955-a")
     rpc._h_claim(book, {"need": "kpi-955-a", "eta": "2h"}, "unit", vol)
-    rpc._h_note(book, {"need": "kpi-955-a", "started": True}, "unit", vol)
+    rpc._card_fields(book, {"need": "kpi-955-a", "started": True}, "unit", vol)
     assert rpc._h_pass(book, {"need": "kpi-955-a"}, "unit", vol)["status"] == "shipped"
     assert rpc._h_pass(book, {"need": "kpi-955-a", "step": "done"}, "unit", asker)["status"] == "done"
 
@@ -132,7 +132,7 @@ def test_score_failure_never_blocks_claim(cn):
 def test_mill_score_cards_shows_guards(cn):
     book, asker, vol = _open_claim(cn, "kpi-955-read")
     rpc._h_claim(book, {"need": "kpi-955-read", "eta": "90m"}, "unit", vol)
-    rpc._h_note(book, {"need": "kpi-955-read", "started": True}, "unit", vol)
+    rpc._card_fields(book, {"need": "kpi-955-read", "started": True}, "unit", vol)
     rpc._h_pass(book, {"need": "kpi-955-read"}, "unit", vol)
     rpc._h_pass(book, {"need": "kpi-955-read", "step": "done"}, "unit", asker)
     shaped = rpc._h_score(book, {"name": "cards"}, "unit", vol)

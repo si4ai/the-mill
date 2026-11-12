@@ -241,7 +241,7 @@ def test_claim_note_pass_history_is_one_activity_row(cn) -> None:
     """#185: activity's key is (type, id), so claim, note, and pass keep one row (no n column)."""
     tid = _card(cn, FIX, "pd_me", "pd-history")
     todo.update(cn, tid, "pd_me", status="claimed", volunteer="pd_me")
-    rpc._h_note(_Book(cn), {"need": "pd-history", "started": True}, FIX, "pd_me")
+    rpc._card_fields(_Book(cn), {"need": "pd-history", "started": True}, FIX, "pd_me")
     todo.update(cn, tid, "pd_me", status="shipped")
     todo.update(cn, tid, "pd_me", status="done")
     assert scalar(cn, "SELECT status FROM todo WHERE id=%s", (tid,)) == "done"

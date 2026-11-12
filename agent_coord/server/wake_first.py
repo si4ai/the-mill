@@ -21,7 +21,6 @@ DAY_ONE_OK_COMMANDS = frozenset(
         "claim",
         "assign",
         "unclaim",
-        "note",
         "pass",
         "send",
         "reply",

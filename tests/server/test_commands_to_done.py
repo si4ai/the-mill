@@ -25,7 +25,7 @@ def test_book_commands_to_done_kpi_formula() -> None:
     assert KPI_COMMANDS_TO_DONE == "mill-office.verbs_to_done"
 
 
-def test_claim_to_done_excludes_note_spam(monkeypatch) -> None:
+def test_claim_to_done_counts_card_moves(monkeypatch) -> None:
     lines: list[str] = []
 
     def fake_perf(op: str, ms: float, **kv):
@@ -39,13 +39,11 @@ def test_claim_to_done_excludes_note_spam(monkeypatch) -> None:
     vtd.note_card(desk, "claim", {"ok": True, "need_id": need, "id": 42, "status": "claimed"})
     snap = vtd.session_snapshot(need)
     assert snap and snap["verbs"] == 1 and snap["notes"] == 0
-    # note spam: notes++ only
+    # a retired note command is not a card verb and does not increment notes
     vtd.note_card(desk, "note", {"need_id": need, "id": 42, "detail": "a"})
-    vtd.note_card(desk, "note", {"need_id": need, "id": 42, "detail": "b"})
-    vtd.note_card(desk, "note", {"need_id": need, "id": 42, "detail": "c"})
     snap = vtd.session_snapshot(need)
     assert snap["verbs"] == 1
-    assert snap["notes"] == 3
+    assert snap["notes"] == 0
     # pass claimed -> shipped counts
     vtd.note_card(desk, "pass", {"ok": True, "need": need, "status": "shipped", "id": 42})
     snap = vtd.session_snapshot(need)
@@ -56,7 +54,7 @@ def test_claim_to_done_excludes_note_spam(monkeypatch) -> None:
     assert len(lines) == 1
     assert "op=card.verbs_to_done" in lines[0]
     assert "verbs=3" in lines[0]  # claim + pass shipped + pass done
-    assert "notes=3" in lines[0]
+    assert "notes=0" in lines[0]
     assert "card=42" in lines[0]
     assert "need=floor-v1-parts" in lines[0]
     assert "desk=DESK_builder" in lines[0]
@@ -72,7 +70,6 @@ def test_unclaim_clears_without_stamp(monkeypatch) -> None:
     desk = "DESK_agent"
     need = "aws-56"
     vtd.note_card(desk, "claim", {"ok": True, "need_id": need, "id": 56, "status": "claimed"})
-    vtd.note_card(desk, "note", {"need_id": need, "id": 56, "detail": "wip"})
     vtd.note_card(desk, "unclaim", {"ok": True, "need": need, "status": "open"})
     assert lines == []
     assert vtd.session_snapshot(need) is None

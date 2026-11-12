@@ -1,4 +1,4 @@
-"""Card text no longer changes through note or --supersedes (card 1125). Regression row F45."""
+"""Card text no longer changes through a retired note command (card 1125). Regression row F45."""
 from __future__ import annotations
 
 import json
@@ -6,11 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
 
 DETAIL = "Steps:\n1. connect desk old-pilot\n2. read the inbox"
-REFUSED = "mill replace-body"
 
 
 @pytest.fixture
@@ -37,34 +35,8 @@ def _detail(state):
     return json.loads(state["body"])["detail"]
 
 
-def _note(body, who="asker-desk"):
-    return rpc._h_note(MagicMock(), dict(need="c333", **body), "cold-test", who)
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        {"note": "later"},
-        {"text": "a diary line"},
-        {"supersedes": "Steps:", "note": "Steps v2"},
-        {"supersedes": "", "note": "x"},
-        {"note": "only-this", "replace": True},
-    ],
-)
-def test_card_text_is_refused_and_nothing_is_written(card, body):
-    secret = "ghp_" + "A" * 36
-    sent = dict(body)
-    if "supersedes" in sent and sent["supersedes"]:
-        sent["supersedes"] = secret
-    with pytest.raises(CoordError, match=REFUSED) as ei:
-        _note(sent)
-    assert secret not in str(ei.value)
-    assert card["writes"] == 0
-    assert _detail(card) == DETAIL
-
-
 def test_progress_still_writes_and_leaves_the_detail(card):
-    r = _note({"progress": "9/12"})
+    r = rpc._card_fields(MagicMock(), dict(need="c333", progress="9/12"), "cold-test", "asker-desk")
     assert r["progress"] == "9/12"
     assert _detail(card) == DETAIL
     assert card["writes"] == 1

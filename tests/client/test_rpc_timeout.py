@@ -42,7 +42,7 @@ def test_retry_id_is_reused_then_cleared(monkeypatch, tmp_path):
     assert ws_cli.load_retry_id("send", args) == ""
     ws_cli.save_retry_id("send", args, "same-id")
     assert ws_cli.load_retry_id("send", args) == "same-id"
-    assert ws_cli.load_retry_id("note", args) == ""
+    assert ws_cli.load_retry_id("todo", args) == ""
     ws_cli.clear_retry_id("send", args)
     assert ws_cli.load_retry_id("send", args) == ""
 

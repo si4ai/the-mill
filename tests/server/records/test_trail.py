@@ -59,10 +59,10 @@ def _branch(cn):
     )
     for need in (a_need, b_need):
         rpc._h_claim(book, {"need": need}, "unit", "tester")
-    rpc._h_note(book, {"need": a_need, "started": True}, "unit", "tester")
+    rpc._card_fields(book, {"need": a_need, "started": True}, "unit", "tester")
     rpc._h_pass(book, {"need": a_need}, "unit", "tester")  # claimed -> shipped (volunteer)
     rpc._h_pass(book, {"need": a_need, "step": "done"}, "unit", "asker")  # shipped -> done (asker, agent-ux 1213)
-    rpc._h_note(book, {"need": b_need, "started": True}, "unit", "tester")
+    rpc._card_fields(book, {"need": b_need, "started": True}, "unit", "tester")
     rpc._h_pass(book, {"need": b_need}, "unit", "tester")
     return {"book": book, "room": room, "rid": rid, "fid": fid, "a": a_id, "b": b_id, "deep": int(deep["id"])}
 
