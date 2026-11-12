@@ -9,7 +9,6 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | Effect | Who |
 |---|---|
 | invite door keys (mint + enable + revoke joins) | **Admin** |
-| invite-seat / mint_seat (one agent URL) | trust-gated: high = human badge or Admin; limited = Admin only |
 | rename, retire, reclaim, reset | **Admin** (desk self-rename where hash matches still applies) |
 | `Admin` grant/revoke | **host loopback only**. `mill add roster Admin OTHER`. `mill join --Admin` does **not** grant. connect-on-host does **not** grant. |
 | set trust (`mill trust high` / `mill trust limited`) | **Admin** |
@@ -25,12 +24,13 @@ Seed (immutable): project `Office` (id=1), `Admin` (id=2). Never retire these.
 | member-add/remove **self** (ordinary project or role) | any desk | any desk |
 | **assign** (staff a desk onto a todo; not claim/hold) | any desk, only if card has **no** assignee | **Admin** only, still only if unassigned |
 | drop another desk's stale hold (holder not connected and held hold_stale_days+ days, default 7) | any seated desk | **Admin** only |
+| replace-body (replace a card or letter body; the old text is kept in history) | any seated desk | the item's creator (letter sender, card asker) or **Admin** only |
 
 Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / relinquish first.
 
 ## 3. Any desk (either trust)
 
-- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, note, pass (each takes `--doing`)
+- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, pass (each takes `--doing`)
 - label-add / label-remove, watcher, tree
 - score / score-add / kpi / dashboard
 - `mill trust` (show current office trust; set is Admin - sec 1)

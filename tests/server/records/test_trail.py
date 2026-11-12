@@ -39,13 +39,13 @@ def _branch(cn):
     tag = uuid.uuid4().hex[:6]
     a = rpc._h_open(
         book,
-        {"need": f"f{fid}-rerun-{tag}", "detail": "rerun the command", "parent_type": "mail", "parent_id": fid},
+        {"need": f"f{fid}-rerun-{tag}", "detail": "dead-end: same error after rerun", "parent_type": "mail", "parent_id": fid},
         "unit",
         "asker",
     )
     b = rpc._h_open(
         book,
-        {"need": f"f{fid}-same-launcher-{tag}", "detail": "same launcher", "parent_type": "mail", "parent_id": fid},
+        {"need": f"f{fid}-same-launcher-{tag}", "detail": "solved: same launcher both sides, exit 0", "parent_type": "mail", "parent_id": fid},
         "unit",
         "asker",
     )
@@ -59,10 +59,10 @@ def _branch(cn):
     )
     for need in (a_need, b_need):
         rpc._h_claim(book, {"need": need}, "unit", "tester")
-    rpc._h_note(book, {"need": a_need, "note": "dead-end: same error after rerun"}, "unit", "tester")
+    rpc._card_fields(book, {"need": a_need, "started": True}, "unit", "tester")
     rpc._h_pass(book, {"need": a_need}, "unit", "tester")  # claimed -> shipped (volunteer)
     rpc._h_pass(book, {"need": a_need, "step": "done"}, "unit", "asker")  # shipped -> done (asker, agent-ux 1213)
-    rpc._h_note(book, {"need": b_need, "note": "solved: same launcher both sides, exit 0"}, "unit", "tester")
+    rpc._card_fields(book, {"need": b_need, "started": True}, "unit", "tester")
     rpc._h_pass(book, {"need": b_need}, "unit", "tester")
     return {"book": book, "room": room, "rid": rid, "fid": fid, "a": a_id, "b": b_id, "deep": int(deep["id"])}
 

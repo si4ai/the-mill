@@ -33,12 +33,6 @@ def insert(
     )
 
 
-def update(cn, mail_id: int, desk: str, dst: str | None = None, body: str | None = None) -> list[dict]:
-    from agent_coord.server.records.name import bare
-
-    return call(cn, "mill_mail_update", [mail_id, bare(desk, CONST_DESK), dst or "", body])
-
-
 def delete(cn, mail_id: int, desk: str) -> list[dict]:
     from agent_coord.server.records.name import bare
 
@@ -135,6 +129,7 @@ def list_rosters(cn, names: list[str]) -> list[tuple[str, dict]]:
         cur.execute(
             "SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,"
             " m.roster_id AS sender_roster_id, m.roster_id AS roster_id, m.body,"
+            " m.body_updated, bun.name AS body_updater,"
             " srcn.name AS desk, srcn.type AS desk_type,"
             " affn.name AS roster, affn.type AS roster_type,"
             " affn.name AS sender_roster, affn.type AS sender_roster_type,"
@@ -148,6 +143,7 @@ def list_rosters(cn, names: list[str]) -> list[tuple[str, dict]]:
             " LEFT JOIN name srcn ON srcn.id = m.desk_id"
             " LEFT JOIN name dstn ON dstn.id = t.desk_id"
             " LEFT JOIN name affn ON affn.id = m.roster_id"
+            " LEFT JOIN name bun ON bun.id = m.body_updater_id"
             " GROUP BY m.type, m.id"
             " ORDER BY m.id DESC",
             (*ids, LIST_ROSTER_MAX),
@@ -337,11 +333,12 @@ def letters_by_id(cn, mail_ids: list[int]) -> dict[int, dict]:
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT m.id, m.created, m.body, srcn.name AS desk,"
-            " saffn.name AS sender_roster"
+            "SELECT m.id, m.created, m.body, m.body_updated, srcn.name AS desk,"
+            " saffn.name AS sender_roster, bun.name AS body_updater"
             " FROM mail m"
             " LEFT JOIN name srcn ON srcn.id = m.desk_id"
             " LEFT JOIN name saffn ON saffn.id = m.roster_id"
+            " LEFT JOIN name bun ON bun.id = m.body_updater_id"
             " WHERE m.type = 'mail' AND m.id IN (" + marks + ")",
             tuple(ids),
         )
@@ -633,6 +630,16 @@ def public_mail(
         out["body_trunc"] = True
         out["body_chars"] = body_chars
         out["read"] = f"mill mail-thread {mid}"
+    if row.get("body_updated") not in (None, ""):
+        from agent_coord.client.body_read import stamp_text
+
+        when = stamp_text(row.get("body_updated"))
+        if when:
+            out["body_updated"] = when
+            who = str(row.get("body_updater") or "").strip()
+            if who:
+                out["body_updater"] = who
+                out["edited"] = f"edited by {who} at {when}"
     if crumbs:
         for k in ("tree", "root_id", "root_type", "parent_id", "parent_type"):
             if k in crumbs and crumbs[k] is not None and crumbs[k] != "":

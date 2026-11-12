@@ -231,7 +231,6 @@ def _cli_commands(root: Path) -> set[str]:
         "reply",
         "todo",
         "claim",
-        "note",
         "pass",
         "hold",
         "drop",

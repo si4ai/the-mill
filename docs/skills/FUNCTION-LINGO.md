@@ -38,7 +38,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 |---|---|
 | PR / change | todo (implement) + hold on tree |
 | review / approve | mail handoff; optional second desk claim |
-| merge / ship | note progress; done after Pass/pack gate |
+| merge / ship | `todo ROSTER NEED --eta E`; done after Pass/pack gate |
 | RC / release | pack cut; Validator remasure Last |
 | hotfix | urgent todo + ops handoff |
 
@@ -77,10 +77,10 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | page / alert | wake / mail |
 | incident | todo claim |
 | SEV | detail + priority in doing |
-| mitigate | note + done when impact stopped |
+| mitigate | replace-body + done when impact stopped |
 | escalate | mail eng/support |
 | postmortem | follow-on todo or parked plan |
-| drain / deploy window | drain + mail ETA |
+| drain / deploy window | drain + `todo ROSTER NEED --eta E` + mail |
 
 ---
 
@@ -98,7 +98,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | queue | open todos for support desk |
 | assign / own | claim |
 | escalate | mill send eng/ops |
-| workaround | note on card |
+| workaround | replace-body on card |
 | resolve / close | done when user unblocked **or** bug owned elsewhere |
 | SLA | a row in the score table (`value` vs `target`) |
 
@@ -115,7 +115,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 | Their word | Mill-ish |
 |---|---|
 | opportunity | todo (or plan row for big deals) |
-| next step | progress / note |
+| next step | `todo ROSTER NEED --eta E` |
 | handoff | mail + assign |
 | blocked | waiting_on |
 | close-won | done; mail CS onboarding todo |
@@ -151,7 +151,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 |---|---|
 | req | plan or parent todo |
 | interview loop | child todos per interviewer |
-| debrief | mail thread / note |
+| debrief | mail thread / replace-body |
 | offer | `--receipt` gate |
 | onboarding | checklist todos; claim per owner |
 
@@ -203,7 +203,7 @@ Sources (public glossaries): GitHub/PR & release terms; ISTQB testing glossary; 
 |---|---|
 | brief | todo deliverable path |
 | challenge | mail / second desk |
-| decision | note + optional plan park |
+| decision | replace-body + optional plan park |
 | park | plan upcoming / parked |
 
 ---

@@ -29,7 +29,7 @@ A function may have **more than one** product. List each separately with its own
 
 ## Required sources for lingo->mill
 1. **`docs/skills/FUNCTION-LINGO.md`** - apply that function's industry phrases
-2. **`docs/protocol/skill.md`** - day-one commands only (`create todo`, claim, assign, unclaim, note, send, inbox, hold/drop, pass, ...)
+2. **`docs/protocol/skill.md`** - day-one commands only (`create todo`, claim, assign, unclaim, replace-body, send, inbox, hold/drop, pass, ...)
 3. Existing stub / siblings
 
 Do **not** invent mill CLI commands. Reject `open` / `yield` / teaching `done` / bare `create`.

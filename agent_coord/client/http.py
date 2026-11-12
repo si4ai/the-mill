@@ -759,10 +759,9 @@ def mill_http_from_args(args: Any) -> int:
     page_block: dict | None = None
     from agent_coord.client import mail_rows
 
-    # #295 follow-ups: inbox, mail-thread --room and the note reply.
+    # #295 follow-ups: inbox and mail-thread --room.
     inbox_short = mail_rows.inbox_applies(args)
     room_short = mail_rows.room_applies(args)
-    note_short = mail_rows.note_applies(args)
     from agent_coord.client import rooms_rows
 
     rooms_short = rooms_rows.applies(args)
@@ -771,8 +770,12 @@ def mill_http_from_args(args: Any) -> int:
     rooms_block: dict | None = None
     # Lock: never let argv --owner rewrite session active / Bearer.
     body = body_from_args(args)
+    from agent_coord.client import body_read
+
+    body_read.prepare_replace(body)
     mine = todo_rows.mine_applies(args)
     row = _todo_call(args, body)
+    body_read.remember(str(body.get("sender_desk") or body.get("owner") or ""), args, row)
     if mine and isinstance(row, dict) and row.get("ok") is True:
         # #373: only the sitting desk's cards, before --find and paging cut the list.
         from agent_coord.client import focus as _focus
@@ -836,8 +839,6 @@ def mill_http_from_args(args: Any) -> int:
         row = dict(row, result=mail_rows.short_room(dict(row["result"], chain=part)))
         row["page"] = mail_block
         mail_block = None
-    if note_short and isinstance(row, dict) and row.get("ok") is True:
-        row = dict(row, result=mail_rows.short_note(row.get("result")))
     if (
         rooms_digest
         and isinstance(row, dict)

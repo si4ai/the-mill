@@ -26,12 +26,12 @@ not second day-one products. Postmortem = follow-on or parked todo, not the
 primary artifact.
 
 ## Inputs
-On the desk **before** mitigate/deploy/drain (else `note` gap + `send` / `waiting_on`):
+On the desk **before** mitigate/deploy/drain (else `replace-body` gap + `send` / `waiting_on`):
 - **Signal** - page/alert/health fail / deploy or drain ask (`inbox` / wake / mail)
 - **Impact scope** - service, SEV/priority, blast radius (todo `detail` / `doing`)
 - **Owner** - on-call HERE; `claim` / `assign`
-- **Mitigation path** - runbook/rollback/drain steps (pointer in detail/`note`; SoR stays outside)
-- When deploy: change/artifact id (link forge/CI). When drain: ETA for `note`/`send`.
+- **Mitigation path** - runbook/rollback/drain steps (pointer in detail/`replace-body`; SoR stays outside)
+- When deploy: change/artifact id (link forge/CI). When drain: ETA via `todo <roster> <need> --eta E` and `send`.
 
 Not inputs: vague "keep the lights on," silent prod change with no card when
 office requires one, reconnect spam as a plan.
@@ -42,20 +42,21 @@ office requires one, reconnect spam as a plan.
 | on-call / HERE | presence (who's on the floor) |
 | page / alert | wake / `send` + `inbox` |
 | incident / health fail | `create todo` then `claim` / `assign` |
-| SEV / severity / triage | todo `detail` / `doing` + `note` |
+| SEV / severity / triage | todo `detail` / `doing` + `replace-body` |
 | IC / take ownership | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| mitigate / progress | `note` (diary; not mail) |
-| stakeholder comms | `send` (+ `note` on card) |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
+| mitigate / diary | `replace-body` (not mail) |
+| stakeholder comms | `send` (+ `replace-body` on card) |
 | escalate | `send` eng/support (optional eng `create todo`) |
 | follow-the-sun | `assign` / `unclaim` + `send` next desk |
-| deploy / rollback | same spine: `claim` -> `note` -> `pass`; forge/CI SoR |
-| drain / deploy window | `note`/`send` ETA + office drain path; `pass` when clear |
-| blocked (eng/human/window) | waiting_on + `send` / `note` |
+| deploy / rollback | same spine: `claim` -> `todo <roster> <need> --eta E` -> `pass`; forge/CI SoR |
+| drain / deploy window | `todo <roster> <need> --eta E` + `send` ETA + office drain path; `pass` when clear |
+| blocked (eng/human/window) | waiting_on + `send` |
 | postmortem | follow-on `create todo` or `{status:"parked"}` |
 | SLO / uptime KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | exclusive config/runbook file | `hold` / `drop` (rare) |
-| close incident / stable | `pass` after mitigate + note/comms |
+| close incident / stable | `pass` after mitigate + `send` / `replace-body` comms |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 
 ## Handoffs

@@ -47,7 +47,7 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 
 | Input | Required? | Mill fulfillment |
 |---|---|---|
-| Decision ask (what decide / by when / who decides) | **Yes** | `create todo` need+detail; if missing -> `note` gap + mill `send` asker / `waiting_on` |
+| Decision ask (what decide / by when / who decides) | **Yes** | `create todo` need+detail; if missing -> `replace-body` gap + mill `send` asker / `waiting_on` |
 | Audience / decide desk | Yes | detail + later `send` |
 | Scope bounds (in/out, competitors, time window) | Strong | detail |
 | Source hints / prior briefs | Optional | detail URLs; SoR stays outside mill |
@@ -55,16 +55,16 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 
 ### Done looks like (this product)
 
-- Brief **path** on card (`note` / detail).
+- Brief **path** on card (`replace-body` / detail).
 - Asker (or decide desk) **mailed** (`send`) with path + the ask restated.
 - Card **`pass`** when brief is decision-ready **or** clean **`waiting_on`** (SME/source/human) **or** **`parked`** (deferred ask - no fake done).
-- Decision *outcome* is **not** required for research Done - asker notes decide / park; research may `note` the decision if told, then `pass` if still open.
+- Decision *outcome* is **not** required for research Done - asker notes decide / park; research may `replace-body` the decision if told, then `pass` if still open.
 
 ---
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
 **Do not teach:** `open`, `yield`, bare `create`, `done` as speech.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `unpark` exists on mill-desk but is not in the day-one teaching list above - mention only if human says unpark; do not invent.
 
@@ -76,14 +76,14 @@ Shared spine (one table for the function):
 | park / file for later | mill-desk; stub "park" | create todo parked, plan upcoming | **`create todo` `{status:"parked"}`** | reject stub "plan upcoming / parked" - not a mill command |
 | take / draft brief | stub | claim, assign | **`claim`** (+ `assign` if given) | - |
 | drop claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
-| progress / path / diary | stub "note path"; mill-desk | note | **`note`** | note != mail |
-| synthesize / revise findings | stub | note, detail update | **`note`** (path + deltas) | no new command |
+| progress / path / diary | stub "replace-body path"; mill-desk | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
+| synthesize / revise findings | stub | replace-body, detail update | **`replace-body`** (path + deltas) | no new command |
 | challenge / peer review | stub | send, claim steal | **`send`** | handoff != steal; reviewer claims own card or replies mail |
 | need eyes / escalate | README pattern | send | **`send`** | escalate always = send to specialized desk |
-| blocked on SME / source / access | README waiting_on | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake `pass` |
+| blocked on SME / source / access | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | check mail / review ask landed | mill-desk; qa inbox pattern | inbox | **`inbox`** | - |
 | deliver brief / ready to decide | industry "ends in ask"; mill pass | pass, send | **`send`** asker + **`pass`** | stub conflated deliver with "decide" - split |
-| decide / record decision | stub | note, pass | **`note`** decision (asker or research if told) | research does not invent a decide command; optional `pass` if card still open |
+| decide / record decision | stub | replace-body, pass | **`replace-body`** decision (asker or research if told) | research does not invent a decide command; optional `pass` if card still open |
 | exclusive edit of shared brief file | eng hold pattern | hold / drop | **`hold` / `drop`** | rare; only if office uses resource lease on brief path |
 | throughput / brief SLA | README score clusters | score | **`score`** optional | research not in README score row cluster - teach thin or omit day-one unless office sets KPI |
 | unpark / reopen | mill-desk | unpark | *(not day-one teach)* | if human says it, mill-desk covers; don't put in office map unless needed |
@@ -113,7 +113,7 @@ Pattern borrow: support "escalate = send + eng todo + waiting_on"; eng/qa Handof
 
 - Bypass mill-desk HINT routing.
 - Invent mill commands for analyst slang (no `brief`, `synthesize`, `decide` CLI).
-- Replace domain SoR: source repos, Drive/wikis, CI databases, CRM, ticketing - **link in detail/note**, don't clone.
+- Replace domain SoR: source repos, Drive/wikis, CI databases, CRM, ticketing - **link in detail**, don't clone.
 - Confuse brief delivery with **eng ship** or **QA Pass**.
 - Endless research with no `pass` / `waiting_on` / `parked` path.
 - Treat marketing creative "brief" or eng design doc as this product.
@@ -153,7 +153,7 @@ Pattern borrow: support "escalate = send + eng todo + waiting_on"; eng/qa Handof
 | `docs/skills/office-research/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-qa|support|engineering|ops/SKILL.md` | Handoff / inbox / waiting_on / must-not patterns |
 | `docs/skills/office-sales|marketing/SKILL.md` | waiting_on + score; "brief" noun collision (marketing) |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; park = create todo parked; note!=mail; drop!=unclaim |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; park = create todo parked; replace-body!=mail; drop!=unclaim |
 | `docs/protocol/improve.md` | Decide -> one create todo; parked pile anti-pattern |
 | `/workspace/mill-docs/MILL-OFFICE-SKILL-SCOUT.md` | Scout loop: research book -> TEMPLATE brief -> gardener |
 | `/workspace/mill-docs/MILL-PROMPT-GARDENER.md` | Gardener owns SKILL patch; no invent commands |
@@ -226,7 +226,7 @@ Pull **mill-desk** first. One card, then STOP.
 Competitive/market *asks* use this same product (mode in detail), not a second product.
 
 ## Inputs
-- Decision ask (what / by when / who decides) - if missing: `note` + `send` asker / `waiting_on`
+- Decision ask (what / by when / who decides) - if missing: `replace-body` + `send` asker / `waiting_on`
 - Audience / decide desk; scope bounds; optional source hints
 
 ## Lingo -> mill
@@ -236,13 +236,13 @@ Competitive/market *asks* use this same product (mode in detail), not a second p
 | park / later | `create todo` `{status:"parked"}` |
 | take / draft | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / brief path | `note` (path in note/detail) |
-| synthesize / revise | `note` |
+| progress / brief path | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; the brief path is card text (`replace-body`) |
+| synthesize / revise | `replace-body` |
 | challenge / review | mill `send` |
-| blocked (SME/source) | `waiting_on` + `send` / `note` |
+| blocked (SME/source) | `waiting_on` + `send` |
 | check asks / review mail | `inbox` |
 | deliver brief | `send` asker + `pass` |
-| record decision | `note` (asker; research if told) |
+| record decision | `replace-body` (asker; research if told) |
 | exclusive brief file | `hold` / `drop` (rare) |
 | throughput KPI | `score` (only if office sets it) |
 
@@ -259,7 +259,7 @@ Competitive/market *asks* use this same product (mode in detail), not a second p
 
 ## Must-not
 - Bypass mill-desk HINT routing.
-- Replace source/wiki/CRM/Drive SoR - link in detail/note.
+- Replace source/wiki/CRM/Drive SoR - link in detail.
 - Invent mill commands for analyst slang.
 - Confuse brief delivery with eng ship or QA Pass.
 - Endless research without `pass` / `waiting_on` / `parked`.
@@ -267,7 +267,7 @@ Competitive/market *asks* use this same product (mode in detail), not a second p
 
 ## Done looks like
 - Brief path on card; decide desk mailed; card `pass`ed (decision-ready) or clean `waiting_on` or `parked`.
-- Decision outcome optional on card (`note`) - not required for research Done.
+- Decision outcome optional on card (`replace-body`) - not required for research Done.
 ```
 
 ## FUNCTION-LINGO gap-check (2026-09-20, mill 0.4.10)
@@ -278,19 +278,19 @@ Preflight: README, TEMPLATE, `docs/skills/FUNCTION-LINGO.md`, protocol/skill.md 
 
 Product words: brief, findings, decision record, recommendation.  
 Collab words: review, challenge, synthesize, decide, park.  
-Sketch map: brief->todo deliverable path; challenge->mail/second desk; decision->note + optional plan park; park->plan upcoming / parked.
+Sketch map: brief->todo deliverable path; challenge->mail/second desk; decision->card text (replace-body) + optional plan park; park->plan upcoming / parked.
 
 ### Filter vs prior harvest (sources already in book)
 
 | FL item | Prior RESEARCH/SKILL | Delta if FL filter ON |
 |---|---|---|
 | Product noun **brief** | Kept as **Decision brief** | **None** - aligned |
-| **findings** / **recommendation** as product words | Collapsed to sections inside Decision brief (not SKILL products) | **None on product count** - FL lists artifact nouns, not separate mill products. Stub mush came from treating them as peers; FL+TEMPLATE still want one Product. Add **lingo rows** only (findings->note/brief section; recommendation->brief section) |
-| **decision record** | Mapped decide->`note` (asker); not research Done | **Wording only** - name "decision record" in lingo as asker `note` (ADR-style if office uses it). Still not a research Product |
+| **findings** / **recommendation** as product words | Collapsed to sections inside Decision brief (not SKILL products) | **None on product count** - FL lists artifact nouns, not separate mill products. Stub mush came from treating them as peers; FL+TEMPLATE still want one Product. Add **lingo rows** only (findings->card text/brief section; recommendation->brief section) |
+| **decision record** | Mapped decide->`replace-body` (asker); not research Done | **Wording only** - name "decision record" in lingo as asker `replace-body` (ADR-style if office uses it). Still not a research Product |
 | **challenge** / **review** | `send` | **None** - aligned (review = same collab intent) |
-| **synthesize** | `note` | **None** - FL lists collab word, no separate mill sketch; our fill stands |
+| **synthesize** | `replace-body` | **None** - FL lists collab word, no separate mill sketch; our fill stands |
 | **park** -> "plan upcoming / parked" | `create todo` `{status:parked}`; rejected "plan upcoming" as command | **Keep our map** - FL sketch is looser; mill-desk day-one wins. Document reject of FL's "plan upcoming" phrasing as CLI |
-| **decide** | `note` (not a decide command) | **None** |
+| **decide** | `replace-body` (not a decide command) | **None** |
 | waiting_on / inbox / unclaim / assign / hold / pass+send deliver | Harvested from mill-desk + siblings; **absent from FL research sketch** | **No retract** - FL is floor not ceiling. Keep expansions |
 | score | Optional / omit day-one | **None** - FL research section has no score row |
 
@@ -311,9 +311,9 @@ If patching: add to Lingo table only:
 
 | Their word | Mill |
 |---|---|
-| findings | brief section / `note` |
+| findings | brief section / `replace-body` |
 | recommendation | brief section (not a separate card product) |
-| decision record | `note` (asker; research if told) |
+| decision record | `replace-body` (asker; research if told) |
 | review | `send` (same as challenge) |
 
 No full redo. No product change.

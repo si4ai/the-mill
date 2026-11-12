@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_coord.server.api.mill import rpc
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,30 +29,31 @@ def test_card_with_progress_shows_it_and_has_no_title():
     assert card["progress"] == "9/12"
 
 
-def test_note_reply_leaves_out_empty_progress(monkeypatch):
+def test_progress_reply_leaves_the_detail_and_shows_the_token(monkeypatch):
     import json
     from unittest.mock import MagicMock
 
-    body = {"b": json.dumps({"slug": "c330", "doing": "", "detail": "seed"})}
+    stored = {"b": json.dumps({"slug": "c330", "doing": "", "detail": "seed"})}
     monkeypatch.setattr(
-        "agent_coord.server.records.todo.find", lambda cn, p, n: {"id": 330, "body": body["b"]}
+        "agent_coord.server.records.todo.find", lambda cn, p, n: {"id": 330, "body": stored["b"]}
     )
 
-    monkeypatch.setattr(
-        "agent_coord.server.records.todo.update", lambda cn, tid, desk, **kw: [{"id": tid}]
-    )
+    def upd(cn, tid, desk, body=None, **kw):
+        if body is not None:
+            stored["b"] = body
+        return [{"id": tid}]
+
+    monkeypatch.setattr("agent_coord.server.records.todo.update", upd)
     monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
-    r = rpc._h_note(MagicMock(), {"need": "c330", "note": "first note"}, "cold-test", "w1")
-    assert r["detail"] == "seed\nfirst note"
-    assert "progress" not in r
-    r2 = rpc._h_note(MagicMock(), {"need": "c330", "text": "75%"}, "cold-test", "w1")
+    r2 = rpc._card_fields(MagicMock(), {"need": "c330", "progress": "75%"}, "cold-test", "w1")
+    assert r2["detail"] == "seed"
     assert r2["progress"] == "75%"
 
 
-def test_help_says_where_a_note_goes():
+def test_help_says_where_card_fields_and_text_go():
     row = next(
         ln for ln in (ROOT / "docs/protocol/cli-desk.md").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("| `note` |")
+        if ln.startswith("| `todo` (card fields) |")
     )
-    assert "detail" in row
-    assert "peer reads" in row
+    assert "replace-body" in row
+    assert "--eta" in row and "--started" in row and "--progress" in row and "--done-when" in row

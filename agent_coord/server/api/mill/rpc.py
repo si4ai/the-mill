@@ -509,6 +509,19 @@ def _todo_card(r: dict, project_label: str, st: str, fields: dict) -> dict:
     # out, so no field in the reply is always empty. #818: cards have no title.
     if not card["progress"]:
         del card["progress"]
+    from agent_coord.client.body_read import stamp_text
+
+    updated = stamp_text(r.get("body_updated"))
+    created = stamp_text(r.get("created"))
+    if updated:
+        card["body_updated"] = updated
+        who = str(r.get("body_updater") or "").strip()
+        if who:
+            card["body_updater"] = who
+            card["edited"] = f"edited by {who} at {updated}"
+        card["body_stamp"] = updated
+    elif created:
+        card["body_stamp"] = created
     return card
 
 
@@ -565,6 +578,11 @@ def _h_todo(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     from agent_coord.server.records import todo as rec_todo
 
     raw_need = str(body.get("need") or body.get("need_id") or "").strip()
+    if _has_card_field(body):
+        # Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when.
+        if not raw_need:
+            raise CoordError("todo: --eta, --started, --progress and --done-when need ROSTER NEED; nothing changed")
+        return _card_fields(c, body, project, owner)
     want = slug(raw_need) if raw_need else ""
     # agent-ux 1215: honor --status and --done like the CLI help says.
     # --status X lists only X; --done adds done cards; default hides done.
@@ -914,7 +932,7 @@ def _doing_page(raw: Any) -> int:
     return n
 # #818 PR B: commands whose --doing writes a doing entry on the item they wrote.
 DOING_COMMANDS = frozenset(
-    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score"}
+    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
 )
 
 
@@ -923,6 +941,9 @@ def _doing_text(command: str, body: dict[str, Any]) -> str:
     A --waiting-on (#822) is checked here too, so a bad one runs nothing."""
     raw = body.get("doing") if command in DOING_COMMANDS else None
     text = " ".join(str(raw).replace("\x00", "").split()) if raw is not None else ""
+    if command == "todo" and text and not _has_card_field(body):
+        # Card 1125: a doing rides only a card-field write, never a board read.
+        raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
     if len(text) > 512:
         raise CoordError(f"{command}: --doing must be 1..512 characters; nothing stored")
     _doing_waiting(command, body, text)
@@ -974,7 +995,7 @@ def _doing_item(c: Book, command: str, body: dict[str, Any], out: Any, project: 
     if command == "mark":
         ids = res.get("ids") or []
         return ("mail", int(ids[0])) if ids else None
-    if command in ("open", "claim", "unclaim", "assign", "pass", "note", "unpark"):
+    if command in ("open", "claim", "unclaim", "assign", "pass", "todo", "unpark"):
         if command == "open" and res.get("id"):
             return ("todo", int(res["id"]))
         from agent_coord.server.records import todo as rec_todo
@@ -1312,12 +1333,11 @@ def _todo_rename_one(c: Book, body: dict[str, Any], project: str, owner: str | N
     ask = _desk_slug(c._cn, hit, "asker", "creator")
     if not who or (who != ask and not is_role_admin(c._cn, who)):
         hint = (
-            f"who-may: rename todo is the asker ({ask}) or Admin; "
-            f"ask them, or mill note {project} {need} --note TEXT"
+            f"who-may: rename todo is the asker ({ask}) or Admin; ask them"
             if ask
             else (
                 "who-may: rename todo is the asker or Admin; the card's asker does not resolve, "
-                f"so only Admin may; mill note {project} {need} --note TEXT"
+                "so only Admin may"
             )
         )
         raise CoordError(hint)
@@ -2043,7 +2063,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             raise CoordError(
                 "reply: --to-desk names only you, and a reply never goes to its sender; "
                 f"post to the room with mill reply {mail_id} --body-file PATH (reply-all), "
-                "name another desk with --to-desk DESK, or keep a private line with mill note on a card"
+                "name another desk with --to-desk DESK, or keep a private line with mill replace-body todo ID TEXT"
             )
         if skipped:
             raise CoordError(
@@ -2722,7 +2742,7 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         # Card 775: create never rewrites a card. It used to reset status and detail.
         tid = int(hit["id"])
         status = rec_todo.normalize_status(str(hit.get("status") or ""), default="open")
-        forms = f"add a line with mill note {project} {need} --note TEXT"
+        forms = f"change the card text with mill replace-body todo {tid} TEXT"
         if parent_t and parent_id:
             forms += f"; put it under the parent with mill attach {project} {parent_t} {parent_id} todo {tid}"
         raise CoordError(
@@ -2973,15 +2993,28 @@ def _h_glance(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return read_glance(c._cn)
 
 
-_NOTE_WITH_DONE_WHEN = ("text", "note", "detail", "supersedes", "eta", "started")
+_CARD_FIELDS_WITH_DONE_WHEN = ("eta", "started", "progress")
+# Card 1125: card text changes only through mill replace-body. mill todo ROSTER NEED
+# may set progress, eta, started, or done-when. It does not append a line.
+_PROGRESS_TEXT = (
+    "todo: --progress takes a short token: 9/12, 75%%, done, or git <sha>; got %r. "
+    "Longer text is card text: mill replace-body todo ID TEXT. Nothing changed"
+)
 
 
-def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+def _has_card_field(body: dict[str, Any]) -> bool:
+    """Card 1125: this todo call writes the card's own fields, not a board read."""
+    return "done_when" in body or any(body.get(k) for k in ("eta", "started", "progress"))
+
+
+def _card_fields(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """mill todo ROSTER NEED --eta / --started / --progress / --done-when (card 1125): only those fields reach the card."""
     from agent_coord.server.records import todo as rec_todo
 
-    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN):
+    body = {k: body[k] for k in ("need", "eta", "started", "progress", "done_when") if k in body}
+    if "done_when" in body and any(body.get(k) not in (None, "", False) for k in _CARD_FIELDS_WITH_DONE_WHEN):
         # Card 866: the done-when path writes only the done-when; refuse rather than drop the rest.
-        raise CoordError("note: --done-when goes alone; send the note in its own mill note. Nothing changed")
+        raise CoordError("todo: --done-when goes alone; send it by itself. Card text: mill replace-body todo ID TEXT. Nothing changed")
     need = slug(str(body.get("need") or ""))
     hit = rec_todo.find(c._cn, project, need)
     if hit is None:
@@ -2991,42 +3024,17 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     fields = rec_todo.unpack(hit.get("body") or "", hit.get("id"))
     payload = fields["payload"] or {"slug": fields["need_id"], "detail": fields["detail"]}
     before = dict(payload)
-    note_s = str(body.get("note") or body.get("detail") or "").strip()
-    # #102: positional text. A progress token (9/12, 75%, done, git <sha>) is
-    # progress; anything else (incl. an @file body) is diary like --note.
-    text_s = str(body.get("text") or "").strip()
-    prog_text = ""
-    if text_s:
-        if rec_todo.is_progress_token(text_s):
-            prog_text = text_s
-        else:
-            note_s = (note_s + "\n" + text_s) if note_s else text_s
-
-    supersedes = str(body.get("supersedes") or "").strip()
-    if "supersedes" in body and not supersedes:
-        # A blank OLD_LINE must not fall through to a plain note.
-        raise CoordError("note: --supersedes needs the old line; copy it from mill todo")
-    if supersedes and not note_s:
-        raise CoordError("note: --supersedes needs the new text (--note TEXT)")
+    # Card 1125: --progress takes only a token (9/12, 75%, done, git <sha>);
+    # any other text is card text and is refused, nothing changed.
+    prog_text = str(body.get("progress") or "").strip()
+    if prog_text and not rec_todo.is_progress_token(prog_text):
+        raise CoordError(_PROGRESS_TEXT % prog_text[:64])
     eta_raw = str(body.get("eta") or "").strip()
     started = bool(body.get("started"))
-    if not (note_s or prog_text or eta_raw or started):
+    if not (prog_text or eta_raw or started):
         raise CoordError(
-            "note: nothing to write (give text such as 9/12 or 75%, @file, --note, --eta, or --started)"
+            "todo: nothing to write (give --eta, --started, --progress or --done-when)"
         )
-    if body.get("replace"):
-        # #539: notes are append-only; an overwrite would skip the history F45 keeps.
-        raise CoordError(
-            "note: notes append; there is no replace (to correct a line: mill note PROJECT NEED --supersedes OLD_LINE --note NEW)"
-        )
-    if supersedes:
-        payload["detail"] = _supersede_line(
-            c, hit, project, owner, str(payload.get("detail") or ""), supersedes, note_s
-        )
-    elif note_s:
-        # The card's whole stored body is the bound, checked once below (#360).
-        prev = str(payload.get("detail") or "")
-        payload["detail"] = note_s if not prev.strip() else prev + "\n" + note_s
     progress = rec_todo.format_progress(prog_text)
     if progress:
         payload["progress"] = progress
@@ -3034,7 +3042,7 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
         try:
             eta_at = rec_todo.parse_eta(eta_raw)
         except ValueError as e:
-            raise CoordError(f"note: {e}") from e
+            raise CoordError(f"todo: {e}") from e
         if eta_at is not None:
             payload["eta_at"] = eta_at.isoformat(sep=" ", timespec="seconds")
     if started:
@@ -3060,50 +3068,16 @@ def _h_note(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     }
     if kept.get("progress"):
         rec["progress"] = kept["progress"]
-    # #360: the room left on this card, so the cap shows before a note hits it.
+    # #360: the room left on this card, so the cap shows before a write hits it.
     rec["detail_left"] = rec_todo.budget_left(payload if changed else before)
-    if supersedes:
-        rec["superseded"] = supersedes
     for k in ("eta_at", "started_at"):
         if payload.get(k):
             rec[k] = payload[k]
     if changed:
-        # A note that changes nothing does not wake watchers.
+        # A write that changes nothing does not wake watchers.
         _poke(c, "todo", tid, "note", owner=owner)
     return rec
 
-
-SUPERSEDED = "[superseded] "
-
-
-def _supersede_line(
-    c: Book, hit: dict, project: str, owner: str | None, detail: str, old: str, new: str
-) -> str:
-    """note --supersedes (#333): the matching detail line stays, marked, with the new text under it.
-
-    Append-only: nothing is deleted. Asker or Admin. One exact whole-line match
-    (spaces at the ends ignored); none or several is refused before any write.
-    """
-    from agent_coord.server.admin.guard import is_role_admin
-
-    who = _stored(owner or "")
-    ask = _desk_slug(c._cn, hit, "asker", "creator")
-    if who != ask and not is_role_admin(c._cn, owner or ""):
-        raise CoordError("note: --supersedes is for the asker (%s) or Admin" % (ask or "unknown"))
-    if old.startswith(SUPERSEDED.strip()):
-        raise CoordError("note: that line is already superseded; quote the line that replaced it")
-    lines = detail.split("\n")
-    hits = [i for i, ln in enumerate(lines) if ln.strip() == old]
-    # The errors never echo OLD_LINE: it is not a redacted key and could hold a secret.
-    if not hits:
-        raise CoordError("note: no detail line matches --supersedes exactly; copy the whole line from mill todo")
-    if len(hits) > 1:
-        raise CoordError("note: %d detail lines match --supersedes; nothing changed" % len(hits))
-    i = hits[0]
-    # Ends are ignored only to match; the kept line is the original, unchanged.
-    lines[i : i + 1] = [SUPERSEDED + lines[i], new]
-    # The card's stored column is the bound, checked once in _h_note (#360).
-    return "\n".join(lines)
 
 
 def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -4405,6 +4379,87 @@ def _h_tw_reconcile(c: Book, body: dict[str, Any], project: str, owner: str | No
     return run() if in_request_tx(c._cn) else request_tx(c._cn, run)
 
 
+def _body_duplicate(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if getattr(cur, "errno", None) == 1062 or "Duplicate entry" in str(cur):
+            return True
+        cur = cur.__cause__
+    return False
+
+
+def _todo_roster_name(cn, item_id: int) -> str:
+    try:
+        from agent_coord.server.records.db import scalar
+
+        name = scalar(
+            cn,
+            "SELECT n.name FROM todo t JOIN name n ON n.id = t.roster_id WHERE t.id = %s",
+            (int(item_id),),
+        )
+    except Exception:
+        return ""
+    return str(name or "").strip()
+
+
+def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Replace one letter or card body, or list its old text (card 1125).
+
+    The text write is mill_body_replace. A duplicate key on the history stamp
+    is body:stale plus the reread command. The unchanged sentence is the
+    office's own words.
+    """
+    from agent_coord.client.body_read import map_refusal, never_read, stale_line
+    from agent_coord.server.records import body as rec_body
+
+    kind = str(body.get("type") or "")
+    if kind not in ("mail", "todo"):
+        raise CoordError("body:type")
+    try:
+        item_id = int(body.get("id") or 0)
+    except (TypeError, ValueError):
+        item_id = 0
+    if item_id < 1:
+        raise CoordError("body:no_such_item")
+    if body.get("history"):
+        order = str(body.get("order") or "newest")
+        try:
+            return rec_body.history(c._cn, kind, item_id, order)
+        except CoordError:
+            raise
+        except Exception as exc:
+            msg = _sql_refusal(exc)
+            if msg is None:
+                raise
+            raise CoordError(msg) from exc
+    text = body.get("body")
+    if text is None or text == "":
+        raise CoordError("body:no_text")
+    if not owner:
+        raise CoordError("body:no_desk")
+    expected = body.get("expected")
+    if expected in (None, ""):
+        raise CoordError(never_read(kind, item_id))
+    roster = ""
+    try:
+        row = rec_body.replace(c._cn, kind, item_id, owner, str(text), expected)
+    except CoordError:
+        raise
+    except Exception as exc:
+        if kind == "todo":
+            roster = _todo_roster_name(c._cn, item_id) or str(project or "")
+        if _body_duplicate(exc):
+            raise CoordError(stale_line(kind, item_id, roster)) from exc
+        msg = _sql_refusal(exc)
+        if msg is None:
+            raise
+        raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+    _poke(c, kind, item_id, "replace-body", owner=owner)
+    return row
+
+
 # Sitting-session hops that are not skill.md WALL verbs (card 970).
 SESSION_HOPS = frozenset({"tw.event", "tw.reconcile"})
 
@@ -4441,7 +4496,6 @@ HANDLERS = {
     "unclaim": _h_yield,
     "pass": _h_pass,
     "glance": _h_glance,
-    "note": _h_note,
     "hold": _h_hold,
     "drop": _h_drop,
     "score": _h_score,
@@ -4455,6 +4509,7 @@ HANDLERS = {
     "invite-seat": _h_invite_seat,
     "trust": _h_trust,
     "trail": _h_trail,
+    "replace-body": _h_replace_body,
     "probe-delete": _h_probe_delete,
     "tw.event": _h_tw_event,
     "tw.reconcile": _h_tw_reconcile,

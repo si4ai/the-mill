@@ -21,7 +21,6 @@ COMMANDS = frozenset(
         "claim",
         "assign",
         "unclaim",
-        "note",
         "pass",
         "todo",
         "send",
@@ -43,6 +42,7 @@ COMMANDS = frozenset(
         "score",
         "trail",
         "wake-done",
+        "replace-body",
     }
 )
 
@@ -90,7 +90,7 @@ _STR = (
     "type_a",
     "type_b",
     "note",
-    "supersedes",
+
     "eta",
     "msg",
     "resource",
@@ -195,6 +195,29 @@ def resolve_send_body(raw: str) -> str:
     return s
 
 
+def read_replace_body(path: str) -> str:
+    """UTF-8 text for replace-body. A leading BOM is stripped. Interior spaces and a trailing newline stay."""
+    from pathlib import Path
+
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.protocol.mail import MAIL_BODY_MAX
+
+    p = Path(str(path or "")).expanduser()
+    try:
+        s = p.read_text(encoding="utf-8")
+    except OSError as e:
+        raise CoordError(f"body-file: not found: {p}") from e
+    except UnicodeDecodeError as e:
+        raise CoordError(f"body-file: not UTF-8: {p}") from e
+    if s.startswith("\ufeff"):
+        s = s[1:]
+    if s == "":
+        raise CoordError("body:no_text")
+    if len(s) > MAIL_BODY_MAX:
+        raise CoordError(f"body must be 1..{MAIL_BODY_MAX} chars")
+    return s
+
+
 def resolve_body_file(path: str, what: str = "body") -> str:
     """UTF-8 text from --body-file / --detail-file PATH. Same limits as resolve_send_body."""
     from pathlib import Path
@@ -215,35 +238,10 @@ def resolve_body_file(path: str, what: str = "body") -> str:
     return s
 
 
-def _note_text(raw: Any) -> str:
-    """note text: '@path' reads a UTF-8 file, '-' reads stdin, else inline."""
-    s = "" if raw is None else str(raw)
-    if s == "-" or (s.startswith("@") and len(s) > 1):
-        return resolve_send_body(s)
-    return s.strip()
-
-
-def _note_fields(args: Any, body: dict[str, Any]) -> None:
-    """mill note: send the positional text, @file, --note, --eta, --started (#102).
-
-    Progress is the positional token (9/12, 75%, done, git <sha>).
-    """
-    text = _note_text(getattr(args, "text", ""))
-    if text:
-        body["text"] = text
-    if body.get("note"):
-        body["note"] = _note_text(body["note"])
-    eta = str(getattr(args, "eta", "") or "").strip()
-    if eta:
-        body["eta"] = eta
-    if bool(getattr(args, "started", False)):
-        body["started"] = True
-
-
 # Commands whose project and --doing are checked before the call (#243-#245).
 _PROJECT_GUARD = {"open", "todo", "label-add", "label-remove", "unpark"}
 # #818 PR B: every command that takes --doing (the doing entry links to its item).
-_DOING_GUARD = {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score"}
+_DOING_GUARD = {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
 DOING_MAX = 512
 
 
@@ -273,9 +271,90 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
             raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
-# Card 866: a done-when note writes only the done-when, so other note fields beside it would be lost.
-_NOTE_WITH_DONE_WHEN = ("text", "note", "supersedes", "eta", "started")
-_DONE_WHEN_ALONE = "note: --done-when goes alone; send the note in its own mill note. Nothing changed"
+# Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when sets the card's own fields.
+_TODO_LIST_FLAGS = ("mine", "find", "page", "group_by", "status", "done", "all", "full")
+
+
+def _todo_card_fields(args: Any, body: dict[str, Any]) -> None:
+    from agent_coord.helpers.errors import CoordError
+
+    eta = str(getattr(args, "eta", "") or "").strip()
+    started = bool(getattr(args, "started", False))
+    progress = str(getattr(args, "progress", "") or "").strip()
+    raw_dw = getattr(args, "done_when", None)
+    if not eta and not started and not progress and raw_dw is None:
+        if str(getattr(args, "doing", "") or "").strip():
+            raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
+        body.pop("eta", None)
+        body.pop("progress", None)
+        return
+    if not str(getattr(args, "project", "") or "").strip() or not str(getattr(args, "need", "") or "").strip():
+        raise CoordError("todo: --eta, --started, --progress and --done-when need ROSTER NEED; nothing changed")
+    if any(getattr(args, k, None) not in (None, "", False, 0) for k in _TODO_LIST_FLAGS):
+        raise CoordError(
+            "todo: --eta, --started, --progress and --done-when change one card; drop the list flags. Nothing changed"
+        )
+    if raw_dw is not None:
+        if eta or started or progress:
+            raise CoordError("todo: --done-when goes alone; send it by itself. Nothing changed")
+        dw = str(raw_dw).strip()
+        if len(dw) > 1000:
+            raise CoordError("done-when would be %s chars (max 1000); refused, nothing changed" % len(dw))
+        body["done_when"] = dw
+        return
+    if eta:
+        body["eta"] = eta
+    if started:
+        body["started"] = True
+    if progress:
+        body["progress"] = progress
+
+
+def _replace_body_fields(args: Any, body: dict[str, Any]) -> None:
+    """mill replace-body mail|todo ID (TEXT | --body-file), or --history.
+
+    The office compares the text as stored, so this does not strip spaces.
+    The roster is not sent: the id is the item.
+    """
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.protocol.mail import MAIL_BODY_MAX
+
+    kind = str(getattr(args, "kind", "") or "")
+    if kind not in ("mail", "todo"):
+        raise CoordError("body:type")
+    body["type"] = kind
+    if int(body.get("id") or 0) < 1:
+        raise CoordError("body:no_such_item")
+    text = getattr(args, "text", None)
+    body_file = str(getattr(args, "body_file", "") or "").strip()
+    has_text = text is not None
+    if bool(getattr(args, "history", False)):
+        if has_text or body_file:
+            raise CoordError("replace-body: --history reads the old text; it takes no new text")
+        order = str(getattr(args, "order", "") or "newest")
+        if order not in ("newest", "oldest"):
+            raise CoordError("body:order: order is newest or oldest")
+        body["history"] = True
+        body["order"] = order
+        body.pop("body", None)
+        body.pop("project", None)
+        return
+    if has_text and body_file:
+        raise CoordError("replace-body: pass the text or --body-file, not both")
+    if not has_text and not body_file:
+        raise CoordError("replace-body: pass the text or --body-file")
+    if body_file:
+        raw = read_replace_body(body_file)
+    else:
+        raw = str(text)
+        if raw.startswith("\ufeff"):
+            raw = raw[1:]
+        if raw == "":
+            raise CoordError("body:no_text")
+        if len(raw) > MAIL_BODY_MAX:
+            raise CoordError(f"body must be 1..{MAIL_BODY_MAX} chars")
+    body["body"] = raw
+    body.pop("project", None)
 
 
 def body_from_args(args: Any) -> dict[str, Any]:
@@ -309,12 +388,6 @@ def body_from_args(args: Any) -> dict[str, Any]:
     need = str(getattr(args, "need", "") or getattr(args, "need_id", "") or "")
     if need:
         body["need"] = need
-    # #333: a blank OLD_LINE would fall through to a plain note .
-    sup = getattr(args, "supersedes", None)
-    if sup is not None and not str(sup).strip():
-        from agent_coord.helpers.errors import CoordError
-
-        raise CoordError("note: --supersedes needs the old line; copy it from mill todo")
     for key in _STR:
         if key == "need":
             continue
@@ -365,21 +438,16 @@ def body_from_args(args: Any) -> dict[str, Any]:
                     "pass: evidence would be %s chars (max 2000); refused, nothing changed" % len(ev)
                 )
             body["evidence"] = ev
-    if command in ("open", "note"):
+    if command == "open":
         raw_dw = getattr(args, "done_when", None)
         if raw_dw is not None:
             dw = str(raw_dw).strip()
             if len(dw) > 1000:
-                tail = "nothing stored" if command == "open" else "nothing changed"
-                raise CoordError(
-                    "done-when would be %s chars (max 1000); refused, %s" % (len(dw), tail)
-                )
-            if command == "note" or dw:
+                raise CoordError("done-when would be %s chars (max 1000); refused, nothing stored" % len(dw))
+            if dw:
                 body["done_when"] = dw
-            if command == "note" and any(
-                getattr(args, k, None) not in (None, "", False) for k in _NOTE_WITH_DONE_WHEN
-            ):
-                raise CoordError(_DONE_WHEN_ALONE)
+    if command == "todo":
+        _todo_card_fields(args, body)
     if command == "glance":
         body.pop("project", None)
     if bool(getattr(args, "yes", False)):
@@ -523,8 +591,6 @@ def body_from_args(args: Any) -> dict[str, Any]:
         body["dead"] = True
     if command == "score" and bool(getattr(args, "retire_score", False)):
         body["retire"] = True
-    if command == "note":
-        _note_fields(args, body)
     if command == "label-add" and hasattr(args, "ord") and getattr(args, "ord") is not None:
         from agent_coord.helpers.label_ord import parse_label_ord
 
@@ -546,6 +612,8 @@ def body_from_args(args: Any) -> dict[str, Any]:
         level = str(getattr(args, "level", "") or "").strip()
         if level:
             body["level"] = level
+    if command == "replace-body":
+        _replace_body_fields(args, body)
     if command == "invite":
         seat = str(getattr(args, "seat", "") or "").strip()
         if seat:

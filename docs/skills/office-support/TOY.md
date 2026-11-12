@@ -11,7 +11,7 @@
 "User says login is broken."
 
 **Expected:**
-1. Spot Inputs gap -> `note` and/or `send` asker / waiting_on - **do not** produce the product yet
+1. Spot Inputs gap -> `replace-body` and/or `send` asker / waiting_on - **do not** produce the product yet
 2. After toy fill (below), run day-one spine for this product
 3. `pass` / waiting_on / parked as skill Done says - **STOP**
 
@@ -26,7 +26,7 @@
 **Human says:**  
 "Ticket: user cannot login to Wall (LAN). Reporter: host desk. Forge: https://example.invalid/issues/1. Classify request vs bug; workaround or eng todo."
 
-**Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
+**Expected:** Inputs enough -> `create todo` / `claim` / `send` as skill map -> product Done -> **STOP**.
 
 **Fail if:** pass with no ball location; skip forge URL; invent escalate CLI
 

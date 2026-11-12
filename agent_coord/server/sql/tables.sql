@@ -36,16 +36,16 @@
 -- Indexes (owner rule): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared here and
 -- named idx_*, so MySQL creates no index for an FK. seat rows are written only by the minting procedure.
 -- Name lifecycle (docs/requirements/admin.md sections 1, 2, 4; rows F60, F65, F92, F135), in beta_sp.sql sp_name_*:
---   mint     a desk mints itself at connect; a roster, role or label (first-use label too) is minted by any seated
---            desk under high trust and only by Admin under limited trust; a plan (tree) or resource by any desk.
---   rename   a plain UPDATE of name.name; related records follow through the id. Admin at either trust; a desk
+--   mint     a desk mints itself at connect; a roster, role or label (first-use label too) is trust-gated (rights:
+--            admin.md section 2); a plan (tree) or resource by any desk.
+--   rename   a plain UPDATE of name.name; related records follow through the id. Rights: admin.md section 1; a desk
 --            may rename itself when its seat hash matches. No hold on a renamed-away name, for any type (names
 --            are agents', not humans'): the old string is free for a new mint at once.
 --   seeds    System (id 0, type desk) is the mill itself for automatic transitions; Office (id 1) and Admin
 --            (id 2) are never retired or reclaimed; Admin is never renamed in any case- or accent-insensitive
 --            spelling; Office may be renamed by Admin, everything follows id 1, and no other roster is renamed
 --            onto Office. Guards read ids 0, 1 and 2, never the strings.
---   retire   deletion is hard to do: Admin only, soft (name.deleted); name_no_delete refuses DELETE (as on main).
+--   retire   deletion is hard to do (rights: admin.md section 1), soft (name.deleted); name_no_delete refuses DELETE (as on main).
 --            UNIQUE (type, name) stays held while retired, so reuse is an Admin reclaim that restores the same id,
 --            refused while a live seat is that desk or a member of that name. Retiring a desk clears its seat token
 --            and webhook and frees its holds in the same call (F65, F135).

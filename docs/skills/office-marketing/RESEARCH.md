@@ -31,10 +31,10 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Candidate | Verdict | Why |
 |---|---|---|
 | **Launch / campaign** | **KEEP** | Catalog = Launch / publish. FL product words: campaign, launch, publish. Stub: live campaign or published asset. Dual outcome on one spine (campaign go-live **or** asset published) - like sales Close-won / handoff. |
-| Published asset as separate product | **DROP** (day-one) | Same close path as launch (`pass` + optional Wall). Asset work = claim/note (+ rare hold) **inside** the campaign/launch card. Revisit if office runs standing creative desk vs launch desk. |
+| Published asset as separate product | **DROP** (day-one) | Same close path as launch (`pass` + optional Wall). Asset work = claim/replace-body (+ rare hold) **inside** the campaign/launch card. Revisit if office runs standing creative desk vs launch desk. |
 | Brief as product | **DROP** | FL mill sketch: brief -> todo **detail**. Input/raw material, not the shippable artifact. |
 | Creative asset (alone) as product | **DROP** (day-one) | FL product *word*; collab step under launch. DAM/CMS holds the binary - mill does not. |
-| Channel / calendar as product | **DROP** | Channel is detail/note; calendar is motion/planning - not mill artifact. |
+| Channel / calendar as product | **DROP** | Channel is detail; calendar is motion/planning - not mill artifact. |
 | KPI / analytics dashboard as product | **DROP** | FL: KPI -> score row. README score row cluster "marketing (KPI)". Analytics SoR outside mill. |
 | CMS / DAM as mill product | **DROP** | Stub Must-not: "Treat mill as DAM/CMS." README domain SoR. |
 | Brand book / guidelines DB as product | **DROP** | Policy input; brand approve = human_required mail gate (README human_required cluster: marketing brand approve). |
@@ -57,7 +57,7 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 |---|---|---|
 | Brief / ask (what to launch or publish) | **Yes** | todo `detail` (FL: brief -> todo detail) |
 | Campaign or asset identity (name, CMS/DAM id or URL) | **Yes** | detail link - don't clone CMS |
-| Channel / audience / date (or embargo) | Strong | detail + `note`; embargo -> waiting_on |
+| Channel / audience / date (or embargo) | Strong | detail + `replace-body`; embargo -> waiting_on |
 | Review / approve path (who must greenlight; brand?) | Strong | `send`; human_required if policy (FL + README) |
 | KPI name / target (reach, conversion, ...) | When office tracks | `score` / score row (FL: KPI -> score row) |
 | Handoff dest (sales enablement, support FAQ, eng for landing) | When handoff | `send` + optional `assign` / `create todo` |
@@ -75,7 +75,7 @@ Not inputs: "grow reach," replace CMS uploads, replace analytics dashboards, inv
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `unpark` exists but is not day-one teach unless human says it.
 
@@ -86,21 +86,21 @@ Shared spine (one table for the function) - **every row cites FL**:
 | Their word | Source (FL cite) | Candidate commands | Chosen day-one | Reject / notes |
 |---|---|---|---|---|
 | brief | FL Marketing product words; FL mill sketch "todo detail" | create todo, open | **`create todo`** + detail | reject `open`; brief != product |
-| creative / asset | FL Marketing product words; stub | claim, hold, note | **`claim`** + **`note`**; **`hold`/`drop`** if exclusive write on shared asset station | CMS/DAM = SoR for binary; don't invent `upload` |
+| creative / asset | FL Marketing product words; stub | claim, hold, replace-body | **`claim`** + **`replace-body`**; **`hold`/`drop`** if exclusive write on shared asset station | CMS/DAM = SoR for binary; don't invent `upload` |
 | campaign | FL Marketing product words; README Launch / publish | create todo | **`create todo`** (campaign id/URL in detail) | not a second product noun beyond Launch / campaign |
 | launch | FL Marketing product words; FL mill sketch "done + optional wall" | pass, done | **`pass`** (+ optional Wall glance) | reject teaching `done`; mill-desk: ship/pass/close -> `pass` |
 | publish | FL Marketing product words; FL mill sketch "done + optional wall"; stub | pass | **`pass`** | same close path as launch; CMS publish outside mill |
-| channel | FL Marketing product words | note, detail | **`note`** / detail | not a mill command; not a product |
+| channel | FL Marketing product words | replace-body, detail | **`replace-body`** / detail | not a mill command; not a product |
 | KPI (reach/conversion) | FL Marketing product words; FL mill sketch "score row"; README score row cluster | score | **`score`** | analytics SoR outside; score = last vs target glance |
 | review cycle | FL Marketing collab words | send, claim | **`send`** (+ second desk `claim` if needed) | not invent `review` CLI |
 | approval / approve | FL Marketing collab; FL mill sketch "mail; human_required if needed"; README human_required marketing brand | send | **`send`**; **human_required** if brand/policy | reject inventing `approve` command |
-| embargo | FL Marketing collab; stub | waiting_on | **`waiting_on`** + `note`/`send` | don't fake pass |
+| embargo | FL Marketing collab; stub | waiting_on | **`waiting_on`** + `send` | don't fake pass |
 | handoff to sales/support | FL Marketing collab; README escalate = send | send, assign | **`send` + `assign`** | same pattern as sales handoff |
 | own / take the launch | mill-desk claim; stub creative claim | claim, assign | **`claim`** / **`assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | find work / mail landed | mill-desk mail | inbox | **`inbox`** | - |
 | ping / tell reviewer or next owner | mill-desk send; README "Need eyes" | send | **`send`** | dest=desk/role, not email To:human |
-| progress / diary on card | mill-desk note | note | **`note`** | note != mail |
+| progress / diary on card | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | exclusive edit shared creative | stub "hold if exclusive"; TEMPLATE hold | hold, drop | **`hold`** / **`drop`** when office leases asset station | README: hold rare - teach only for exclusive creative write, not day-one chatter |
 | park / file for later | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject bare `create` / `open` |
 | Wall glance after launch | FL mill sketch "optional wall glance" | - (wall) | optional Wall - not a write command | wall = human glance (FL legend) |
@@ -122,7 +122,7 @@ Shared spine (one table for the function) - **every row cites FL**:
 | **office-research** | Insights brief feeding campaign ask - `send` / consume research brief as input |
 | **Asker / brand human** | Missing brief, approve gate, or embargo lift - `send` / human_required / `waiting_on` |
 
-Pattern: escalate always = mill `send` (README). CMS publish and analytics updates happen **in CMS/analytics**, then `note` the fact on the mill card. Brand approve = human_required mail, not a new command.
+Pattern: escalate always = mill `send` (README). CMS publish and analytics updates happen **in CMS/analytics**, then `replace-body` the fact on the mill card. Brand approve = human_required mail, not a new command.
 
 ---
 
@@ -154,7 +154,7 @@ Pattern: escalate always = mill `send` (README). CMS publish and analytics updat
 
 ## Scope note
 
-- **In:** Launch/campaign collab on a mill office - create/claim/note/send/pass spine; review/approve mail; embargo waiting_on; brand human_required; KPI via `score`; rare hold on shared creative station; handoffs to sales/support/legal/finance/eng.
+- **In:** Launch/campaign collab on a mill office - create/claim/replace-body/send/pass spine; review/approve mail; embargo waiting_on; brand human_required; KPI via `score`; rare hold on shared creative station; handoffs to sales/support/legal/finance/eng.
 - **Out:** CMS/DAM content store, analytics warehouses, sales close-won product, support resolve, legal clear/hold-as-product, finance paid, eng ship, QA Pass/Fail evidence.
 - **Day-one:** single dual product (campaign launch **or** asset publish); brief/creative/channel/KPI/embargo/review = inputs, steps, gates, or score - not second SKILL products.
 - Adapter stays thin - pull mill-desk first; one card, then STOP.
@@ -168,14 +168,14 @@ Pattern: escalate always = mill `send` (README). CMS publish and analytics updat
 
 | Source | Used for |
 |---|---|
-| `docs/skills/README.md` | Catalog **Launch / publish**; spine create todo->claim->note->send->pass; human_required cluster marketing brand approve; score row cluster marketing KPI; escalate = send |
+| `docs/skills/README.md` | Catalog **Launch / publish**; spine create todo->claim->todo --eta->send->pass; human_required cluster marketing brand approve; score row cluster marketing KPI; escalate = send |
 | `docs/skills/TEMPLATE.md` | Required SKILL shape: Product, Inputs, Lingo, Handoffs, Must-not, Done |
 | `docs/skills/FUNCTION-LINGO.md` S **Marketing / content** | **Required** product words (brief, creative asset, campaign, launch, publish, channel, KPI); collab (review cycle, approval, embargo, handoff to sales/support); mill sketch rows |
 | `docs/skills/MILL-OFFICE-SKILL-SCOUT.md` | Loop-1 SoR: RESEARCH + TEMPLATE brief; no SKILL patch; day-one command reject list |
 | `docs/skills/office-marketing/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-sales/SKILL.md` + `RESEARCH.md` | Sibling: handoff <-> marketing; RESEARCH shape; score/waiting_on/inbox/unclaim patterns |
 | `docs/skills/office-support/SKILL.md` | Sibling: escalate = send; SoR outside mill |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
 
 ### Public industry practice (thin)
 
@@ -253,7 +253,7 @@ Brief, creative work, channel, embargo, and KPI are **inputs, steps, gates, or
 score** on this spine - not second day-one products.
 
 ## Inputs
-On the desk **before** you can launch or publish (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can launch or publish (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Brief / ask** - what ships (in todo detail)
 - **Campaign or asset identity** - name + CMS/DAM id or URL (do not clone CMS)
 - **Channel / date** - and embargo if any
@@ -268,15 +268,15 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 |---|---|
 | brief | `create todo` + detail |
 | campaign | `create todo` (CMS/campaign id in detail) |
-| creative / asset work | `claim` + `note` (+ `hold`/`drop` if exclusive asset station) |
+| creative / asset work | `claim` + `replace-body` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / diary | `note` |
+| progress / diary | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send`; human_required if policy |
-| embargo / wait | waiting_on + `note` / `send` |
-| channel | detail / `note` |
+| embargo / wait | waiting_on + `send` |
+| channel | detail / `replace-body` |
 | handoff to sales/support | `send` + `assign` |
 | KPI (reach/conversion) | `score` |
 | publish / launch | `pass` (+ optional Wall glance) |

@@ -22,7 +22,7 @@ Prefer a project for research cards; rare function role; named researcher = `sen
 Findings/recommendation live **inside** the brief, not as separate products. Competitive/market *asks* use this same product (mode in detail) - not a second day-one product.
 
 ## Inputs
-On the desk **before** draft (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** draft (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Decision ask** - what decide / by when / who decides
 - **Audience / decide desk**
 - **Scope bounds** - in/out, time window, competitors if competitive mode
@@ -40,17 +40,17 @@ On the desk **before** draft (else `note` gap + `send` asker / `waiting_on`):
 | park / later | `create todo` `<roster> <need> --status parked` |
 | take / draft | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / brief path | `note` (path in note/detail) |
-| synthesize / revise | `note` |
-| findings | brief section / `note` |
+| progress / brief path | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; the brief path is card text (`replace-body`) |
+| synthesize / revise | `replace-body` |
+| findings | brief section / `replace-body` |
 | recommendation | brief section (not a separate card product) |
-| decision record | `note` (asker; research if told) - not research Done |
+| decision record | `replace-body` (asker; research if told) - not research Done |
 | review | `send` (same as challenge) |
 | challenge / review | `send` |
-| blocked (SME/source) | waiting_on + `send` / `note` |
+| blocked (SME/source) | waiting_on + `send` |
 | check asks / mail | `inbox` |
 | deliver brief | `send` asker + `pass` |
-| record decision | `note` (asker; research if told) - **not** research Done |
+| record decision | `replace-body` (asker; research if told) - **not** research Done |
 | exclusive brief file | `hold` / `drop` `<resource>` (rare) |
 
 ## Handoffs
@@ -67,7 +67,7 @@ On the desk **before** draft (else `note` gap + `send` asker / `waiting_on`):
 
 ## Must-not
 - Bypass mill-desk HINT routing.
-- Replace source/wiki/CRM/Drive SoR - link in detail/note.
+- Replace source/wiki/CRM/Drive SoR - link in detail via `replace-body`.
 - Invent mill commands for analyst slang (`brief`, `synthesize`, `decide`).
 - Confuse brief delivery with eng ship or QA Pass.
 - Endless research without `pass` / waiting_on / parked.
@@ -76,4 +76,4 @@ On the desk **before** draft (else `note` gap + `send` asker / `waiting_on`):
 
 ## Done looks like
 - Brief **path** on card; decide desk **mailed**; card `pass`ed (decision-ready) or clean waiting_on or parked.
-- Decision **outcome** optional (`note` by asker) - **not** required for research Done.
+- Decision **outcome** optional (`replace-body` by asker) - **not** required for research Done.

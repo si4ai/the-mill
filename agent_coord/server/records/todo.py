@@ -85,10 +85,18 @@ def over_budget(before: dict[str, Any], after: dict[str, Any], command: str = "n
         return ""
     left = max(0, budget_left(before))
     need = len(json.dumps(dict(after))) - len(json.dumps(dict(before)))
+    if command == "note":
+        return (
+            "%s: refused, nothing written: this note needs %d characters and the card has %d left "
+            "of its %d (every note on a card shares one budget). Put the long text in a room letter "
+            "(mill reply <mail_id> --body-file PATH) and put just its mail id in the card with "
+            "mill replace-body todo ID TEXT."
+            % (command, need, left, BODY_MAX)
+        )
     return (
         "%s: refused, nothing written: this note needs %d characters and the card has %d left "
         "of its %d (every note on a card shares one budget). Put the long text in a room letter "
-        "(mill reply <mail_id> --body-file PATH) and note just its mail id here."
+        "(mill reply <mail_id> --body-file PATH) and put just its mail id in --msg."
         % (command, need, left, BODY_MAX)
     )
 

@@ -25,10 +25,10 @@ Prefer a project for req/offer/onboard cards; optional recruiting intake role on
    `pass`ed (access, equipment, training, paperwork pointers).
 
 Req / interview loop / debrief are **structure and collab** under Hired, not
-extra products. Interview notes are `note`/`send`. A KPI is a row in the score table (`kpi`, `value`, `target`).
+extra products. Interview notes are `replace-body`/`send`. A KPI is a row in the score table (`kpi`, `value`, `target`).
 
 ## Inputs
-On the desk **before** advance/offer/onboard (else `note` gap + `send` / `waiting_on`):
+On the desk **before** advance/offer/onboard (else `replace-body` gap + `send` / `waiting_on`):
 
 **Hired**
 - **Req identity** - role, ATS/req id, hiring manager (`create todo` parent + `detail` link)
@@ -47,21 +47,21 @@ replace ATS/HRIS, invent recruiting CLI commands.
 | Their word | Mill |
 |---|---|
 | req / requisition | parent `create todo` + `detail` (ATS link) |
-| candidate | `detail` / `note` pointer (minimize PII; ATS SoR) |
+| candidate | `detail` / `replace-body` pointer (minimize PII; ATS SoR) |
 | interview loop | child `create todo` per interviewer + `assign` / `claim` |
-| panel | `assign` panelists + `send` / `note` |
-| debrief | `send` + `note` (note != mail) |
-| interview notes | `note` (+ `send` HM) - not a score row |
+| panel | `assign` panelists + `send` |
+| debrief | `send` + `replace-body` (replace-body != mail) |
+| interview notes | `replace-body` (+ `send` HM) - not a score row |
 | hiring manager / recruiter | `assign` / `claim` / `send` |
-| advance / reject | `note` decision + next `assign` (or park) |
+| advance / reject | `replace-body` decision + next `assign` (or park) |
 | drop the claim | `unclaim` |
-| offer | **`--receipt`** + `send` approver + `note` outcome |
+| offer | **`--receipt`** + `send` approver + `replace-body` outcome |
 | onboarding | checklist `create todo`s + `claim` / `assign` per owner |
-| blocked (approver / candidate / IT / legal) | waiting_on + `send` / `note` |
+| blocked (approver / candidate / IT / legal) | waiting_on + `send` |
 | escalate | `send` legal/finance/IT (optional their `create todo`) |
 | exclusive offer-doc file | `hold` / `drop` (rare; if the office leases a res name) |
 | hiring KPI (optional) | a row in the score table (`kpi`, `value`, `target`) |
-| filled req / hired | `note` outcome + parent `pass`; `send` onboarding kickoff |
+| filled req / hired | `replace-body` outcome + parent `pass`; `send` onboarding kickoff |
 | checklist complete / onboarded | children + parent `pass` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | find people mail | `inbox` |
@@ -83,7 +83,7 @@ replace ATS/HRIS, invent recruiting CLI commands.
 - Skip `--receipt` on offer if office requires it.
 - Invent mill commands for recruiting slang (`offer`, `advance`, `loop`, `debrief` as CLI).
 - Teach `open` / `yield` / bare `create` / `done`.
-- Confuse `drop` (hold) with `unclaim`. A hiring KPI is a score row. Interview notes are `note`.
+- Confuse `drop` (hold) with `unclaim`. A hiring KPI is a score row. Interview notes are `replace-body`.
 - Own legal clearance or finance approval.
 
 ## Done looks like

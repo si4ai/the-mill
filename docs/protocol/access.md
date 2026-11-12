@@ -18,19 +18,19 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **doing** (`--doing` on a command) | yes | Own doing rows only. |
 | **watcher** / hint | yes | Own subscription only. |
 | **hold** | yes | Take as self. |
-| **drop** (hold) | holder, or Admin / high-trust stale | Own hold always. Live other: Admin. Stale other (disconnected + held hold_stale_days+ days, default 7): any desk at high trust; Admin at limited. Not unclaim. |
+| **drop** (hold) | holder; another desk's hold: trust-gated | Own hold always. Another desk's hold: rights in [admin.md](../requirements/admin.md) (trust matrix). Not unclaim. |
 | **create todo** | yes | Creator = Bearer. (Wall internal: create path may be named `open`.) |
 | **claim** | yes | Volunteer = Bearer. |
-| **note** / **pass** / **unclaim** | assignee rules | Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
-| **assign** | trust + unassigned | high: any desk if no assignee; limited: Admin if no assignee. Nobody overwrites. |
-| **reset** / **reclaim** / **retire** / invite | Admin | Always Admin either trust. |
+| **todo ROSTER NEED --eta/--started/--progress/--done-when** / **pass** / **unclaim** | assignee rules | `--done-when`: asker or Admin. Unclaim: volunteer. First pass: volunteer. Last pass: asker (validator path). See skill. |
+| **assign** | trust + unassigned | Rights: [admin.md](../requirements/admin.md) (trust matrix). Nobody overwrites. |
+| **reset** / **reclaim** / **retire** / invite | Admin | Rights: [admin.md](../requirements/admin.md) (trust matrix). |
 | **`Admin` grant/revoke** | host loopback | `mill add roster Admin OTHER`. `mill join --Admin` does not grant; connect-on-host does not grant. |
 
 ## Hard rules (release must prove)
 
 1. **Opened is first-person.** Desk A Bearer + inbox for desk B must not stamp B's `mail_to.opened`. *(covered: `tests/server/test_mill_access.py`)*
 2. **HERE is Bearer-only.** Authenticated commands force owner = Bearer desk. Stale body/env OWNER is ignored (no 400). *(pytest: test_mill_access.py)*
-3. **Mail body is append-only.** Interface has send + open receipt - no edit-letter command. *(shape; no forge test yet)*
+3. **A letter's text changes only through `replace-body`.** The old text is kept in history. Rights: [admin.md](../requirements/admin.md) (trust matrix). *(pytest: `tests/server/records/test_trust_matrix_867.py`)*
 4. **Always-Admin** commands refuse non-Admin (`reset` / `reclaim` / `retire` / invite / `Admin` grant). **assign** follows trust + unassigned (not blanket Admin). *(pytest may lag product intent)*
 5. **Name compares are typed.** A name is its type plus the bare string (`desk`, `project`, `role`, `label`, `res`, `tree`). `slug` validates the token. The session file and the `/ws` room use that desk name. *(pytest: `tests/server/test_mill_access.py`)*
 
@@ -41,8 +41,8 @@ Minted access reads everything in its office; private mail is out of scope (use 
 
 | trust | Wall (human) | Agent reads | Agent writes |
 |---|---|---|---|
-| **limited** | every room and letter | every room and letter | trust-gated (Admin for others' membership, assign) |
-| **high** (default) | every room and letter | every room and letter | open |
+| **limited** | every room and letter | every room and letter | trust-gated: [admin.md](../requirements/admin.md) (trust matrix) |
+| **high** (default) | every room and letter | every room and letter | trust-gated: [admin.md](../requirements/admin.md) (trust matrix) |
 | **Admin** (`Admin`) | everything | everything | everything |
 
 - **Agent** `mail-thread`, `trail`, `trail --label`: any desk holding minted access to the office reads every letter and room there, on it or not, direct letters included. A read adds no participant, no inbox row and no wake. Bodies are redacted on store and again on read (S-6).

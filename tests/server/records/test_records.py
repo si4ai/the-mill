@@ -46,7 +46,11 @@ def test_mail_crud_dests_list_and_presence_n(cn) -> None:
     pr = _presence_row(cn, "mail", mid)
     assert pr is not None
     u1 = pr.get("updated") or pr.get("items")
-    mail.update(cn, mid, "a", body="hello2")
+    from agent_coord.server.records import body as rec_body
+    from agent_coord.server.records.db import call
+
+    got = call(cn, "mill_mail_get", [mid])[0]
+    rec_body.replace(cn, "mail", mid, "a", "hello2", got["body_updated"] or got["created"])
     assert mail.get(cn, mid)[0]["body"] == "hello2"
     pr2 = _presence_row(cn, "mail", mid)
     assert pr2 is not None

@@ -11,7 +11,7 @@
 "Is this OK to ship?"
 
 **Expected:**
-1. Spot Inputs gap -> `note` and/or `send` asker / waiting_on - **do not** produce the product yet
+1. Spot Inputs gap -> `replace-body` and/or `send` asker / waiting_on - **do not** produce the product yet
 2. After toy fill (below), run day-one spine for this product
 3. `pass` / waiting_on / parked as skill Done says - **STOP**
 
@@ -26,7 +26,7 @@
 **Human says:**  
 "Clear ask: publish mill beta blog. Artifact: /docs/announce.md. Decide: host desk `--receipt`. Out: no NDA issues in toy."
 
-**Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
+**Expected:** Inputs enough -> `create todo` / `claim` / `send` as skill map -> product Done -> **STOP**.
 
 **Fail if:** legal hold confused with mill hold; invent clear CLI; clear without `--receipt`
 

@@ -31,11 +31,11 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 |---|---|---|
 | **Resolved ticket** | **KEEP** | Catalog product. FUNCTION-LINGO: ticket / resolution / close. Stub: user unblocked **or** eng/ops owns fix. Align noun to README ("Resolved ticket"); keep "unblocked human / workaround / owned-elsewhere" in body. |
 | Incident (user-impact) as separate product | **DROP** (day-one) | ITIL incident vs service request are **intake modes** of the same ticket spine (FUNCTION-LINGO lists both under product words). Detail/labels distinguish; not a 2nd SKILL product. Major / SEV that needs runtime ownership -> **handoff office-ops**, not a support product fork. |
-| Service request / how-to fulfill as separate product | **DROP** (day-one) | Same ticket spine; fulfillment = answer/`note`/pass. Catalogue workflows stay SoR (Zendesk/ServiceNow/...). |
-| Workaround as product | **DROP** | FUNCTION-LINGO: workaround -> **note** on card. Interim state, not the shippable artifact. |
+| Service request / how-to fulfill as separate product | **DROP** (day-one) | Same ticket spine; fulfillment = answer/`replace-body`/pass. Catalogue workflows stay SoR (Zendesk/ServiceNow/...). |
+| Workaround as product | **DROP** | FUNCTION-LINGO: workaround -> **replace-body** on card. Interim state, not the shippable artifact. |
 | Backlog / queue health as product | **DROP** | Queue = open todos for support desk (FL sketch). Motion/coverage, not product. Presence/inbox fulfill "who's here." |
 | CSAT / survey score as product | **DROP** | FUNCTION-LINGO: CSAT optional. Maps to **score row** if office sets it - KPI, not product. |
-| Knowledge article / KB publish | **DROP** (day-one) | May be a note path or marketing/docs SoR later; not catalog product. Revisit if office ships KB as support artifact. |
+| Knowledge article / KB publish | **DROP** (day-one) | May be a card-text path or marketing/docs SoR later; not catalog product. Revisit if office ships KB as support artifact. |
 | Forge Issue / bug database as mill product | **DROP** | Stub + README: forge Issues stay SoR. Mill links URL in detail; does not clone the bug DB. |
 
 **Kept products (day-one): 1 - Resolved ticket.**
@@ -56,14 +56,14 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Reporter / user channel (who to unblock; reply path) | **Yes** | detail; later `send` / human_required Wall if human must click |
 | Priority signal (impactxurgency) when known | Strong | detail (not a mill priority command); optional score row watch |
 | Classification: incident vs service request vs bug | Strong | detail / label; bug -> `label-add ... bug` + forge link |
-| Known workaround / answer crumbs | Optional | `note` as found |
-| Eng/ops ownership crumbs when escalating | When escalate | eng/ops todo id in `note` + `waiting_on`; forge stays SoR |
+| Known workaround / answer crumbs | Optional | `replace-body` as found |
+| Eng/ops ownership crumbs when escalating | When escalate | eng/ops todo id in `replace-body` + `waiting_on`; forge stays SoR |
 
 Not inputs: "make customers happier," silent close with no ball location, inventing a second bug DB inside mill.
 
 ### Done looks like (this product)
 
-- User unblocked (answer/`note` workaround) **or** visible eng/ops todo owns the fix (id in note) + forge Issue updated when report came from forge.
+- User unblocked (answer/`replace-body` workaround) **or** visible eng/ops todo owns the fix (id in card text) + forge Issue updated when report came from forge.
 - Support todo **`pass`**ed **or** clean **`waiting_on`** (reporter info / eng fix / human) **or** parked if deferred - never silent open forever.
 - Do **not** `pass` without saying where the ball is (stub Must-not).
 
@@ -71,7 +71,7 @@ Not inputs: "make customers happier," silent close with no ball location, invent
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `unpark` exists on mill-desk but is not day-one teach unless human says it.
 
@@ -90,17 +90,17 @@ Shared spine (one table for the function):
 | functional / hierarchical escalation; L1/L2/L3 | FL collab; README "Escalate = send" | send, assign | **`send`** to eng/ops (+ optional eng `create todo` / `assign`); support **`waiting_on`** | reject inventing `escalate` CLI |
 | escalate to eng (stub) | stub; qa RESEARCH pattern | send + eng todo | **`send`** + eng **`create todo`/`assign`**; support waiting_on | same as FL escalate |
 | need more info | stub | send, waiting_on | **`send`** reporter desk / human_required; **`waiting_on`** | don't fake pass |
-| workaround | FL sketch "note on card"; ITIL workaround | note | **`note`** | not a product; not `pass` alone unless user unblocked |
+| workaround | FL sketch "replace-body on card"; ITIL workaround | replace-body | **`replace-body`** | not a product; not `pass` alone unless user unblocked |
 | resolve / close | FL sketch "done when user unblocked **or** bug owned elsewhere"; stub resolved/closed | pass | **`pass`** support card when Done gate met | reject teaching `done`; mill `pass` advances card lifecycle |
-| duplicate | stub | note, pass | **`note`** canonical id/URL + **`pass`** | - |
+| duplicate | stub | replace-body, pass | **`replace-body`** canonical id/URL + **`pass`** | - |
 | SLA | FL sketch "score row last vs target"; README score row cluster **support (SLA)** | score | **`score`** (last vs target) | teach - support is in score row cluster |
 | CSAT | FL product optional | score | **`score`** only if office sets CSAT KPI | optional; not day-one required |
 | backlog | FL product | create todo parked / open list | open todos / **`create todo` `{status:"parked"}`** for defer | not a product |
 | incident vs service request | FL product words; ITIL | detail | **detail / label** on same ticket spine | not 2nd product; major SEV -> handoff ops |
 | coverage / who's HERE | README presence; ops pattern | presence | presence / agents (glance); mail wake | not inventing coverage command |
-| progress / diary / forge comment crumb | mill-desk note | note | **`note`** | note != mail; forge comment stays on forge |
+| progress / diary / forge comment crumb | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail; forge comment stays on forge |
 | find work / mail wake | mill-desk | inbox | **`inbox`** | - |
-| blocked (reporter / eng / vendor) | README waiting_on | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake resolve |
+| blocked (reporter / eng / vendor) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake resolve |
 | exclusive shared file (rare) | README "hold rare - don't teach in support unless needed"; TEMPLATE | hold / drop | **`hold` / `drop`** **omit from day-one teach** unless office leases a shared resource | hold != unclaim |
 | park / defer ticket | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` |
 
@@ -131,7 +131,7 @@ Pattern borrow: stub Dogfood (Issue -> mill todo -> eng mail + waiting_on -> con
 - Invent mill commands for ITIL/industry slang (`escalate`, `resolve`, `triage`, `priority` as CLI).
 - Teach `open` / `yield` / bare `create` / teaching `done`.
 - Confuse `drop` (hold release) with `unclaim`.
-- Confuse note (card diary) with send (mail).
+- Confuse replace-body (card text) with send (mail).
 - Pretend mill *is* the service desk product (Zendesk/Jira/...).
 - Teach `hold` day-one unless office actually leases shared resources (README: hold rare for support).
 
@@ -142,7 +142,7 @@ Pattern borrow: stub Dogfood (Issue -> mill todo -> eng mail + waiting_on -> con
 **Resolved ticket**
 
 1. Ticket identity + reporter path were on the desk (forge URL when forge-borne) - or waiting_on mailed.
-2. User unblocked (answer or workaround `note`d) **or** eng/ops visibly owns remaining fix (todo id in note) and forge Issue updated when applicable.
+2. User unblocked (answer or workaround written on the card (`replace-body`)) **or** eng/ops visibly owns remaining fix (todo id in card text) and forge Issue updated when applicable.
 3. Support card `pass`ed **or** clean waiting_on **or** parked - never silent open forever.
 4. SLA/CSAT `score` updated only if office configured those score rows.
 
@@ -165,21 +165,21 @@ Pattern borrow: stub Dogfood (Issue -> mill todo -> eng mail + waiting_on -> con
 |---|---|
 | `docs/skills/README.md` | Catalog **Resolved ticket**; escalate = send; score row cluster includes support (SLA); hold rare for support; waiting_on pattern; presence/coverage |
 | `docs/skills/TEMPLATE.md` | Required SKILL shape: Product, Inputs, Lingo, Handoffs, Must-not, Done |
-| `docs/skills/FUNCTION-LINGO.md` S Support / service desk | **Required** product/collab words + mill sketch (ticket->todo, queue, claim, escalate->send, workaround->note, resolve/close, SLA->score row) |
+| `docs/skills/FUNCTION-LINGO.md` S Support / service desk | **Required** product/collab words + mill sketch (ticket->todo, queue, claim, escalate->send, workaround->replace-body, resolve/close, SLA->score row) |
 | `docs/skills/MILL-OFFICE-SKILL-SCOUT.md` | Loop-1 SoR: RESEARCH + TEMPLATE brief; no SKILL patch; day-one command reject list |
 | `docs/skills/office-support/SKILL.md` | Stub gap-fill baseline (forge table, Dogfood, Must-not) |
 | `docs/skills/office-qa/SKILL.md` + `RESEARCH.md` | RESEARCH shape; Support handoff mirror; forge SoR; waiting_on / pass-sense patterns |
 | `docs/skills/office-ops/SKILL.md` | Incident vs support boundary; Support handoff for customer comms |
 | `docs/skills/office-engineering/SKILL.md` | Bug label; Support handoff for user-facing regression; hold teaching contrast |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
 
 ### Public industry practice (thin)
 
 | Cite | Takeaway for mill map |
 |---|---|
 | ITIL 4 glossary - incident | Unplanned interruption / quality reduction -> ticket **mode** in detail; restore user productivity; mill `create todo` + claim ([ITIL 4 Glossary PDF](https://www.itconcepts.ch/wp-content/uploads/itil4-foundation-glossary-january-2019.pdf)) |
-| ITIL 4 - service request | Pre-defined normal service action -> same ticket spine; fulfill via answer/`note`/`pass`, SoR catalogue outside mill |
-| ITIL 4 - workaround | Reduces impact when full resolution not yet available -> **`note`** on card (aligns FL) |
+| ITIL 4 - service request | Pre-defined normal service action -> same ticket spine; fulfill via answer/`replace-body`/`pass`, SoR catalogue outside mill |
+| ITIL 4 - workaround | Reduces impact when full resolution not yet available -> **`replace-body`** on card (aligns FL) |
 | ITIL 4 - escalation | Share awareness or transfer ownership -> mill **`send`** (+ assign/eng todo); not a new command |
 | ITIL 4 - SLA | Documented service-level targets -> mill **`score`** last vs target (README support cluster) |
 | ITIL 4 - resolution / service desk | Solve incident/problem; service desk captures demand - mill coordinates collab; ITSM/forge remain SoR for the record |
@@ -218,7 +218,7 @@ Pattern borrow: stub Dogfood (Issue -> mill todo -> eng mail + waiting_on -> con
 | SLA / score | "KPI score row" one row | Explicit `score` (support is README score row cluster) |
 | waiting_on / assign / unclaim | assign implied; waiting_on only in Dogfood prose | Add to Lingo table |
 | hold / drop | Absent | Omit day-one teach (README rarity) unless office leases |
-| Must-not | Three solid bullets | Add: HINT bypass; no invent commands; note!=mail; drop!=unclaim; don't pretend mill is Zendesk |
+| Must-not | Three solid bullets | Add: HINT bypass; no invent commands; replace-body!=mail; drop!=unclaim; don't pretend mill is Zendesk |
 | Done | Unblocked or eng owns; pass; forge updated | Add waiting_on/parked alternatives; ball-location gate |
 | Reject list | Implicit | Explicit: no open/yield/bare create/teaching done |
 
@@ -253,7 +253,7 @@ Incident vs service request are **modes** of this product (detail/label), not
 second day-one products. Major SEV / runtime outage -> hand off office-ops.
 
 ## Inputs
-On the desk **before** triage resolve (else `note` gap + `send` / `waiting_on`):
+On the desk **before** triage resolve (else `replace-body` gap + `send` / `waiting_on`):
 - **Ticket identity** - what broke or what was asked (`create todo` need + detail)
 - **Reporter path** - who to unblock; reply desk or human_required channel
 - **Forge URL** - required in detail when report came from GitLab/GitHub Issue
@@ -271,12 +271,12 @@ ITSM/forge database into mill.
 | triage / own / assign | `claim` / `assign` |
 | drop the claim | `unclaim` |
 | priority (impactxurgency) | todo `detail` (text) |
-| workaround / progress diary | `note` |
+| workaround / progress diary | progress: `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; the workaround: card text (`replace-body`) |
 | need more info | `send` reporter / human_required + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |
-| duplicate | `note` canonical + `pass` |
+| duplicate | `replace-body` canonical + `pass` |
 | resolve / close | `pass` when user unblocked **or** fix owned elsewhere |
-| blocked (reporter/eng/vendor) | `waiting_on` + `send` / `note` |
+| blocked (reporter/eng/vendor) | `waiting_on` + `send` |
 | park / defer | `create todo` `{status:"parked"}` |
 | SLA (and optional CSAT) | `score` last vs target |
 | exclusive file lock | omit day-one (`hold`/`drop` only if office leases) |
@@ -297,7 +297,7 @@ ITSM/forge database into mill.
 - Skip forge link in detail when the report came from GitLab/GitHub.
 - Invent mill commands (`escalate`, `resolve`, `triage`, `priority` as CLI).
 - Teach `open` / `yield` / bare `create` / teaching `done`.
-- Confuse `drop` (hold) with `unclaim`; confuse `note` with `send`.
+- Confuse `drop` (hold) with `unclaim`; confuse `replace-body` with `send`.
 - Teach `hold` day-one unless the office leases shared resources.
 
 ## Done looks like

@@ -26,7 +26,7 @@ Redline, opinion memo, and audit crumbs are **modes/crumbs** of this product
 mill (CLM / e-sign / Drive) - link, don't clone.
 
 ## Inputs
-On the desk **before** clear/withhold (else `note` gap + `send` / `waiting_on`):
+On the desk **before** clear/withhold (else `replace-body` gap + `send` / `waiting_on`):
 - **Review ask** - contract/compliance/ship gate (`inbox` / mail / `create todo`)
 - **Artifact pointer** - contract id, doc path, PR/ship or deal card (link SoR)
 - **Gated action** - ship / sign / close / publish; name dependent cards if known
@@ -42,17 +42,18 @@ body dumped into mill as SoR.
 | Their word | Mill |
 |---|---|
 | review request | `inbox` / `create todo` -> `claim` / `assign` |
-| contract (pointer) | todo `detail` / `note` link; **CLM SoR outside** |
-| redline / exclusive edit | `hold` / `drop` on doc station (+ `note`) |
+| contract (pointer) | todo `detail` / `replace-body` link; **CLM SoR outside** |
+| redline / exclusive edit | `hold` / `drop` on doc station (+ `replace-body`) |
 | approval / clear authority | `send` / `reply` `--receipt` (+ `assign` as needed) |
 | escalate to counsel | `send` (optional `assign`) |
-| hold / block ship / withhold | waiting_on on eng/sales card + `send`/`note` reason (**!=** mill `hold`) |
+| hold / block ship / withhold | waiting_on on eng/sales card + `send`/`replace-body` reason (**!=** mill `hold`) |
 | clear / approve | `--receipt` -> `send` Pass-equivalent -> unlock dependents -> legal `pass` |
-| opinion | `note` and/or `send` memo/link |
-| audit trail | `send` + `note` crumbs (SoR stays outside) |
+| opinion | `replace-body` and/or `send` memo/link |
+| audit trail | `send` + `replace-body` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
-| progress / diary | `note` (not mail) |
-| blocked on others | waiting_on + `send` / `note` |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
+| diary | `replace-body` (not mail) |
+| blocked on others | waiting_on + `send` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | cycle-time KPI (optional) | `score` - a row in the score table (`kpi`, `value`, `target`) |
 

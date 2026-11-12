@@ -26,7 +26,7 @@ Brief, creative work, channel, embargo, and KPI are **inputs, steps, gates, or
 score** on this spine - not second day-one products.
 
 ## Inputs
-On the desk **before** you can launch or publish (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can launch or publish (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Brief / ask** - what ships (in todo detail)
 - **Campaign or asset identity** - name + CMS/DAM id or URL (do not clone CMS)
 - **Channel / date** - and embargo if any
@@ -41,15 +41,16 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 |---|---|
 | brief | `create todo` + detail |
 | campaign | `create todo` (CMS/campaign id in detail) |
-| creative / asset work | `claim` + `note` (+ `hold`/`drop` if exclusive asset station) |
+| creative / asset work | `claim` + `replace-body` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / diary | `note` |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
+| diary | `replace-body` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send` / `reply` `--receipt` if policy |
-| embargo / wait | waiting_on + `note` / `send` |
-| channel | detail / `note` |
+| embargo / wait | waiting_on + `send` |
+| channel | detail / `replace-body` |
 | handoff to sales/support | `send` + `assign` |
 | KPI (reach/conversion) | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | publish / launch | `pass` (+ optional Wall glance) |

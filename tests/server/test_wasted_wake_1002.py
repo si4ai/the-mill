@@ -46,7 +46,7 @@ def test_classify_trigger_priority() -> None:
 
 
 def test_action_commands_exclude_mark_and_read() -> None:
-    need = {"send", "reply", "claim", "note", "pass", "hold", "label"}
+    need = {"send", "reply", "claim", "pass", "hold", "label"}
     assert need <= ww.ACTION_COMMANDS
     for noise in ("mark", "inbox", "mail-thread", "wake-done", "todo", "heartbeat", "peek"):
         assert noise not in ww.ACTION_COMMANDS

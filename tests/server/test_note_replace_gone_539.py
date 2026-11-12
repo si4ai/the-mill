@@ -1,58 +1,14 @@
-"""Notes append; a replace request is refused and writes nothing (#539). Regression row F62 (note-no-replace).
+"""The CLI has no note command and no --replace / --supersedes flag (card 1125, 1177). Regression row F62.
 
-The CLI has no --replace flag (#143 dropped it). The wall still overwrote a
-card's detail when a raw request carried replace=true, which skipped the
-append-only history that note --supersedes keeps (F45).
+Card text is mill replace-body. mill note fails like any unknown command.
 """
 from __future__ import annotations
-
-import json
-from unittest.mock import MagicMock
 
 import pytest
 
 from agent_coord.helpers import bounds
-from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
-
-DETAIL = "Steps:\n1. first"
-
-
-@pytest.fixture
-def card(monkeypatch):
-    state = {"body": json.dumps({"slug": "c539", "doing": "", "detail": DETAIL}), "writes": 0}
-    monkeypatch.setattr(
-        "agent_coord.server.records.todo.find",
-        lambda cn, p, n: {"id": 539, "body": state["body"], "creator": "asker-desk", "assigned": "w1"},
-    )
-
-    def upd(cn, tid, desk, body=None, **kw):
-        if body is not None:
-            state["body"] = body
-            state["writes"] += 1
-        return [{"id": tid}]
-
-    monkeypatch.setattr("agent_coord.server.records.todo.update", upd)
-    monkeypatch.setattr(rpc, "_poke", lambda *a, **k: None)
-    return state
-
-
-def _note(body):
-    return rpc._h_note(MagicMock(), dict(need="c539", **body), "cold-test", "asker-desk")
-
-
-@pytest.mark.parametrize("extra", [{}, {"supersedes": "1. first"}])
-def test_replace_is_refused_and_nothing_is_written(card, extra):
-    with pytest.raises(CoordError, match="notes append; there is no replace") as ei:
-        _note({"note": "only-this", "replace": True, **extra})
-    assert "--supersedes" in str(ei.value)
-    assert card["writes"] == 0
-    assert json.loads(card["body"])["detail"] == DETAIL
-
-
-def test_replace_false_is_a_plain_append(card):
-    _note({"note": "later", "replace": False})
-    assert json.loads(card["body"])["detail"] == DETAIL + "\nlater"
+from agent_coord.client.outbound import COMMANDS
 
 
 def test_cli_never_sends_replace(monkeypatch):
@@ -60,13 +16,23 @@ def test_cli_never_sends_replace(monkeypatch):
     from agent_coord.client import outbound
 
     monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda _x="": "asker-desk")
-    a = _build_parser().parse_args(["note", "cold-test", "c539", "--note", "x"])
+    a = _build_parser().parse_args(["todo", "cold-test", "c539", "--eta", "2h"])
     a.replace = True  # no such flag; a stray attribute must not reach the wall
     assert "replace" not in outbound.body_from_args(a)
     with pytest.raises(SystemExit):
-        _build_parser().parse_args(["note", "cold-test", "c539", "--note", "x", "--replace"])
+        _build_parser().parse_args(["todo", "cold-test", "c539", "--eta", "2h", "--replace"])
 
 
 def test_dead_note_helpers_are_gone():
     assert not hasattr(bounds, "append_note_detail")
     assert not hasattr(bounds, "NOTE_MAX")
+
+
+def test_note_command_is_gone():
+    """mill note is an unknown command: not in COMMANDS and not a server handler."""
+    assert "note" not in COMMANDS
+    assert "note" not in rpc.HANDLERS
+    from agent_coord.__main__ import _build_parser
+
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["note", "cold-test", "c539", "--note", "later"])

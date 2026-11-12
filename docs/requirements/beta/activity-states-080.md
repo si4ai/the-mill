@@ -125,7 +125,7 @@ stateDiagram-v2
 | T11 | shipped | claimed, or open with no volunteer | `mill pass R NEED --back` | `back` | one, `back` |
 | T12 | any status | retired, status kept | `mill retire todo R NEED --yes` | `retire` | none |
 | T13 | retired | the status it had | `mill reclaim todo R NEED --yes` | unchanged (`retire` stays; `deleted` cleared) | none |
-| T14 | any | same status | `mill note R NEED --note T`, `mill note R NEED --done-when T` | `note` | none |
+| T14 | any | same status | `mill replace-body todo N T`, `mill todo R NEED --done-when T` | `replace-body`, `todo` | none |
 | T15 | live | deleted | none (test-only `probe-delete`) | `remove` | none; the card's move rows stay |
 | T16 | any | same status, new need | `mill rename todo R NEED NEW` | `rename` | one, `rename`, `evidence` holds old, new and why |
 
@@ -185,7 +185,7 @@ stateDiagram-v2
 | D1 | no seat | seated; idle | `mill join --link-file LINKFILE` | doing row `clear` (`focus` with join text) when the desk has no focus row; the activity row says `focus` either way | seat; one focus row; its activity row; `seat.doing_id` set |
 | D2 | seated | connected | `mill connect D` | none | `seat.updated`; `seat.time_connect` on the first socket |
 | D3 | connected | disconnected | stop the connect process | none | `seat.time_disconnect` |
-| D4 | idle | active on the item | a command with `--doing TEXT` (`send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `note`, `unpark`, `hold`, `drop`, `score`) | `focus` | the command's own writes, then one focus row and its activity row; `seat.doing_id` moves |
+| D4 | idle | active on the item | a command with `--doing TEXT` (`send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `unpark`, `hold`, `drop`, `score`) | `focus` | the command's own writes, then one focus row and its activity row; `seat.doing_id` moves |
 | D5 | active | waiting | the same with `--waiting-on "WHAT WHY"` | `focus` | as D4, with the waiting reference on the row |
 | D6 | active or waiting | active, newer entry | another `--doing TEXT` | `focus` | as D4 |
 | D7 | active on `mail-N` | idle, finished | `mill reply N --body-file F` | none (the reply is `send`) | none; derived on read |

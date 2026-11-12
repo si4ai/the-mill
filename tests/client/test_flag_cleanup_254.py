@@ -28,9 +28,9 @@ def _exit2(argv: list[str]) -> None:
         ["send", "--to-desk", "a", "--body-file", "b", "--parent-type", "todo"],
         ["send", "--to-desk", "a", "--body-file", "b", "--parent-id", "3"],
         ["reply", "1", "--body-file", "b", "--human-required"],
-        ["note", "the-mill", "n", "--n", "3"],
-        ["note", "the-mill", "n", "--of", "9"],
-        ["note", "the-mill", "n", "--pct", "50"],
+        ["todo", "the-mill", "n", "--n", "3"],
+        ["todo", "the-mill", "n", "--of", "9"],
+        ["todo", "the-mill", "n", "--pct", "50"],
         ["inbox", "--after", "5"],
         ["dashboard"],
         ["status", "the-mill"],
@@ -68,9 +68,9 @@ def test_254_kept_and_renamed_parse() -> None:
     # create todo and unpark keep --parent-type / --parent-id.
     ct = p.parse_args(["create", "todo", "p", "n", "--parent-type", "todo", "--parent-id", "4"])
     assert ct.parent_type == "todo" and ct.parent_id == 4
-    # note keeps the progress token, --note, --eta, --started.
-    n = p.parse_args(["note", "p", "n", "9/12", "--note", "x", "--eta", "2h", "--started"])
-    assert n.text == "9/12" and n.note == "x" and n.started is True
+    # Card 1125: todo ROSTER NEED takes --eta, --started and --progress for the card's own fields.
+    n = p.parse_args(["todo", "p", "n", "--eta", "2h", "--started", "--progress", "9/12"])
+    assert n.eta == "2h" and n.started is True and n.progress == "9/12"
     # todo --fixtures stays for tools, hidden from help.
     assert p.parse_args(["todo", "p", "--fixtures"]).fixtures is True
 
@@ -112,9 +112,9 @@ def test_254_body_carries_no_removed_keys(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda _x: "builder")
     assert "kind" not in outbound._STR
     assert "roster" in outbound._STR
-    args = SimpleNamespace(cmd="note", project="p", need="n", text="3/9", note="", eta="", started=False)
+    args = SimpleNamespace(cmd="todo", project="p", need="n", eta="2h", started=False, done_when=None)
     body = outbound.body_from_args(args)
-    assert body["text"] == "3/9"
+    assert body["eta"] == "2h"
     for key in ("n", "of", "pct"):
         assert key not in body
 

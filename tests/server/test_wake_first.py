@@ -19,7 +19,7 @@ def setup_function() -> None:
 
 
 def test_day_one_ok_commands_cover_skill_spine() -> None:
-    need = {"todo", "open", "claim", "send", "reply", "hold", "inbox", "mail-thread", "note", "pass", "drop"}
+    need = {"todo", "open", "claim", "send", "reply", "hold", "inbox", "mail-thread", "pass", "drop"}
     assert need <= wf.DAY_ONE_OK_COMMANDS
     assert "wake" not in wf.DAY_ONE_OK_COMMANDS
     assert "heartbeat" not in wf.DAY_ONE_OK_COMMANDS

@@ -524,7 +524,7 @@ WAITING_ON_HELP = (
     "(--waiting-on \"gardener the column names\"). mill connected shows it, and the desk you wait on sees you"
 )
 DOING_FLAG_COMMANDS = (
-    "send", "reply", "mark", "create", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold", "drop", "score",
+    "send", "reply", "mark", "create", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score",
 )
 
 
@@ -1373,38 +1373,45 @@ def _build_parser() -> MillArgumentParser:
         action="store_true",
         help=argparse.SUPPRESS,
     )
-
-    pg = sub.add_parser(
-        "note",
-        help="update a claimed card body/pct",
-    )
-    pg.add_argument("project")
-    pg.add_argument("need")
-    pg.add_argument(
-        "text",
-        nargs="?",
+    # Card 1125: the card's own fields on ROSTER NEED. Card text: mill replace-body.
+    nd.add_argument("--eta", default="", help="with ROSTER NEED: 20m / 2h / datetime, when you expect to finish")
+    nd.add_argument("--started", action="store_true", help="with ROSTER NEED: set started_at to now")
+    nd.add_argument(
+        "--progress",
         default="",
-        help="9/12, 75%%, done or git <sha> = progress; other text = diary line; @file reads a file",
+        help="with ROSTER NEED: a short progress token: 9/12, 75%%, done, or git <sha>; "
+        "longer text is card text: mill replace-body",
     )
-    pg.add_argument("--note", default="")
-    pg.add_argument(
-        "--supersedes",
-        default=None,
-        metavar="OLD_LINE",
-        help="asker or Admin: mark this exact detail line superseded and put --note under it",
-    )
-    pg.add_argument("--eta", default="", help="20m / 2h / datetime so the other desk can see when you expect to finish")
-    pg.add_argument("--started", action="store_true", help="set started_at to now")
-    pg.add_argument(
-        "--full",
-        action="store_true",
-        help="reply with the card's whole detail (default: detail_chars and the last line)",
-    )
-    pg.add_argument(
+    nd.add_argument(
         "--done-when",
         default=None,
         dest="done_when",
-        help="set or clear the acceptance line (asker or Admin); a blank value clears it",
+        help="with ROSTER NEED, alone: set the acceptance line (asker or Admin); a blank value clears it",
+    )
+
+    rb = sub.add_parser(
+        "replace-body",
+        help="replace the text of one letter or card (rights follow office trust: mill trust)",
+        description=(
+            "Read the letter or card first. Pass the new text or --body-file, not both. "
+            "Quote the text. The same text changes nothing. "
+            "--history lists the old text, newest first; --order oldest lists the first text first."
+        ),
+    )
+    rb.add_argument("kind", choices=("mail", "todo"), help="mail or todo")
+    rb.add_argument("id", type=int, help="letter id or card id")
+    rb.add_argument("text", nargs="?", default=None, help="the new text, quoted; or use --body-file")
+    rb.add_argument("--body-file", default="", dest="body_file", help="UTF-8 file of the new text")
+    rb.add_argument(
+        "--history",
+        action="store_true",
+        help="list the old text instead of replacing it",
+    )
+    rb.add_argument(
+        "--order",
+        choices=("newest", "oldest"),
+        default="newest",
+        help="with --history: newest (default) or oldest",
     )
 
     vo = sub.add_parser("claim", help="claim a card")

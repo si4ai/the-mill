@@ -52,7 +52,7 @@ Refused, nothing changed:
 Gaps:
 
 - No command deletes a letter (M9). If `mill_mail_delete` runs, it deletes the letter (its `mail_to` rows cascade) and stamps `activity.deleted`. The activity row stays as a tombstone, and so do its labels, because the label foreign key cascades only on an activity delete (`tables.sql:77`).
-- No command edits a letter: `sp_mail.sql:287` `mill_mail_update` has no caller.
+- A letter's text changes with `mill replace-body mail ID TEXT` (`mill_body_replace`). `mill_mail_update` is gone.
 - No command puts a letter back to unread. Handled is final for that desk.
 - Required receipt: `send` / `reply` `--receipt` sets `mail_to.receipt=1` on every dest; the first open (`mark`, `reply`, whole-letter `mail-thread`) stamps `opened` and pushes one `{kind: receipt}` to the sender (`sp_opened.sql` / `push_receipt`).
 
@@ -91,7 +91,7 @@ stateDiagram-v2
 | T2 | none | parked | `mill create todo R NEED --status parked` | `rpc.py:2383` (parked or open only) -> `sp_todo.sql:13` | `mill todo R NEED` shows parked |
 | T3 | parked | open | `mill unpark R NEED [--parent-type todo --parent-id N]` | `rpc.py:2425` `_h_unpark` -> `sp_todo.sql:136` `mill_todo_update` | output `"status": "open"`; `mill todo R NEED` shows open |
 | T4 | open | claimed (caller is volunteer) | `mill claim R NEED` | `rpc.py:2250` -> `sp_cmd.sql:112` `cmd_claim` | output `"status": "claimed"`; `mill todo R NEED` shows the caller as volunteer |
-| T5 | open | claimed (named desk) | `mill assign R NEED D` (limited trust: Admin) | `rpc.py:2134` `_h_assign` -> `sp_todo.sql:136` | output `"volunteer": "D"`; `mill todo R NEED` shows D |
+| T5 | open | claimed (named desk) | `mill assign R NEED D` (rights: [admin.md](../requirements/admin.md) (trust matrix)) | `rpc.py:2134` `_h_assign` -> `sp_todo.sql:136` | output `"volunteer": "D"`; `mill todo R NEED` shows D |
 | T6 | claimed by another desk | claimed by caller | `mill claim R NEED --take-over` | `sp_cmd.sql:134` (refused without the flag), `sp_cmd.sql:137` (stale prior) | output `prior_volunteer`; `mill todo R NEED` shows the caller |
 | T7 | claimed | open (no volunteer) | `mill unclaim R NEED` (the volunteer) | `rpc.py:2492` -> `sp_cmd.sql:148` `cmd_unclaim` | output `"status": "open"`; `mill todo R NEED` shows no volunteer |
 | T8 | claimed | shipped | `mill pass R NEED [--evidence T]` (the volunteer) | `rpc.py:2526` -> `sp_cmd.sql:195` `cmd_pass` ship | output `"status": "shipped"`, `"was": "claimed"` |
@@ -100,7 +100,7 @@ stateDiagram-v2
 | T11 | shipped | claimed, or open when there is no volunteer | `mill pass R NEED --back` | `sp_cmd.sql:216` | output `status` claimed or open |
 | T12 | any status | retired (status kept) | `mill retire todo R NEED --yes` (asker or Admin) | `rpc.py:1217` -> `sp_todo.sql:258` `mill_todo_retire` | output `"op": "retired"`; `mill todo R --done` no longer lists it |
 | T13 | retired | the status it had | `mill reclaim todo R NEED --yes` (asker or Admin) | `rpc.py:1217` -> `sp_todo.sql:293` `mill_todo_reclaim` | output `"op": "reclaimed"`; `mill todo R NEED` shows the old status |
-| T14 | any | same status | `mill note R NEED --note T`, `mill note R NEED --done-when T` | `rpc.py:2586` -> `sp_todo.sql:136` (body only); `sp_cmd.sql:237` `cmd_card_accept` | `mill todo R NEED` shows the new line; status unchanged |
+| T14 | any | same status | `mill replace-body todo N T`, `mill todo R NEED --done-when T` | `rpc.py` `_h_replace_body`; `sp_cmd.sql` `cmd_card_accept` | `mill todo R NEED` shows the new text; status unchanged |
 | T15 | live | deleted | none (test-only `probe-delete` RPC, fixture rosters `t-<8 hex>`, the creator) | `agent_coord/server/probe_delete.py:129` -> `sp_todo.sql:192` `mill_todo_delete` | gap: not a mill subcommand |
 
 Refused, nothing changed (the SP text is the refusal code):
@@ -157,7 +157,7 @@ stateDiagram-v2
 | D1 | no seat | seated; empty entry when the desk has none | `mill join --link-file LINKFILE` | `rpc.py:255` `_issue_here` -> `sp_join.sql:90` `mill_join_upsert` (entry `sp_join.sql:144`) | `mill connected --who D` lists the desk, `"doing": ""` |
 | D2 | seated | connected: no new entry; on the first socket `seat.time_connect` stamped (`time_disconnect` cleared) and the doing activity row bumped | `mill connect D` | `agent_coord/server/asgi.py:587` -> `agent_coord/server/records/join.py:45` -> `sp_join.sql:284` `mill_join_connect`; first socket `asgi.py:608` `HUB.add` -> `agent_coord/server/push.py:150` -> `push.py:330` `_mark_join_socket` -> `records/join.py:61` `mark_socket` -> `sp_join.sql:326` `mill_join_socket` | stderr `mill connect:` line, then `"ready": true`; other desks get a DOING hint |
 | D3 | connected | disconnected: `seat.time_disconnect` stamped, doing activity row bumped | stop the connect process | when the last socket leaves: `asgi.py:671` `HUB.discard` -> `push.py:157` to `push.py:171` -> `push.py:330` `_mark_join_socket` -> `records/join.py:61` `mark_socket` -> `sp_join.sql:326` `mill_join_socket` | `mill connected --who D` still lists the desk; alive turns stale once the seat row is over 15 minutes old |
-| D4 | idle, finished or cleared | active on the item | any of `send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `note`, `unpark`, `hold`, `drop`, `score` with `--doing TEXT` (e.g. `mill claim R NEED --doing TEXT`) | `rpc.py:951` `_doing_after` -> `sp_doing.sql:79` `mill_doing_put` | output `doing_entry` with `on`; `mill connected --who D` shows `doing` and `on` |
+| D4 | idle, finished or cleared | active on the item | any of `send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `unpark`, `hold`, `drop`, `score` with `--doing TEXT` (e.g. `mill claim R NEED --doing TEXT`) | `rpc.py:951` `_doing_after` -> `sp_doing.sql:79` `mill_doing_put` | output `doing_entry` with `on`; `mill connected --who D` shows `doing` and `on` |
 | D5 | active | waiting | the same with `--waiting-on "WHAT WHY"` (WHAT is a desk, `mail-N`, `todo-N` or `hold-N`) | `sp_doing.sql:108` to `sp_doing.sql:122` | `mill connected --who D` shows `waiting_on`; the target desk's view lists D under `desks` |
 | D6 | active or waiting | active (newer entry) | another `--doing TEXT` | `sp_join.sql:27` `mill_doing_insert` | `mill connected --who D --history` shows the old row replaced by a newer one |
 | D7 | active on `mail-N` | finished | `mill reply N --body-file F` (any reply by D under N) | derived: `sp_doing.sql:36` | `mill connected --who D` shows `idle`, `last.ended_by` finished |
@@ -168,7 +168,7 @@ stateDiagram-v2
 
 Alive or stale in `mill connected` comes from the seat row's age (15 minutes).
 
-Never ends an entry (`sp_doing.sql:11`): `mark`, `note`, another desk's pass, `pass --back`, taking a hold again. An entry on a score ends only as cleared or newer.
+Never ends an entry (`sp_doing.sql:11`): `mark`, a card edit (`replace-body`, `todo ROSTER NEED --eta`), another desk's pass, `pass --back`, taking a hold again. An entry on a score ends only as cleared or newer.
 
 Refused, nothing changed (the command and its doing commit together, `rpc.py:998`):
 

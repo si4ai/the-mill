@@ -109,7 +109,7 @@ def test_claim_sets_it_and_a_note_or_a_second_claim_leaves_it(w):
     w.ok(["claim", R, need])
     first = _row(w.cn, tid)["claimed_at"]
     assert first is not None
-    w.ok(["note", R, need, "--note", "half way"])
+    w.ok(["todo", R, need, "--started"])
     w.ok(["claim", R, need, "--eta", "2h"])
     row = _row(w.cn, tid)
     assert row["claimed_at"] == first and row["updated"] > first
@@ -160,7 +160,7 @@ def test_connected_card_age_is_the_claim_not_the_last_note(w):
     w.ok(["claim", R, need])
     w.ok(["watch", "todo", str(tid)], desk=PEER)
     _back(w.cn, tid, 2)
-    w.ok(["note", R, need, "--note", "still on it"], desk=PEER)
+    w.ok(["todo", R, need, "--started"], desk=PEER)
     assert _card_view(w, tid)["age"] == "2h"
 
 
@@ -175,7 +175,7 @@ def test_connected_orders_cards_by_claim(w):
     _back(w.cn, t_old, 5)
     _back(w.cn, t_new, 1)
     # A note bumps the older card's updated; it stays behind the newer claim.
-    w.ok(["note", R, older, "--note", "ping"], desk=PEER)
+    w.ok(["todo", R, older, "--started"], desk=PEER)
     ids = [c["id"] for c in w.me(ME)["waiting_on_it"]["cards"]["newest"]]
     assert ids.index(f"todo-{t_new}") < ids.index(f"todo-{t_old}")
 
@@ -191,7 +191,7 @@ def test_migration_backfills_claimed_cards_from_the_volunteer_watcher(w):
     w.ok(["claim", R, mine])
     w.ok(["claim", R, theirs])
     claim_theirs = _row(w.cn, t_theirs)["claimed_at"]
-    w.ok(["note", R, theirs, "--note", "later"], desk=PEER)
+    w.ok(["todo", R, theirs, "--started"], desk=PEER)
     _exec(w.cn, "ALTER TABLE todo DROP COLUMN claimed_at")
     first = migrate.ensure(w.cn)
     assert "todo.claimed_at" in first["applied"]
@@ -236,7 +236,7 @@ def test_cards_carry_claimed_at_in_connected_and_the_wall_route(w, wall):  # noq
     w.ok(["claim", R, need])
     w.ok(["watch", "todo", str(tid)], desk=PEER)
     _back(w.cn, tid, 2)
-    w.ok(["note", R, need, "--note", "later"], desk=PEER)
+    w.ok(["todo", R, need, "--started"], desk=PEER)
     at = str(_row(w.cn, tid)["claimed_at"])[:19]
     view = _card_view(w, tid)
     assert view["claimed_at"] == at and view["age"] == "2h"

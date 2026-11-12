@@ -8,7 +8,6 @@ from __future__ import annotations
 GAPS: dict[str, str] = {
     'create todo parent_type bad_enum': '#238 gap, no card yet: create parent not checked',
     'create todo parent_id unknown': '#238 gap, no card yet: create parent not checked',
-    'note project over_length': '#238 gap, no card yet: note project',
     'claim project over_length': '#238 gap, no card yet: claim project',
     'unclaim project over_length': '#238 gap, no card yet: unclaim project',
     'assign project over_length': '#238 gap, no card yet: assign project',

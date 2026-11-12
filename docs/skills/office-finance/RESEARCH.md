@@ -35,10 +35,10 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | PO (purchase order) as separate product | **DROP** | Same: request/PO -> `create todo`; approval/paid path is the artifact. |
 | Budget as product | **DROP** | Constraint / input / KPI context. Not the shippable finance office artifact day-one. |
 | Forecast as product | **DROP** | FL sketch "forecast KPI -> score row"; README score row pattern. Fulfillment = `score`, not a product. |
-| Accrual as product | **DROP** | Ledger/accounting SoR concept. Mill may `note` accrual ask; don't clone GL. |
+| Accrual as product | **DROP** | Ledger/accounting SoR concept. Mill may `replace-body` accrual ask; don't clone GL. |
 | Payment / remittance as separate product | **DROP** (day-one) | Outcome mode of **paid** on the same card after approve. Payment execution stays in ledger/bank SoR. |
 | Exception as product | **DROP** | Collab: FL "exception -> escalate mail" = `send`, not an artifact. |
-| Coding (GL coding) as product | **DROP** | Collab step: stub "coded / approved -> note". Coding happens in ledger; mill diaries the fact. |
+| Coding (GL coding) as product | **DROP** | Collab step: stub "coded / approved -> replace-body". Coding happens in ledger; mill diaries the fact. |
 | Close the books / closed period step as separate product | **DROP** (day-one) | Stub lists "closed period step"; FL "paid / closed -> done". Catalog names **Approved / paid** only. Period-close is multi-desk collab / follow-on - fold as optional **mode** (approve a close step) or revisit later. Flag open Q. |
 | Approval chain as product | **DROP** | Process shape -> `assign` + human_required + `send`. Not a product noun. |
 
@@ -57,28 +57,28 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Input | Required? | Mill fulfillment |
 |---|---|---|
 | Request identity (invoice / PO / spend ask id or URL) | **Yes** | todo `detail` (link ledger/ERP id - don't clone amounts as SoR) |
-| Amount / currency / vendor (glance facts) | Strong | `detail` / `note` crumbs; **ledger remains SoR** for truth |
-| Desired outcome (approve, reject/withhold, mark paid, exception path) | **Yes** | need + detail; if missing -> `note` gap + `send` asker / `waiting_on` |
+| Amount / currency / vendor (glance facts) | Strong | `detail` / `replace-body` crumbs; **ledger remains SoR** for truth |
+| Desired outcome (approve, reject/withhold, mark paid, exception path) | **Yes** | need + detail; if missing -> `replace-body` gap + `send` asker / `waiting_on` |
 | Approver / chain (who must human-click) | **Yes** for approve | `assign` + **human_required**; `send` next approver |
-| Coding / cost center / GL hint | When office requires | `note` (coding executed in ledger) |
-| Exception reason / policy cite | When exception | `note` + `send` escalate dest |
-| Paid proof pointer (payment id / remittance) | On paid | `note` + link ledger; then `pass` |
+| Coding / cost center / GL hint | When office requires | `replace-body` (coding executed in ledger) |
+| Exception reason / policy cite | When exception | `replace-body` + `send` escalate dest |
+| Paid proof pointer (payment id / remittance) | On paid | `replace-body` + link ledger; then `pass` |
 | Budget / forecast context | Optional | `score` glance or detail link - not mill SoR |
 
 Not inputs: "manage the books," silent auto-approve without human_required when policy requires it, replacing ERP payment runs inside mill.
 
 ### Done looks like (this product)
 
-- **Approved:** human_required gate satisfied; outcome `note`d; dependents `send`ed (sales/ops/askers unblocked); card `pass`ed **or** clean waiting_on next approver.
-- **Withheld / rejected:** `note` reason; `send` asker; card `pass` (decision recorded) **or** waiting_on revision - don't fake approve.
-- **Paid / closed:** ledger shows paid *outside* mill; card `note`d with payment pointer; card `pass`.
+- **Approved:** human_required gate satisfied; outcome written on the card (`replace-body`); dependents `send`ed (sales/ops/askers unblocked); card `pass`ed **or** clean waiting_on next approver.
+- **Withheld / rejected:** `replace-body` reason; `send` asker; card `pass` (decision recorded) **or** waiting_on revision - don't fake approve.
+- **Paid / closed:** ledger shows paid *outside* mill; card written on the card (`replace-body`) with payment pointer; card `pass`.
 - Else: clean **waiting_on** (approver, coding, exception, bank) - don't fake `pass`.
 
 ---
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk).  
 **human_required** is a gate flag / mail pattern (README), not a new mill CLI command - cite beside approve.
@@ -92,24 +92,24 @@ Shared spine (one table for the function):
 | invoice | FL Finance product words; stub | create todo, open | **`create todo`** (ledger invoice id in detail) | reject `open`; ledger SoR |
 | PO / purchase order | FL Finance product words; stub | create todo | **`create todo`** | same spine |
 | request / spend ask | stub "invoice / PO / request" | create todo | **`create todo`** | reject bare `create` |
-| budget | FL Finance product words | score, detail | **detail / `note`** context; optional **`score`** | not a product; not invent `budget` CLI |
+| budget | FL Finance product words | score, detail | **detail / `replace-body`** context; optional **`score`** | not a product; not invent `budget` CLI |
 | forecast | FL product + sketch "forecast KPI -> score row"; stub | score | **`score`** (last vs target) | not a product |
-| accrual | FL Finance product words | note | **`note`** (+ ledger SoR) | don't clone GL |
-| payment / remittance | FL product "payment"; stub paid | note, pass | **`note`** payment pointer + **`pass`** when paid | payment run stays ledger/bank |
-| approval / approve | FL sketch "human_required mail / todo"; stub approval chain; README human_required finance | assign, send, human_required, note | **`assign`** + **human_required** + **`send`** / **`note`** outcome | never invent `approve` CLI; never skip human gate |
+| accrual | FL Finance product words | replace-body | **`replace-body`** (+ ledger SoR) | don't clone GL |
+| payment / remittance | FL product "payment"; stub paid | replace-body, pass | **`replace-body`** payment pointer + **`pass`** when paid | payment run stays ledger/bank |
+| approval / approve | FL sketch "human_required mail / todo"; stub approval chain; README human_required finance | assign, send, human_required, replace-body | **`assign`** + **human_required** + **`send`** / **`replace-body`** outcome | never invent `approve` CLI; never skip human gate |
 | approval chain | FL collab; stub | assign, send | **`assign`** next + **`send`**; waiting_on until human clicks | chain = ownership + mail, not new command |
-| coding (GL / cost center) | FL collab; stub "coded / approved -> note" | note | **`note`** (coding in ledger) | not invent `code` CLI |
-| exception | FL sketch "escalate mail"; stub | send | **`send`** escalate (+ `note` reason) | escalate always = send (README) |
-| close the books / period close | FL collab "close the books"; stub closed period | note, pass, create todo | **`note`** / optional close-step todo; **`pass`** when step done | DROP as 2nd product day-one; reject teaching `done` |
-| paid / closed | FL sketch "paid / closed -> done"; stub | pass, note | **`note`** + **`pass`** | mill-desk: ship/pass/close -> `pass`; reject teaching `done` |
+| coding (GL / cost center) | FL collab; stub "coded / approved -> replace-body" | replace-body | **`replace-body`** (coding in ledger) | not invent `code` CLI |
+| exception | FL sketch "escalate mail"; stub | send | **`send`** escalate (+ `replace-body` reason) | escalate always = send (README) |
+| close the books / period close | FL collab "close the books"; stub closed period | replace-body, pass, create todo | **`replace-body`** / optional close-step todo; **`pass`** when step done | DROP as 2nd product day-one; reject teaching `done` |
+| paid / closed | FL sketch "paid / closed -> done"; stub | pass, replace-body | **`replace-body`** + **`pass`** | mill-desk: ship/pass/close -> `pass`; reject teaching `done` |
 | own / work the request | mill-desk; support/sales claim | claim, assign | **`claim`** / **`assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | find work / mail landed | mill-desk mail | inbox | **`inbox`** | - |
 | ping / tell next approver or asker | mill-desk send; README Need eyes | send | **`send`** | dest=desk/role, not email To:human |
-| blocked (approver, bank, coding) | README waiting_on | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake pass |
+| blocked (approver, bank, coding) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake pass |
 | exclusive edit shared invoice pack | TEMPLATE hold; README hold rare (eng/legal/docs) | hold / drop | **omit day-one** (or rare `hold`/`drop` if the office leases a doc res) | don't teach hold unless needed |
 | park / defer | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject bare `create` / `open` |
-| progress / diary | mill-desk note; stub coded/approved | note | **`note`** | note != mail |
+| progress / diary | mill-desk replace-body; stub coded/approved | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 
 **Stub lingo gaps this harvest fills:** Inputs, Handoffs, Scope, inbox, unclaim vs drop, park, budget/accrual/payment/PO explicit maps, human_required called out on approve, forecast = `score` not product, closed-books folded/dropped as 2nd product, reject open/yield/bare create/teaching done, hold omit-unless-needed.
 
@@ -128,7 +128,7 @@ Shared spine (one table for the function):
 | **office-support** | Vendor or billing ticket from customer side - `send`; support ticket product owns resolve |
 | **AP/AR / controller desk (office)** | Exception escalate or period-close step - `send` (ledger work stays outside mill) |
 
-Pattern: README "Escalate always = mill send"; "human_required clusters: ... finance (approve)"; sales blocked on pricing -> finance. Ledger/ERP payment and GL postings happen **outside** mill; `note` the fact on the card.
+Pattern: README "Escalate always = mill send"; "human_required clusters: ... finance (approve)"; sales blocked on pricing -> finance. Ledger/ERP payment and GL postings happen **outside** mill; `replace-body` the fact on the card.
 
 ---
 
@@ -152,7 +152,7 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 **Approved / paid**
 
 1. Request identity (invoice/PO/spend) + desired outcome were on the desk (or waiting_on mailed).
-2. Owner claimed/assigned; coding/exception `note`d when needed; ledger ids linked not cloned.
+2. Owner claimed/assigned; coding/exception written on the card (`replace-body`) when needed; ledger ids linked not cloned.
 3. **Approve path:** human_required satisfied; outcome noted; askers/`send`ed; card `pass` **or** waiting_on next approver.
 4. **Withhold/reject:** reason noted; asker mailed; card closed via `pass` or waiting_on revision.
 5. **Paid/closed:** payment pointer noted from ledger; card `pass`.
@@ -163,7 +163,7 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 
 ## Scope note
 
-- **In:** Spend/invoice/PO collab on a mill office - create/claim/assign/note/send/pass spine; approval chain with **human_required**; exception escalate via `send`; paid/closed card close; forecast/budget glance via `score`.
+- **In:** Spend/invoice/PO collab on a mill office - create/claim/assign/replace-body/send/pass spine; approval chain with **human_required**; exception escalate via `send`; paid/closed card close; forecast/budget glance via `score`.
 - **Out:** Ledger/ERP/GL/AP-AR/bank as SoR; payroll engine; legal clear/hold product; sales close-won; owning period-close as a second day-one SKILL product.
 - **Day-one:** single dual product (**Approved / paid**); invoice/PO/budget/forecast/accrual/coding/exception/close-books = nouns, steps, score, or modes - not second SKILL products.
 - Adapter stays thin - pull mill-desk first; one card, then STOP.
@@ -177,14 +177,14 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 
 | Source | Used for |
 |---|---|
-| `docs/skills/README.md` | Catalog **Approved / paid**; spine create todo->claim->note->send->pass; human_required finance (approve); escalate = send; hold rare; domain SoR outside mill |
+| `docs/skills/README.md` | Catalog **Approved / paid**; spine create todo->claim->todo --eta->send->pass; human_required finance (approve); escalate = send; hold rare; domain SoR outside mill |
 | `docs/skills/TEMPLATE.md` | Required SKILL shape: Product, Inputs, Lingo, Handoffs, Must-not, Done |
 | `docs/skills/FUNCTION-LINGO.md` S **Finance / admin** | **Required** product words (invoice, PO, budget, forecast, accrual, payment); collab (approval chain, coding, exception, close the books); mill sketch (approval->human_required; exception->escalate mail; paid/closed->done; forecast KPI->score row) |
 | `docs/skills/MILL-OFFICE-SKILL-SCOUT.md` | Loop-1 SoR: RESEARCH + TEMPLATE brief; no SKILL patch; day-one command reject list |
 | `docs/skills/office-finance/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-sales/SKILL.md` + sales RESEARCH | Sibling: finance pricing/approve handoff; CRM SoR pattern analogue to ledger |
 | `docs/skills/office-legal/SKILL.md` | Sibling human_required / clear-hold cluster; hold on docs |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; pass = ship/close; no open/yield/teaching done |
 | `docs/protocol/commands.md` | Confirm score/pass lifecycle; removed teaching CLI (open/yield/bare create/done) |
 
 ### Public industry practice (thin)
@@ -200,7 +200,7 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 
 - **Closed period / close-the-books** as 2nd day-one Product - **guess against** catalog (Approved / paid only); stub lists it - open Q for gardener/human.
 - Teaching **`hold`/`drop`** on invoice packs - **guess against** README rarity; omit day-one.
-- Whether **reject/withhold** should `pass` the card or leave waiting_on for resubmit - **guess**: `pass` + note when decision final; waiting_on when revision expected.
+- Whether **reject/withhold** should `pass` the card or leave waiting_on for resubmit - **guess**: `pass` + reason in card text when decision final; waiting_on when revision expected.
 - **human_required** encoding (mail flag vs office convention vs watcher hint) - **guess**; cite README cluster; gardener follows mill-desk/office convention when known.
 
 ---
@@ -210,7 +210,7 @@ Pattern: README "Escalate always = mill send"; "human_required clusters: ... fin
 1. Keep **one dual product** (Approved / paid) or split **Approved** vs **Paid** into two Product subsections with separate Inputs/Done?
 2. Should stub's **closed period step** become a day-one Product, a named mode under Approved/paid, or stay out until an office runs standing close desks?
 3. On approve: is **human_required** always mandatory for any amount, or only above a policy threshold (threshold lives in ledger/policy SoR)?
-4. Reject/withhold: prefer card **`pass`** with note reason, or **waiting_on** until asker revises?
+4. Reject/withhold: prefer card **`pass`** with the reason in card text, or **waiting_on** until asker revises?
 5. Teach **`hold`/`drop`** at all in office-finance, or explicitly omit per README rarity?
 6. Where does forecast/budget **`score`** live (office KPI name/target) - finance desk vs shared Wall?
 7. Payment execution: may finance desk **`pass`** on "approved, payment queued" or only after ledger shows **paid**?
@@ -264,11 +264,11 @@ are **nouns, steps, score, or modes** on this spine - not second day-one
 products. Ledger/ERP stays system of record for amounts, GL, and payments.
 
 ## Inputs
-On the desk **before** you can approve or mark paid (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can approve or mark paid (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Request identity** - invoice / PO / spend id or URL in detail (do not clone ledger amounts as SoR)
 - **Outcome ask** - approve, withhold/reject, mark paid, or exception path
 - **Approver / chain** - who must human-click (`assign` + human_required)
-- **Coding / cost center hint** - when office requires (note; coding runs in ledger)
+- **Coding / cost center hint** - when office requires (card text; coding runs in ledger)
 - When exception: reason / policy cite for escalate mail
 - On paid: payment / remittance pointer from ledger
 
@@ -281,18 +281,18 @@ replacing ERP payment runs inside mill.
 | invoice / PO / request | `create todo` (ledger id in detail) |
 | own / work request | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| approval / approve | `assign` + **human_required** + `send` / `note` outcome |
+| approval / approve | `assign` + **human_required** + `send` outcome |
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
-| coding (GL / cost center) | `note` (ledger executes coding) |
-| exception | `send` escalate (+ `note` reason) |
-| progress / coded / approved diary | `note` (not mail) |
+| coding (GL / cost center) | `replace-body` (ledger executes coding) |
+| exception | `send` escalate (+ `replace-body` reason) |
+| progress / coded / approved diary | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` (not mail) |
 | find work / mail landed | `inbox` |
-| blocked (approver/bank/coding) | waiting_on + `send` / `note` |
+| blocked (approver/bank/coding) | waiting_on + `send` |
 | budget / forecast KPI | `score` (last vs target) |
-| paid / closed | `note` payment pointer + `pass` |
-| withhold / reject | `note` reason + `send` asker; `pass` or waiting_on revision |
+| paid / closed | `replace-body` payment pointer + `pass` |
+| withhold / reject | `replace-body` reason + `send` asker; `pass` or waiting_on revision |
 | park / later | `create todo` `{status:"parked"}` |
-| accrual / period-close step | `note` / optional todo on same spine (ledger SoR) |
+| accrual / period-close step | `replace-body` / optional todo on same spine (ledger SoR) |
 
 Do **not** teach `hold`/`drop` day-one unless the office leases a shared invoice/PO doc.
 Never teach `open` / `yield` / bare `create` / `done`.

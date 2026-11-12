@@ -35,7 +35,7 @@ TOY.md must list **Cast:** Asker=... Producer=... Handoff=... (omit handoff only
 
 ## Run identity (required - activity join)
 
-`activity` is keyed by **desk_id** + **updated**. A shared Producer desk mixes runs. Before the first mill command, record a run header (mill note on #50 or child, and/or row in `COLD-RUN-RESULTS.md`):
+`activity` is keyed by **desk_id** + **updated**. A shared Producer desk mixes runs. Before the first mill command, record a run header (`mill replace-body todo` on #50 or child, and/or row in `COLD-RUN-RESULTS.md`):
 
 | Field | Rule |
 |---|---|
@@ -59,7 +59,7 @@ Card `need` slug should include `batch_id` + `hypo_id` so todo rows also join wi
    - **Collab:** mail src!=dst to Asker/Handoff (not Producer self-mail)
    - Trail joins via **Producer desk_id** (preferred) or recorded **t0-t1** + cast - no ambiguous mixed window
    - No invented mill commands / wrong product?
-4. Pass / Fail -> mill note on #50 (or child); smallest SKILL patch if Fail
+4. Pass / Fail -> mill replace-body on #50 (or child); smallest SKILL patch if Fail
 
 ## COLD rule (all 100)
 

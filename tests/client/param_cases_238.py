@@ -34,7 +34,6 @@ BOOK = {
     "connected": ["{P}"],
     "todo": ["{P}"],
     "create todo": ["{P}", "{NEWN}"],
-    "note": ["{P}", "{N_CLAIMED}", "3/9"],
     "claim": ["{P}", "{N}"],
     "unclaim": ["{P}", "{N_CLAIMED}"],
     "unpark": ["{P}", "{N_PARKED}", "--parent-type", "todo", "--parent-id", "{TID}"],
@@ -72,8 +71,8 @@ KIND = {
     ("create todo", "doing"): "text", ("create todo", "detail"): "text", ("create todo", "detail_file"): "name",
     ("create todo", "status"): "enum", ("create todo", "parent_type"): "enum",
     ("create todo", "parent_id"): "id",
-    ("note", "project"): "name", ("note", "need"): "name", ("note", "text"): "text",
-    ("note", "note"): "text", ("note", "eta"): "eta", ("note", "supersedes"): "text",
+    # Card 1125: the card's own fields ride todo ROSTER NEED.
+    ("todo", "eta"): "eta", ("todo", "progress"): "text", ("todo", "done_when"): "text", ("todo", "doing"): "text",
     ("claim", "project"): "name", ("claim", "need"): "name",
     ("claim", "eta"): "eta", ("claim", "msg"): "text",
     ("unclaim", "project"): "name", ("unclaim", "need"): "name",
@@ -81,7 +80,7 @@ KIND = {
     ("unpark", "parent_type"): "enum", ("unpark", "parent_id"): "id",
     ("assign", "project"): "name", ("assign", "need"): "name", ("assign", "desk"): "name",
     ("pass", "project"): "name", ("pass", "need"): "name", ("pass", "evidence"): "text",
-    ("create todo", "done_when"): "text", ("note", "done_when"): "text",
+    ("create todo", "done_when"): "text",
     ("label", "type"): "enum", ("label", "id"): "cardref", ("label", "label"): "newname",  # high trust creates on first use
     ("label", "ord"): "int",
     ("unlabel", "type"): "enum", ("unlabel", "id"): "cardref",
@@ -96,11 +95,11 @@ KIND = {
     # #818 PR B: --doing on every activity write; connected reads doing.
     ("send", "doing"): "text", ("reply", "doing"): "text", ("mark", "doing"): "text",
     ("claim", "doing"): "text", ("unclaim", "doing"): "text", ("assign", "doing"): "text",
-    ("pass", "doing"): "text", ("note", "doing"): "text", ("unpark", "doing"): "text",
+    ("pass", "doing"): "text", ("unpark", "doing"): "text",
     ("drop", "doing"): "text", ("score", "doing"): "text",
     # #822: --waiting-on "WHAT [WHY]" rides --doing on the same commands.
     **{(c, "waiting_on"): "text" for c in (
-        "send", "reply", "mark", "create todo", "claim", "unclaim", "assign", "pass", "note", "unpark", "hold",
+        "send", "reply", "mark", "create todo", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold",
         "drop", "score")},
     ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
     ("delete", "kind"): "enum", ("delete", "slug"): "name",

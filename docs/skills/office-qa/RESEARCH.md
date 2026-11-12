@@ -49,10 +49,10 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 
 | Input | Required? | Mill fulfillment |
 |---|---|---|
-| Claims (what to remasure - acceptance criteria / expected behavior) | **Yes** | Mail body and/or todo `detail`; if missing -> `note` gap + `send` asker / `waiting_on` |
-| Subject under test (build, pack Last, path, env, version) | **Yes** | detail / note; link SoR (forge, artifact store) - don't clone |
+| Claims (what to remasure - acceptance criteria / expected behavior) | **Yes** | Mail body and/or todo `detail`; if missing -> `replace-body` gap + `send` asker / `waiting_on` |
+| Subject under test (build, pack Last, path, env, version) | **Yes** | detail; link SoR (forge, artifact store) - don't clone |
 | How to remasure (black-box steps, cases, or pointer to suite) | Strong | detail; else asker mail |
-| Evidence sink (where paths will live) | Strong | note paths on verdict; optional `hold` if exclusive write to shared evidence file |
+| Evidence sink (where paths will live) | Strong | paths in card text on verdict; optional `hold` if exclusive write to shared evidence file |
 | Prior Fail / re-test context | When re-test | same card after eng fix; Fail mail + evidence paths (eng Inputs mirror) |
 
 Not inputs: "make quality better," implement while remasuring, Builder suite as sole proof.
@@ -68,7 +68,7 @@ Not inputs: "make quality better," implement while remasuring, Builder suite as 
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`, mail as needed.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). `unpark` exists on mill-desk but is not day-one teach unless human says it.
 
@@ -78,24 +78,24 @@ Shared spine (one table for the function):
 
 | Their word | Source | Candidate commands | Chosen day-one | Reject / notes |
 |---|---|---|---|---|
-| acceptance criteria | FUNCTION-LINGO QA product; mill sketch "todo detail / Claims" | detail, note, create todo | **todo `detail` / Claims mail** (`note` if amending) | not a CLI command; live on card/mail |
-| test case | FUNCTION-LINGO QA product; ISTQB test case | note paths | **`note`** (case id/path + expected vs actual in evidence) | no `test` / `case` mill command |
-| expected vs actual | FUNCTION-LINGO QA product | note, send body | **`note`** + verdict **`send`** | - |
+| acceptance criteria | FUNCTION-LINGO QA product; mill sketch "todo detail / Claims" | detail, replace-body, create todo | **todo `detail` / Claims mail** (`replace-body` if amending) | not a CLI command; live on card/mail |
+| test case | FUNCTION-LINGO QA product; ISTQB test case | replace-body paths | **`replace-body`** (case id/path + expected vs actual in evidence) | no `test` / `case` mill command |
+| expected vs actual | FUNCTION-LINGO QA product | replace-body, send body | **`replace-body`** + verdict **`send`** | - |
 | pass / fail (verdict) | FUNCTION-LINGO sketch "mail verdict + evidence paths"; stub Verdict | send, pass | **`send`** asker/builder (verdict + paths) | reject teaching mill `pass` as synonym for test Pass - different senses |
-| remasure / independent verify | FUNCTION-LINGO collab; stub Remasure | claim, inbox, note | **`inbox`** (Claims) -> **`claim`** remasure card -> black-box work -> **`note`** evidence | Validator desk; **no implement** |
-| confirmation test / re-test | FUNCTION-LINGO sketch "same card after eng fix" | claim, note, send | **same card**: `claim`/`note`/`send` again | not a new command; not auto-`pass` eng |
+| remasure / independent verify | FUNCTION-LINGO collab; stub Remasure | claim, inbox, replace-body | **`inbox`** (Claims) -> **`claim`** remasure card -> black-box work -> **`replace-body`** evidence | Validator desk; **no implement** |
+| confirmation test / re-test | FUNCTION-LINGO sketch "same card after eng fix" | claim, replace-body, send | **same card**: `claim`/`send` again | not a new command; not auto-`pass` eng |
 | regression | FUNCTION-LINGO sketch "leftover / follow-on todo" | create todo, leftover | **`create todo`** follow-on (or leftover) + same remasure spine | reject inventing `regress` command |
 | defect / bug | FUNCTION-LINGO product; mill-desk bug idiom | create todo + label | **`create todo`** + `label-add ... bug`; **`send`** eng | SoR may also be forge Issue (support pattern) |
 | reject / send back | FUNCTION-LINGO collab | send | **`send`** Fail + repro/evidence | handoff != claim steal |
 | sign-off | FUNCTION-LINGO sketch "Pass mail; asker may pass" | send, pass | **`send`** Pass mail; **asker/eng `pass`** card | QA `pass` only on *QA* remasure card unless office says validator closes |
-| pair testing | FUNCTION-LINGO collab | send, claim | **`send`** / second desk; **`note`** | rare day-one |
+| pair testing | FUNCTION-LINGO collab | send, claim | **`send`** / second desk; **`replace-body`** | rare day-one |
 | exit criteria | FUNCTION-LINGO product; ISTQB | - | Done gate language in Done / waiting_on | not a mill command |
-| evidence | FUNCTION-LINGO product; README "Prove it" | note, send | **`note`** paths + **`send`** body | paths in SoR; mill stores pointer |
+| evidence | FUNCTION-LINGO product; README "Prove it" | replace-body, send | **`replace-body`** paths + **`send`** body | paths in SoR; mill stores pointer |
 | Claims landed / find work | stub Find Claims; mill-desk mail | inbox | **`inbox`** | - |
 | take remasure card | mill-desk; eng claim | claim, assign | **`claim`** / **`assign`** | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
-| progress / method diary | mill-desk note | note | **`note`** | note != mail |
-| blocked (env, Claims, access) | README waiting_on pattern | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake Pass or card `pass` |
+| progress / method diary | mill-desk replace-body | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
+| blocked (env, Claims, access) | README waiting_on pattern | waiting_on + send | **`waiting_on` + `send`** | don't fake Pass or card `pass` |
 | exclusive evidence file | eng hold pattern; TEMPLATE | hold / drop | **`hold` / `drop`** | rare; hold = lock file, not unclaim |
 | quality KPI / escape rate | README score row clusters | score | **`score`** optional | QA not in README score row cluster (ops/support/sales/marketing) - omit unless office sets KPI |
 | park / defer remasure | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
@@ -124,7 +124,7 @@ Pattern borrow: eng "Ask remasure -> send validator"; support "escalate = send +
 - Bypass mill-desk HINT routing.
 - Implement product fixes (stub; FUNCTION-LINGO remasure = no implement).
 - Rubber-stamp without remasure; rely on Builder's suite alone (stub).
-- Replace domain SoR: forge Issues/PRs, CI logs, test runners, artifact stores - **link paths** in note/mail; don't clone suites into mill.
+- Replace domain SoR: forge Issues/PRs, CI logs, test runners, artifact stores - **link paths** in card text/mail; don't clone suites into mill.
 - Invent mill commands for ISTQB/industry slang (`remasure`, `sign-off`, `regress`, `defect` as CLI).
 - Teach mill `pass` as the test Pass verdict - verdict is **mail**; card `pass` closes QA work (or eng card after asker policy).
 - `pass` eng cards to done unless office says validator closes (stub Close).
@@ -167,14 +167,14 @@ Pattern borrow: eng "Ask remasure -> send validator"; support "escalate = send +
 | `docs/skills/office-qa/SKILL.md` | Stub gap-fill baseline |
 | `docs/skills/office-engineering/SKILL.md` | Claims handoff; Fail mail as eng Input; hold; asker `pass` after Pass |
 | `docs/skills/office-support\|ops\|research/SKILL.md` | Handoff mirrors; waiting_on; forge SoR; research RESEARCH.md shape |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
 
 ### Public industry practice (thin)
 
 | Cite | Takeaway for mill map |
 |---|---|
 | ISTQB glossary - acceptance criteria | Conditions a work product must satisfy for acceptance -> live in Claims / todo detail, not a mill command ([ISTQB Glossary Foundation PDF](https://www.erikvanveenendaal.nl/site/wp-content/uploads/ISTQB-Glossary-Foundation-V4.1-2023.pdf)) |
-| ISTQB - test case | Preconditions, inputs, actions, expected results, postconditions -> evidence/`note` content |
+| ISTQB - test case | Preconditions, inputs, actions, expected results, postconditions -> evidence/`replace-body` content |
 | ISTQB - passed / failed | Actual matches vs does not match expected -> verdict in **mail**, not card-status slang collision |
 | ISTQB - confirmation (re-test) vs regression | Re-test = same failing case after fix; regression = side effects elsewhere -> same card vs follow-on `create todo` (aligns FUNCTION-LINGO) |
 | ISTQB - pass/fail criteria | Decision rules for pass/fail ([istqb-glossary.page](https://istqb-glossary.page/pass-fail-criteria/)) -> office Claims / exit language |
@@ -193,7 +193,7 @@ Pattern borrow: eng "Ask remasure -> send validator"; support "escalate = send +
 
 1. Is **Pass/Fail evidence** the only day-one product, or should regression cadence / acceptance pack get its own Product subsection now?
 2. May the validator desk **`pass` eng cards** after Pass mail, or only mail + let asker/eng `pass`? (Stub + FUNCTION-LINGO favor asker; confirm office policy.)
-3. Keep stub **Pass-with-warnings** ternary, or collapse to Pass/Fail + note warnings?
+3. Keep stub **Pass-with-warnings** ternary, or collapse to Pass/Fail + warnings in card text?
 4. Where do evidence artifacts live as SoR (CI log URL, pack path, Drive)? Affects hold teaching and Done path line.
 5. Should `score` appear in office-qa map day-one (escape rate / remasure latency)?
 6. Defect filing: always QA `create todo`+bug, or prefer support/forge Issue then mill link only?
@@ -244,7 +244,7 @@ Regression and acceptance testing are **modes** of this product (same spine), no
 second day-one products. Re-test = same card after eng fix.
 
 ## Inputs
-On the desk **before** remasure (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** remasure (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Claims** - acceptance criteria / expected behavior (mail and/or todo detail)
 - **Subject under test** - build, pack Last, path, env, version (link SoR)
 - **Remasure method** - black-box steps or pointer to cases/suite
@@ -255,19 +255,19 @@ Not inputs: vague "improve quality," implement-while-checking, Builder suite as 
 ## Lingo -> mill
 | Their word | Mill |
 |---|---|
-| Claims / acceptance criteria | todo `detail` / Claims mail (`note` to amend) |
+| Claims / acceptance criteria | todo `detail` / Claims mail (`replace-body` to amend) |
 | find Claims / remasure ask | `inbox` |
 | take remasure | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| test case / expected vs actual / evidence paths | `note` |
+| test case / expected vs actual / evidence paths | `replace-body` |
 | remasure (independent verify) | black-box work on Validator desk - **no implement** |
 | pass / fail verdict | `send` asker/builder (verdict + method + paths) |
 | sign-off | Pass `send`; asker/eng may `pass` the implement card |
 | reject / send back | `send` Fail + repro |
 | defect / bug | `create todo` + bug label; `send` eng |
-| re-test / confirmation | same card after eng fix (`claim` / `note` / `send`) |
+| re-test / confirmation | same card after eng fix (`claim` / `send`) |
 | regression | follow-on `create todo` (leftover) + same spine |
-| blocked (Claims/env) | waiting_on + `send` / `note` |
+| blocked (Claims/env) | waiting_on + `send` |
 | park / defer | `create todo` `{status:"parked"}` |
 | exclusive evidence file | `hold` / `drop` (rare) |
 | close QA remasure card | `pass` (QA card only unless office says validator closes eng) |

@@ -22,14 +22,14 @@ mailed) **or** a clean stage handoff (SDR->AE->CS/delivery) with owner + next st
 CRM stays system of record for amounts, accounts, and stage history.
 
 Lead/MQL/SQL, proposal, renewal, and forecast are **stages, steps, or score** on
-this spine - not second day-one products. Close-lost = same card `pass` + note why.
+this spine - not second day-one products. Close-lost = same card `pass` + `replace-body` why.
 
 ## Inputs
-On the desk **before** you can advance or close (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can advance or close (else `replace-body` gap + `send` asker / `waiting_on`):
 - **CRM identity** - opportunity/account id or URL in detail (do not clone amounts)
 - **Stage / outcome ask** - advance, close-won, close-lost, or handoff destination
 - **Owner path** - SDR / AE / CS / delivery (for claim/assign)
-- **Next step** - call, demo, proposal, legal, pricing (note as you go)
+- **Next step** - call, demo, proposal, legal, pricing (`todo <roster> <need> --eta E` as you go)
 - When blocked: legal/pricing/security context for waiting_on mail
 - On close-won: CS onboarding ask (who/what to mail or todo)
 
@@ -39,17 +39,17 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | Their word | Mill |
 |---|---|
 | lead / opportunity | `create todo` (CRM id in detail) |
-| MQL / SQL / stage | `note` on opp card (CRM stage outside mill) |
+| MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| next step / progress | `note` |
+| next step / progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
-| blocked (legal/pricing) | waiting_on + `send` / `note` |
-| proposal path | `note` (+ `send` legal/finance if gate) |
+| blocked (legal/pricing) | waiting_on + `send` |
+| proposal path | `replace-body` (+ `send` legal/finance if gate) |
 | forecast / KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | close-won | `pass` + `send` CS/delivery (+ optional onboarding `create todo` / `assign`) |
-| close-lost | `pass` + `note` why |
+| close-lost | `pass` + `replace-body` why |
 | park / later | `create todo` `<roster> <need> --status parked` |
 | renewal | same spine: `create todo` renew opp **or** `send` CS |
 
@@ -76,6 +76,6 @@ Never teach `open` / `yield` / bare `create` / `done`.
 
 ## Done looks like
 - Close-won: card `pass`ed; CS/delivery mailed (and/or onboarding todo assigned); CRM closed outside mill.
-- Close-lost: card `pass`ed with note why.
+- Close-lost: card `pass`ed with `replace-body` why.
 - Handoff: next owner assigned and/or mailed; waiting_on cleared or explicit.
 - Else clean waiting_on or parked - never silent open.

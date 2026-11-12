@@ -117,7 +117,7 @@ def test_history_on_one_card_without_a_desk(w, wall):
     """
     need, tid = w.card()
     w.ok(["claim", R, need, "--doing", "mine on the card"])
-    w.ok(["note", R, need, "--note", "peer looks", "--doing", "peer on the card"], desk=PEER)
+    w.ok(["todo", R, need, "--started", "--doing", "peer on the card"], desk=PEER)
     mid = w.letter()
     w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "not the card"])
     w.ok(["pass", R, need, "--evidence", "shipped for 901", "--doing", "closing"])

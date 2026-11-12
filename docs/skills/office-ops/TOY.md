@@ -11,7 +11,7 @@
 "Something is down."
 
 **Expected:**
-1. Spot Inputs gap -> `note` and/or `send` asker / waiting_on - **do not** produce the product yet
+1. Spot Inputs gap -> `replace-body` and/or `send` asker / waiting_on - **do not** produce the product yet
 2. After toy fill (below), run day-one spine for this product
 3. `pass` / waiting_on / parked as skill Done says - **STOP**
 
@@ -24,9 +24,9 @@
 ## Scenario B - happy path (Inputs given)
 
 **Human says:**  
-"Incident: Wall HTTPS timeout from Bot desks. SEV2. Owner: ops desk. Mitigate: confirm mill-wall up; note ETA; mail eng if code. Drain not requested."
+"Incident: Wall HTTPS timeout from Bot desks. SEV2. Owner: ops desk. Mitigate: confirm mill-wall up; set the ETA (mill todo ROSTER NEED --eta E); mail eng if code. Drain not requested."
 
-**Expected:** Inputs enough -> `create todo` / `claim` / `note` / `send` as skill map -> product Done -> **STOP**.
+**Expected:** Inputs enough -> `create todo` / `claim` / `send` as skill map -> product Done -> **STOP**.
 
 **Fail if:** silent prod change; invent page/sev CLI; own eng ship
 

@@ -33,8 +33,8 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Intentional drain with ETA as separate product | **DROP** (day-one) | Stub folds drain into Product; FL sketch: drain + mail ETA. Mode of uptime, not second artifact. |
 | Postmortem (blameless) as product | **DROP** | FUNCTION-LINGO sketch: follow-on todo or parked plan. Collab/follow-on work, not the shippable ops artifact day-one. |
 | SLO/SLA / service health KPI as product | **DROP** | README score row cluster: ops (SLO). Fulfillment = `score` / score rows - not a product noun. |
-| Runbook as product | **DROP** | Method/input (how to mitigate). Lives in detail/note or external SoR; not the office artifact. |
-| Status page essay / stakeholder blog | **DROP** | Stub description: "not a status page essay." Comms = `send` / note; SoR may be status tool. |
+| Runbook as product | **DROP** | Method/input (how to mitigate). Lives in detail/replace-body or external SoR; not the office artifact. |
+| Status page essay / stakeholder blog | **DROP** | Stub description: "not a status page essay." Comms = `send` / replace-body; SoR may be status tool. |
 | SEV taxonomy / IC role as product | **DROP** | Collab structure (SEV -> detail priority; IC -> claim/assign). Not an artifact. |
 
 **Kept products (day-one): 1 - Uptime / incident closed** (modes: incident mitigate/close, deploy/rollback window, intentional drain with ETA, health recovery).
@@ -54,16 +54,16 @@ A function may have >1 product. Day-one prefer 1-2. Shared mill command spine st
 | Signal (page/alert/health fail / deploy ask / drain ask) | **Yes** | `inbox` / wake / mail; or human chat -> `create todo` |
 | Scope of impact (service, SEV/priority, blast radius) | **Yes** | todo `detail` / `doing`; SEV in detail (FL: SEV -> detail + priority) |
 | Owner / on-call coverage | **Yes** | presence HERE; `claim` / `assign` |
-| Mitigation path (runbook pointer, rollback plan, drain steps) | Strong | `note` / detail; link SoR runbook - don't clone |
+| Mitigation path (runbook pointer, rollback plan, drain steps) | Strong | `replace-body` / detail; link SoR runbook - don't clone |
 | Stakeholder / eng/support dests for comms | When impact visible | `send` dest=desk/role |
 | Deploy artifact / change id (when deploy mode) | When deploy | detail link to forge/CI SoR |
-| Drain ETA | When drain | `note` + `send` ETA (stub Drain; FL drain + mail ETA) |
+| Drain ETA | When drain | `todo ROSTER NEED --eta E` + `send` ETA (stub Drain; FL drain + mail ETA) |
 
 Not inputs: vague "keep the lights on," silent prod change with no card when office requires one, infinite reconnect spam as a plan.
 
 ### Done looks like (this product)
 
-- **Incident:** impact mitigated; card `note`d; stakeholders `send`ed; card `pass`ed **or** clean `waiting_on` (blocked on eng fix / human) **or** parked follow-on (postmortem).
+- **Incident:** impact mitigated; card text updated (`replace-body`); stakeholders `send`ed; card `pass`ed **or** clean `waiting_on` (blocked on eng fix / human) **or** parked follow-on (postmortem).
 - **Deploy/rollback:** change live or rolled back; card `pass`ed; optional QA remasure handoff if Claims say so.
 - **Drain:** ETA clear on card + mailed; no reconnect spam; card `pass` when drain complete or waiting_on until window ends per office policy.
 - Service healthy **or** intentional degraded state with ETA - never silent open forever.
@@ -72,7 +72,7 @@ Not inputs: vague "keep the lights on," silent prod change with no card when off
 
 ## Lingo harvest -> mill map
 
-Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `note`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
+Day-one commands **only:** `create todo`, `claim`, `assign`, `unclaim`, `replace-body`, `send`, `inbox`, `hold`, `drop`, `pass`, `score`, `waiting_on`.  
 **Reject:** `open`, `yield`, bare `create`, teaching `done`.  
 `park` speech -> `create todo` with `status:"parked"` (mill-desk). Wake exists on mill-desk for socket catch-up - cite as inbound, not invent ops CLI.
 
@@ -85,26 +85,26 @@ Shared spine (one table for the function):
 | on-call / HERE | FL Ops collab + sketch "presence"; stub Who's HERE | presence / agents | **presence / HERE** (glance; not a card command) | not invent `oncall` CLI |
 | page / alert | FL sketch "wake / mail"; stub Page | wake, send, inbox | **`send` / wake** + **`inbox`** | wake = catch-up/inbound; page != new mill command |
 | incident | FL sketch "todo claim"; stub Track | create todo, claim | **`create todo`** then **`claim`** / **`assign`** | reject bare `create` / `open` |
-| SEV / severity | FL sketch "detail + priority in doing" | detail, note | **todo `detail` / `doing`** (`note` to amend) | no `sev` command |
-| triage | FL collab | claim, note, assign | **`claim`/`assign`** + **`note`** priority/impact | - |
-| mitigate | FL sketch "note + done when impact stopped"; stub Close | note, pass | **`note`** mitigation; **`pass`** when impact stopped | reject teaching `done` |
-| resolution / incident closed | FL product; README product; stub Close | pass, note, send | **`note`** + stakeholder **`send`** + **`pass`** | - |
+| SEV / severity | FL sketch "detail + priority in doing" | detail, replace-body | **todo `detail` / `doing`** (`replace-body` to amend) | no `sev` command |
+| triage | FL collab | claim, replace-body, assign | **`claim`/`assign`** + **`replace-body`** priority/impact | - |
+| mitigate | FL sketch "replace-body + done when impact stopped"; stub Close | replace-body, pass | **`replace-body`** mitigation; **`pass`** when impact stopped | reject teaching `done` |
+| resolution / incident closed | FL product; README product; stub Close | pass, replace-body, send | **`replace-body`** + stakeholder **`send`** + **`pass`** | - |
 | escalate | FL sketch "mail eng/support"; README escalate = send | send | **`send`** eng/support (+ optional eng `create todo`) | never invent `escalate` command |
 | incident commander (IC) | FL collab | claim, assign | **`claim`** / **`assign`** IC desk | role on card owner, not new command |
-| stakeholder comms | FL collab; stub Done mailed | send, note | **`send`** + **`note`** on card | not status-page SoR clone |
+| stakeholder comms | FL collab; stub Done mailed | send, replace-body | **`send`** + **`replace-body`** on card | not status-page SoR clone |
 | follow-the-sun | FL collab | unclaim, assign, send | **`unclaim`/`assign`** + **`send`** next shift | presence for who's HERE |
 | postmortem | FL sketch "follow-on todo or parked plan" | create todo parked | **`create todo`** follow-on or `{status:"parked"}` | not day-one product; reject teaching `done` |
-| deploy / rollback | FL product; stub Deploy | create todo, note, pass, send | **`create todo`/`claim`** -> **`note`** -> **`pass`**; **`send`** ops/eng as needed | forge/CI stay SoR |
-| drain / deploy window | FL sketch "drain + mail ETA"; stub Drain | note, send, pass | office drain path + **`note`/`send` ETA**; **`pass`** when clear | reject inventing `drain` CLI |
-| runbook | FL product | note, detail | **`note`/detail** pointer to SoR | method, not command |
+| deploy / rollback | FL product; stub Deploy | create todo, todo --eta, pass, send | **`create todo`/`claim`** -> **`todo ROSTER NEED --eta E`** -> **`pass`**; **`send`** ops/eng as needed | forge/CI stay SoR |
+| drain / deploy window | FL sketch "drain + mail ETA"; stub Drain | todo --eta, send, pass | office drain path + **`todo ROSTER NEED --eta E`** + **`send`**; **`pass`** when clear | reject inventing `drain` CLI |
+| runbook | FL product | replace-body, detail | **`replace-body`/detail** pointer to SoR | method, not command |
 | SLO / SLA / uptime KPI | FL product; README score row ops (SLO) | score | **`score`** (last vs target) | not a product |
 | service health / health check failed | FL product; stub When | create todo, inbox, claim | **`inbox`/`create todo`** -> **`claim`** -> mitigate spine | - |
 | drop the claim | mill-desk | unclaim | **`unclaim`** | never confuse with `drop` (hold) |
 | exclusive runbook/config edit | eng hold pattern; TEMPLATE | hold / drop | **`hold` / `drop`** | rare; hold = lock resource, not unclaim |
-| blocked (eng fix, access, change window) | README waiting_on | waiting_on + send | **`waiting_on` + `send`/`note`** | don't fake `pass` |
+| blocked (eng fix, access, change window) | README waiting_on | waiting_on + send | **`waiting_on` + `send`** | don't fake `pass` |
 | park / defer (postmortem, non-urgent) | mill-desk | create todo parked | **`create todo` `{status:"parked"}`** | reject `open` / bare `create` |
 | take / give incident | mill-desk; support assign | claim, assign | **`claim` / `assign`** | - |
-| progress diary | mill-desk note; FL mitigate | note | **`note`** | note != mail |
+| progress diary | mill-desk replace-body; FL mitigate | todo --eta/--started/--progress | **`todo <roster> <need> --eta E`** / `--started` / `--progress 9/12` | replace-body != mail |
 | find ops mail / pages | mill-desk mail; stub | inbox | **`inbox`** | - |
 
 **Stub lingo gaps this harvest fills:** Inputs, SEV->detail, escalate=`send`, postmortem=follow-on/parked, SLO=`score`, waiting_on, assign/unclaim, hold/drop nuance, follow-the-sun handoff, park, reject open/yield/bare create/teaching done.
@@ -130,11 +130,11 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 - Bypass mill-desk HINT routing.
 - Silent prod change without a card when office requires it (stub).
 - Infinite reconnect spam during drain (stub).
-- Replace domain SoR: PagerDuty/Opsgenie, status page, CI/deploy logs, runbook wiki, forge - **link** in note/mail; don't clone.
+- Replace domain SoR: PagerDuty/Opsgenie, status page, CI/deploy logs, runbook wiki, forge - **link** in card text/mail; don't clone.
 - Invent mill commands for SRE slang (`page`, `escalate`, `drain`, `sev`, `mitigate`, `postmortem` as CLI).
 - Teach `done` / `open` / `yield` / bare `create` (mill-desk alpha hard-cut).
 - Confuse `drop` (hold release) with `unclaim`.
-- Confuse mitigate-complete with mill `pass` without card close - `pass` closes the ops card after impact stopped + note/comms.
+- Confuse mitigate-complete with mill `pass` without card close - `pass` closes the ops card after impact stopped + card text/comms.
 - Pretend mill *is* PagerDuty/Jira Ops/statuspage (FUNCTION-LINGO how-to-talk #4).
 - Own eng ship or QA Pass/Fail - hand off.
 
@@ -145,7 +145,7 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 **Uptime / incident closed**
 
 1. Signal + impact scope were on the desk (or waiting_on mailed).
-2. Owner claimed/assigned; mitigation/`note`d (runbook/rollback/drain steps).
+2. Owner claimed/assigned; mitigation in card text (`replace-body`) (runbook/rollback/drain steps).
 3. Stakeholders/`send`ed as needed (ETA or resolved); eng/qa/support mailed when ball moves.
 4. Ops card `pass`ed when stable **or** clean waiting_on (blocked on eng/human) **or** parked follow-on (postmortem) - never silent open forever.
 5. Deploy mode: change live or rolled back; drain mode: ETA honored / window closed without reconnect spam.
@@ -175,7 +175,7 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 | `docs/skills/office-engineering/SKILL.md` | Ops handoff for deploy/incident; hold pattern |
 | `docs/skills/office-support/SKILL.md` | Escalate -> eng/ops; waiting_on; forge SoR |
 | `docs/skills/office-qa/SKILL.md` + `RESEARCH.md` | Prod-only -> Ops; RESEARCH shape + TEMPLATE brief pattern |
-| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; note!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
+| `docs/protocol/skill.md` (mill-desk) | Day-one command lock; replace-body!=mail; drop!=unclaim; create todo always includes todo; no open/yield/teaching done |
 | `docs/protocol/commands.md` | Confirm wake/score/pass lifecycle; removed teaching CLI |
 
 ### Public industry practice (thin)
@@ -189,7 +189,7 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 ### Guesses (flagged)
 
 - Whether **deploy** should become a 2nd day-one Product subsection - **guess**; catalog names one compound product; stub folds three outcomes into Stable runtime.
-- Office-specific **drain** command vs note+send only - **guess**; FL says drain + mail ETA, not a mill CLI `drain`.
+- Office-specific **drain** command vs `todo --eta`+send only - **guess**; FL says drain + mail ETA, not a mill CLI `drain`.
 - `hold` on runbook/config paths - **guess**; rare unless the office leases those res names.
 - Teaching **wake** in Lingo table vs leave as mill-desk inbound only - prefer cite wake under page/alert; don't expand day-one teaching list.
 
@@ -198,7 +198,7 @@ Pattern: README "Escalate always = mill send"; support "escalate = send + eng to
 ## Open questions for human / gardener
 
 1. Keep **one** compound product (Uptime / incident closed with deploy/drain modes), or split **Incident closed** vs **Deploy/drain window** into two Product subsections now?
-2. Is office **drain** a named mill/office path agents must call, or day-one only `note`+`send` ETA + card `pass`?
+2. Is office **drain** a named mill/office path agents must call, or day-one only `todo ROSTER NEED --eta E`+`send` ETA + card `pass`?
 3. May ops desk **`pass`** when mitigated but root-cause open (postmortem parked), or must waiting_on until eng closes fix?
 4. Where does SEV live as SoR (detail text vs label vs external PD)? Affects whether gardener teaches `label-add`.
 5. Should `score` (SLO/error budget) appear in day-one Lingo table as required, or optional "if office sets KPI"?
@@ -252,12 +252,12 @@ not second day-one products. Postmortem = follow-on or parked todo, not the
 primary artifact.
 
 ## Inputs
-On the desk **before** mitigate/deploy/drain (else `note` gap + `send` / `waiting_on`):
+On the desk **before** mitigate/deploy/drain (else `replace-body` gap + `send` / `waiting_on`):
 - **Signal** - page/alert/health fail / deploy or drain ask (`inbox` / wake / mail)
 - **Impact scope** - service, SEV/priority, blast radius (todo `detail` / `doing`)
 - **Owner** - on-call HERE; `claim` / `assign`
-- **Mitigation path** - runbook/rollback/drain steps (pointer in detail/`note`; SoR stays outside)
-- When deploy: change/artifact id (link forge/CI). When drain: ETA for `note`/`send`.
+- **Mitigation path** - runbook/rollback/drain steps (pointer in detail/`replace-body`; SoR stays outside)
+- When deploy: change/artifact id (link forge/CI). When drain: ETA via `todo ROSTER NEED --eta E` / `send`.
 
 Not inputs: vague "keep the lights on," silent prod change with no card when
 office requires one, reconnect spam as a plan.
@@ -268,20 +268,20 @@ office requires one, reconnect spam as a plan.
 | on-call / HERE | presence (who's on the floor) |
 | page / alert | wake / `send` + `inbox` |
 | incident / health fail | `create todo` then `claim` / `assign` |
-| SEV / severity / triage | todo `detail` / `doing` + `note` |
+| SEV / severity / triage | todo `detail` / `doing` + `replace-body` |
 | IC / take ownership | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| mitigate / progress | `note` (diary; not mail) |
-| stakeholder comms | `send` (+ `note` on card) |
+| mitigate / progress | progress: `todo <roster> <need> --eta E` / `--started` / `--progress 9/12`; mitigation steps: card text (`replace-body`; not mail) |
+| stakeholder comms | `send` (+ `replace-body` on card) |
 | escalate | `send` eng/support (optional eng `create todo`) |
 | follow-the-sun | `assign` / `unclaim` + `send` next desk |
-| deploy / rollback | same spine: `claim` -> `note` -> `pass`; forge/CI SoR |
-| drain / deploy window | `note`/`send` ETA + office drain path; `pass` when clear |
-| blocked (eng/human/window) | waiting_on + `send` / `note` |
+| deploy / rollback | same spine: `claim` -> `todo ROSTER NEED --eta E` -> `pass`; forge/CI SoR |
+| drain / deploy window | `todo ROSTER NEED --eta E` / `send` ETA + office drain path; `pass` when clear |
+| blocked (eng/human/window) | waiting_on + `send` |
 | postmortem | follow-on `create todo` or `{status:"parked"}` |
 | SLO / uptime KPI | `score` (last vs target) |
 | exclusive config/runbook file | `hold` / `drop` (rare) |
-| close incident / stable | `pass` after mitigate + note/comms |
+| close incident / stable | `pass` after mitigate + replace-body/comms |
 | park / defer | `create todo` `{status:"parked"}` |
 
 ## Handoffs

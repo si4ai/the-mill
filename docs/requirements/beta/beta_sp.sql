@@ -62,7 +62,7 @@ BEGIN
 END //
 
 -- ---------- mint (admin.md section 2 and section 4) ----------
--- A roster or label: any seated desk under high trust, Admin only under limited trust. A plan (tree) or a
+-- A roster or label: trust-gated (rights: docs/requirements/admin.md section 2). A plan (tree) or a
 -- resource (res): any seated desk (section 3: tree, hold). A desk mints itself at connect (sp_name_mint_desk).
 -- A live name of that type is returned as it is ('exists'); a retired one is refused (reuse = Admin reclaim).
 DROP PROCEDURE IF EXISTS b_name_mint //

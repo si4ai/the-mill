@@ -40,7 +40,11 @@ def test_mail_update_delete_read_letter_roster(cn) -> None:
     )
     cn.commit()
     cur.close()
-    mail.update(cn, mid, "affil_upd_d", body="two")
+    from agent_coord.server.records import body as rec_body
+    from agent_coord.server.records.db import call
+
+    got = call(cn, "mill_mail_get", [mid])[0]
+    rec_body.replace(cn, "mail", mid, "affil_upd_d", "two", got["body_updated"] or got["created"])
     assert (
         scalar(cn, "SELECT roster_id FROM activity WHERE type='mail' AND id=%s", (mid,))
         == m_aff

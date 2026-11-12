@@ -1,7 +1,7 @@
 """Card 1133: mill_body_replace, the body stamps and the todo body/meta split, on the tip book.
 
 A replace writes the old text to activity_history, the new text and both stamps to the item, and act replace to its
-activity row, in one transaction. It refuses a stale stamp, a desk with no rights, a retired item and a no-op, and
+activity row, in one transaction. It refuses a stale stamp, a desk with no rights at limited trust, a retired item and a no-op, and
 writes nothing then; the no-op says plainly that the replace did nothing because the text is the same. History lists
 the old texts newest first unless the caller asks for oldest first. A card's text is todo.body; slug and the rest are todo.meta; readers still get one document.
 """
@@ -15,7 +15,7 @@ from agent_coord.server.records import body as rec_body
 from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import call
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import book_trust, seed_names
 
 pytestmark = pytest.mark.sql
 
@@ -182,7 +182,8 @@ def test_card_replace_refusals_write_nothing(cn, case, code):
     elif case == "null_stamp":
         args["expected"] = None
     n0 = _history_n(cn, "todo", tid)
-    with pytest.raises(Exception, match=code):
+    # body:rights is the limited-trust rule (admin.md section 2); every other refusal holds at either level.
+    with book_trust(cn, "limited" if case == "rights" else "high"), pytest.raises(Exception, match=code):
         rec_body.replace(cn, args["kind"], args["item"], args["desk"], args["text"], args["expected"])
     assert _card_row(cn, tid) == row
     assert _history_n(cn, "todo", tid) == n0
@@ -203,7 +204,7 @@ def test_mail_replace_sender_or_admin_and_receipts_untouched(cn):
     to0 = _q(cn, "SELECT desk_id, opened, receipt, asked, created FROM mail_to WHERE type = 'mail' AND id = %s", (mid,))
     got = call(cn, "mill_mail_get", [mid])[0]
     assert got["body_updated"] is None
-    with pytest.raises(Exception, match="body:rights"):
+    with book_trust(cn, "limited"), pytest.raises(Exception, match="body:rights"):
         rec_body.replace(cn, "mail", mid, "h_peer", "not mine", got["created"])
     first = rec_body.replace(cn, "mail", mid, "h_ask", "letter v2", got["created"])
     second = rec_body.replace(cn, "mail", mid, "h_adm", "letter v3", first["body_updated"])
@@ -215,17 +216,6 @@ def test_mail_replace_sender_or_admin_and_receipts_untouched(cn):
     assert _q(cn, "SELECT desk_id, opened, receipt, asked, created FROM mail_to WHERE type = 'mail' AND id = %s",
               (mid,)) == to0
     assert _q(cn, "SELECT act FROM activity WHERE type = 'mail' AND id = %s", (mid,))[0]["act"] == "replace"
-
-
-def test_mail_update_stamps_only_a_text_change(cn):
-    mid = int(rec_mail.insert(cn, ROSTER, "h_ask", "h_peer", "same")[0]["id"])
-    rec_mail.update(cn, mid, "h_ask", None, "same")
-    assert _q(cn, "SELECT body_updated FROM mail WHERE id = %s", (mid,))[0]["body_updated"] is None
-    rec_mail.update(cn, mid, "h_ask", None, "edited")
-    row = _q(cn, "SELECT body_updated, body_updater_id FROM mail WHERE id = %s", (mid,))[0]
-    assert row["body_updated"] is not None and row["body_updater_id"] == _desk(cn, "h_ask")
-    with pytest.raises(Exception, match="body:stale"):  # the edit moved the stamp
-        rec_body.replace(cn, "mail", mid, "h_ask", "late", call(cn, "mill_mail_get", [mid])[0]["created"])
 
 
 def test_unique_old_updated_refuses_a_second_row_for_one_version(cn):

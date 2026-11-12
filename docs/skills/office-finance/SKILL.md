@@ -26,11 +26,11 @@ are **nouns, steps, score, or modes** on this spine - not second day-one
 products. Ledger/ERP stays system of record for amounts, GL, and payments.
 
 ## Inputs
-On the desk **before** you can approve or mark paid (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can approve or mark paid (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Request identity** - invoice / PO / spend id or URL in detail (do not clone ledger amounts as SoR)
 - **Outcome ask** - approve, withhold/reject, mark paid, or exception path
 - **Approver / chain** - who must human-click (`assign` + `send` / `reply` `--receipt`)
-- **Coding / cost center hint** - when office requires (note; coding runs in ledger)
+- **Coding / cost center hint** - when office requires (`replace-body`; coding runs in ledger)
 - When exception: reason / policy cite for escalate mail
 - On paid: payment / remittance pointer from ledger
 
@@ -43,18 +43,19 @@ replacing ERP payment runs inside mill.
 | invoice / PO / request | `create todo` (ledger id in detail) |
 | own / work request | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| approval / approve | `assign` + **`--receipt`** + `send` / `note` outcome |
+| approval / approve | `assign` + **`--receipt`** + `send` / `replace-body` outcome |
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
-| coding (GL / cost center) | `note` (ledger executes coding) |
-| exception | `send` escalate (+ `note` reason) |
-| progress / coded / approved diary | `note` (not mail) |
+| coding (GL / cost center) | `replace-body` (ledger executes coding) |
+| exception | `send` escalate (+ `replace-body` reason) |
+| progress | `todo <roster> <need> --eta E` / `--started` / `--progress 9/12` |
+| coded / approved diary | `replace-body` (not mail) |
 | find work / mail landed | `inbox` |
-| blocked (approver/bank/coding) | waiting_on + `send` / `note` |
+| blocked (approver/bank/coding) | waiting_on + `send` |
 | budget / forecast KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
-| paid / closed | `note` payment pointer + `pass` |
-| withhold / reject | `note` reason + `send` asker; `pass` or waiting_on revision |
+| paid / closed | `replace-body` payment pointer + `pass` |
+| withhold / reject | `replace-body` reason + `send` asker; `pass` or waiting_on revision |
 | park / later | `create todo` `<roster> <need> --status parked` |
-| accrual / period-close step | `note` / optional todo on same spine (ledger SoR) |
+| accrual / period-close step | `replace-body` / optional todo on same spine (ledger SoR) |
 
 Do **not** teach `hold`/`drop` day-one unless the office leases a shared invoice/PO doc.
 Never teach `open` / `yield` / bare `create` / `done`.

@@ -126,5 +126,7 @@ def test_msg_cap_and_eta_still_come_before_claimed_by(cards, cn, monkeypatch, tr
 @pytest.mark.parametrize("trust", ["high", "limited"])
 def test_the_volunteer_over_budget_gets_the_budget_line(cards, cn, monkeypatch, trust):
     monkeypatch.setenv("AGENT_COORD_TRUST", trust)
-    with pytest.raises(CoordError, match="claim: refused, nothing written: this note needs"):
+    with pytest.raises(CoordError, match="claim: refused, nothing written: this note needs") as exc:
         rpc._h_claim(cards, {"need": "c-claimed", **INPUTS["budget_msg"]}, R, VOL)
+    text = str(exc.value)
+    assert "--msg" in text and "replace-body" not in text

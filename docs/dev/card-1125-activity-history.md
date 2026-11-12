@@ -7,7 +7,7 @@ The verbs `replace-body` and `--history` below are not in the current CLI yet. <
 ## 1. What changes
 
 - One command: `mill replace-body mail|todo ID (TEXT | --body-file PATH)`. Mail and card text change only through it. <!-- doc-commands: skip -->
-- `mill note` appends and `note --supersedes` leave the card text path (card 1125, 8:19 AM PST decision). Old text goes to history instead of staying inline marked superseded.
+- The note command is deleted from the CLI (no appends, no `--supersedes`); card text changes only with `mill replace-body`, and `mill todo ROSTER NEED --eta/--started/--progress/--done-when` sets the card's own fields (card 1125, 8:19 AM PST decision). Old text goes to history instead of staying inline marked superseded.
 - One new table, `activity_history`, with the full old body per write. No diffs: a diff cannot be written atomically inside the procedure; one can be computed on read from two rows later.
 - `mail` and `todo` get `body_updated DATETIME(6) NULL` and `body_updater_id` (FK seat). `body_updated` is the version: NULL means never edited.
 - todo: `body` becomes the card text (the old JSON `detail`); a new `meta` column holds the rest of the JSON (slug, progress, eta, started_at, aliases). Status, volunteer and claim time stay in their columns.

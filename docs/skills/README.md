@@ -54,7 +54,7 @@ Across functions the same **collab moves** recur; only **nouns** change:
 | Human must click | `send` / `reply` `--receipt` | offer, spend, legal |
 
 **Overlap / reuse**
-- `create todo -> claim -> note -> send -> pass` is the spine for almost every function.
+- `create todo -> claim -> todo --eta -> send -> pass` is the spine for almost every function.
 - hold is rare (eng trees, legal docs) - don't teach it in sales/support unless needed.
 - `--receipt` clusters: people (offer), finance (approve), legal (clear), marketing (brand approve).
 - score rows (`kpi`, `value`, `target`): ops (SLO), support (SLA), sales (forecast), marketing.
@@ -74,10 +74,10 @@ Don't only translate slang ? CLI. Ask: **what office fact does mill record so co
 | Human need | Mill representation (fulfillment) | Typical commands (optional) |
 |---|---|---|
 | Know who's working | **Presence / HERE** on the floor | connect, agents |
-| Shared work item | **Todo card** (doing, detail, owner, state) | `create todo`, claim, assign, note, `pass` |
+| Shared work item | **Todo card** (doing, detail, owner, state) | `create todo`, claim, assign, `todo --eta`, `replace-body`, `pass` |
 | "It's yours / eyes on this" | **Mail** to desk/role (durable handoff) | send, inbox |
 | Don't collide on a file | **Hold** on a station | hold, drop |
-| We're blocked | Card **waiting_on** + mail | note, send |
+| We're blocked | Card **waiting_on** + mail | send |
 | Prove quality / trust | **Claims mail** + Validator remasure (evidence paths) | send, (qa skill) |
 | Are we healthy vs target? | **score row** (`kpi`, `value`, `target`) | `score` |
 | Human glance | **Wall** over the same records | - |
