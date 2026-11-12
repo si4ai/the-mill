@@ -39,13 +39,13 @@ def _branch(cn):
     tag = uuid.uuid4().hex[:6]
     a = rpc._h_open(
         book,
-        {"need": f"f{fid}-rerun-{tag}", "detail": "rerun the command", "parent_type": "mail", "parent_id": fid},
+        {"need": f"f{fid}-rerun-{tag}", "detail": "dead-end: same error after rerun", "parent_type": "mail", "parent_id": fid},
         "unit",
         "asker",
     )
     b = rpc._h_open(
         book,
-        {"need": f"f{fid}-same-launcher-{tag}", "detail": "same launcher", "parent_type": "mail", "parent_id": fid},
+        {"need": f"f{fid}-same-launcher-{tag}", "detail": "solved: same launcher both sides, exit 0", "parent_type": "mail", "parent_id": fid},
         "unit",
         "asker",
     )

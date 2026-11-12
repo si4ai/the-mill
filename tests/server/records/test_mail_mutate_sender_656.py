@@ -41,11 +41,18 @@ def _replace(cn, mid: int, desk: str, text: str):
     return rec_body.replace(cn, "mail", mid, desk, text, got["body_updated"] or got["created"])
 
 
-@pytest.mark.parametrize("caller", ["ms_other", "ms_to", "ms_nobody"])
+@pytest.mark.parametrize("caller", ["ms_other", "ms_to"])
 def test_non_sender_replace_changes_nothing(cn, caller) -> None:
     mid = _letter(cn, "original")
     with pytest.raises(Exception, match="body:rights"):
         _replace(cn, mid, caller, "rewritten")
+    assert _body(cn, mid) == "original"
+
+
+def test_missing_desk_replace_changes_nothing(cn) -> None:
+    mid = _letter(cn, "original")
+    with pytest.raises(Exception, match="body:no_desk"):
+        _replace(cn, mid, "ms_nobody", "rewritten")
     assert _body(cn, mid) == "original"
 
 

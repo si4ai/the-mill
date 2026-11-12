@@ -373,7 +373,6 @@ note project
 note need
 note text
 note note
-note supersedes
 note eta
 note started
 note full
@@ -383,6 +382,16 @@ note yes
 note sender_desk
 note doing
 note waiting_on
+replace-body (command)
+replace-body kind
+replace-body id
+replace-body text
+replace-body body_file
+replace-body history
+replace-body order
+replace-body office
+replace-body yes
+replace-body sender_desk
 claim (command)
 claim project
 claim need
