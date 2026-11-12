@@ -43,6 +43,66 @@ def bucket(
     )
 
 
+# Card 1160: bucket start without DATE_FORMAT, so the query text has no percent
+# sign for the connector to escape. Each start is a naive book-clock DATETIME(6).
+_BUCKET_START = {
+    "min": "DATE_ADD(DATE(a.updated), INTERVAL HOUR(a.updated) * 60 + MINUTE(a.updated) MINUTE)",
+    "hour": "DATE_ADD(DATE(a.updated), INTERVAL HOUR(a.updated) HOUR)",
+    "day": "DATE(a.updated)",
+}
+# Default look-back per bucket when since is not given, in seconds of book clock.
+BUCKET_SINCE_S = {"min": 6 * 3600, "hour": 2 * 86400, "day": 7 * 86400}
+
+
+def buckets(
+    cn,
+    roster: str,
+    grain: str,
+    since=None,
+    type_s: str = "",
+    act: str = "",
+) -> list[dict]:
+    """Activity item counts per (bucket start, type, act, desk) on one roster.
+
+    grain is min, hour or day. since is a naive book-clock time; None means
+    BUCKET_SINCE_S[grain] before MILL_NOW(). type_s and act narrow the rows when set.
+    Read-only: one SELECT on activity and name.
+    """
+    start = _BUCKET_START[grain]
+    sql = (
+        "SELECT CAST(" + start + " AS DATETIME(6)) AS updated, a.type, a.act, a.desk_id,"
+        " COUNT(*) AS items, ANY_VALUE(dn.name) AS desk, ANY_VALUE(an.name) AS roster"
+        " FROM activity a"
+        " LEFT JOIN name dn ON dn.id = a.desk_id"
+        " LEFT JOIN name an ON an.id = a.roster_id"
+        " WHERE a.roster_id = MILL_NAME_GET('roster', %s)"
+        " AND a.updated >= IFNULL(%s, DATE_SUB(MILL_NOW(), INTERVAL %s SECOND))"
+        " AND (%s = '' OR a.type = %s)"
+        " AND (%s = '' OR a.act = %s)"
+        " GROUP BY 1, a.type, a.act, a.desk_id"
+        " ORDER BY 1, a.type, a.act, a.desk_id"
+    )
+    args = (roster, since, BUCKET_SINCE_S[grain], type_s, type_s, act, act)
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(sql, args)
+        raw = list(cur.fetchall())
+    finally:
+        cur.close()
+    return [
+        {
+            "updated": iso6(r.get("updated")),
+            "type": r.get("type"),
+            "act": r.get("act") or "",
+            "desk": _nm(r.get("desk")),
+            "desk_id": r.get("desk_id"),
+            "roster": _nm(r.get("roster")),
+            "items": int(r.get("items") or 0),
+        }
+        for r in raw
+    ]
+
+
 def span(cn, kind: str, ident: str, grain: str) -> list[dict]:
     """min reads activity. hour and day read that desk's system score rollup."""
     return call(cn, "mill_span", [kind, ident, grain])
