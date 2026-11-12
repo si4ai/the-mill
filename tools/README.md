@@ -122,6 +122,22 @@ python tools/check_repro.py dist
 
 Exit 1 when any sha256 differs or a build is not one wheel and one sdist.
 
+## check_test_overlap.py
+
+Card 1152. Inventory pytest tests, CI jobs and steps, SPIN checks, and
+`tools/check_*` / `verify/*/run.sh` scripts. Map each item to an owner
+from its path and to the F-row it names. Group likely duplicates and
+list uncovered F-rows. Sorted, no timestamps.
+
+```bash
+python tools/check_test_overlap.py --root .
+python tools/check_test_overlap.py --root . --strict
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Overlap is a fact to review, not a block. Tests prove --strict fails on
+a doctored tree and passes on a clean one.
+
 ## orphan_scan.py
 
 Which `agent_coord` modules nothing imports. Use this before deleting a file that "looks unused."
