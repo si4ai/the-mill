@@ -40,7 +40,7 @@ def _gate(tmp: Path) -> Path:
     return gate
 
 
-def _run(tmp: Path, *, git=_git_ok, fetch=_fetch_ok, offices=None, sha=SHA.upper()):
+def _run(tmp: Path, *, git=_git_ok, fetch=_fetch_ok, offices=None, sha=SHA.upper(), skills=None):
     return run_checks(
         tag="v0.8.2",
         sha=sha,
@@ -49,6 +49,7 @@ def _run(tmp: Path, *, git=_git_ok, fetch=_fetch_ok, offices=None, sha=SHA.upper
         offices=["https://office.example/ignored"] if offices is None else offices,
         fetch=fetch,
         git=git,
+        skills=skills,
     )
 
 
@@ -130,3 +131,48 @@ def test_empty_gate_and_no_office(tmp_path: Path):
         git=_git_ok,
     )
     assert misses == ["gate build has no pack files", "no office given"]
+
+
+# Card 998: installed desk skill copies against the released skill.md.
+
+SKILL = "---\nname: mill-desk\n---\nbody line\n"
+
+
+def _git_skill(args: list[str]) -> tuple[int, str]:
+    if args[0] == "show":
+        assert args[1] == "v0.8.2:docs/protocol/skill.md"
+        return 0, SKILL.strip()
+    return _git_ok(args)
+
+
+def test_skill_copy_matches_release_card_998(tmp_path: Path):
+    from tools.post_ship_check import check_skills, skill_sha
+
+    copy = tmp_path / "SKILL.md"
+    copy.write_bytes(SKILL.replace("\n", "\r\n").encode())
+    assert _run(tmp_path, git=_git_skill, skills=[copy]) == []
+    lines, misses = check_skills("v0.8.2", [copy], _git_skill)
+    sha = skill_sha(SKILL)
+    assert lines == [f"skill {copy} installed {sha} released {sha}"] and misses == []
+
+
+def test_stale_or_missing_skill_copy_is_a_miss_card_998(tmp_path: Path):
+    from tools.post_ship_check import skill_sha
+
+    stale = tmp_path / "SKILL.md"
+    stale.write_text("---\nname: mill-desk\n---\nold body\n", encoding="utf-8")
+    gone = tmp_path / "gone.md"
+    misses = _run(tmp_path, git=_git_skill, skills=[stale, gone])
+    assert misses == [
+        f"skill {stale} installed {skill_sha(stale.read_text())} released {skill_sha(SKILL)} (copy the pack skill.md over it)",
+        f"skill {gone} is not readable; released {skill_sha(SKILL)}",
+    ]
+
+
+def test_skill_source_missing_at_tag_card_998(tmp_path: Path):
+    def git(args: list[str]) -> tuple[int, str]:
+        return (128, "") if args[0] == "show" else _git_ok(args)
+
+    copy = tmp_path / "SKILL.md"
+    copy.write_text(SKILL, encoding="utf-8")
+    assert _run(tmp_path, git=git, skills=[copy]) == ["skill docs/protocol/skill.md is not readable at v0.8.2"]

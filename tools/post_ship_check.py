@@ -1,7 +1,8 @@
-"""One post-ship check: tag, pack bytes, and office health (card 962)."""
+"""One post-ship check: tag, pack bytes, office health (card 962), desk skill copies (card 998)."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -166,6 +167,38 @@ def check_health(offices: list[str], version: str, fetch: Fetch) -> list[str]:
     return misses
 
 
+SKILL_SOURCE = "docs/protocol/skill.md"
+
+
+def skill_sha(text: str) -> str:
+    """First 12 hex of sha256 over the text with LF endings and no outer blank space (git output is stripped)."""
+    norm = text.replace("\r\n", "\n").strip()
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+
+
+def check_skills(tag: str, skills: list[Path], git: Git) -> tuple[list[str], list[str]]:
+    """Each installed desk skill copy against the released skill.md: (report lines, misses)."""
+    if not skills:
+        return [], []
+    code, released = git(["show", f"{tag.strip()}:{SKILL_SOURCE}"])
+    if code != 0 or not released:
+        return [], [f"skill {SKILL_SOURCE} is not readable at {tag}"]
+    want = skill_sha(released)
+    lines: list[str] = []
+    misses: list[str] = []
+    for path in skills:
+        try:
+            got = skill_sha(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError):
+            misses.append(f"skill {path} is not readable; released {want}")
+            continue
+        line = f"skill {path} installed {got} released {want}"
+        lines.append(line)
+        if got != want:
+            misses.append(line + " (copy the pack skill.md over it)")
+    return lines, misses
+
+
 def run_checks(
     *,
     tag: str,
@@ -175,6 +208,7 @@ def run_checks(
     offices: list[str],
     fetch: Fetch,
     git: Git,
+    skills: list[Path] | None = None,
 ) -> list[str]:
     misses: list[str] = []
     tag_miss = check_tag(tag, sha, git)
@@ -182,6 +216,7 @@ def run_checks(
         misses.append(tag_miss)
     misses.extend(check_packs(version, gate, fetch))
     misses.extend(check_health(offices, version, fetch))
+    misses.extend(check_skills(tag, list(skills or []), git)[1])
     return misses
 
 
@@ -192,8 +227,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--gate", required=True, type=Path)
     parser.add_argument("--office", action="append", default=[])
+    parser.add_argument(
+        "--skill",
+        action="append",
+        default=[],
+        type=Path,
+        help="an installed mill-desk SKILL.md; prints its sha beside the released skill.md sha",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    skills = list(args.skill)
     misses = run_checks(
         tag=args.tag,
         sha=args.sha,
@@ -202,13 +245,19 @@ def main(argv: list[str] | None = None) -> int:
         offices=list(args.office),
         fetch=live_fetch,
         git=live_git,
+        skills=skills,
     )
+    skill_lines = check_skills(args.tag, skills, live_git)[0]
     if args.json:
-        print(json.dumps({"ok": not misses, "misses": misses}))
-    elif misses:
-        print("\n".join(misses))
+        print(json.dumps({"ok": not misses, "misses": misses, "skills": skill_lines}))
     else:
-        print("ok")
+        for line in skill_lines:
+            if not any(m.startswith(line) for m in misses):
+                print(line)
+        if misses:
+            print("\n".join(misses))
+        else:
+            print("ok")
     return 1 if misses else 0
 
 
