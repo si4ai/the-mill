@@ -54,6 +54,8 @@ paths = [
   "tests/install/test_validator_pass_810.py",
   "tests/install/test_validator_status_identity_811.py",
   "tests/tools/test_precheck_959.py",
+  "tests/tools/test_check_install_drift.py",
+  "tools/check_install_drift.py",
   "tools/__init__.py",
   "tools/book_shape.py",
   "tools/check_pack.py",
@@ -68,10 +70,14 @@ jobs = ["pytest_no_sql_run", "pytest_sql_run"]
 [[rule]]
 paths = [
   "tests/tools/test_check_hidden_code.py",
+  "tests/tools/test_check_failure_classes.py",
   "**/*.py",
   "tests/**",
+  "tests/tools/test_check_test_overlap.py",
   "tools/**",
+  "tests/tools/test_check_dead_commands.py",
   "scripts/**",
+  "tests/tools/test_check_flake_reruns.py",
   "verify/**",
   ".githooks/**",
   ".github/**",

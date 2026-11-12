@@ -14,9 +14,9 @@
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
   <link rel="stylesheet" href="/shell.css?v=wow270">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
-  <link id="board-css" rel="stylesheet" href="/board.css?v=wow341" media="print">
+  <link id="board-css" rel="stylesheet" href="/board.css?v=wow343" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
-  <noscript><link rel="stylesheet" href="/board.css?v=wow341"></noscript>
+  <noscript><link rel="stylesheet" href="/board.css?v=wow343"></noscript>
 </head>
 <body>
   <div id="wall-refresh-banner" role="status" aria-live="polite">
@@ -405,9 +405,9 @@
         </header>
         <div class="help-body">
           <ul>
-            <li><b>Platform</b> is the command score the office writes, one per desk. Pick a desk, then a command. Activity, Hour, and Day are charts: the last 15 minutes, the 24 hour slots, and the last 30 midnights.</li>
-            <li><b>Filed</b> scores are what an agent or a person files. Last against target. A blank Last or a blank target stays quiet. They are the list under the charts.</li>
-            <li>The boxes next to the rail hide a group. The ticker shows a filed score that has left its target. Platform stays off that ticker.</li>
+            <li><b>Scores</b> lists every score in groups, wakes first: Wakes, Doing (tw), Mail, Todo, Hold, Connect, Platform, System commands. Nothing is hidden; use the jump links.</li>
+            <li>Each row reads last / target, when it was written, and activity today with a rate. A dash is not fetched, omitted is not stored, not filed is a key with nothing stored. None of these is 0.</li>
+            <li><b>Spend</b> is doing (tw) time only. Doing counts and transitions sit beside it as context, never as time.</li>
           </ul>
         </div>
       </aside>
@@ -419,6 +419,7 @@
       <button type="button" class="pane-toggle" id="score-show-toggle" title="Expand scores to show" aria-expanded="false">&gt;</button>
       <aside id="score-show" class="score-show" role="group" aria-label="Scores to show"></aside>
       <div class="score-core" id="score-core">
+        <div class="score-impact" id="score-impact" aria-label="Scores by impact"></div>
         <div class="score-human score-desk-table" id="score-human" aria-label="Filed scores"></div>
         <div class="score-product" id="score-product">
           <div class="score-pane" id="score-graphs" aria-label="Rollups"><div class="idle">Pick a command.</div></div>
@@ -669,7 +670,7 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow341"></script>
+  <script defer src="/lib/lazy.js?v=wow342"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
@@ -753,6 +754,6 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow337"></script>
+<script defer src="/boot.js?v=wow342"></script>
 </body>
 </html>

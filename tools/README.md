@@ -97,6 +97,21 @@ python tools/check_doc_commands.py --list   # every command, its positional coun
 
 CI runs it in the `mill_cli_smoke` job (F90).
 
+## check_failure_classes.py
+
+Card 1151. Read `docs/dev/FAILURE-CLASSES.md`, check each class for an
+owner (N/A may use `-`), a covering check path that exists in the repo,
+and evidence dated within N days (default 14, pinned with `--as-of`).
+Sorted findings, no timestamps.
+
+```bash
+python tools/check_failure_classes.py --repo . --as-of YYYY-MM-DD
+python tools/check_failure_classes.py --repo . --as-of YYYY-MM-DD --strict
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Tests prove --strict fails on a doctored table and passes on a clean one.
+
 ## check_repro.py
 
 Prove the pack is byte-reproducible. Clones HEAD twice into temp dirs (umask `022`, then `002`, a second apart), builds each with `python -m build --no-isolation` and `SOURCE_DATE_EPOCH` = the commit time, and prints every sha256. With a `dist/` argument, both builds must also match it. The normalizing is in the build backend (`build_backend/mill_build.py`), not here. CI `build_pack` and release `verify` run it.
@@ -106,6 +121,22 @@ python tools/check_repro.py dist
 ```
 
 Exit 1 when any sha256 differs or a build is not one wheel and one sdist.
+
+## check_test_overlap.py
+
+Card 1152. Inventory pytest tests, CI jobs and steps, SPIN checks, and
+`tools/check_*` / `verify/*/run.sh` scripts. Map each item to an owner
+from its path and to the F-row it names. Group likely duplicates and
+list uncovered F-rows. Sorted, no timestamps.
+
+```bash
+python tools/check_test_overlap.py --root .
+python tools/check_test_overlap.py --root . --strict
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Overlap is a fact to review, not a block. Tests prove --strict fails on
+a doctored tree and passes on a clean one.
 
 ## orphan_scan.py
 
@@ -124,6 +155,21 @@ It starts from `pyproject.toml` console scripts (`mill`, `mill-hold`, `agent-coo
 
 A module can be an orphan and still be a stub you meant to keep. The scan does not decide keep or delete.
 
+## check_dead_commands.py
+
+Card 1147. Scan `mill ...` examples that check_doc_commands does not cover
+(all docs markdown, verify skills, and hint or usage strings in
+`agent_coord/`), check them against the same CLI parser, and print only
+findings that tool does not already report. Sorted, no timestamps.
+
+```bash
+python tools/check_dead_commands.py          # report; exit 0 even with findings
+python tools/check_dead_commands.py --strict # exit 1 when a new dead form is found
+```
+
+Not a CI gate. Tests prove --strict fails on a doctored tree and passes on
+a clean one.
+
 ## probe_deleted_rows.py
 
 Test-only. Makes a deleted todo row and a deleted score row live, on the calling desk's own `t-<8 hex>` fixture rows only, so the deleted state can be checked on events, activity between, and the Wall pill (#160). Run it as a child of the shell that started `mill connect`. Needs an office at 0.6.30 or later.
@@ -135,6 +181,24 @@ python tools/probe_deleted_rows.py delete --type todo --id N
 
 See [docs/dev/PROBE-DELETED-ROWS.md](../docs/dev/PROBE-DELETED-ROWS.md).
 
+## check_flake_reruns.py
+
+Card 1148. From a list of GitHub workflow runs, report flakes:
+the same head sha and workflow with a failed attempt followed by a later
+success. Pass-then-fail is a regression, not a flake. Sorted, no
+timestamps. Prefer `--fixtures` for tests; live mode reads the workflow
+API when a token is in the environment (the token is never printed).
+
+```bash
+python tools/check_flake_reruns.py --fixtures runs.json
+python tools/check_flake_reruns.py --fixtures runs.json --strict
+python tools/check_flake_reruns.py --repo si4ai/the-mill --since YYYY-MM-DD
+```
+
+Exit 0 after the report by default, even with findings. Not a CI gate.
+Tests prove --strict fails on a doctored run list and passes on a clean
+one.
+
 ## desk/
 
 Config-driven workstation launcher for fresh Grok Build sessions. See `tools/desk/README.md`.
@@ -144,6 +208,24 @@ Config-driven workstation launcher for fresh Grok Build sessions. See `tools/des
 | `desk/desk-start.ps1` | Windows launcher (`-Config`, `-Desk`, `-DryRun`). No hard-coded desks. |
 | `desk/desk_start_plan.py` | Pure plan logic + dry-run JSON (CI-tested). |
 | `desk/desks.example.json` | Documented example; copy outside the repo and edit. |
+
+## check_install_drift.py
+
+Card 1145. Dump routine bodies plus table and column schema from a gold
+book and a subject book, normalize them (strip DEFINER, whitespace, and
+AUTO_INCREMENT counters), and diff the per-object hashes. The demo
+starts its own throwaway mysqld and never points at a live office book.
+
+```bash
+python tools/check_install_drift.py --gold-database gold --subject-database subject
+python tools/check_install_drift.py --gold-database gold --subject-database subject --strict
+python tools/check_install_drift.py --demo --root . --workdir DIR
+```
+
+The compare command exits 0 after the report by default, even with
+drift. Not a CI gate. Tests prove normalize/diff fail on doctored input
+and pass on clean input. The live install-then-doctor test is marked
+sql; CI pytest_sql_run is the proof.
 
 ## cold_measure_head.py
 

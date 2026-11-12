@@ -85,4 +85,12 @@ open at the pin: N03 (join locks the name row, but re-checks it with a plain
 read, which under REPEATABLE READ sees the snapshot from before the lock;
 N04 passes under READ COMMITTED).
 
+Live wake modes (card 1144, V01-V24): the `LIVE` block of `wake.pml` (F1, F2,
+F7) reads main at 8bae076 and ec280da (#416, `TW_GUARD=1`); the `READ_DROP`
+block of `holds.pml` reads F3 at ec280da. Both blocks are off by default, so
+the other checks are unchanged. Open at ec280da: V05 (wasted-wake count,
+modelled), V07 (busy on its own exited connect), V12 (unclear: a send into a
+socket the office has not closed), V14 and V15 (`pending()` counts rows sent
+live), V23 (a second-shell sync printed after a drop reply). See `README.md`.
+
 Card 1125 activity_history MVP design (no code pin): every A01-A09 and X01-X15 row matches its expectation. A07 and A08 are expected violations; X01-X15 are mutations that must stay violated. See `README.md`.

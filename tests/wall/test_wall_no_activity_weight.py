@@ -7,16 +7,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2] / "agent_coord" / "web" / "wall_ui"
 SCORE = ROOT / "default" / "score" / "score-paint.js"
+IMPACT = ROOT / "default" / "score" / "score-impact.js"
 BOOT = ROOT / "default" / "boot.js"
 WALL_JS = sorted((ROOT / "default").rglob("*.js")) + sorted((ROOT / "lib").glob("*.js"))
 
 
 def test_no_presence_spend_fallback_and_unavailable():
+    # Score tab redesign: Spend is tw doing time (score-impact.js); token spend is gone.
     score = SCORE.read_text(encoding="utf-8")
-    assert "presenceSpendLines" not in score
-    assert "Number(e.n || 0) * Number(e.weight" not in score
-    assert "unavailable" in score
-    assert re.search(r"function millSpend\(", score)
+    impact = IMPACT.read_text(encoding="utf-8")
+    assert "presenceSpendLines" not in score + impact
+    assert "Number(e.n || 0) * Number(e.weight" not in score + impact
+    assert "function millSpend(" not in score
+    assert re.search(r"function scoreSpendHtml\(", impact)
+    assert "unavailable" in impact
 
 
 def test_wall_js_never_reads_event_weight_field():
@@ -35,35 +39,30 @@ def test_boot_comment_does_not_teach_n_weight_spend():
 
 _SPEND_HARNESS = r"""
 const fs = require('fs');
-const lines = JSON.parse(process.argv[2]);
 global.window = global;
-const el = { innerHTML: '' };
-global.document = { getElementById(id) { return id === 'score-spend' ? el : null; }, querySelectorAll() { return []; }, addEventListener() {} };
-global.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-global.dt = v => String(v || '');
-global.millGid = () => '';
-global.rowDay = r => String(r.at || '').slice(0, 10);
-global.spendWindow = 'all';
-global.spendOwner = '';
 (0, eval)(fs.readFileSync(process.argv[1], 'utf8'));
-millSpend({ spend_lines: lines, spend: [], presence: [{ kind: 'mail', n: 9, weight: 3 }] });
-process.stdout.write(el.innerHTML);
+const kpis = JSON.parse(process.argv[2]);
+// Activity n and weight sit on the payload; Spend time must not read them.
+const ctx = { presence: [{ kind: 'mail', n: 9, weight: 3 }] };
+process.stdout.write(scoreSpendHtml(scoreSpendModel(kpis, ctx), 0));
 """
 
 
-def _spend_head(lines):
+def _spend(kpis):
     import json
     import subprocess
 
     return subprocess.run(
-        ["node", "-e", _SPEND_HARNESS, str(SCORE), json.dumps(lines)],
+        ["node", "-e", _SPEND_HARNESS, str(IMPACT), json.dumps(kpis)],
         capture_output=True, text=True, check=True,
     ).stdout
 
 
-def test_spend_head_paints_unavailable_without_spend_lines():
-    # Activity n and weight are on the payload; the head still says unavailable.
-    assert _spend_head([]) == "MILL SPEND<b>unavailable</b>"
-    head = _spend_head([{"owner": "builder", "at": "2026-10-23 01:00:00", "bytes_out": 120, "usd": 0.001}])
-    assert "unavailable" not in head
-    assert "MILL SPEND<b>120</b> B" in head
+def test_spend_paints_unavailable_without_tw_history():
+    empty = _spend([])
+    assert "unavailable" in empty
+    assert "No doing.task.* scores yet." in empty
+    out = _spend([{"kpi": "doing.task.dwell_active_ms", "owner": "builder", "value": "1086"}])
+    assert "1.1s" in out and "1086 ms" in out
+    assert "unavailable" in out  # one last run is not a total
+    assert ">27" not in out  # 9 * 3 from activity never shows as time
