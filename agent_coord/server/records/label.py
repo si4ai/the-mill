@@ -91,3 +91,98 @@ def rows_for(cn, tag: str) -> list[dict[str, Any]]:
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()
+
+
+# Card 1153: the Wall PRIORITIES tab. A desk's list is the label named after the desk;
+# human-priorities is the shared human list.
+HUMAN_LIST = "human-priorities"
+# The card's latest move (activity.act) as the tab's activity kind; other acts are not served.
+_KIND = {"claim": "claim", "assign": "claim", "unclaim": "claim", "note": "note",
+         "ship": "pass", "done": "pass", "back": "pass"}
+
+
+def wall_rows(cn, names: list[str] | None = None) -> list[dict[str, Any]]:
+    """Mail and todo wearing a desk-named label or human-priorities (or the given names).
+
+    Office-wide: labels are not roster-scoped. Deleted activity is out, done cards stay
+    in. Each row: label, type, id, ord, updated (when ord was last set) and, for a todo,
+    card {roster, need, status, volunteer, eta_at?, progress?, last_activity_at?,
+    last_activity_kind?} plus off_roster when the label is a desk that is not a member
+    of the card's roster (Office counts for every desk). Read-only: one SELECT.
+    """
+    import json
+
+    from agent_coord.helpers.ident import iso6
+
+    if names:
+        pick, args = "n.name IN (" + ",".join(["%s"] * len(names)) + ")", tuple(names)
+    else:
+        pick, args = "(dn.id IS NOT NULL OR n.name = %s)", (HUMAN_LIST,)
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT n.name AS label, l.type, l.id, l.ord, l.updated,"
+            " t.status, t.meta, t.roster_id, rn.name AS roster, vn.name AS volunteer,"
+            " a.act AS card_act, a.updated AS card_at,"
+            " (SELECT MAX(da.updated) FROM doing d"
+            "   JOIN activity da ON da.type = 'doing' AND da.id = d.id"
+            "  WHERE d.on_type = 'todo' AND d.on_id = l.id AND d.act = 'task') AS tw_at,"
+            " (dn.id IS NOT NULL AND t.roster_id <> 1 AND NOT EXISTS ("
+            "   SELECT 1 FROM member m WHERE m.name_id = t.roster_id AND m.desk_id = dn.id)) AS off_roster"
+            " FROM label l"
+            " JOIN name n ON n.id = l.name_id AND n.type = 'label' AND n.deleted IS NULL"
+            " JOIN activity a ON a.type = l.type AND a.id = l.id AND a.deleted IS NULL"
+            " LEFT JOIN name dn ON dn.type = 'desk' AND dn.name = n.name AND dn.deleted IS NULL"
+            " LEFT JOIN todo t ON l.type = 'todo' AND t.id = l.id"
+            " LEFT JOIN name rn ON rn.id = t.roster_id"
+            " LEFT JOIN name vn ON vn.id = t.assigned_id"
+            " WHERE l.type IN ('mail', 'todo') AND " + pick +
+            " ORDER BY n.name, l.ord, l.id, l.type",
+            args,
+        )
+        raw = list(cur.fetchall())
+    finally:
+        cur.close()
+    out: list[dict[str, Any]] = []
+    for r in raw:
+        row: dict[str, Any] = {
+            "label": str(r.get("label") or ""),
+            "type": r.get("type"),
+            "id": int(r.get("id") or 0),
+            "ord": int(r.get("ord") if r.get("ord") is not None else 65535),
+            "updated": iso6(r.get("updated")),
+        }
+        if r.get("type") == "todo":
+            meta = r.get("meta")
+            if isinstance(meta, (bytes, bytearray)):
+                meta = meta.decode()
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except json.JSONDecodeError:
+                    meta = None
+            meta = meta if isinstance(meta, dict) else {}
+            card: dict[str, Any] = {
+                "roster": str(r.get("roster") or ""),
+                "need": str(meta.get("slug") or row["id"]),
+                "status": str(r.get("status") or ""),
+                "volunteer": str(r.get("volunteer") or ""),
+            }
+            for key in ("eta_at", "progress"):
+                if meta.get(key) not in (None, ""):
+                    card[key] = str(meta[key])
+            moves = []
+            kind = _KIND.get(str(r.get("card_act") or ""))
+            if kind and r.get("card_at") is not None:
+                moves.append((r["card_at"], kind))
+            if r.get("tw_at") is not None:
+                moves.append((r["tw_at"], "tw"))
+            if moves:
+                at, kind = max(moves, key=lambda m: m[0])
+                card["last_activity_at"] = iso6(at)
+                card["last_activity_kind"] = kind
+            if r.get("off_roster"):
+                card["off_roster"] = True
+            row["card"] = card
+        out.append(row)
+    return out

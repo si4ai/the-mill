@@ -1719,6 +1719,30 @@ def _ensure_transition_n(cn) -> list[str]:
     return applied
 
 
+def _ensure_label_updated(cn) -> list[str]:
+    """card 1153: label.updated, when ord was last set. Idempotent ADD COLUMN; an
+    existing row starts at its created stamp (the only ord time the book has)."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "label"):
+            return applied
+        if not _column_exists(cur, "label", "updated"):
+            cur.execute(
+                "ALTER TABLE label ADD COLUMN updated DATETIME(6) NOT NULL"
+                " DEFAULT CURRENT_TIMESTAMP(6) AFTER created"
+            )
+            cur.execute("UPDATE label SET updated = created")
+            applied.append("label.updated")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 
 def _ensure_wake_retry_edge(cn) -> list[str]:
     """card 1111: wake error -> retry_armed / wake_retry. Idempotent INSERT IGNORE."""
@@ -1976,6 +2000,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(apply_roster_070(cn))
             # Column before the procedure refresh, so mill_label_select can read l.ord.
             applied.extend(_ensure_label_ord(cn))
+            # card 1153: label.updated before the refresh too (mill_label_put sets it on a re-rank).
+            applied.extend(_ensure_label_updated(cn))
             # Column before the procedure refresh: mill_join_wake_* name it (#618).
             applied.extend(_ensure_join_endpoint_key(cn))
             applied.extend(_ensure_join_wake_on(cn))

@@ -2238,6 +2238,36 @@ def v1_holds(
     return out
 
 
+def v1_labels(
+    cn,
+    *,
+    names: list[str] | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Card 1153: the Wall PRIORITIES tab. Office-wide label rows (records.label.wall_rows).
+
+    rows: label, type, id, ord, updated, card (todo only). checks.off_roster lists
+    desk-labelled cards on a roster that desk is not a member of (a fact, never a block).
+    Lean list page: ?limit= (default 50) + ?cursor=; next cursor or null.
+    """
+    from . import label as rec_label
+
+    page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
+    rows = rec_label.wall_rows(cn, names)
+    off = [
+        {"label": r["label"], "id": r["id"], "roster": r["card"]["roster"]}
+        for r in rows
+        if (r.get("card") or {}).get("off_roster")
+    ]
+    page, nxt = page_by_cursor(rows, page_lim, page_cur, get_key=lambda r: f"{r['label']}|{r['type']}|{r['id']}")
+    out = _v1_envelope(["labels"])
+    out["project"] = CONST_OFFICE
+    out["rows"] = page
+    out["next"] = nxt
+    out["checks"] = {"off_roster": off}
+    return out
+
 
 def v1_watchers(
     cn,
