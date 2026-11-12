@@ -135,23 +135,63 @@ def has_mention(line: str) -> bool:
 
 
 
-SINK_PURPOSE = re.compile(
-    r"""(?ix)
-    \brecord\s+(?:the\s+)?decision
-    |\brecord\s+findings
-    |\bfindings\b
-    |\bhandoff\s+reason
-    |\bclose-lost\b
-    |\bnote\s+reason
-    |\bcustomer\s+quote
-    |\broot\s+cause
-    |\bseverity\s+and\s+owner
-    |\bdecision\s+text
-    |write\s+the\s+summary
-    |log\s+each
-    |\|\s*triage\s*\|
-    |\|\s*decision\s*\|
+# A command spine is allowed only when the note token has no object:
+# claim -> note -> pass, or note followed by an allowed tie / -> / / / | / end.
+# A phrase blocklist of known mutants is not the guard.
+NOTE_TOKEN = re.compile(
+    r"(?i)(?:`mill\s+note`|mill\s+note\b|`note`|(?<![A-Za-z_`-])note(?![A-Za-z_]))"
+)
+# Separators and other command tokens after note are not an object
+# (`note`, `pass` or `claim` + `note` + `hold`).
+SEP_TOKEN = re.compile(
+    r"""(?x)
+    \s*
+    (?:
+        \*\*
+        |->
+        |\u2192
+        |/\s*drop\b
+        |[(),+/|'"`]
+        |\band\b
+        |\.\.\.
+    )
     """
+)
+QUOTED_ATOM = re.compile(r"\s*'[A-Za-z][A-Za-z0-9_-]*'")
+CMD_FOLLOW = re.compile(
+    r"(?i)\s*"
+    r"(?:`(?:create\s+todo|claim|unclaim|assign|send|reply|inbox|hold|drop|pass|unpark|mark|todo|doing)`"
+    r"|\b(?:create\s+todo|claim|unclaim|assign|send|reply|inbox|hold|drop|pass|unpark|mark)\b"
+    r"|`note`|(?<![A-Za-z_`-])note(?![A-Za-z_]))"
+)
+TIE_OR_END = re.compile(
+    r"""(?ix)
+    \s*
+    (?:
+        $
+        |[.,;:)"'\]]+\s*$
+        |->
+        |\u2192
+        |/
+        |\|
+        |progress\b
+        |--eta\b
+        |\bETA\b
+        |--started\b
+        |--done-when\b
+        |\bdone-when\b
+        |waiting[_-]on
+        |--waiting-on
+        |--full\b
+        |--doing\b
+    )
+    """
+)
+# A sibling table cell that is itself an imperative to put content in the note
+# ("record the decision") is an implied object; this is a verb check, not a
+# phrase blocklist of mutants.
+SIBLING_SINK = re.compile(
+    r"(?ix)^\s*(?:\*\*)?(?:record|write|log|capture|jot|store|paste|document)\b"
 )
 
 
@@ -162,12 +202,50 @@ def clauses(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"(?<=\.)\s+|;\s+|,\s+and\s+", line) if c.strip()]
 
 
+def _followers_are_spine(rest: str) -> bool:
+    """True when note is followed only by separators, another command, a tie, or end."""
+    s = rest
+    if TIE_OR_END.match(s):
+        return True
+    progressed = True
+    while s and progressed:
+        progressed = False
+        m = QUOTED_ATOM.match(s)
+        if m:
+            s = s[m.end():]
+            progressed = True
+            continue
+        m = SEP_TOKEN.match(s)
+        if m:
+            s = s[m.end():]
+            progressed = True
+            continue
+        if TIE_OR_END.match(s):
+            return True
+        m = CMD_FOLLOW.match(s)
+        if m:
+            return True
+    return not s.strip() or bool(TIE_OR_END.match(s))
+
+
+def _note_tokens_have_no_object(clause: str) -> bool:
+    found = False
+    for match in NOTE_TOKEN.finditer(clause):
+        if not _followers_are_spine(clause[match.end():]):
+            return False
+        found = True
+    return found
+
+
 def is_command_spine(clause: str) -> bool:
-    if SINK_INTO_NOTE.search(clause) or SINK_PURPOSE.search(clause):
+    """True when note is a bare step among other commands, with no object."""
+    if SINK_INTO_NOTE.search(clause):
         return False
     if not (BACKTICK_OR_MILL.search(clause) or BARE_NOTE.search(clause)):
         return False
-    return bool(OTHER_CMDS.search(clause))
+    if not OTHER_CMDS.search(clause):
+        return False
+    return _note_tokens_have_no_object(clause)
 
 
 def _parenthetical_progress_only(clause: str) -> bool:
@@ -211,7 +289,6 @@ def allowed(line: str) -> bool:
         and not _parenthetical_progress_only(c)
         for c in parts
     )
-    row_has_sink_purpose = bool(SINK_PURPOSE.search(line))
     def part_mentions(part: str) -> bool:
         if table and re.fullmatch(r"`?note`?", part.strip(), re.I):
             return True
@@ -222,9 +299,11 @@ def allowed(line: str) -> bool:
             continue
         if clause_allowed(part):
             continue
-        if row_has_purpose and not SINK_INTO_NOTE.search(part) and not row_has_sink_purpose:
+        if row_has_purpose and not SINK_INTO_NOTE.search(part):
             continue
-        if is_command_spine(part) and not row_has_sink_purpose:
+        if is_command_spine(part):
+            if table and any(SIBLING_SINK.search(c) for c in parts if c != part):
+                return False
             continue
         return False
     return True
@@ -376,6 +455,11 @@ def test_scanner_is_allow_list():
     assert bad_lines("Add the customer quote via `note` (progress and context).")
     assert bad_lines("Jot the root cause in `note`.")
     assert bad_lines("| decision | note |")
+    # D7: note with an object in a clause that also names another command (no purpose blocklist).
+    assert bad_lines("| close-won | `pass` + `note` the customer's answer |")
+    assert bad_lines("Use `pass` and `note` the customer's answer.")
+    assert bad_lines("`claim` the card, `note` the vendor reply, then `pass`.")
+    assert bad_lines("| escalate | `send` owner + `note` the incident summary |")
     # D8 shapes must fail until the shipped strings are reworded.
     assert bad_lines("mill note: update a claimed card body/pct")
     assert bad_lines(

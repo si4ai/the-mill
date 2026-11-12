@@ -91,3 +91,16 @@ def test_escaped_characters_count_as_stored(monkeypatch):
 def test_over_budget_helper_is_empty_when_it_fits():
     small = {"slug": "s", "doing": "", "detail": "a"}
     assert rec_todo.over_budget(small, dict(small, detail="ab")) == ""
+
+
+def test_over_budget_note_names_replace_body_and_claim_names_msg():
+    """D9: each path's refusal is pinned, so flipping command == 'note' fails."""
+    before = {"slug": "s", "doing": "", "detail": "a"}
+    after = {"slug": "s", "doing": "", "detail": "a" * BODY_MAX}
+    note_msg = rec_todo.over_budget(before, after, "note")
+    claim_msg = rec_todo.over_budget(before, after, "claim")
+    assert rec_todo.over_budget(before, after) == note_msg
+    assert "mill replace-body todo ID TEXT" in note_msg
+    assert "--msg" in claim_msg
+    assert "replace-body" not in claim_msg
+    assert note_msg and claim_msg
