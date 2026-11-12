@@ -19,6 +19,7 @@ class Unix:
     def __init__(self, desk: str, directory: Path) -> None:
         self.address = str(socket_path(directory, desk))
         self._sock: socket.socket | None = None
+        self._ino = 0
 
     def serve(
         self,
@@ -36,6 +37,7 @@ class Unix:
         self._sock = srv
         try:
             srv.bind(self.address)
+            self._ino = os.stat(self.address).st_ino
             os.chmod(self.address, 0o600)
             srv.listen(16)
             srv.settimeout(0.2)
@@ -58,8 +60,7 @@ class Unix:
         finally:
             srv.close()
             self._sock = None
-            if path.exists():
-                path.unlink()
+            self.cleanup()
 
     def _run_one(self, conn: socket.socket, on_conn: Callable[[Any], None]) -> None:
         fileobj = conn.makefile("rwb", buffering=0)
@@ -78,7 +79,28 @@ class Unix:
         conn.connect(self.address)
         return conn.makefile("rwb", buffering=0)
 
+    def live(self) -> bool:
+        """True when another link already answers on this desk's socket (card 1154)."""
+        if not hasattr(socket, "AF_UNIX"):
+            return False
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.settimeout(0.5)
+        try:
+            probe.connect(self.address)
+        except OSError:
+            return False
+        finally:
+            probe.close()
+        return True
+
     def cleanup(self) -> None:
-        path = Path(self.address)
-        if path.exists():
-            path.unlink()
+        """Remove the socket file only while it is still the one this link bound."""
+        try:
+            ino = os.stat(self.address).st_ino
+        except OSError:
+            return
+        if self._ino and ino == self._ino:
+            try:
+                os.unlink(self.address)
+            except OSError:
+                pass

@@ -749,9 +749,9 @@ def _arm_forward(procs: list[Any], killed: threading.Event):
 
 
 def _recipe() -> None:
-    from agent_coord.client.session_errors import bridge_hint
+    from agent_coord.client.session_errors import tw_bridge_hint
 
-    print(bridge_hint(), file=sys.stderr)
+    print(tw_bridge_hint(), file=sys.stderr)
 
 
 def run_argv(
@@ -849,7 +849,9 @@ def run_argv(
             if noted:
                 return
             noted = True
-            _recipe()
+            from agent_coord.client.session_errors import tw_link_lost
+
+            print(tw_link_lost(), file=sys.stderr)
 
         def _send(body: dict[str, Any]) -> bool:
             if session is None:

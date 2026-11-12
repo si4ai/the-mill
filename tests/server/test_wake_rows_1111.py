@@ -169,7 +169,7 @@ def test_post_desk_http_fail_writes_wake_fail(cn, monkeypatch) -> None:
     wid = rec_push.row_id(rec_push.put(cn, DESK, "mail", {"kind": "mail", "id": 4214}, "missed"))
     cn.commit()
     arm(monkeypatch)
-    wake_mod.gate_clear(DESK)
+    wake_mod.gate_clear(DESK, cn=cn)
     with opener(_http(400, b'{"message":"automation is paused"}')):
         assert wake_mod.post_desk(
             cn, DESK, {"kind": "mail", "id": 4214, "idem": "letter:4214:ww1111d"}, hint_id=4214, wake_id=wid
@@ -199,7 +199,7 @@ def test_post_desk_retryable_fail_writes_retry_armed(cn, monkeypatch) -> None:
     wid = rec_push.row_id(rec_push.put(cn, DESK, "mail", {"kind": "mail", "id": 4215}, "missed"))
     cn.commit()
     arm(monkeypatch)
-    wake_mod.gate_clear(DESK)
+    wake_mod.gate_clear(DESK, cn=cn)
     with opener(_http(503)):
         assert wake_mod.post_desk(
             cn, DESK, {"kind": "mail", "id": 4215, "idem": "letter:4215:ww1111d"}, hint_id=4215, wake_id=wid
@@ -225,7 +225,7 @@ def test_retry_armed_row_is_visible_to_waiting(cn, monkeypatch) -> None:
     cn.commit()
     arm(monkeypatch)
     monkeypatch.setattr(wake_mod, "_schedule", lambda *a, **k: None)
-    wake_mod.gate_clear(DESK)
+    wake_mod.gate_clear(DESK, cn=cn)
     with opener(_http(503)):
         assert (
             wake_mod.post_desk(
@@ -251,7 +251,7 @@ def test_post_without_wake_row_does_not_stamp_other_row(cn, monkeypatch) -> None
     cn.commit()
     arm(monkeypatch)
     monkeypatch.setattr(wake_mod, "_schedule", lambda *a, **k: None)
-    wake_mod.gate_clear(DESK)
+    wake_mod.gate_clear(DESK, cn=cn)
     with opener(_http(400)):
         assert wake_mod.post_desk(cn, DESK, {"kind": "tw", "event": "exit", "task": 7}) == "error"
     cn.commit()

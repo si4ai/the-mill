@@ -1156,7 +1156,7 @@
       if (key === "scorecards") key = "score";
       if (key === "trees" || key === "plan" || key === "nest") key = "jobs";
       const map = { session: "strip-here", floor: "strip-floor", jobs: "strip-todo", score: "strip-score", mail: "strip-mail" };
-      const id = map[key] || "strip-here";
+      const id = key === "priorities" ? "" : (map[key] || "strip-here");
       document.querySelectorAll(".strip .kpi.strip-nav").forEach(el => {
         if (el.id === "wall-invite-box") {
           try { el.classList.remove("on"); } catch (eInvOn) {}
@@ -1177,7 +1177,7 @@
     }
 
     const WALL_TAB_KEY = "factory-wall-tab";
-    const WALL_TAB_OK = ["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor"];
+    const WALL_TAB_OK = ["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"];
     function loadWallTab() {
       try {
         const v = String(localStorage.getItem(WALL_TAB_KEY) || "").trim();
@@ -1299,6 +1299,8 @@
       if (name === "floor" && typeof wallEnsureModule === "function") {
         wallEnsureModule("floorPaint").catch(function () {});
       }
+      /* Card 1153: PRIORITIES reads its own route; the module loads and paints on first open. */
+      if (name === "priorities") ensurePrioritiesPaint();
     }
     function mdLite(src) {
       const raw = String(src || "").replace(/\r\n/g, "\n");
@@ -3144,7 +3146,7 @@
     window.addEventListener("hashchange", () => {
       let name = (location.hash || "#session").replace("#", "");
       if (name === "scorecards") name = "score"; /* SCORE_BOOT_FIX */
-      if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor"].includes(name)) showTab(name);
+      if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(name)) showTab(name);
     });
     const adminOpen = document.getElementById("admin-open");
     if (adminOpen) adminOpen.addEventListener("click", () => showTab("admin"));
@@ -5790,6 +5792,7 @@
      * function declarations replace these stubs as globals. */
     function cards() { return wallLazyCall("scorePaint", "cards", cards, arguments); }
     function ensureScorePaint() { return wallLazyCall("scorePaint", "ensureScorePaint", ensureScorePaint, arguments); }
+    function ensurePrioritiesPaint() { return wallLazyCall("prioritiesPaint", "ensurePrioritiesPaint", ensurePrioritiesPaint, arguments); }
     function loadScoreEvidence() { return wallLazyCall("scorePaint", "loadScoreEvidence", loadScoreEvidence, arguments); }
     function paintScoreCommands() { return wallLazyCall("scorePaint", "paintScoreCommands", paintScoreCommands, arguments); }
     function selectScoreDesk() { return wallLazyCall("scorePaint", "selectScoreDesk", selectScoreDesk, arguments); }
@@ -7780,7 +7783,7 @@
           if (nestHash && savedTab && !savedIsTodo) start = savedTab;
           else if (!start) start = savedTab || "session";
           if (start === "scorecards") start = "score"; /* SCORE_BOOT_FIX */
-          if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor"].includes(start)) showTab(start);
+          if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
           else showTab("session");
         }
         tick(true);

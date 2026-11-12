@@ -1370,7 +1370,7 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         # #892: retire desk ends the wake lease (no trailing POST).
         kind = str(body.get("name_type") or "").strip().lower()
         if slug_guess and kind in ("", "desk"):
-            wake.gate_clear(slug_guess)
+            wake.gate_clear(slug_guess, cn=c._cn)
         _poke_freed_holds(c, freed, owner=owner)
     else:
         slug_s = _stored(raw)
@@ -1379,7 +1379,7 @@ def _h_retire(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=slug_s, held=True) or []) if r.get("id")]
         rows = rec_name.retire(c._cn, slug_s, "desk", by=slug_s, by_hash=_seat_hash(c, project, owner))
         # #892: self-retire desk ends the wake lease.
-        wake.gate_clear(slug_s)
+        wake.gate_clear(slug_s, cn=c._cn)
         _poke_freed_holds(c, freed, owner=owner)
     return rows
 
@@ -1476,7 +1476,7 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=desk, held=True) or []) if r.get("id")]
     rows = rec_join.reset(c._cn, _stored(project), desk)
     # #892: drop the in-memory wake lease so the next holder is not coalesced.
-    wake.gate_clear(desk)
+    wake.gate_clear(desk, cn=c._cn)
     _poke_freed_holds(c, freed, owner=owner)
     return {"ok": True, "reset": rows}
 
@@ -4217,7 +4217,9 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
         raise CoordError("wake-done: owner required")
     got = wake.lease_done(getattr(c, "_cn", None), owner, note=str(body.get("note") or ""),
                           lease=str(body.get("lease") or ""))
-    out = {"ok": True, "desk": owner, "wake": got}
+    # Card 1140 (Auditor 5532 change C): ended | already_done | stale, never folded together.
+    lease_state = got if got in ("already_done", "stale") else "ended"
+    out = {"ok": True, "desk": owner, "wake": got, "lease": lease_state}
     try:
         from agent_coord.server import wasted_wake
 
@@ -4494,6 +4496,20 @@ def unknown_command_message(command: str, client: str = "") -> str:
     return text
 
 
+def _renew_lease(c: Book, owner: str | None, command: str, body: dict[str, Any]) -> None:
+    """Card 1140: a command that carries the live wake.lease token renews that lease
+    (capped; an older token renews nothing). wake-done ends it instead."""
+    token = str(body.get("lease") or "").strip()
+    if not owner or not token or command == "wake-done":
+        return
+    try:
+        from agent_coord.server import wake
+
+        wake.lease_renew(getattr(c, "_cn", None), owner, token)
+    except Exception:
+        pass
+
+
 def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str = "") -> Any:
     from agent_coord.client.outbound import WALL, canonical_command
 
@@ -4586,6 +4602,7 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
         except Exception:
             pass
         _note_doing(c, project, owner, command)
+        _renew_lease(c, owner, command, body)
         if owner:
             c.acting_desk = owner
         return out
@@ -4764,6 +4781,7 @@ def dispatch_ws(
         except Exception:
             pass
         _note_doing(c, project, owner, v)
+        _renew_lease(c, owner, v, body)
         if owner:
             c.acting_desk = owner
         if owns_id:

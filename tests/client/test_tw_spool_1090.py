@@ -40,9 +40,9 @@ def test_no_sit_runs_nothing(tmp_path, monkeypatch, capsys) -> None:
     )
     assert code == 1
     assert not marker.exists()
-    from agent_coord.client.session_errors import bridge_hint
+    from agent_coord.client.session_errors import tw_bridge_hint
 
-    assert capsys.readouterr().err.strip() == bridge_hint().strip()
+    assert capsys.readouterr().err.strip() == tw_bridge_hint().strip()
 
 
 def test_no_sit_does_not_post(tmp_path, monkeypatch) -> None:
@@ -209,7 +209,7 @@ def test_mid_run_loss_prints_once_and_keeps_the_child(tmp_path, monkeypatch, cap
         _wait(lambda: any(item.get("kind") == "start" for item in hops) and bool(list_runs("tw-mid")))
         link.close()
         link = None
-        from agent_coord.client.session_errors import bridge_hint
+        from agent_coord.client.session_errors import tw_bridge_hint, tw_link_lost
         from agent_coord.client.tw.proc import stop_run
 
         time.sleep(0.3)
@@ -222,7 +222,8 @@ def test_mid_run_loss_prints_once_and_keeps_the_child(tmp_path, monkeypatch, cap
         assert not thread.is_alive(), box
         assert "error" not in box
         err = capsys.readouterr().err
-        assert err.count(bridge_hint().strip()) == 1
+        assert err.count(tw_link_lost()) == 1
+        assert tw_bridge_hint().strip() not in err
         assert [item.get("kind") for item in hops if item.get("verb") == "tw.event"] == ["start"]
     finally:
         if thread.is_alive():

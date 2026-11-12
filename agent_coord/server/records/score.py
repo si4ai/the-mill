@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agent_coord.const import CONST_DESK, CONST_ROSTER
 from .db import call
+from agent_coord.helpers.ident import iso6
 
 
 def upsert(
@@ -73,6 +74,67 @@ def select_rosters(cn, names: list[str]) -> list[tuple[str, dict]]:
     for r in rows:
         by_aff.setdefault(int(r.get("roster_id") or 0), []).append(r)
     return [(name, r) for name, aid in pairs for r in by_aff.get(aid, [])]
+
+
+# Card 1098: each tw start, exit or crash writes one score transition on the
+# desk's doing.task.last_run row; its meta carries phase and the run's dwells.
+_RUN_META = ("phase", "watch_id", "end_reason", "exit_code", "cause", "dwell_active_ms", "dwell_waiting_ms")
+_RUN_LAST = {"start": "active", "finished": "finished", "failed": "failed"}
+
+
+def runs(cn, roster: str, phase: str = "") -> list[dict]:
+    """tw runs on one roster from doing.task.last_run score transitions, newest first.
+
+    Each row: id, desk, phase, last_run, at (naive book clock), the dwell and end
+    fields the meta holds (a missing field is left out, never 0). phase narrows
+    the rows when set. Read-only: one SELECT on score, transition and name.
+    """
+    import json
+
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT t.id, t.meta, dn.name AS desk,"
+            " IFNULL(CONVERT_TZ(t.at, '+00:00', @@session.time_zone),"
+            " t.at + INTERVAL TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(6), NOW(6)) SECOND) AS at"
+            " FROM score s"
+            " JOIN transition t ON t.activity_type = 'score' AND t.activity_id = s.id"
+            " LEFT JOIN name dn ON dn.id = s.desk_id"
+            " WHERE s.roster_id = MILL_NAME_GET('roster', %s)"
+            " AND s.kpi = 'doing.task.last_run'"
+            " ORDER BY t.at DESC, t.id DESC",
+            (roster,),
+        )
+        raw = list(cur.fetchall())
+    finally:
+        cur.close()
+    out: list[dict] = []
+    for r in raw:
+        meta = r.get("meta")
+        if isinstance(meta, (bytes, bytearray)):
+            meta = meta.decode()
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except json.JSONDecodeError:
+                meta = None
+        if not isinstance(meta, dict):
+            meta = {}
+        run_phase = str(meta.get("phase") or "")
+        if phase and run_phase != phase:
+            continue
+        row: dict = {
+            "id": r.get("id"),
+            "desk": str(r.get("desk") or "").strip(),
+            "phase": run_phase,
+            "last_run": _RUN_LAST.get(run_phase, ""),
+            "at": iso6(r.get("at")),
+        }
+        for key in _RUN_META[1:]:
+            if meta.get(key) is not None:
+                row[key] = meta[key]
+        out.append(row)
+    return out
 
 
 def select(cn, project: str) -> list[dict]:

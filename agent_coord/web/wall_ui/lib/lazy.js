@@ -158,6 +158,12 @@
       js: "/doing/doing-paint.js?v=wow324",
       css: "/doing/doing.css?v=wow324",
       marker: "WALL_UI_DEFAULT_DOING_PAINT"
+    },
+    /* Card 1153: PRIORITIES tab, each desk's ranked list. Loads on first open. */
+    prioritiesPaint: {
+      js: "/priorities/priorities-paint.js?v=wow344",
+      css: "/priorities/priorities.css?v=wow344",
+      marker: "WALL_UI_DEFAULT_PRIORITIES_PAINT"
     }
   };
 

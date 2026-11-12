@@ -417,6 +417,31 @@ def _json(obj: Any) -> bytes:
     return dumps_mill_bytes(obj)
 
 
+_LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _labels_read(qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """Card 1153: GET /api/v1/labels for the Wall PRIORITIES tab. Read-only.
+
+    Labels are office-wide, so the only scope is ?project=Office. names=a,b picks
+    labels; omitted means every desk-named label plus human-priorities. {rows, next,
+    checks} pages like /scores. A refusal is 400 {"error"}.
+    """
+    from agent_coord.server.records import floor as rec_floor
+
+    def one(key: str) -> str:
+        return str((qs.get(key) or [""])[0] or "").strip()
+
+    if one("project").casefold() != CONST_OFFICE.casefold() or one("role") or one("lan"):
+        return 400, {"error": "GET /api/v1/labels requires ?project=Office (labels are office-wide)"}
+    names = [x.strip() for x in one("names").split(",") if x.strip()]
+    if any(not _LABEL_NAME.fullmatch(n) for n in names) or len(names) > 100:
+        return 400, {"error": "GET /api/v1/labels: names= is up to 100 label names, comma separated"}
+    page_lim, page_cur = rec_floor.parse_list_page(qs)
+    with _office() as c:
+        return 200, rec_floor.v1_labels(c._cn, names=names or None, limit=page_lim, cursor=page_cur)
+
+
 _DOING_ITEM = re.compile(r"(mail|todo|hold|score)-([1-9][0-9]{0,18})")
 
 
@@ -468,6 +493,68 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
             return 200, rpc._doing_history(c, body, who, on)
     except CoordError as e:
         return 400, {"error": err_text(e)}
+
+
+_ACTIVITY_TYPES = ("mail", "todo", "doing", "hold", "score", "wake")
+_ACT_WORD = re.compile(r"[a-z]{1,16}")
+_RUN_PHASES = ("start", "finished", "failed")
+
+
+def _score_tab_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """Card 1160: GET /api/v1/activity-buckets and /api/v1/score-runs for the
+    Wall Score tab. Read-only, one roster (?project=), {rows, next} pages.
+
+    activity-buckets takes bucket=min|hour|day (default hour), since= (naive
+    book-clock ISO time), type= and act=. score-runs takes phase=start|finished|failed.
+    A refusal is 400 {"error"}.
+    """
+    from datetime import datetime
+
+    from agent_coord.server.records import floor as rec_floor
+
+    def one(key: str) -> str:
+        return str((qs.get(key) or [""])[0] or "").strip()
+
+    route = path[len("/api/") :]
+    project = one("project")
+    if not project or "," in project or one("role") or one("lan"):
+        return 400, {"error": f"GET /api/v1/{route} requires one ?project="}
+    page_lim, page_cur = rec_floor.parse_list_page(qs)
+    if route == "score-runs":
+        phase = one("phase")
+        if phase and phase not in _RUN_PHASES:
+            return 400, {"error": "GET /api/v1/score-runs: phase= is start, finished or failed"}
+        with _office() as c:
+            return 200, rec_floor.v1_score_runs(
+                c._cn, project, phase=phase, limit=page_lim, cursor=page_cur
+            )
+    bucket = one("bucket") or "hour"
+    if bucket not in ("min", "hour", "day"):
+        return 400, {"error": "GET /api/v1/activity-buckets: bucket= is min, hour or day"}
+    type_s, act = one("type"), one("act")
+    if type_s and type_s not in _ACTIVITY_TYPES:
+        return 400, {"error": "GET /api/v1/activity-buckets: type= is " + ", ".join(_ACTIVITY_TYPES)}
+    if act and not _ACT_WORD.fullmatch(act):
+        return 400, {"error": "GET /api/v1/activity-buckets: act= is one lowercase act word"}
+    since = None
+    if one("since"):
+        try:
+            since = datetime.fromisoformat(one("since"))
+        except ValueError:
+            return 400, {"error": "GET /api/v1/activity-buckets: since= is an ISO date or time"}
+        if since.tzinfo is not None:
+            return 400, {"error": "GET /api/v1/activity-buckets: since= is book-clock time with no zone"}
+    with _office() as c:
+        return 200, rec_floor.v1_activity_buckets(
+            c._cn,
+            project,
+            bucket=bucket,
+            since=since,
+            type_s=type_s,
+            act=act,
+            limit=page_lim,
+            cursor=page_cur,
+        )
 
 
 _ERROR_PAGE = """<!DOCTYPE html>
@@ -1802,8 +1889,24 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     )
                 return
 
+            if path == "/api/labels":
+                try:
+                    code, payload = _labels_read(parse_qs(urlparse(self.path).query))
+                except Exception as e:
+                    code, payload = 500, {"error": err_text(e)}
+                self._send(code, _json(payload), "application/json; charset=utf-8")
+                return
+
             if path in ("/api/doing", "/api/doing/history"):
                 code, payload = _doing_read(path, parse_qs(urlparse(self.path).query))
+                self._send(code, _json(payload), "application/json; charset=utf-8")
+                return
+
+            if path in ("/api/activity-buckets", "/api/score-runs"):
+                try:
+                    code, payload = _score_tab_read(path, parse_qs(urlparse(self.path).query))
+                except Exception as e:
+                    code, payload = 500, {"error": err_text(e)}
                 self._send(code, _json(payload), "application/json; charset=utf-8")
                 return
 

@@ -235,9 +235,9 @@ def test_no_link_at_exit_posts_once_via_http(tmp_path, monkeypatch, capsys) -> N
     code = run_argv("tw-offline", ["true"])
     assert code == 1
     assert hops == []
-    from agent_coord.client.session_errors import bridge_hint
+    from agent_coord.client.session_errors import tw_bridge_hint
 
-    assert capsys.readouterr().err.strip() == bridge_hint().strip()
+    assert capsys.readouterr().err.strip() == tw_bridge_hint().strip()
 
 
 def test_dead_tw_pid_sends_crash_lost_and_drops(tmp_path, monkeypatch) -> None:

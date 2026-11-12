@@ -7,9 +7,9 @@ mark and read alone still count as waste. Trigger tags (human 2026-11-01):
 hold_release, room_or_fyi_mail, rering_handled, version_notice, other.
 
 Emits ``op=wake.done`` (wasted=0|1) on mill-perf for score_tick; also ``op=wake.wasted`` when wasted.
-On 0.8.6 also writes a W9 feature transition (lease_live->idle / wake_done) with meta
-{wasted, trigger, pending0, addressed, kind, auto} - no bodies/names/hosts. Card 1098
-item 5: wake_id is the wake row id; auto=1 marks auto wake-done on mark/answer.
+The W9 transition (lease_live->done / wake_done, card 1140) carries meta
+{wasted, trigger, pending0, addressed, kind, auto} - no bodies/names/hosts; it sits
+on the wake that rang the lease. auto=1 marks auto wake-done on mark/answer.
 Keeps per-desk and per-office counts for mill score.
 """
 from __future__ import annotations
@@ -182,16 +182,11 @@ def _bump(store: dict[str, Any], *, wasted: bool, trigger: str) -> None:
         trig[trigger] = int(trig.get(trigger) or 0) + 1
 
 
-def finish_lease(
-    desk: str,
-    *,
-    cn=None,
-    desk_id: int | None = None,
-) -> dict[str, Any] | None:
+def finish_lease(desk: str) -> dict[str, Any] | None:
     """End the lease on wake-done. When wasted, emit op=wake.wasted and bump counts.
 
-    When ``cn`` is given, also writes a W9 transition row (existing edge only):
-    lease_live -> idle / wake_done with meta {wasted, trigger}.
+    Card 1140: returns the W9 meta {wasted, trigger, ...}; wake.lease_done writes
+    it on the lease's own lease_live -> done row (wake_lease.record_end).
     """
     who = _who(desk)
     if not who:
@@ -249,98 +244,21 @@ def finish_lease(
             )
     except Exception:
         pass
-    if cn is not None:
-        try:
-            from datetime import datetime, timezone
-
-            from agent_coord.server import transition as tr
-            from agent_coord.server.records.db import call as db_call
-            from agent_coord.server.transition_enums import ActivityType, Reason, State
-
-            did = int(desk_id or 0)
-            if did <= 0:
-                from agent_coord.server import mail_activity as ma
-
-                did = int(ma.desk_id_for(cn, who) or 0)
-            wid = int(stamp.get("wake_id") or 0)
-            if wid <= 0:
-                # Card 1098 item 5: prefer the desk's newest wake row over phantom id 1.
-                cur = cn.cursor()
-                try:
-                    if did > 0:
-                        cur.execute(
-                            "SELECT MAX(id) FROM wake WHERE desk_id = %s",
-                            (did,),
-                        )
-                    else:
-                        cur.execute(
-                            "SELECT MAX(w.id) FROM wake w"
-                            " JOIN name d ON d.id = w.desk_id AND d.type = 'desk' AND d.name = %s",
-                            (who,),
-                        )
-                    row = cur.fetchone()
-                    wid = int((row or [0])[0] or 0)
-                except Exception:
-                    wid = 0
-                finally:
-                    cur.close()
-            if wid <= 0:
-                wid = 1
-            # Existing activity + transition tables only (no DDL). When the wake
-            # row already exists its activity row does too; skip mill_activity_put
-            # so we do not plant phantom wake activities at mail ids.
-            cur = cn.cursor()
-            try:
-                cur.execute(
-                    "SELECT 1 FROM activity WHERE type = 'wake' AND id = %s LIMIT 1",
-                    (wid,),
-                )
-                has_activity = cur.fetchone() is not None
-            except Exception:
-                has_activity = False
-            finally:
-                cur.close()
-            if not has_activity:
-                db_call(
-                    cn,
-                    "mill_activity_put",
-                    [
-                        "wake",
-                        wid,
-                        datetime.now(timezone.utc).replace(tzinfo=None),
-                        did if did > 0 else None,
-                        1,
-                        "create",
-                        None,
-                    ],
-                )
-            tr.put(
-                cn,
-                activity_type=ActivityType.wake,
-                activity_id=wid,
-                from_state=State.lease_live,
-                to_state=State.idle,
-                reason=Reason.wake_done,
-                desk_id=did,
-                role="actor",
-                join_key=f"wake-lease:{did}:{wid}",
-                meta={
-                    "wasted": 1 if stamp["wasted"] else 0,
-                    "trigger": stamp["trigger"],
-                    "pending0": int(stamp.get("pending0") or 0),
-                    "addressed": int(stamp.get("addressed") or 0),
-                    "kind": str(stamp.get("kind") or ""),
-                    "auto": int(stamp.get("auto") or 0),
-                },
-            )
-        except Exception:
-            # Instrumentation must not break wake-done.
-            pass
     return {
         "wasted": stamp["wasted"],
         "trigger": stamp["trigger"],
         "wakes": stamp["wakes"],
         "wasted_n": stamp["wasted_n"],
+        "wake_id": int(stamp.get("wake_id") or 0),
+        # Card 1140: meta for the lease's lease_live -> done row (wake_lease.record_end).
+        "meta": {
+            "wasted": 1 if stamp["wasted"] else 0,
+            "trigger": stamp["trigger"],
+            "pending0": int(stamp.get("pending0") or 0),
+            "addressed": int(stamp.get("addressed") or 0),
+            "kind": str(stamp.get("kind") or ""),
+            "auto": int(stamp.get("auto") or 0),
+        },
     }
 
 

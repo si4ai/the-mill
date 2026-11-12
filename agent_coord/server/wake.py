@@ -504,13 +504,15 @@ def wake_body(
         "last_note": None if test else (last_note or None),
         "lease": None if test else (lease or None),
         "window_s": int(lease_s()),
+        "cap_s": int(cap_s()),
         "next": (
             "nothing to do: this is the join test"
             if test
             else f"mill connect -r {desk}: the sync line hands over every waiting hint and letter, "
             "and this desk's routes walk them. A busy answer means another session has the seat "
             "and gets these letters: stop. Last step of the run: mill wake-done --lease LEASE --note TEXT "
-            "(LEASE is wake.lease; one wake at a time; letters that came meanwhile ring once after it)"
+            "(LEASE is wake.lease; one wake at a time; letters that came meanwhile ring once after it). "
+            "export MILL_LEASE=LEASE first: every mill command then renews the lease, up to cap_s"
         ),
     }
     return stamp_mill(body)
@@ -570,6 +572,10 @@ def test_fire(url: str, key: str, desk: str, *, roster: str = "") -> dict[str, A
 # (one book), so a seat in two offices holds two independent leases.
 _GATE: dict[str, float] = {}
 _GATE_LOCK = threading.Lock()
+# Card 1141 step 2: _hold_or_take returns this when the empty re-check under
+# the gate lock finds nothing waiting (not a lease token; hex tokens cannot
+# collide with this string).
+_SKIP_EMPTY = "skipped-empty"
 # #669: desk -> the lease its held-back items belong to (the gate time), the
 # latest of them and the distinct item keys, for the one trailing POST.
 _TRAIL: dict[str, dict[str, Any]] = {}
@@ -586,6 +592,30 @@ _DONE_MAIL: dict[str, set[int]] = {}
 # Like the lease and transport retry state, this is wall-process memory.
 _RERINGS: dict[tuple[str, int], dict[str, Any]] = {}
 RERING_DELAYS = (60.0, 120.0, 240.0, 480.0)
+# Card 1140: desk -> the renewed end of its lease (monotonic), when a command
+# carrying the live token pushed it past lease start + lease_s().
+_UNTIL: dict[str, float] = {}
+# Card 1140: desk -> tokens of leases that lapsed in memory with no record yet;
+# the next ring records each as expired.
+_LAPSED: dict[str, list[str]] = {}
+# Card 1140: desk -> the token of the lease this wall ended last (done or
+# lapse), so a second wake-done on it is already_done, not stale.
+_ENDED: dict[str, str] = {}
+
+
+def _live_locked(desk: str, now: float) -> bool:
+    """Caller holds _GATE_LOCK. True while the desk's lease runs (renewal counted)."""
+    at = _GATE.get(desk)
+    if at is None:
+        return False
+    return now < max(at + lease_s(), _UNTIL.get(desk, 0.0))
+
+
+def cap_s() -> float:
+    """Card 1140: a renewed lease never runs past this many seconds from its ring."""
+    from agent_coord.server.wake_lease import CAP_LEASES
+
+    return CAP_LEASES * lease_s()
 
 
 def _new_lease(desk: str, now: float) -> str:
@@ -593,6 +623,10 @@ def _new_lease(desk: str, now: float) -> str:
     import uuid
 
     token = uuid.uuid4().hex[:12]
+    old = _EPOCH.get(desk)
+    if old:
+        _LAPSED.setdefault(desk, []).append(old)
+    _UNTIL.pop(desk, None)
     _GATE[desk] = now
     _EPOCH[desk] = token
     _LEASE_MAIL[desk] = set()
@@ -602,8 +636,7 @@ def _new_lease(desk: str, now: float) -> str:
 def _gate_take(desk: str, now: float) -> bool:
     """True when this desk may be POSTed now; then the lease starts."""
     with _GATE_LOCK:
-        last = _GATE.get(desk)
-        if last is not None and now - last < lease_s():
+        if _live_locked(desk, now):
             return False
         _new_lease(desk, now)
         return True
@@ -612,17 +645,19 @@ def _gate_take(desk: str, now: float) -> bool:
 def _gate_open(desk: str, now: float) -> bool:
     """True when no window is running for this desk. Takes nothing."""
     with _GATE_LOCK:
-        last = _GATE.get(desk)
-        return last is None or now - last >= lease_s()
+        return not _live_locked(desk, now)
 
 
-def gate_clear(desk: str) -> None:
+def gate_clear(desk: str, cn=None) -> None:
     """Drop the desk's lease and held-back items with no trailing POST (an Admin
-    reset, a test). A connect sync no longer calls this (F144): mill wake-done does."""
+    reset, a test). A connect sync no longer calls this (F144): mill wake-done does.
+    Card 1140: with cn, the lease's record ends cleared."""
     d = str(desk or "").strip()
     with _GATE_LOCK:
         _GATE.pop(d, None)
-        _EPOCH.pop(d, None)
+        token = _EPOCH.pop(d, None)
+        _UNTIL.pop(d, None)
+        _LAPSED.pop(d, None)
         _TRAIL.pop(d, None)
         _LEASE_MAIL.pop(d, None)
         _DONE_MAIL.pop(d, None)
@@ -634,6 +669,16 @@ def gate_clear(desk: str) -> None:
         wasted_wake.clear_lease(d)
     except Exception:
         pass
+    if cn is not None:
+        try:
+            from agent_coord.server import wake_lease
+
+            if not token:  # wall memory lost it (a restart); the book may still have it live
+                token = (wake_lease.live_in_book(cn, d, cap_s()) or ("", 0.0))[0]
+            if token:
+                wake_lease.record_end(cn, token, "cleared")
+        except Exception:
+            pass
 
 
 def lease_synced(desk: str, frames=()) -> None:
@@ -679,9 +724,9 @@ def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | No
     """Caller holds _GATE_LOCK. When a live lease is held, record the item under
     it and return the lease start if this is its first held-back item (the
     caller schedules the lease-end check), else -1.0. None: no live lease."""
-    at = _GATE.get(desk)
-    if at is None or now - at >= lease_s():
+    if not _live_locked(desk, now):
         return None
+    at = _GATE[desk]
     t = _TRAIL.get(desk)
     first = t is None or t.get("at") != at
     if first:
@@ -694,22 +739,97 @@ def _hold_locked(desk: str, now: float, frame: dict[str, Any], hint_id: int | No
 
 
 def _hold_or_take(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None,
-                  *, take: bool) -> str | None:
+                  *, take: bool, cn=None, empty_check: bool = False) -> str | None:
     """One lock hold (F144a, card 887). A live lease: record the item it holds back
     and return "" (the first one in a lease schedules the lease-end check, #669).
     No live lease: None, or with take=True start a lease in the same hold and
     return its id, which the caller puts on its POST as is (F144b: never read
-    _EPOCH again, a done or a newer take may have changed it since)."""
+    _EPOCH again, a done or a newer take may have changed it since).
+
+    empty_check (card 1141 step 2, V16/V17): when take=True and the gate is
+    free, re-read the empty skip under this lock so work another run handled
+    between the first check and the take is not woken for again. Returns
+    _SKIP_EMPTY instead of a lease when nothing waits. The re-check ends
+    cn's open REPEATABLE READ snapshot first (commit if a transaction is
+    open), so a sent mark committed on another connection is visible. A
+    fresh Book() here would miss uncommitted waiting rows on cn (put/mark
+    in push.py before post_desk) and can stall the pool under this lock.
+    """
     import time
 
     now = time.monotonic()
     with _GATE_LOCK:
         first = _hold_locked(desk, now, frame, hint_id, reason, room)
         if first is None:
+            if take and empty_check and cn is not None:
+                try:
+                    if getattr(cn, "in_transaction", False):
+                        cn.commit()
+                    if not _waiting_work(cn, desk, locked=True):
+                        return _SKIP_EMPTY
+                except Exception:
+                    pass
             return _new_lease(desk, now) if take else None
     if first >= 0:
         _schedule(first + lease_s() - time.monotonic(), trail, desk, first)
     return ""
+
+
+def _adopt_from_book(cn, desk: str) -> None:
+    """Card 1140: wall memory has no lease for this desk (a restart) but the book
+    has a live one: take it back into memory, so this item is held under it and
+    rings once when it ends, instead of a second live lease (a double wake)."""
+    import time
+
+    with _GATE_LOCK:
+        if desk in _GATE:
+            return
+    try:
+        from agent_coord.server import wake_lease
+
+        got = wake_lease.live_in_book(cn, desk, lease_s())
+    except Exception:
+        return
+    if not got:
+        return
+    token, age = got
+    with _GATE_LOCK:
+        if desk in _GATE:
+            return
+        _GATE[desk] = time.monotonic() - max(0.0, age)
+        _EPOCH[desk] = token
+        _LEASE_MAIL[desk] = set()
+
+
+def _record_ring(cn, desk: str, token: str, wake_id: int) -> None:
+    """Card 1140: record the leases that lapsed unrecorded as expired, then this ring."""
+    with _GATE_LOCK:
+        lapsed = _LAPSED.pop(desk, [])
+    try:
+        from agent_coord.server import wake_lease
+
+        for old in lapsed:
+            wake_lease.record_end(cn, old, "expired")
+        wake_lease.record_ring(cn, desk, token, wake_id)
+    except Exception as e:
+        _bc_log_safe(f"webhook desk={desk} lease=record err={type(e).__name__}")
+
+
+def lease_renew(cn, desk: str, token: str) -> str:
+    """Card 1140 (Auditor 5532 Q3): a command that carries the live lease token
+    pushes the lease end to now + lease_s(), never past ring + cap_s().
+    renewed | refused (an older or unknown token, or a lapsed lease: renews nothing)."""
+    import time
+
+    d = str(desk or "").strip()
+    tok = str(token or "").strip()
+    now = time.monotonic()
+    with _GATE_LOCK:
+        if not tok or tok != _EPOCH.get(d) or not _live_locked(d, now):
+            return "refused"
+        at = _GATE[d]
+        _UNTIL[d] = max(_UNTIL.get(d, 0.0), min(now + lease_s(), at + cap_s()))
+    return "renewed"
 
 
 def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: str, room: str | None) -> bool:
@@ -718,14 +838,42 @@ def _coalesced(desk: str, frame: dict[str, Any], hint_id: int | None, reason: st
     return _hold_or_take(desk, frame, hint_id, reason, room, take=False) == ""
 
 
-def mail_picked_up(cn, desk: str, mid: int) -> bool:
-    """One stop rule shared by fresh, leave, trailing and replay wake paths."""
-    with _GATE_LOCK:
-        if mid in _DONE_MAIL.get(desk, ()):
-            return True
+def mail_picked_up(cn, desk: str, mid: int, *, locked: bool = False) -> bool:
+    """One stop rule shared by fresh, leave, trailing and replay wake paths.
+
+    locked=True when the caller already holds _GATE_LOCK (the empty re-check
+    under that lock must not acquire it again).
+    """
+    if locked:
+        seen = mid in _DONE_MAIL.get(desk, ())
+    else:
+        with _GATE_LOCK:
+            seen = mid in _DONE_MAIL.get(desk, ())
+    if seen:
+        return True
     from agent_coord.server.records import opened
 
     return mid in opened.picked_up_ids(cn, [mid], desk)
+
+
+def _waiting_work(cn, desk: str, *, locked: bool = False) -> bool:
+    """True when the empty skip must not fire: a not-yet-sent push row,
+    unread mail the run has not picked up, or an unopened receipt."""
+    from agent_coord.server import mail_push as mp
+    from agent_coord.server.records import push as rec_push
+    from agent_coord.server.push import unread_mail_frames
+
+    pending0 = rec_push.pending(cn, desk)
+    unread = [
+        f
+        for f in unread_mail_frames(cn, desk)
+        if not mail_picked_up(cn, desk, int(f.get("id") or 0), locked=locked)
+    ]
+    return mp.counts_as_waiting(
+        pending=pending0,
+        unread=bool(unread),
+        unopened_receipt=mp.has_unopened_receipt(cn, desk),
+    )
 
 
 def _send_trailing(cn, desk: str, t: dict[str, Any], why: str) -> str:
@@ -768,18 +916,34 @@ def trail(desk: str, at: float) -> str:
     already took a new lease, or the run read every item itself. The trailing
     POST takes a lease of its own, so items after it get at most one more POST.
     """
+    import time
+
     with _GATE_LOCK:
         t = _TRAIL.get(desk)
         if t is None or t.get("at") != at:
             return "none"
+        if _GATE.get(desk) == at and _UNTIL.get(desk, 0.0) > time.monotonic():
+            # Card 1140: renewed; check again at the renewed end.
+            _schedule(_UNTIL.get(desk, 0.0) - time.monotonic(), trail, desk, at)
+            return "renewed"
         _TRAIL.pop(desk, None)
         if _GATE.get(desk) != at:
             return "none"
         _GATE.pop(desk, None)  # this lease is over; post_desk takes the next one
-        _EPOCH.pop(desk, None)
+        token = _EPOCH.pop(desk, None)
+        _UNTIL.pop(desk, None)
+        if token:
+            _ENDED[desk] = token
     cn = None
     try:
         cn = _book()
+        if token:
+            try:
+                from agent_coord.server import wake_lease
+
+                wake_lease.record_end(cn, token, "expired")
+            except Exception:
+                pass
         return _send_trailing(cn, desk, t, "lease-expired")
     except Exception as e:
         _wake_log(desk, t.get("frame") or {}, t.get("hint_id"), f"fail err={type(e).__name__} reason=lease-expired")
@@ -807,50 +971,110 @@ def _clean_note(raw: Any) -> str:
 def lease_done(cn, desk: str, note: str = "", lease: str = "") -> str:
     """mill wake-done (F144): the woken run is finished. Ends this desk's lease; when
     items were held back and still wait, sends exactly one trailing wake with
-    pending_count and the note. sent | error | none | stale | sitting. A second
-    done is a no-op. sitting (#889): the desk still has a live /ws, so no trailing
-    POST; the connect or ring-on-leave covers the rows.
+    pending_count and the note. sent | error | none | sitting when it ended the
+    lease; already_done | stale when it ended nothing. sitting (#889): the desk
+    still has a live /ws, so no trailing POST; the connect or ring-on-leave covers
+    the rows.
 
-    lease (F144b, card 888): the wake.lease token the run was woken with. A token
-    that is not the current lease's is a stale done (a run that outlived its
-    lease): it keeps its note for the next wake, unless a newer one waits, and
-    ends nothing. No token (an older client) ends the current lease."""
+    lease (F144b, card 888): the wake.lease token the run was woken with. Card 1140
+    (Auditor 5532 change C), three outcomes for a token:
+      ended  - it is the live lease: ends it, records lease_live -> done.
+      already_done - that lease already ended (a second wake-done, the automatic
+               wake-done, or it lapsed): records nothing, sends nothing.
+      stale  - another lease is live, or the token is unknown: ends nothing (I2);
+               the note waits for the next wake, unless a newer one waits.
+    A live lease the book has but wall memory lost (a restart) ends as done.
+    No token (an older client, the automatic wake-done) ends the live lease."""
     import time
+
+    from agent_coord.server import wake_lease
 
     d = str(desk or "").strip()
     text = _clean_note(note)
     token = str(lease or "").strip()
     now = time.monotonic()
+    at = None
+    t = None
     with _GATE_LOCK:
-        if token and token != _EPOCH.get(d):
-            if text and d not in _NOTE:
-                _NOTE[d] = text
-            stale = True
-        else:
-            stale = False
+        cur = _EPOCH.get(d)
+        live = _live_locked(d, now)
+        # This wall's lease: a no-token done ends it even when it lapsed (older
+        # clients, the automatic done); a token done ends only its own lease.
+        mine = d in _GATE and (not token or token == cur)
+        lapsed = mine and not live
+        if mine:
             at = _GATE.pop(d, None)
             _EPOCH.pop(d, None)
+            _UNTIL.pop(d, None)
             t = _TRAIL.pop(d, None)
             if at is not None:
                 _DONE_MAIL.setdefault(d, set()).update(_LEASE_MAIL.pop(d, set()))
             if text:
                 _NOTE[d] = text
-    if stale:
-        _bc_log_safe(f"webhook desk={d} wake=done stale=yes note={'yes' if text else 'no'}")
-        return "stale"
+            _ENDED[d] = cur or ""
+        last = _ENDED.get(d, "")
+    ended = cur if mine else ""
+    if not mine:
+        row = None
+        if token and cn is not None:
+            try:
+                row = wake_lease.ring_row(cn, token)
+            except Exception:
+                row = None
+        if not token:
+            got = "already_done"
+        elif live or (row is None and token != last):
+            got = "stale"
+        elif row is None:
+            got = "already_done"  # this wall ended it; no book row to read
+        elif row["end"] or token == cur:
+            got = "already_done"  # ended, or lapsed in memory (the next ring records it expired)
+        else:
+            # The book has it live and wall memory lost it (a restart).
+            from datetime import datetime, timezone
+
+            rung = row["at"]
+            age_s = (datetime.now(timezone.utc).replace(tzinfo=None) - rung).total_seconds()
+            if age_s < lease_s():
+                ended = token
+                got = ""
+            else:
+                try:
+                    wake_lease.record_end(cn, token, "expired", {"late_s": int(age_s - lease_s())})
+                except Exception:
+                    pass
+                got = "already_done"
+        if got:
+            if got == "stale" and text:
+                with _GATE_LOCK:
+                    _NOTE.setdefault(d, text)  # the note rides the next wake
+            _bc_log_safe(f"webhook desk={d} wake=done {got}=yes note={'yes' if text else 'no'}")
+            return got
+    held = len((t or {}).get("keys") or ())
     if t is not None and t.get("at") != at:
         t = None
-    held = len((t or {}).get("keys") or ())
+        held = 0
     age = f"{now - at:.0f}" if at is not None else "none"
     _bc_log_safe(f"webhook desk={d} wake=done held_s={age} queued={held} note={'yes' if text else 'no'}")
+    stamp = None
     try:
         from agent_coord.server import wasted_wake
 
-        wasted_wake.finish_lease(d, cn=cn)
+        stamp = wasted_wake.finish_lease(d)
     except Exception:
-        pass
+        stamp = None
+    if ended and cn is not None:
+        try:
+            if lapsed:
+                wake_lease.record_end(cn, ended, "expired")
+            else:
+                wake_lease.record_end(cn, ended, "done", (stamp or {}).get("meta"),
+                                      desk=d, wake_id=int((stamp or {}).get("wake_id") or 0))
+        except Exception:
+            pass
     if not t:
-        return "none"
+        # A token done after its lease lapsed ended nothing that was still running.
+        return "already_done" if lapsed and token else "none"
     # #889: wake-done inside an open connect must not POST a trailing wake to a
     # still-sitting desk; the live connect (or ring-on-leave) covers the rows.
     try:
@@ -1404,23 +1628,10 @@ def post_desk(
     # Card 1141: only tw stall and match (mid-run alerts, no queue row) are
     # exempt. A tw exit or crash is the desk's own run ending; it rings only
     # when something waits, like every other wake.
-    if not (frame.get("watch_id") and frame.get("kind") in TW_ALERTS):
+    tw_alert = bool(frame.get("watch_id") and frame.get("kind") in TW_ALERTS)
+    if not tw_alert:
         try:
-            from agent_coord.server import mail_push as mp
-            from agent_coord.server.records import push as rec_push
-            from agent_coord.server.push import unread_mail_frames
-
-            pending0 = rec_push.pending(cn, desk)
-            unread = [
-                f
-                for f in unread_mail_frames(cn, desk)
-                if not mail_picked_up(cn, desk, int(f.get("id") or 0))
-            ]
-            if not mp.counts_as_waiting(
-                pending=pending0,
-                unread=bool(unread),
-                unopened_receipt=mp.has_unopened_receipt(cn, desk),
-            ):
+            if not _waiting_work(cn, desk):
                 _wake_log(desk, frame, hint_id, "skipped reason=empty")
                 return "skipped"
         except Exception:
@@ -1431,6 +1642,7 @@ def post_desk(
         # so they never hit this room-only skip.
         _wake_log(desk, frame, hint_id, "skipped reason=room-only")
         return "skipped"
+    _adopt_from_book(cn, desk)
     if _coalesced(desk, frame, hint_id, reason, room):
         # A wake already went out and its lease is live: skip the checks and the DNS
         # lookup. Checked and recorded in one lock hold (F144a, card 887).
@@ -1453,10 +1665,16 @@ def post_desk(
     # unresolvable target takes no gate, so it never blocks the next valid wake.
     # Taken here (not peeked) so two threads racing past the peek send one POST;
     # the loser is recorded under the winner's lease in the same hold (card 887).
-    lease = _hold_or_take(desk, frame, hint_id, reason, room, take=True)
+    lease = _hold_or_take(
+        desk, frame, hint_id, reason, room, take=True, cn=cn, empty_check=not tw_alert,
+    )
+    if lease is _SKIP_EMPTY:
+        _wake_log(desk, frame, hint_id, "skipped reason=empty")
+        return "skipped"
     if not lease:
         _wake_log(desk, frame, hint_id, "coalesced reason=lease")
         return "coalesced"
+    _record_ring(cn, desk, lease, wake_id)
     with _GATE_LOCK:
         if mid:
             _LEASE_MAIL.setdefault(desk, set()).add(mid)

@@ -6,7 +6,7 @@ import json
 import os
 import sys
 
-from agent_coord.client.session_errors import bridge_hint
+from agent_coord.client.session_errors import tw_bridge_hint
 from agent_coord.client.tw.cli import main
 from agent_coord.client.tw.link import serve
 from agent_coord.client.tw.proc import _save
@@ -34,13 +34,14 @@ def test_help_and_version_need_no_sit(capsys) -> None:
 
 def test_no_sit_prints_the_recipe(monkeypatch, capsys) -> None:
     monkeypatch.setattr("agent_coord.client.tokens.resolve_desk_owner", lambda *_a, **_k: "")
+    monkeypatch.setattr("agent_coord.client.ws.wait_for_sitting_desk", lambda: "")
     marker_args = [sys.executable, "-c", "import sys; sys.exit(0)"]
     assert main(marker_args) == 1
     assert main(["--list"]) == 1
     assert main(["-l"]) == 1
     assert main(["--list-json"]) == 1
     err = capsys.readouterr().err
-    assert err.count(bridge_hint().strip()) == 4
+    assert err.count(tw_bridge_hint().strip()) == 4
 
 
 def test_list_shows_a_running_row(monkeypatch, tmp_path, capsys) -> None:
@@ -97,7 +98,7 @@ def test_old_run_words_are_the_command(monkeypatch, tmp_path, capsys) -> None:
         code = main(["run", "--desk", "nope"])
         assert code == 1
         err = capsys.readouterr().err
-        assert bridge_hint().strip() not in err
+        assert tw_bridge_hint().strip() not in err
         assert "run" in err.lower() or err
     finally:
         link.close()
