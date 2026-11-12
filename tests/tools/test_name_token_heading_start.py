@@ -19,8 +19,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import check_pack as cp  # noqa: E402
 
-# Invented name-like token, assembled so no literal sits in this file.
+# Invented or off-vocab tokens, assembled so no literal lower-case
+# form sits in this file and enters the tree vocab.
 NAME = "Qu" + "illonde"
+OFF = "Le" + "git"
 VOCAB = frozenset({"help", "scope", "finding", "briefing", "scan"})
 
 HEADING_PASS = [
@@ -32,10 +34,10 @@ HEADING_PASS = [
 ]
 
 HEADING_FAIL = [
-    "### Legit ran from this worktree",
+    f"### {OFF} ran from this worktree",
     f"### {NAME} reviewed it",
     f"# {NAME} at the top",
-    "title\n\n### Legit ran from this worktree\n",
+    f"title\n\n### {OFF} ran from this worktree\n",
 ]
 
 CARD_REF_PASS = [
@@ -51,7 +53,7 @@ CARD_REF_FAIL = [
 
 
 def test_off_vocab_words_are_not_ordinary() -> None:
-    for n in (NAME, "Legit"):
+    for n in (NAME, OFF):
         assert n.casefold() not in VOCAB
         assert n.casefold() not in cp.DESK_WORD_ALLOWLIST
 
@@ -90,6 +92,6 @@ def test_line_without_heading_marks_already_passed() -> None:
 def test_tree_vocab_reads_the_repro_heading_as_ordinary() -> None:
     vocab = cp.ordinary_words(ROOT)
     assert "help" in vocab
-    assert "legit" not in vocab
+    assert OFF.casefold() not in vocab
     assert not cp.text_has_personal_name_token("### Help / briefing scan", vocab)
-    assert cp.text_has_personal_name_token("### Legit ran from this worktree", vocab)
+    assert cp.text_has_personal_name_token(f"### {OFF} ran from this worktree", vocab)
