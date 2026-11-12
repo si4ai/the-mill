@@ -26,7 +26,7 @@ Incident vs service request are **modes** of this product (detail/label), not
 second day-one products. Major SEV / runtime outage -> hand off office-ops.
 
 ## Inputs
-On the desk **before** triage resolve (else `note` gap + `send` / `waiting_on`):
+On the desk **before** triage resolve (else `replace-body` gap + `send` / `waiting_on`):
 - **Ticket identity** - what broke or what was asked (`create todo` need + detail)
 - **Reporter path** - who to unblock; reply desk or `--receipt` channel
 - **Forge URL** - required in detail when report came from GitLab/GitHub Issue
@@ -48,7 +48,7 @@ ITSM/forge database into mill.
 | workaround / diary | `replace-body` |
 | need more info | `send` reporter / `--receipt` + `waiting_on` |
 | escalate (L1->L2/L3, eng/ops) | `send` + eng/ops todo/`assign`; support `waiting_on` |
-| duplicate | `note` canonical + `pass` |
+| duplicate | `replace-body` canonical + `pass` |
 | resolve / close | `pass` when user unblocked **or** fix owned elsewhere |
 | blocked (reporter/eng/vendor) | `waiting_on` + `send` / `note` |
 | park / defer | `create todo` `<roster> <need> --status parked` |

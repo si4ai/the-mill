@@ -26,7 +26,7 @@ Brief, creative work, channel, embargo, and KPI are **inputs, steps, gates, or
 score** on this spine - not second day-one products.
 
 ## Inputs
-On the desk **before** you can launch or publish (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can launch or publish (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Brief / ask** - what ships (in todo detail)
 - **Campaign or asset identity** - name + CMS/DAM id or URL (do not clone CMS)
 - **Channel / date** - and embargo if any
@@ -50,7 +50,7 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send` / `reply` `--receipt` if policy |
 | embargo / wait | waiting_on + `note` / `send` |
-| channel | detail / `note` |
+| channel | detail / `replace-body` |
 | handoff to sales/support | `send` + `assign` |
 | KPI (reach/conversion) | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | publish / launch | `pass` (+ optional Wall glance) |

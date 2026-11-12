@@ -29,7 +29,7 @@ Review, RC/release, and hotfix are **modes or collab** on this spine (same
 commands), not second day-one products. The PR object lives in forge SoR - link it.
 
 ## Inputs
-On the desk **before** implement (else `note` gap + `send` asker / `waiting_on`
+On the desk **before** implement (else `replace-body` gap + `send` asker / `waiting_on`
 or `create todo` `<roster> <need> --status parked`):
 - **Card** - claimed or assigned; need + detail locked enough to build (or explicit spike)
 - **Scope crumbs** - repo/path, pack, or service named; acceptance in detail or linked Claims
@@ -44,14 +44,14 @@ Not inputs: vague "make it better," no card, or implementing while QA owns Pass/
 | change / bug / feature | `create todo` (+ `label ... bug` when bug) |
 | take / give work | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| PR / branch | todo card + link in `detail`/`note`; forge SoR (not a mill PR command) |
+| PR / branch | todo card + link in `detail`/`replace-body`; forge SoR (not a mill PR command) |
 | exclusive tree/file | `hold` / `drop` |
 | progress | `note` |
 | CI links / artifact path / diary | `replace-body` (not mail) |
 | review / approve / request changes | `send` reviewer (+ optional second `claim`); forge review SoR |
 | ask remasure / Claims ready | `send` -> validator/QA with Claims |
 | Validator Fail / re-fix | `inbox` -> fix on card -> `note` -> re-`send` Claims |
-| merge / ship | `note` forge merge/link; `pass` after Pass/pack gate |
+| merge / ship | `replace-body` forge merge/link; `pass` after Pass/pack gate |
 | RC / release / pack Last | pack cut + `send` validator; `pass` after gate |
 | hotfix | urgent `create todo`/`claim` + `send` ops when runtime |
 | blocked (review/QA/CI/ops) | waiting_on + `send` / `note` |

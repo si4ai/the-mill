@@ -25,7 +25,7 @@ Lead/MQL/SQL, proposal, renewal, and forecast are **stages, steps, or score** on
 this spine - not second day-one products. Close-lost = same card `pass` + note why.
 
 ## Inputs
-On the desk **before** you can advance or close (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** you can advance or close (else `replace-body` gap + `send` asker / `waiting_on`):
 - **CRM identity** - opportunity/account id or URL in detail (do not clone amounts)
 - **Stage / outcome ask** - advance, close-won, close-lost, or handoff destination
 - **Owner path** - SDR / AE / CS / delivery (for claim/assign)
@@ -39,17 +39,17 @@ Not inputs: "grow the pipeline," CRM data entry as mill's job, fan-out assign.
 | Their word | Mill |
 |---|---|
 | lead / opportunity | `create todo` (CRM id in detail) |
-| MQL / SQL / stage | `note` on opp card (CRM stage outside mill) |
+| MQL / SQL / stage | `replace-body` on opp card (CRM stage outside mill) |
 | own / work deal | `claim` / `assign` |
 | drop the claim | `unclaim` |
 | next step / progress | `note` |
 | find work / mail landed | `inbox` |
 | handoff SDR->AE->CS | `send` + `assign` |
 | blocked (legal/pricing) | waiting_on + `send` / `note` |
-| proposal path | `note` (+ `send` legal/finance if gate) |
+| proposal path | `replace-body` (+ `send` legal/finance if gate) |
 | forecast / KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |
 | close-won | `pass` + `send` CS/delivery (+ optional onboarding `create todo` / `assign`) |
-| close-lost | `pass` + `note` why |
+| close-lost | `pass` + `replace-body` why |
 | park / later | `create todo` `<roster> <need> --status parked` |
 | renewal | same spine: `create todo` renew opp **or** `send` CS |
 

@@ -24,7 +24,7 @@ Regression and acceptance testing are **modes** of this product (same spine), no
 second day-one products. Re-test = same card after eng fix.
 
 ## Inputs
-On the desk **before** remasure (else `note` gap + `send` asker / `waiting_on`):
+On the desk **before** remasure (else `replace-body` gap + `send` asker / `waiting_on`):
 - **Claims** - acceptance criteria / expected behavior (mail and/or todo detail)
 - **Subject under test** - build, pack Last, path, env, version (link SoR)
 - **Remasure method** - black-box steps or pointer to cases/suite
@@ -40,11 +40,11 @@ Not inputs: vague "improve quality," implement-while-checking, Builder suite as 
 ## Lingo -> mill
 | Their word | Mill |
 |---|---|
-| Claims / acceptance criteria | todo `detail` / Claims mail (`note` to amend) |
+| Claims / acceptance criteria | todo `detail` / Claims mail (`replace-body` to amend) |
 | find Claims / remasure ask | `inbox` |
 | take remasure | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| test case / expected vs actual / evidence paths | `note` |
+| test case / expected vs actual / evidence paths | `replace-body` |
 | remasure (independent verify) | black-box work - **no implement** |
 | pass / fail verdict | `send` asker/builder (verdict + method + paths) |
 | sign-off | Pass `send`; asker/eng may `pass` the **implement** card |
