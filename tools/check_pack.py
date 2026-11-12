@@ -1264,16 +1264,18 @@ def commits_main(rev_range: str) -> int:
 
 
 def scan_git_identities() -> list[str]:
-    """Every commit's author and committer email is noreply (S-10).
+    """Every commit on the checked-out line has a noreply author and committer email (S-10).
 
     A web merge stamps the merging account's commit email. With email privacy
     off that is a personal address, so a push to main fails loudly here. The
-    report is the hash and the role, never the address.
+    report is the hash and the role, never the address. Only commits reachable
+    from HEAD are scanned: a sibling branch fetched by CI never reaches main
+    with this change, so it must not fail this PR (card 737).
     """
     root = mill_root()
     try:
         raw = subprocess.check_output(
-            ["git", "log", "--all", "--format=%H%x1f%ae%x1f%ce"],
+            ["git", "log", "HEAD", "--format=%H%x1f%ae%x1f%ce"],
             cwd=root,
             stderr=subprocess.DEVNULL,
         )

@@ -409,6 +409,20 @@ def test_noreply_history_passes(tmp_path, monkeypatch) -> None:
     assert mod.scan_git_identities() == []
 
 
+def test_identity_scan_skips_sibling_branches_card_737(tmp_path, monkeypatch) -> None:
+    """A personal email on a branch HEAD does not reach is not this checkout's fail."""
+    repo = _fresh_root(tmp_path / "r", "initial public import")
+    _git(repo, "-c", f"user.email={_NOREPLY}", "commit", "-q", "--amend", "--no-edit", "--reset-author")
+    _git(repo, "checkout", "-q", "-b", "sibling")
+    sib = _commit_identity(repo, _j("desk", "@", "mail-host.co"), _NOREPLY)
+    _git(repo, "checkout", "-q", "main")
+    mod = _mod()
+    monkeypatch.setattr(mod, "mill_root", lambda: repo)
+    assert mod.scan_git_identities() == []
+    _git(repo, "merge", "-q", "--ff-only", "sibling")
+    assert f"author email is not noreply in git commit {sib[:12]}" in mod.scan_git_identities()
+
+
 def test_project_local_part_needs_a_noreply_domain() -> None:
     mod = _mod()
     assert not mod.email_is_placeholder(_j("pyginapithon", "@", "mailhost.co"))

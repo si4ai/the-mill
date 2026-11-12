@@ -132,7 +132,7 @@ full commit sha (the repo also requires sha pinning), no workflow uses
   `check_pack`, `pytest_no_sql` and `pytest_sql` check out full history
   (`fetch-depth: 0`): they scan commit messages, and a shallow clone fails
   closed (regression row S-8).
-  `check_pack` also fails when any commit's author or committer email is not a GitHub noreply address (`<id>+<login>@users.noreply.github.com`) or GitHub's own web-flow committer; the report names the commit, never the address (regression row S-10). On a pull request the `--commits` scan also requires author and committer **names** to be a role identity (desk role, project account, `the-mill maintainers`, `GitHub`, or a `[bot]` name) and scans each commit's added lines with the same scrub and secret rules as the tip (F225). Release branches land on main with a merge commit after that check; normal PRs stay squash.
+  `check_pack` also fails when any commit reachable from HEAD has an author or committer email that is not a GitHub noreply address (`<id>+<login>@users.noreply.github.com`) or GitHub's own web-flow committer; the report names the commit, never the address (regression row S-10). On a pull request the `--commits` scan also requires author and committer **names** to be a role identity (desk role, project account, `the-mill maintainers`, `GitHub`, or a `[bot]` name) and scans each commit's added lines with the same scrub and secret rules as the tip (F225). Release branches land on main with a merge commit after that check; normal PRs stay squash.
 - `codeql.yml` runs CodeQL (`analyze (python)`, `analyze (actions)`) on pull
   requests, pushes to `main` and weekly.
 - `release.yml` runs only on a pushed `v*` tag (PyPI) or a manual
