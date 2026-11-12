@@ -42,6 +42,82 @@
  *                    (no FOR UPDATE); must break mutual exclusion
  */
 
+#ifndef READ_DROP
+#define READ_DROP 0
+#endif
+#if READ_DROP
+/*
+ * READ_DROP (card 1144, F3): can a sync after a committed drop still show the
+ * hold? One desk D holds one resource. Its drop runs in one shell; a connect
+ * sync (connect_sync_frame) runs in another shell of the same desk, or in the
+ * same shell after the drop reply.
+ *
+ * Code read (main ec280da):
+ *   rpc.py _h_drop (3197-3226) -> records/hold.py drop (241-) -> delete (19-22):
+ *          mill_hold_delete, one procedure with its own COMMIT (no --doing:
+ *          _run_command 1086-1087 runs no request_tx); the reply goes out after
+ *          the call returns, so after the commit
+ *   push.py connect_sync_frame (854-883): take_sync (peek, rows_done), the
+ *          unread merge, then rec_hold.own (records/hold.py 78-99) -> find
+ *          (53-75) -> rows_done (db.py 719-731), which commits after each read,
+ *          so every read starts a fresh snapshot, even under REPEATABLE READ
+ *   asgi.py ws_endpoint (669-676): the frame is read in a worker, then sent;
+ *          the desk prints it when it arrives (client/ws.py 884-897)
+ *
+ * Ghosts: committed (the drop's COMMIT ran), replied (the desk saw the drop
+ * reply). A sync is stale_commit when its hold read started after the commit
+ * and still shows the hold; stale_reply when it is printed after the drop
+ * reply and shows the hold.
+ *
+ * Switches: SAME_SHELL 1 = the sync's connect starts only after the drop reply
+ *   (one shell, commands in order); MUT_SNAPSHOT_CARRY mutation: the hold read
+ *   uses the snapshot of the frame's first read (no commit between reads, the
+ *   REPEATABLE READ default)
+ */
+#ifndef SAME_SHELL
+#define SAME_SHELL 0
+#endif
+#define D 0
+#define FREE 255
+
+byte owner = D;
+bool committed = false;
+bool replied = false;
+bool stale_commit = false;
+bool stale_reply = false;
+
+proctype Drop() {
+  atomic { owner == D -> owner = FREE; committed = true };   /* mill_hold_delete COMMIT */
+  replied = true                                             /* the reply reaches the desk */
+}
+
+proctype Sync() {
+  bool shown, fresh;
+  byte snap;
+#if SAME_SHELL
+  replied;                                                   /* the connect starts after the reply */
+#endif
+#ifdef MUT_SNAPSHOT_CARRY
+  atomic { snap = owner };                                   /* take_sync's read opens the snapshot */
+  atomic { shown = (snap == D); fresh = committed };         /* own() reads that snapshot */
+#else
+  atomic { snap = owner };                                   /* take_sync (rows_done commits) */
+  atomic { shown = (owner == D); fresh = committed };        /* own(): a fresh snapshot */
+#endif
+  atomic {                                                   /* send_text; the desk prints it */
+    if :: shown && fresh -> stale_commit = true :: else -> skip fi;
+    if :: shown && replied -> stale_reply = true :: else -> skip fi
+  }
+}
+
+init { atomic { run Drop(); run Sync() } }
+
+ltl sync_fresh { [] !stale_commit }
+ltl sync_after_reply { [] !stale_reply }
+
+#else  /* !READ_DROP: the hold and drop model */
+
+
 #ifndef DESKS
 #define DESKS 2
 #endif
@@ -189,3 +265,5 @@ ltl no_starve0 { [] (waiting[0] -> <> !waiting[0]) }
 ltl mutex { [] (EXCL01(0) && EXCL01(1)) }
 ltl no_starve0 { [] (waiting[0] -> <> !waiting[0]) }
 #endif
+
+#endif /* READ_DROP */
