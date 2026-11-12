@@ -1376,7 +1376,7 @@ def _build_parser() -> MillArgumentParser:
 
     pg = sub.add_parser(
         "note",
-        help="update a claimed card body/pct",
+        help="set progress, --eta, --started or --done-when (card text: mill replace-body)",
     )
     pg.add_argument("project")
     pg.add_argument("need")
