@@ -65,6 +65,50 @@ def test_home_path_placeholders_pass() -> None:
         assert not mod.text_has_personal_home_path(text), text
 
 
+WSL = "wsl"
+
+
+def test_wsl_home_paths_fail() -> None:
+    """WSL UNC shares (wsl$ and wsl.localhost, both slash forms) and /mnt/<drive>/Users."""
+    mod = _mod()
+    for text in (
+        _j(BS, BS, WSL, "$", BS, "Ubuntu", BS, "home", BS, LOGIN),
+        _j(BS, BS, WSL, ".localhost", BS, "Ubuntu", BS, "home", BS, LOGIN),
+        _j(BS * 4, WSL, ".localhost", BS * 2, "Ubuntu"),
+        _j("//", WSL, "$/Ubuntu/home/", LOGIN),
+        _j("//", WSL, ".localhost/Ubuntu/home/", LOGIN),
+        _j("/", "mnt/c/", "Users/", LOGIN, "/Desktop"),
+        _j("cd /", "mnt/d/", "users/", LOGIN),
+    ):
+        assert mod.text_has_personal_home_path(text), text
+
+
+def test_wsl_placeholders_pass() -> None:
+    mod = _mod()
+    for text in (
+        _j("open the folder through ", BS, BS, WSL, "$"),
+        _j(BS, BS, WSL, ".localhost", BS, "<distro>", BS, "home"),
+        _j("//", WSL, "$/<distro>/home/<user>"),
+        _j("/", "mnt/c/", "Users/<user>/out"),
+        _j("/", "mnt/c/", "Users/%USERNAME%"),
+        "/mnt/c/Program Files/app",
+        "/mnt/data/users/list.csv",
+        "run wsl.exe and wsl --install",
+    ):
+        assert not mod.text_has_personal_home_path(text), text
+
+
+def test_wsl_home_markers_present() -> None:
+    mod = _mod()
+    for text in (
+        _j(BS, BS, WSL, "$", BS, "Ubuntu"),
+        _j(BS, BS, WSL, ".localhost", BS, "Ubuntu"),
+        _j("//", WSL, "$/Ubuntu"),
+        _j("//", WSL, ".localhost/Ubuntu"),
+    ):
+        assert mod._has_home_marker(text), text
+
+
 def test_email_outside_placeholder_domains_fails() -> None:
     mod = _mod()
     assert mod.text_has_personal_email(_j("someone", "@", "corp", ".", "com"))
