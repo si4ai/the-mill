@@ -288,26 +288,34 @@ def test_finish_lease_writes_wake_done_transition(cn) -> None:
     desk_id = int(cur.fetchone()[0])
     cur.close()
 
+    from agent_coord.server import wake_lease
+    from agent_coord.server.records import push as rec_push
+
+    wid = rec_push.row_id(rec_push.put(cn, "wwd", "hint", {"type": "todo", "id": 2}, "queued"))
     ww.reset_for_tests()
-    ww.mark_lease("wwd", trigger="hold_release", wake_id=910002)
+    ww.mark_lease("wwd", trigger="hold_release", wake_id=wid)
     # no action -> wasted
-    out = ww.finish_lease("wwd", cn=cn, desk_id=desk_id)
+    out = ww.finish_lease("wwd")
     assert out is not None and out["wasted"] is True and out["trigger"] == "hold_release"
+    # Card 1140: the W9 row is the lease's own end, with this meta.
+    wake_lease.record_ring(cn, "wwd", "tok1002a", wid)
+    assert wake_lease.record_end(cn, "tok1002a", "done", out["meta"])
     cn.commit()
     cur = cn.cursor(dictionary=True)
     cur.execute(
         "SELECT activity_type, activity_id, from_state, to_state, reason, desk_id, join_key, meta"
-        " FROM transition WHERE activity_type='wake' AND activity_id=910002"
-        " ORDER BY id DESC LIMIT 1"
+        " FROM transition WHERE activity_type='wake' AND activity_id=%s"
+        " ORDER BY id DESC LIMIT 1",
+        (wid,),
     )
     row = cur.fetchone()
     cur.close()
     assert row is not None
     assert row["from_state"] == State.lease_live.value
-    assert row["to_state"] == State.idle.value
+    assert row["to_state"] == State.done.value
     assert row["reason"] == Reason.wake_done.value
     assert int(row["desk_id"]) == desk_id
-    assert str(row["join_key"]) == f"wake-lease:{desk_id}:910002"
+    assert str(row["join_key"]) == "lease:tok1002a"
     meta = row["meta"]
     if isinstance(meta, (bytes, bytearray)):
         meta = meta.decode()
@@ -332,16 +340,23 @@ def test_useful_wake_transition_marks_wasted_zero(cn) -> None:
     cur.execute("SELECT id FROM name WHERE type='desk' AND name='wwb'")
     desk_id = int(cur.fetchone()[0])
     cur.close()
+    from agent_coord.server import wake_lease
+    from agent_coord.server.records import push as rec_push
+
+    wid = rec_push.row_id(rec_push.put(cn, "wwb", "hint", {"type": "todo", "id": 3}, "queued"))
     ww.reset_for_tests()
-    ww.mark_lease("wwb", trigger="other", wake_id=910003)
+    ww.mark_lease("wwb", trigger="other", wake_id=wid)
     ww.note_rpc("wwb", "reply", ok=True)
-    out = ww.finish_lease("wwb", cn=cn, desk_id=desk_id)
+    out = ww.finish_lease("wwb")
     assert out is not None and out["wasted"] is False
+    wake_lease.record_ring(cn, "wwb", "tok1002b", wid)
+    assert wake_lease.record_end(cn, "tok1002b", "done", out["meta"])
     cn.commit()
     cur = cn.cursor(dictionary=True)
     cur.execute(
-        "SELECT meta FROM transition WHERE activity_type='wake' AND activity_id=910003"
-        " ORDER BY id DESC LIMIT 1"
+        "SELECT meta FROM transition WHERE activity_type='wake' AND activity_id=%s"
+        " ORDER BY id DESC LIMIT 1",
+        (wid,),
     )
     row = cur.fetchone()
     cur.close()
@@ -384,8 +399,12 @@ def test_w9_attaches_to_wake_row_id(cn) -> None:
     cn.commit()
     ww.reset_for_tests()
     ww.mark_lease("ww1098d", trigger="other", wake_id=wid, pending0=1, addressed=1, kind="hint")
-    out = ww.finish_lease("ww1098d", cn=cn, desk_id=desk_id)
+    out = ww.finish_lease("ww1098d")
     assert out is not None
+    from agent_coord.server import wake_lease
+
+    wake_lease.record_ring(cn, "ww1098d", "tok1098d", wid)
+    assert wake_lease.record_end(cn, "tok1098d", "done", out["meta"])
     cn.commit()
     cur = cn.cursor(dictionary=True)
     cur.execute(
@@ -432,7 +451,7 @@ def test_auto_done_on_mark_when_lease_clear(monkeypatch) -> None:
     snap = ww.desk_snapshot("auto-d")
     assert snap["wakes"] == 1
     # second explicit wake-done is stale/no-op
-    assert wake_mod.lease_done(None, "auto-d") in ("stale", "none")
+    assert wake_mod.lease_done(None, "auto-d") == "already_done"
 
 
 def test_auto_done_skips_when_addressed_still_waits(monkeypatch) -> None:

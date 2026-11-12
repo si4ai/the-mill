@@ -23,6 +23,9 @@ def arm(monkeypatch, *, armed: dict[str, tuple[str, str]] | None = None) -> None
     monkeypatch.setattr(wake, "_LEASE_MAIL", {}, raising=False)
     monkeypatch.setattr(wake, "_DONE_MAIL", {}, raising=False)
     monkeypatch.setattr(wake, "_RERINGS", {}, raising=False)
+    monkeypatch.setattr(wake, "_UNTIL", {}, raising=False)
+    monkeypatch.setattr(wake, "_LAPSED", {}, raising=False)
+    monkeypatch.setattr(wake, "_ENDED", {}, raising=False)
     # #669: no real window-end timer thread in a unit test; a test that checks the
     # trailing POST captures _schedule itself.
     monkeypatch.setattr(wake, "_TRAIL", {})

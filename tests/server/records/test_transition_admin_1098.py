@@ -211,7 +211,7 @@ def test_analysis_wake_receipt_and_auto_done(cn, monkeypatch):
         activity_type=ActivityType.wake,
         activity_id=wid,
         from_state=State.lease_live,
-        to_state=State.idle,
+        to_state=State.done,
         reason=Reason.wake_done,
         desk_id=desk_id,
         role="actor",

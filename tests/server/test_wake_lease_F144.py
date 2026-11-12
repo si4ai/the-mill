@@ -164,7 +164,8 @@ def test_a_second_done_is_a_no_op(office) -> None:
     assert wake.lease_done(office["cn"], "away") == "sent"
     # The trailing wake opened run 2's lease; nothing new is held, so its done sends nothing.
     assert wake.lease_done(office["cn"], "away") == "none"
-    assert wake.lease_done(office["cn"], "away") == "none"
+    # Card 1140: a done with no lease left ends nothing and says so.
+    assert wake.lease_done(office["cn"], "away") == "already_done"
     assert len(_posts(office)) == 2
 
 
