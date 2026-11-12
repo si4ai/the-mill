@@ -44,7 +44,8 @@ Not inputs: "grow reach," CMS upload as mill's job, analytics warehouse as mill'
 | creative / asset work | `claim` + `note` (+ `hold`/`drop` if exclusive asset station) |
 | own / take it | `claim` / `assign` |
 | drop the claim | `unclaim` |
-| progress / diary | `note` |
+| progress | `note` |
+| diary | `replace-body` |
 | find work / mail landed | `inbox` |
 | review cycle | `send` (+ second desk claim if needed) |
 | approval / brand approve | `send` / `reply` `--receipt` if policy |

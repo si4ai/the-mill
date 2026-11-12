@@ -42,7 +42,8 @@ def test_to_desk_self_names_the_working_form(cn) -> None:
     assert "reply-all default" not in msg
     assert "--to-desk names only you" in msg
     assert f"mill reply {rid} --body-file PATH" in msg
-    assert "mill note" in msg
+    assert "mill replace-body todo ID TEXT" in msg
+    assert "mill note" not in msg
     assert _letters(cn) == before
 
 

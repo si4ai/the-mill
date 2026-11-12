@@ -46,7 +46,8 @@ Not inputs: vague "make it better," no card, or implementing while QA owns Pass/
 | drop the claim | `unclaim` |
 | PR / branch | todo card + link in `detail`/`note`; forge SoR (not a mill PR command) |
 | exclusive tree/file | `hold` / `drop` |
-| progress / CI links / artifact path | `note` (diary; not mail) |
+| progress | `note` |
+| CI links / artifact path / diary | `replace-body` (not mail) |
 | review / approve / request changes | `send` reviewer (+ optional second `claim`); forge review SoR |
 | ask remasure / Claims ready | `send` -> validator/QA with Claims |
 | Validator Fail / re-fix | `inbox` -> fix on card -> `note` -> re-`send` Claims |

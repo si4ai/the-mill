@@ -47,7 +47,8 @@ replacing ERP payment runs inside mill.
 | approval chain | `assign` next + `send`; waiting_on until human clicks |
 | coding (GL / cost center) | `note` (ledger executes coding) |
 | exception | `send` escalate (+ `note` reason) |
-| progress / coded / approved diary | `note` (not mail) |
+| progress | `note` |
+| coded / approved diary | `replace-body` (not mail) |
 | find work / mail landed | `inbox` |
 | blocked (approver/bank/coding) | waiting_on + `send` / `note` |
 | budget / forecast KPI | `score` - a row in the score table (`kpi`, `value`, `target`) |

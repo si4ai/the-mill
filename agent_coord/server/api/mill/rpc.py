@@ -2055,7 +2055,7 @@ def _h_reply(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
             raise CoordError(
                 "reply: --to-desk names only you, and a reply never goes to its sender; "
                 f"post to the room with mill reply {mail_id} --body-file PATH (reply-all), "
-                "name another desk with --to-desk DESK, or keep a private line with mill note on a card"
+                "name another desk with --to-desk DESK, or keep a private line with mill replace-body todo ID TEXT"
             )
         if skipped:
             raise CoordError(

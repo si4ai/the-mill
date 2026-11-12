@@ -51,7 +51,8 @@ body dumped into mill as SoR.
 | opinion | `note` and/or `send` memo/link |
 | audit trail | `send` + `note` crumbs (SoR stays outside) |
 | drop the claim | `unclaim` |
-| progress / diary | `note` (not mail) |
+| progress | `note` |
+| diary | `replace-body` (not mail) |
 | blocked on others | waiting_on + `send` / `note` |
 | park / defer | `create todo` `<roster> <need> --status parked` |
 | cycle-time KPI (optional) | `score` - a row in the score table (`kpi`, `value`, `target`) |
