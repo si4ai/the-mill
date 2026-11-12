@@ -33,15 +33,17 @@ a flag is tw's own only when it is the whole command.
 
 
 def _sitting() -> str:
+    """The sitting connect's desk; waits for a connect still starting, as a mill command does."""
     from agent_coord.client.tokens import resolve_desk_owner
+    from agent_coord.client.ws import wait_for_sitting_desk
 
-    return (resolve_desk_owner("") or "").strip()
+    return (resolve_desk_owner("") or wait_for_sitting_desk() or "").strip()
 
 
 def _recipe() -> None:
-    from agent_coord.client.session_errors import bridge_hint
+    from agent_coord.client.session_errors import tw_bridge_hint
 
-    print(bridge_hint(), file=sys.stderr)
+    print(tw_bridge_hint(), file=sys.stderr)
 
 
 def _print_running(desk: str, *, as_json: bool) -> int:
