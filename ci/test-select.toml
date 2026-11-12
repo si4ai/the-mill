@@ -24,7 +24,9 @@
 # build_pack, check_pack, mill_cli_smoke, precheck and hidden_code_report
 # are not in this map: they scan or install the whole pack, commit messages
 # and diff lines, so they run on every event, the merge queue included.
-# Push to main, tags, dispatch and an all-zero base run every job.
+# A push to main or a v* tag (release.yml calls ci.yml) runs no suite:
+# that code ran them on its PR. workflow_dispatch and an all-zero PR base
+# run every job. The same code never runs the suites twice.
 #
 # To add a file pattern: put it in the rule whose jobs verify that file.
 # A new SQL-marked test, or a tests/ or tools/ file one imports or loads

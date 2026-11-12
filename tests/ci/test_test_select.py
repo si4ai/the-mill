@@ -3,7 +3,9 @@
 The suites run once per change: a pull request runs every suite unless its
 diff selects nothing (docs, a version-only pyproject.toml bump), and the
 merge queue never runs them: it passes only if the queue base is an ancestor
-of the PR head (nothing merged ahead), and fails otherwise.
+of the PR head (nothing merged ahead), and fails otherwise. A push to main
+or a tag (release.yml calls ci.yml, so its event is the tag push) runs none:
+the same code never runs the suites twice. workflow_dispatch runs both.
 
 Every map assertion loads the map CI reads, not a copy of it.
 """
@@ -213,10 +215,23 @@ def _run(tmp_path: Path, *args: str, event: dict | None = None, name: str = "pus
     return proc, out.read_text(encoding="utf-8") if out.exists() else ""
 
 
-def test_cli_push_runs_every_job_and_writes_output(tmp_path: Path) -> None:
-    proc, out = _run(tmp_path, "--github")
+def test_cli_push_runs_no_suite_and_writes_output(tmp_path: Path) -> None:
+    """A push to main or a v* tag carries code its PR run already tested."""
+    for ref in ("refs/heads/main", "refs/tags/v0.8.15"):
+        proc, out = _run(tmp_path, "--github", event={"ref": ref})
+        assert proc.returncode == 0, proc.stderr
+        assert out.splitlines()[-2:] == ["pytest_no_sql_run=false", "pytest_sql_run=false"]
+
+
+def test_cli_dispatch_runs_every_job(tmp_path: Path) -> None:
+    proc, out = _run(tmp_path, "--github", name="workflow_dispatch")
     assert proc.returncode == 0, proc.stderr
     assert out.splitlines() == ["pytest_no_sql_run=true", "pytest_sql_run=true"]
+
+
+def test_push_selects_no_suite(rules: ts.Rules) -> None:
+    assert ts.github_selection(rules, "push", {"ref": "refs/tags/v0.8.15"})[0] == set()
+    assert ts.github_selection(rules, "push", {})[0] == set()
 
 
 def test_cli_unknown_job_exits_nonzero_and_writes_nothing(tmp_path: Path) -> None:
@@ -393,7 +408,6 @@ def test_local_mode_skips_a_version_only_bump(repo: Path, capsys: pytest.Capture
 
 
 @pytest.mark.parametrize("name,event", [
-    ("push", {}),
     ("workflow_dispatch", {}),
     ("", {}),
     ("pull_request", {}),

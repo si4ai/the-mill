@@ -12,8 +12,11 @@ An unknown job name, a broken map or a missing GITHUB_OUTPUT exits 1.
       none. merge_group never runs a job: it passes when base_sha is an
       ancestor of the PR head (refs/pull/N/head, N from the queue ref), so
       nothing merged ahead of the tested code, and exits 1 otherwise or when
-      it cannot tell, which turns the required gate checks red. Any other
-      event, a malformed sha, a failed diff or an empty diff runs every job.
+      it cannot tell, which turns the required gate checks red. A push (to
+      main, or a v* tag through release.yml's workflow_call, whose event is
+      the caller's) runs no job: that code ran the suites on its PR. Any
+      other event (workflow_dispatch), a malformed sha, a failed diff or an
+      empty diff runs every job. The same code never runs the suites twice.
   python3 ci/test_select.py --base REV [--head REV]
       Local mode. Prints the jobs the map selects, one per line.
 
@@ -212,6 +215,8 @@ def github_selection(rules: Rules, event_name: str, event: dict) -> tuple[set[st
     """The jobs to run for this event and a one-line reason."""
     if event_name == "merge_group":
         return set(), merge_group_check(event)
+    if event_name == "push":
+        return set(), "push: no job; this code ran the suites on its pull request"
     span = pr_range(event) if event_name == "pull_request" else None
     if span is None:
         return set(KNOWN_JOBS), f"{event_name or 'no event'}: every job"
