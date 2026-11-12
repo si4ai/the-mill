@@ -3948,7 +3948,7 @@ def _h_trail_label(c: Book, body: dict[str, Any], project: str, owner: str | Non
     """
     import json
 
-    from agent_coord.const import CONST_LABEL
+    from agent_coord.const import CONST_DESK, CONST_LABEL
     from agent_coord.config import mill_catalog_open
     from agent_coord.helpers.label_ord import unused_label
     from agent_coord.helpers.trail_text import clip, first_line
@@ -3960,8 +3960,11 @@ def _h_trail_label(c: Book, body: dict[str, Any], project: str, owner: str | Non
     if not owner:
         raise CoordError("trail: owner required")
     stored = rec_name.bare(tag, CONST_LABEL)
-    # A desk name is that desk's focus list (card 1163). A desk with no list is an empty read.
-    if rec_name.get(c._cn, stored, CONST_LABEL) is None and rec_label.focus_label_id(c._cn, stored) is None:
+    # A desk name is that desk's focus list (card 1163). Any other unknown name is an empty read.
+    desk = rec_name.get(c._cn, stored, CONST_DESK)
+    if rec_name.get(c._cn, stored, CONST_LABEL) is None and (
+        desk is None or rec_label.focus_label_id(c._cn, stored) is None
+    ):
         return {
             "label": stored,
             "hint": unused_label(stored, mill_catalog_open(CONST_LABEL)),

@@ -46,8 +46,11 @@ ID_TYPE_OK = {
     ("mill_invite_join", "party_id"): "FINDING F1",
 }
 # Kind tables (owner rule 2026-10-25, card 1163): a name kind gets its own table only if the thing has its own data.
-# seat is the desk kind. Every pointer to name is a plain id. A trigger requires the type (F168).
-KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind"}
+# seat is the desk kind. focus_label_id is that desk's focus list. Every pointer to name is a plain id.
+KIND_REF_TO_NAME = {
+    ("seat", "desk_id"): "the desk kind",
+    ("seat", "focus_label_id"): "the desk focus list",
+}
 NAME_REF_NO_OWN_DATA = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id"),
                         ("member", "name_id"), ("activity", "roster_id"), ("mail", "roster_id"), ("todo", "roster_id"),
                         ("doing", "roster_id"), ("score", "roster_id"), ("human_member", "name_id")}
