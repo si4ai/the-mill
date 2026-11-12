@@ -119,17 +119,24 @@ class Hub:
             if not room_key:
                 return None
             room = self.rooms.setdefault(room_key, set())
+            replaced_exited = False
             if refuse:
-                # A socket already closed but not yet discarded does not hold the seat.
+                # A peer close frame already received does not hold the seat.
+                # Drop it here, not via discard, so this is not a leave and
+                # does not ring a wake. A kill that sends no close frame leaves
+                # the socket up until the office sees the connection drop.
                 for prev in [p for p in room if p is not ws and _ws_gone(p)]:
                     room.discard(prev)
+                    replaced_exited = True
                 live = [p for p in room if p is not ws]
                 if live:
                     since = min(float(getattr(p, "_mill_sat_at", 0) or 0) for p in live)
                     _bc_log(f"ws refuse desk={stored} reason=in-use")
                     return {"desk": stored, "since": _utc_iso(since)}
             old = [prev for prev in list(room) if prev is not ws]
-            first = not room
+            # replacing our own exited connect is not a new sit, so it does not mark
+            # the seat up again.
+            first = not room and not replaced_exited
             room.add(ws)
             try:
                 ws._mill_sat_at = time.time()
