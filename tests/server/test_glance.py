@@ -497,6 +497,15 @@ def test_digest_follows_tap_order():
     assert digest_for(one, "") != digest_for(one, "word")
 
 
+def test_digest_is_not_a_fast_sha256():
+    import hashlib
+
+    from agent_coord.server.glance import digest_for, serial
+
+    taps = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"]
+    assert digest_for(taps, "word") != hashlib.sha256(serial(taps, "word").encode()).hexdigest()
+
+
 def test_install_stores_the_digest_only(tmp_path):
     from agent_coord.install.glance_tap import store
     from agent_coord.server.glance import digest_for
