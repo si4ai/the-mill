@@ -44,7 +44,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `send desk <desk> --body-file PATH` mails a desk; `send roster <name> --body-file PATH` mails everyone on a roster (pairs repeat; `--to-desk <desk>` still works). `send --room <room> --to-desk <desk> --body-file PATH` opens a new room; it only opens one. To post in a room that exists, `reply`.
   - `reply <mail_id> --body-file PATH` posts in that letter's room or thread and marks that letter handled.
   - `mark <mail_id> [<mail_id>...]` marks the other letters you handled.
-  - `mill replace-body mail ID TEXT` or `mill replace-body todo ID --body-file PATH` replaces that letter or card. The letter's sender, the card's asker, or an Admin may replace it. Read it first (`mail-thread ID --full`, or `todo ROSTER ID`). The same text changes nothing. `--history` lists the old text newest first; `--order oldest` lists the first text first.
+  - `mill replace-body mail ID TEXT` or `mill replace-body todo ID --body-file PATH` replaces that letter or card (rights: docs/requirements/admin.md (trust matrix)). Read it first (`mail-thread ID --full`, or `todo ROSTER ID`). The same text changes nothing. `--history` lists the old text newest first; `--order oldest` lists the first text first.
   - Reading a letter whole marks it handled: `mail-thread <id>` (and `--full`, `--subtree`, `--after`) marks the letters it prints and lists them in `marked`. `inbox`, a `--room` read (short previews or `--room --full`) and a room summary never mark. Handled (unread or not) is the only state. `--raw` is a global lean-print flag, not a room scope.
   - `mail-thread --all`, `--no-mark`, and `mark --state` are not flags. The call errors. Whole-room read is `--room`. Inbox `--all` still means include mail already handled.
   - On resume, before you wait on a peer, read each room you are in with `mail-thread <root_id> --room`.
@@ -55,7 +55,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `todo <roster> <need>` returns that card, even when it is done.
   - `create todo <roster> <need>` files one (optional `--detail TEXT` or `--detail-file PATH` up to 4096 characters, `--status parked`, `--done-when TEXT`). A need that exists on that roster is refused, nothing changed; change its text with `replace-body`. `file` is not a command.
   - `claim <roster> <need> [--eta E]` takes it. Every claim sets `--eta` (`20m`, `2h`, or a timestamp; honest best guess, no padding). `--take-over` takes a card another desk holds.
-  - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; limited trust: Admin only), or the receiving desk runs `claim`. Say who has it with `replace-body`.
+  - To hand a card to a named desk: `unclaim` it, then `assign <roster> <need> <desk>` (unassigned cards only; rights: docs/requirements/admin.md (trust matrix)), or the receiving desk runs `claim`. Say who has it with `replace-body` when trust lets you, else in a `reply`.
   - `todo <roster> <need> --started` sets started_at; `todo <roster> <need> --eta E` updates the ETA; `todo <roster> <need> --done-when TEXT` (alone) sets or clears the acceptance line (asker or Admin). Card text changes with `mill replace-body todo ID TEXT` after you read the card.
   - `pass <roster> <need>`: your pass ships it; the asker accepts it with `pass <roster> <need> --done`. `--back` steps a card back one stage. A pass that does not fit the card is refused and changes nothing.
   - To close or clear old cards: Admin may also run `pass <roster> <need> --done` when the asker is gone; `retire todo <roster> <need>` (asker or Admin) takes a stale card off every list, and `reclaim todo <roster> <need>` brings it back. NEED may be a comma list (`a,b,c`).
@@ -75,7 +75,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
 
 - **Label** - an agreed name plus rank that selects an ordered subset of todos or mail: a shared shortcut.
-  - `label <type> <id> <label> [--ord N]` attaches one to any activity (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use when office trust is high; limited trust: Admin runs `create label <name>`.
+  - `label <type> <id> <label> [--ord N]` attaches one to any activity (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use where trust allows; otherwise `create label <name>` first (rights: docs/requirements/admin.md (trust matrix)).
   - `trail --label <label>` reads everything wearing it, in order. Once told a label name, read by it instead of scanning the board or the room.
   - Share the label name by mail, the same way as a hold name.
   - `--ord`: 0 = pinned, 65535 = unplaced. Gaps stay; never renumber.

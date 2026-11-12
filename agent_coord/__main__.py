@@ -1385,7 +1385,7 @@ def _build_parser() -> MillArgumentParser:
 
     rb = sub.add_parser(
         "replace-body",
-        help="replace the text of one letter or card (sender, asker, or Admin)",
+        help="replace the text of one letter or card (rights follow office trust: mill trust)",
         description=(
             "Read the letter or card first. Pass the new text or --body-file, not both. "
             "Quote the text. The same text changes nothing. "

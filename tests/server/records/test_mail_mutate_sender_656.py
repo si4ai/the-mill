@@ -1,6 +1,6 @@
 """#656: mill_mail_delete acts only for the letter's sender or an Admin desk.
 
-Card 1125: mill_mail_update is gone. A letter's text changes through mill_body_replace.
+Card 1125: mill_mail_update is gone. A letter's text changes through mill_body_replace; at limited trust only the sender or Admin.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from agent_coord.server.records import body as rec_body
 from agent_coord.server.records import mail
 from agent_coord.server.records.db import call
 from agent_coord.server.records.db import scalar
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import book_trust, seed_names
 
 REFUSED = "only the sender or an Admin desk"
 
@@ -42,9 +42,9 @@ def _replace(cn, mid: int, desk: str, text: str):
 
 
 @pytest.mark.parametrize("caller", ["ms_other", "ms_to"])
-def test_non_sender_replace_changes_nothing(cn, caller) -> None:
+def test_non_sender_replace_changes_nothing_at_limited_trust(cn, caller) -> None:
     mid = _letter(cn, "original")
-    with pytest.raises(Exception, match="body:rights"):
+    with book_trust(cn, "limited"), pytest.raises(Exception, match="body:rights"):
         _replace(cn, mid, caller, "rewritten")
     assert _body(cn, mid) == "original"
 

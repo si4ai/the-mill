@@ -7,7 +7,8 @@ trust and Admin rule:
 - sec 3, any desk at either trust: claim, unclaim, pass ship (pass --done is the
   asker or Admin; done-when is the asker or Admin).
 - sec 2, trust-gated: assign (high any desk, limited Admin; unassigned only, for
-  Admin too), member add/remove of another desk (self is open), label first use.
+  Admin too), member add/remove of another desk (self is open), label first use,
+  replace-body (high any desk; limited the creator or Admin; card 1125).
 - sec 1, Admin at either trust: invite door keys (mint, enable, ttl, revoke) and
   setting trust.
 """
@@ -17,10 +18,13 @@ import pytest
 
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
+from agent_coord.server.records import body as rec_body
+from agent_coord.server.records import mail as rec_mail
 from agent_coord.server.records import member as rec_member
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records import todo as rec_todo
-from tests.server.records.conftest import seed_names
+from agent_coord.server.records.db import scalar
+from tests.server.records.conftest import book_trust, seed_names
 
 pytestmark = pytest.mark.sql
 
@@ -139,6 +143,40 @@ def test_label_first_use_creates_only_at_high_trust(book, cn, monkeypatch, trust
     else:
         rpc._h_label(book, body, "unit", PLAIN)
         assert rec_name.get(cn, tag, "label") is not None
+
+
+def _text(cn, kind, item):
+    table = "mail" if kind == "mail" else "todo"
+    return scalar(cn, f"SELECT body FROM {table} WHERE id = %s", (item,))
+
+
+def _replace(cn, kind, item, desk, text):
+    table = "mail" if kind == "mail" else "todo"
+    stamp = scalar(cn, f"SELECT IFNULL(body_updated, created) FROM {table} WHERE id = %s", (item,))
+    return rec_body.replace(cn, kind, item, desk, text, stamp)
+
+
+@TRUST
+@pytest.mark.parametrize("kind", ["todo", "mail"])
+def test_replace_body_is_any_desk_high_creator_or_admin_limited(book, cn, monkeypatch, trust, kind):
+    monkeypatch.setenv("AGENT_COORD_TRUST", trust)
+    if kind == "todo":
+        item = int(rec_todo.find(cn, "unit", _open(book, f"mr-{trust}"))["id"])
+    else:
+        item = int(rec_mail.insert(cn, "unit", ASKER, VOL, "letter v0")[0]["id"])
+    with book_trust(cn, trust):
+        if trust == "limited":
+            before = _text(cn, kind, item)
+            with pytest.raises(Exception, match="body:rights"):
+                _replace(cn, kind, item, PLAIN, "by a plain desk")
+            assert _text(cn, kind, item) == before
+        else:
+            assert _replace(cn, kind, item, PLAIN, "by a plain desk")["op"] == "replaced"
+            assert _text(cn, kind, item) == "by a plain desk"
+        assert _replace(cn, kind, item, ASKER, "by the creator")["op"] == "replaced"
+        assert _replace(cn, kind, item, ADMIN, "by Admin")["op"] == "replaced"
+    assert _text(cn, kind, item) == "by Admin"
+    assert [h["replaced_by"] for h in rec_body.history(cn, kind, item, order="oldest")][-2:] == [ASKER, ADMIN]
 
 
 # sec 1: Admin at either trust.

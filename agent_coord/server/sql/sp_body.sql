@@ -71,7 +71,8 @@ END //
 -- and the item's activity row says act replace. p_expected is the body stamp the caller read (body_updated, or
 -- created when the text was never edited); any other value refuses body:stale and writes nothing, so two desks
 -- editing from the same text cannot lose one edit (UNIQUE type, activity_id, old_updated backs this up).
--- Rights: a letter's sender or an Admin desk; a card's asker or an Admin desk. A letter's opened and receipt
+-- Rights follow b_trust() (docs/requirements/admin.md section 2): at high trust any seated desk; at limited trust
+-- only the item's creator (a letter's sender, a card's asker) or an Admin desk. A letter's opened and receipt
 -- marks (mail_to) are not touched. Refusals, nothing written: body:type, body:no_desk, body:no_text,
 -- body:no_such_item, body:deleted, body:rights, body:stale, body:unchanged (the new text is the same as the
 -- current text, so the replace did nothing; its message says so in plain words).
@@ -127,7 +128,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM activity WHERE type = p_type AND id = p_id AND deleted IS NOT NULL) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:deleted';
   END IF;
-  IF v_desk <> v_owner
+  IF b_trust() = 'limited'
+     AND v_desk <> v_owner
      AND NOT EXISTS (SELECT 1 FROM member
                       WHERE name_id = 2  -- the reserved Admin roster (#722)
                         AND desk_id = v_desk) THEN

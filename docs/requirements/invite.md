@@ -68,8 +68,8 @@ Five ways in. The first three do not use an issuer.
 | Way in | Door | Who gets in |
 |---|---|---|
 | One workstation, many agents | `path` or loopback | Desks on that PC. Mill tokens. |
-| High-trust office | `path`; invite for off-LAN | Any seated desk mints and assigns an open todo. |
-| Limited-trust office | same, `mill trust limited` | Those mint and assign steps need role `Admin`. |
+| High-trust office | `path`; invite for off-LAN | Seated desks. Who mints and assigns: [admin.md](admin.md) (trust matrix). |
+| Limited-trust office | same, `mill trust limited` | Seated desks. Who mints and assigns: [admin.md](admin.md) (trust matrix). |
 | Directory office | `directory` | A human signs in at the wall. Agents use the desk bearer. |
 | IAM office | `iam` | The same human sign-in, when there is no company directory. |
 
@@ -84,10 +84,7 @@ Sign out is a directory and iam control. The header link is shown only when `dir
 Humans need a **ready** URL that carries a desk seat token + Wall welcome target.
 Not a door key. No pending `--enable`. Mint again for each agent (one seat each).
 
-| trust | Who may mint |
-|---|---|
-| **high** (default) | human badge **or** an agent in role `Admin` |
-| **limited** | agents in role `Admin` only (no broad human mint) |
+Who may mint: [admin.md](admin.md) (trust matrix), row invite-seat.
 
 - CLI: `mill invite --seat <DESK> [--roster <ROSTER>]` -> command `invite-seat`. `--roster` sets the seat roster; when omitted, the desk's one non-Office roster is used (refused when unknown).
 - HTTP: `POST /api/admin/invites` `{ "action":"mint_seat", "desk":"<desk>", "project"?:..., "owner":..., "token"?:... }`

@@ -69,7 +69,7 @@ PowerShell: `$c = Start-Process python -ArgumentList '-m','agent_coord','connect
 | ID | Kind | Create | Rename | Retire (`deleted`) | Reclaim |
 |---|---|---|---|---|---|
 | N1 | **Desk** (type `desk`) | `mill join` or `mill invite --seat` (hash minted) | **`mill rename`** - only the desk whose **hash** matches `seat.token_hash` | that desk (hash) | Admin `mill reclaim` / `mill reset`. Name **twice** + `--yes`. Name must be retired **and not in use** (no token_hash). Else Admin `mill reset seat <desk>`, then `mill join`. Lost seat: `mill join` or that reset. |
-| N2 | **Roster** (type `roster`) | high: any seated desk `mill create roster NAME`; limited: Admin only | Admin. Not desk `mill rename`. | Admin | Admin reclaim; no live join in that roster |
+| N2 | **Roster** (type `roster`) | `mill create roster NAME`; rights: [admin.md](../requirements/admin.md) (trust matrix) | Admin. Not desk `mill rename`. | Admin | Admin reclaim; no live join in that roster |
 | N4 | **Office** id=1, project `Office` | mill install seed | Admin `mill rename` (id **stays 1**) | **never** | **never** |
 | N5 | **Admin** id=2, `Admin` | mill install seed | **never** (`cannot rename Admin`, #722) | **never** | **never** |
 
@@ -83,11 +83,7 @@ Retire flags `name.deleted` on every type and leaves the row. Reclaim clears `de
 
 **Trust:** `high` (default) or `limited`. Show: `mill trust` (any seated desk). Set: `mill trust high` / `mill trust limited` (Admin; either way any time). Pack/wall must ship command first. Chart: [admin.md](../requirements/admin.md).
 
-- **Mint** group / role / label: high = any seated desk; limited = Admin only.
-- **member-add/remove other** (an ordinary project or role): high = any desk; limited = Admin only.
-- **member-add/remove self** (ordinary): any desk either trust.
-- **assign** (staff desk onto todo; not claim/hold): high = any desk only when unassigned; limited = Admin only when unassigned. Nobody (incl Admin) overwrites - assignee must unclaim first.
-- **Always Admin:** invite; rename/retire/reclaim/reset; `mill trust high` / `mill trust limited`; `Admin` grant/revoke = **host loopback only** (`mill add roster Admin OTHER`; `mill join --Admin` does not grant; connect-on-host does not grant).
+Who may mint, add or remove members, assign, and run the Always-Admin commands at each trust level: [admin.md](../requirements/admin.md) (trust matrix). Nobody (incl Admin) overwrites an assignee - the assignee must unclaim first.
 
 | ID | Act | Who | Not |
 |---|---|---|---|
@@ -95,8 +91,8 @@ Retire flags `name.deleted` on every type and leaves the row. Reclaim clears `de
 | M1b | **Host desk is Admin** | mill connect from mill-wall **loopback** -> `mill add roster Admin OTHER` | `mill remove roster Admin`. Never. `mill join --Admin` does **not** grant. connect-on-host does **not** grant. |
 
 **Why Admin exists:** mill-wall / backchannel / API **host faults** (missing SP, 500, WS cannot mill connect) become **MAIL to `Admin`** (or a TODO on that role). Admins with mill connect up get `MAIL` (W3). Not `To: human`. Not every mill 400 (`CoordError`). Not heartbeat ticks. Wall glance is the human side of the same dest. Glance seeds use project Office and Admin.
-| M2 | **Add self to a roster** | `mill add roster NAME`. Name **must already exist**. | Do not put desks on a label. Other-desk add is trust-gated (high any desk; limited Admin). |
-| M3 | **Remove self** | `mill remove roster NAME` | Office. Other-desk remove is trust-gated (high any desk; limited Admin). |
+| M2 | **Add self to a roster** | `mill add roster NAME`. Name **must already exist**. | Do not put desks on a label. Other-desk add is trust-gated ([admin.md](../requirements/admin.md) (trust matrix)). |
+| M3 | **Remove self** | `mill remove roster NAME` | Office. Other-desk remove is trust-gated ([admin.md](../requirements/admin.md) (trust matrix)). |
 | M4 | **Retire / reclaim a name** | mill retire flags `name.deleted`. **`member` rows stay.** mill reclaim undeletes and **warns `members=N`**. | CASCADE-delete members as the product path. |
 
 ## Labels

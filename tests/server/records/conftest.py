@@ -10,6 +10,8 @@ clears table data between modules. Schema/migration/parity suites use
 """
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from agent_coord.server.records import name as rec_name
@@ -73,3 +75,15 @@ def make_admin(cn, name: str) -> str:
     call(cn, "sp_admin_set", [None, name, 1])
     cn.commit()
     return name
+
+
+@contextlib.contextmanager
+def book_trust(cn, level: str):
+    """b_trust() answers `level` inside the block, then high again (the shared book's level)."""
+    from agent_coord.server.records.trust_fn import init_trust_fn
+
+    init_trust_fn(cn, level)
+    try:
+        yield level
+    finally:
+        init_trust_fn(cn, "high")

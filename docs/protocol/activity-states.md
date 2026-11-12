@@ -91,7 +91,7 @@ stateDiagram-v2
 | T2 | none | parked | `mill create todo R NEED --status parked` | `rpc.py:2383` (parked or open only) -> `sp_todo.sql:13` | `mill todo R NEED` shows parked |
 | T3 | parked | open | `mill unpark R NEED [--parent-type todo --parent-id N]` | `rpc.py:2425` `_h_unpark` -> `sp_todo.sql:136` `mill_todo_update` | output `"status": "open"`; `mill todo R NEED` shows open |
 | T4 | open | claimed (caller is volunteer) | `mill claim R NEED` | `rpc.py:2250` -> `sp_cmd.sql:112` `cmd_claim` | output `"status": "claimed"`; `mill todo R NEED` shows the caller as volunteer |
-| T5 | open | claimed (named desk) | `mill assign R NEED D` (limited trust: Admin) | `rpc.py:2134` `_h_assign` -> `sp_todo.sql:136` | output `"volunteer": "D"`; `mill todo R NEED` shows D |
+| T5 | open | claimed (named desk) | `mill assign R NEED D` (rights: [admin.md](../requirements/admin.md) (trust matrix)) | `rpc.py:2134` `_h_assign` -> `sp_todo.sql:136` | output `"volunteer": "D"`; `mill todo R NEED` shows D |
 | T6 | claimed by another desk | claimed by caller | `mill claim R NEED --take-over` | `sp_cmd.sql:134` (refused without the flag), `sp_cmd.sql:137` (stale prior) | output `prior_volunteer`; `mill todo R NEED` shows the caller |
 | T7 | claimed | open (no volunteer) | `mill unclaim R NEED` (the volunteer) | `rpc.py:2492` -> `sp_cmd.sql:148` `cmd_unclaim` | output `"status": "open"`; `mill todo R NEED` shows no volunteer |
 | T8 | claimed | shipped | `mill pass R NEED [--evidence T]` (the volunteer) | `rpc.py:2526` -> `sp_cmd.sql:195` `cmd_pass` ship | output `"status": "shipped"`, `"was": "claimed"` |
