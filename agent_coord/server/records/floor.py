@@ -1827,6 +1827,8 @@ def build_scores(
                 "target": r.get("target") or "",
                 "note": r.get("note") or "",
                 "owner": _nm(r.get("desk")),
+                # Card 1160: when the score row was last written (naive book clock).
+                "updated": iso6(r.get("updated")),
             }
             key = (row["owner"], row["kpi"], aff)
             if key in seen_kpi:
@@ -2149,6 +2151,56 @@ def v1_scores(
     out["next"] = nxt
     return out
 
+
+
+def v1_activity_buckets(
+    cn,
+    project: str,
+    *,
+    bucket: str = "hour",
+    since: datetime | None = None,
+    type_s: str = "",
+    act: str = "",
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Card 1160: Score tab activity counts for one roster.
+
+    rows: updated (bucket start), type, act, desk, desk_id, roster, items, id.
+    Lean list page: ?limit= (default 50) + ?cursor=; next cursor or null.
+    """
+    page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
+    rows = rec_activity.buckets(cn, _nm(project), bucket, since, type_s, act)
+    for row in rows:
+        row["id"] = "|".join(str(row.get(k) or "") for k in ("updated", "type", "act", "desk_id"))
+    page, nxt = page_by_cursor(rows, page_lim, page_cur)
+    out = _v1_envelope(["activity-buckets"])
+    out["bucket"] = bucket
+    out["rows"] = page
+    out["next"] = nxt
+    return out
+
+
+def v1_score_runs(
+    cn,
+    project: str,
+    *,
+    phase: str = "",
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Card 1160: Score tab tw runs for one roster, newest first.
+
+    rows: id, desk, phase, last_run, at, plus the stored dwell and end fields.
+    Lean list page: ?limit= (default 50) + ?cursor=; next cursor or null.
+    """
+    page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
+    rows = rec_score.runs(cn, _nm(project), phase)
+    page, nxt = page_by_cursor(rows, page_lim, page_cur)
+    out = _v1_envelope(["score-runs"])
+    out["rows"] = page
+    out["next"] = nxt
+    return out
 
 
 def v1_holds(
