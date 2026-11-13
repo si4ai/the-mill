@@ -12,12 +12,12 @@
   <script src="/shell-early.js?v=wow283" data-wall-early="all"></script>
   <link rel="stylesheet" href="/lib/theme.css?v=wow165">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
-  <link rel="stylesheet" href="/shell.css?v=wow345">
+  <link rel="stylesheet" href="/shell.css?v=wow355">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
-  <link rel="stylesheet" href="/rd/rd.css?v=wow354">
-  <link id="board-css" rel="stylesheet" href="/board.css?v=wow347" media="print">
+  <link rel="stylesheet" href="/rd/rd.css?v=wow355">
+  <link id="board-css" rel="stylesheet" href="/board.css?v=wow355" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
-  <noscript><link rel="stylesheet" href="/board.css?v=wow347"></noscript>
+  <noscript><link rel="stylesheet" href="/board.css?v=wow355"></noscript>
 </head>
 <body>
   <div id="wall-refresh-banner" role="status" aria-live="polite">
@@ -90,6 +90,7 @@
   <div id="shell">
   <aside id="rail" aria-label="Office, rosters, views">
     <button type="button" id="rail-toggle" title="Narrow or expand the rail" aria-expanded="true">"</button>
+    <span id="rail-sort" class="rail-sort" role="group" aria-label="Order stations and rosters"><button type="button" data-rail-sort="recent" class="on" aria-pressed="true" title="Stations: live, then latest connection. Rosters: by name.">Recent</button><button type="button" data-rail-sort="size" aria-pressed="false" title="Most desks first">Size</button><button type="button" data-rail-sort="az" aria-pressed="false" title="By name">A-Z</button></span>
     <div id="rail-book" class="rail-book" aria-label="Stations and rosters">
       <div><span class="rail-lbl">Stations</span><div id="rail-desks"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div></div>
       <div><span class="rail-lbl">Roster</span><div id="rail-roster"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div></div>
@@ -679,7 +680,7 @@
      Markers: WALL_UI_LIB_POPUP WALL_UI_LIB_DATA WALL_UI_LIB_TABS WALL_UI_LIB_TABLE WALL_UI_LIB_GRAPH WALL_UI_LIB_THEME WALL_UI_LIB_KEYS WALL_UI_DEFAULT_BOARD_CSS WALL_UI_DEFAULT_BOOT -->
 <script defer src="/lib/theme.js"></script>
 <script defer src="/lib/popup.js"></script>
-<script defer src="/lib/data.js"></script>
+<script defer src="/lib/data.js?v=wow355"></script>
 <script defer src="/lib/tabs.js?v=wow346"></script>
 <script defer src="/lib/table.js"></script>
 <script defer src="/lib/graph.js"></script>
@@ -770,9 +771,9 @@
   </form>
 </div>
 <script defer src="/session/desks-rows.js?v=wow349"></script>
-<script defer src="/rd/rd-model.js?v=wow354"></script>
-<script defer src="/rd/rd-view.js?v=wow354"></script>
-<script defer src="/rd/rd-app.js?v=wow354"></script>
-<script defer src="/boot.js?v=wow354"></script>
+<script defer src="/rd/rd-model.js?v=wow355"></script>
+<script defer src="/rd/rd-view.js?v=wow355"></script>
+<script defer src="/rd/rd-app.js?v=wow355"></script>
+<script defer src="/boot.js?v=wow355"></script>
 </body>
 </html>

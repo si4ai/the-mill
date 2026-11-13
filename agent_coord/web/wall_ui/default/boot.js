@@ -6534,6 +6534,21 @@
         : `<div class="idle">No stations yet.</div>`;
       paintRailBook(host, html);
     }
+    /* One order for both rail lists: Recent | Size | A-Z, kept across visits. */
+    const WALL_RAIL_SORT_KEY = "mill-rail-sort";
+    function wallRailSort() {
+      let v = "";
+      try { v = localStorage.getItem(WALL_RAIL_SORT_KEY) || ""; } catch (e) { v = ""; }
+      return WALL_RAIL_SORTS.indexOf(v) >= 0 ? v : "recent";
+    }
+    function markRailSort() {
+      const mode = wallRailSort();
+      document.querySelectorAll("#rail-sort [data-rail-sort]").forEach(b => {
+        const on = b.getAttribute("data-rail-sort") === mode;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    }
     /* Last rail read (ms). Rail counts change slowly; a read this fresh is reused. */
     let _railBookAt = 0;
     const WALL_RAIL_FRESH_MS = 5000;
@@ -6559,7 +6574,9 @@
       const nameRows = (data, empty, hostId) => {
         const rows = (data && data.rows) || [];
         if (hostId === "rail-roster") {
-          rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+          const sorted = wallRailOrder(rows, wallRailSort(), "roster");
+          rows.length = 0;
+          sorted.forEach(r => rows.push(r));
         }
         if (!rows.length) return `<div class="rail-empty">${empty}</div>`;
         return rows.map(row => {
@@ -6579,7 +6596,7 @@
         /* Card 1191: the rail shows stations live or seen in the last 7 days, each with how
          * long since its last connection; Admin lists every station. */
         const now = Date.now();
-        const groups = wallRailStations(rows, now);
+        const groups = wallRailOrder(wallRailStations(rows, now), typeof wallRailSort === "function" ? wallRailSort() : "recent", "station");
         paintRailBook(document.getElementById("rail-desks"), groups.length
           ? groups.map(g => {
               const mark = g.live ? `<span class="live" title="connected"></span>` : `<span class="off" title="away"></span>`;
@@ -6639,6 +6656,18 @@
         markRailPick();
       }
       root.dataset.busy = "";
+    }
+    const railSort = document.getElementById("rail-sort");
+    if (railSort && !railSort.dataset.wired) {
+      railSort.dataset.wired = "1";
+      markRailSort();
+      railSort.addEventListener("click", ev => {
+        const b = ev.target.closest("[data-rail-sort]");
+        if (!b) return;
+        try { localStorage.setItem(WALL_RAIL_SORT_KEY, b.getAttribute("data-rail-sort") || "recent"); } catch (e) {}
+        markRailSort();
+        loadRailBook();
+      });
     }
     const railBook = document.getElementById("rail-book");
     if (railBook && !railBook.dataset.wired) {

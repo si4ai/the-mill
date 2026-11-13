@@ -343,6 +343,22 @@
     });
   }
 
+  /* The rail's one order switch for STATIONS and ROSTER: "recent" (stations: live, then latest
+   * connection; rosters: by name, as before), "size" (most desks first, ties by name), "az". */
+  var RAIL_SORTS = ["recent", "size", "az"];
+  function wallRailOrder(list, mode, kind) {
+    var out = (list || []).slice();
+    var station = kind === "station";
+    var nameOf = function (x) { return String((station ? x.ip : x.name) || ""); };
+    var sizeOf = function (x) { return Number(station ? x.n : x.desks) || 0; };
+    var byName = function (a, b) { return nameOf(a).localeCompare(nameOf(b), undefined, { numeric: true }); };
+    if (mode === "size") return out.sort(function (a, b) { return (sizeOf(b) - sizeOf(a)) || byName(a, b); });
+    if (mode === "az" || !station) return out.sort(byName);
+    return out;
+  }
+
+  global.wallRailOrder = wallRailOrder;
+  global.WALL_RAIL_SORTS = RAIL_SORTS;
   global.wallPaintThrowSafe = paintThrowSafe;
   global.wallAgoShort = wallAgoShort;
   global.wallStations = wallStations;

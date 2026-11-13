@@ -61,10 +61,21 @@
     }
     #rail-book { display: contents; }
     #rail-book > div:first-child { display: contents; }
-    #rail-book > div:first-child > .rail-lbl { grid-column: 1; grid-row: 1; align-self: center; padding-top: 0; }
-    #rail-desks { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; gap: .28rem; }
+    #rail-book > div:first-child > .rail-lbl { grid-column: 1 / -1; grid-row: 2; align-self: center; padding-top: .2rem; }
+    #rail-desks { grid-column: 1 / -1; grid-row: 3; display: flex; flex-direction: column; gap: .28rem; }
     #rail-book > div:nth-child(2),
     #rail-book > div:nth-child(3) { grid-column: 1 / -1; }
+    #rail-sort {
+      grid-column: 1; grid-row: 1; align-self: center; justify-self: start;
+      display: inline-flex; border: 1px solid var(--edge); border-radius: 2px; overflow: hidden;
+    }
+    #rail-sort button {
+      background: transparent; color: var(--dim); border: 0; border-right: 1px solid var(--edge);
+      font: inherit; font-size: 10px; letter-spacing: .06em; padding: .12rem .4rem; cursor: pointer;
+    }
+    #rail-sort button:last-child { border-right: 0; }
+    #rail-sort button.on { color: var(--amber, var(--ink)); background: rgba(228,181,106,.14); font-weight: 650; }
+    body.rail-narrow #rail-sort { display: none; }
     #rail .rail-lbl {
       color: var(--dim); font-size: 10px; letter-spacing: .14em;
       padding: .35rem .2rem .1rem; text-transform: uppercase;

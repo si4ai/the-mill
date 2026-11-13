@@ -187,3 +187,57 @@ def test_paint_rail_window_admin_everything_and_no_extra_fetch():
 def test_narrow_rail_hides_the_time_label():
     css = (ROOT / "default" / "board.css").read_text(encoding="utf-8")
     assert "body.rail-narrow .rail-book .ago { display: none; }" in css
+
+
+ORDER_HARNESS = r"""
+const fs = require('fs');
+global.window = global;
+(0, eval)(fs.readFileSync(process.argv[1], 'utf8'));
+const st = JSON.parse(process.argv[2]), ro = JSON.parse(process.argv[3]);
+const out = {};
+WALL_RAIL_SORTS.forEach(m => {
+  out[m] = {st: wallRailOrder(st, m, 'station').map(s => s.ip), ro: wallRailOrder(ro, m, 'roster').map(r => r.name)};
+});
+process.stdout.write(JSON.stringify(out));
+"""
+
+STATIONS = [  # already in Recent order (live, then latest connection)
+    {"ip": "192.0.2.20", "n": 1}, {"ip": "192.0.2.3", "n": 3}, {"ip": "192.0.2.10", "n": 3},
+]
+ROSTERS = [{"name": "the-mill", "desks": 4}, {"name": "Office", "desks": 12}, {"name": "alpha", "desks": 4}]
+
+
+def _order():
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    out = subprocess.run(
+        ["node", "-e", ORDER_HARNESS, str(DATA), json.dumps(STATIONS), json.dumps(ROSTERS)],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(out.stdout)
+
+
+def test_rail_sort_recent_keeps_station_recency_and_rosters_by_name():
+    r = _order()["recent"]
+    assert r["st"] == ["192.0.2.20", "192.0.2.3", "192.0.2.10"]
+    assert r["ro"] == ["alpha", "Office", "the-mill"]
+
+
+def test_rail_sort_size_puts_most_desks_first_ties_by_name():
+    r = _order()["size"]
+    assert r["st"] == ["192.0.2.3", "192.0.2.10", "192.0.2.20"]
+    assert r["ro"] == ["Office", "alpha", "the-mill"]
+
+
+def test_rail_sort_az_orders_both_lists_by_name():
+    r = _order()["az"]
+    assert r["st"] == ["192.0.2.3", "192.0.2.10", "192.0.2.20"]
+    assert r["ro"] == ["alpha", "Office", "the-mill"]
+
+
+def test_rail_has_one_sort_switch_for_both_lists():
+    html = BOARD.read_text(encoding="utf-8")
+    assert html.count('id="rail-sort"') == 1
+    assert [m for m in ("recent", "size", "az") if f'data-rail-sort="{m}"' in html] == ["recent", "size", "az"]
+    boot = BOOT.read_text(encoding="utf-8")
+    assert boot.count('wallRailOrder(') == 2 and '"mill-rail-sort"' in boot
