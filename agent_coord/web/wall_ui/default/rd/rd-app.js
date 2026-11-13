@@ -24,8 +24,9 @@
     /* The hosted panes read their own data through boot.js; the strip counts come from fetchCounts. */
     todo: [], mail: [], priorities: [],
     score: ["scores", "runs"],
-    /* COLLAB Replay: letters, cards, promises and the activity table; the move rows come after. */
-    collab: ["events", "mail", "todos", "holds", "scores", "labels", "trees", "rooms"]
+    /* COLLAB Replay: the rows come from /api/v1/replay (fetchReplay); these only name and tag
+     * the items on them (card titles, promise names, letter first lines, labels, trees). */
+    collab: ["mail", "todos", "holds", "labels", "trees", "rooms"]
   };
   var ROUTE = {
     agents: "/api/v1/agents?project=%R&limit=500",
@@ -65,7 +66,7 @@
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
   var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-", RP_CLUSTER_KEY = "rd-replay-cluster-";
 
-  var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, moves: {}, trail: {}, doing: null, stations: null, rosterList: null };
+  var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, replay: null, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
   var gotAt = {}, inflight = {};
   var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false };
@@ -166,9 +167,11 @@
     var jobs = [];
     if (force || !gotAt.doing || Date.now() - gotAt.doing > 15000) {
       jobs.push(getJson("/api/v1/doing?all=1").then(function (j) {
-        if (j && Array.isArray(j.result)) {
+        /* The same three shapes doing-paint.js accepts: a list, {desks}, {result}. */
+        var list = Array.isArray(j) ? j : j && Array.isArray(j.desks) ? j.desks : j && Array.isArray(j.result) ? j.result : null;
+        if (list) {
           var by = {};
-          j.result.forEach(function (v) { if (v && v.owner) by[v.owner] = v; });
+          list.forEach(function (v) { if (v && v.owner) by[v.owner] = v; });
           data.doing = by;
           gotAt.doing = Date.now();
         }
@@ -371,7 +374,7 @@
     }
     pane.setAttribute("data-rd-pane", t);
     var fresh = setHtml(pane, html, "pane");
-    if (t === "collab") { if (fresh) rp.drawn = null; drawReplay(false); fetchReplay(b); }
+    if (t === "collab") { if (fresh) rp.drawn = null; drawReplay(false); fetchReplay(); }
     root.classList.toggle("rd-desk-open", t === "desks" && state.phoneDesk);
   }
 
@@ -424,7 +427,7 @@
       if (clip) clip.setAttribute("width", (vp.at * 1000).toFixed(1));
       ovEl.setAttribute("aria-valuenow", String(Math.round(1000 * vp.at)));
       var back = root.querySelector("[data-rp-ov-dir='-1']"), fwd = root.querySelector("[data-rp-ov-dir='1']");
-      if (back && R.replayPanCan) back.disabled = !R.replayPanCan(rep, rp.end, -1);
+      if (back && R.replayPanCan) back.disabled = !R.replayPanCan(rep, rp.end, -1) && !rep.more;
       if (fwd && R.replayPanCan) fwd.disabled = !R.replayPanCan(rep, rp.end, 1);
     }
     var span = root.querySelector("[data-rp-span]");
@@ -1039,29 +1042,64 @@
       }
     });
   }
-  var DOING_BAR = 6, DOING_GAP = 2;
+  /* Spans: a tw run (rd-rp-doing) or a held promise (rd-rp-hold). Live, a span keeps its kind
+   * colour; once the playhead passes its end the whole bar takes its outcome colour
+   * (data-end), with a short settle while playing and a plain swap when paused, scrubbing
+   * or under reduced motion (CSS). A held promise has a lock cap at its grant and an end cap
+   * shaped by how it ended (drop, force, expire). Waiting stretches of a run are shaded. */
+  var DOING_BAR = 6, DOING_GAP = 2, CAP = 7;
   function doingBarEl(span) {
     var el = document.createElement("span");
-    el.className = "rd-rp-item rd-rp-doing" + (span.open ? " is-open" : "");
+    el.className = "rd-rp-item rd-rp-lapse " + (span.kind === "hold" ? "rd-rp-hold" : "rd-rp-doing");
     el.setAttribute("data-rp-tip", "doing");
     el.tabIndex = 0;
-    el.rdRow = span.row;
-    el.rdSpan = span;
-    el.setAttribute("aria-label", "doing" + (span.text ? ", " + span.text : "") + (span.open ? ", ongoing" : ""));
     return el;
+  }
+  function capEl(cls) {
+    var el = document.createElement("i");
+    el.className = "rd-rp-cap " + cls;
+    el.setAttribute("aria-hidden", "true");
+    return el;
+  }
+  function spanLabel(sp) {
+    return (sp.kind === "hold" ? "held" : "doing") + (sp.text ? ", " + sp.text : "") + (sp.open ? ", ongoing" : sp.how ? ", " + sp.how : "");
+  }
+  function shadeOf(sp, ax) {
+    if (!sp.shade || !sp.shade.length) return "none";
+    var stops = [], dir = ax.main === "x" ? "to right" : "to bottom";
+    sp.shade.forEach(function (s) {
+      var a = (s[0] * 100).toFixed(1) + "%", b = (s[1] * 100).toFixed(1) + "%";
+      stops.push("transparent " + a, "var(--rd-wait-shade) " + a, "var(--rd-wait-shade) " + b, "transparent " + b);
+    });
+    return "linear-gradient(" + dir + ", " + stops.join(", ") + ")";
   }
   function drawDoingSpans(S, ax, spans) {
     S.spans = S.spans || {};
-    var seen = {}, g = rpGeom(S), maxRow = {};
+    S.caps = S.caps || {};
+    var seen = {}, capSeen = {}, g = rpGeom(S), maxRow = {};
     (spans || []).forEach(function (sp) { maxRow[sp.lane] = Math.max(maxRow[sp.lane] || 0, sp.rowIndex || 0); });
+    function place(id, cls, along, cross) {
+      var el = S.caps[id];
+      if (!el) { el = S.caps[id] = capEl(cls); S.field.appendChild(el); }
+      else if (el.rdCls !== cls) el.className = "rd-rp-cap " + cls;
+      el.rdCls = cls;
+      capSeen[id] = 1;
+      var tf = ax.main === "x" ? "translate(" + (along - CAP / 2).toFixed(1) + "px," + (cross - CAP / 2).toFixed(1) + "px)"
+        : "translate(" + (cross - CAP / 2).toFixed(1) + "px," + (along - CAP / 2).toFixed(1) + "px)";
+      if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
+    }
     (spans || []).forEach(function (sp) {
       var L = g.lanes[sp.lane], el = S.spans[sp.id];
       if (!L) return;
       if (!el) { el = S.spans[sp.id] = doingBarEl(sp); S.field.appendChild(el); }
-      else {
-        el.rdRow = sp.row; el.rdSpan = sp;
-        el.classList.toggle("is-open", !!sp.open);
-      }
+      el.rdRow = sp.row; el.rdSpan = sp;
+      el.classList.toggle("is-open", !!sp.open);
+      var end = sp.ended ? sp.how : "";
+      if (el.getAttribute("data-end") !== end) { if (end) el.setAttribute("data-end", end); else el.removeAttribute("data-end"); }
+      var lab = spanLabel(sp);
+      if (el.rdLab !== lab) { el.setAttribute("aria-label", lab); el.rdLab = lab; }
+      var shade = shadeOf(sp, ax);
+      if (el.rdShade !== shade) { el.style.setProperty("--rd-shade", shade); el.rdShade = shade; }
       seen[sp.id] = 1;
       el.hidden = false;
       var x0 = L.start + sp.pos0 * L.len, x1 = L.start + sp.pos1 * L.len;
@@ -1073,12 +1111,23 @@
         : "translate(" + y.toFixed(1) + "px," + x0.toFixed(1) + "px) scaleY(" + w.toFixed(1) + ")";
       if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
       if (el.rdOp !== "1") { el.style.opacity = "1"; el.rdOp = "1"; }
+      if (sp.kind === "hold") {
+        var mid = y + DOING_BAR / 2;
+        if (sp.pos1 < 1) place(sp.id + ":s", "rd-cap-lock", x1, mid);
+        if (sp.ended) place(sp.id + ":e", "rd-cap-" + sp.how, x0, mid);
+      }
     });
     Object.keys(S.spans).forEach(function (id) {
       if (seen[id]) return;
       var el = S.spans[id];
       if (el && el.parentNode) el.parentNode.removeChild(el);
       delete S.spans[id];
+    });
+    Object.keys(S.caps).forEach(function (id) {
+      if (capSeen[id]) return;
+      var el = S.caps[id];
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      delete S.caps[id];
     });
   }
   /* Picked up: a quiet ring on the receiver. Pill scale is owned by
@@ -1171,7 +1220,7 @@
   var dragTrace = null, PAN_PX = 4;
   function spanText(rep) {
     function f(t) { return new Date(t).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-    return f(rep.since) + " \u2013 " + (rep.live ? "now" : f(rep.until)) + (rpOlder.busy ? " \u00b7 loading older\u2026" : rpOlder.end && !rep.live && rep.oldest != null && rep.since <= rep.oldest ? " \u00b7 start of the record" : "");
+    return f(rep.since) + " \u2013 " + (rep.live ? "now" : f(rep.until)) + (rpOlder.busy ? " \u00b7 loading older\u2026" : rpOlder.end && rep.oldest != null && rep.since <= rep.oldest ? " \u00b7 start of the record" : rep.more && rep.since <= (rep.oldest || 0) ? " \u00b7 older rows on the server" : "");
   }
   function rpPanTo(end) {
     if (end === rp.end) return;
@@ -1251,7 +1300,13 @@
   var holdOv = null;
   function ovStep(dir) {
     var rep = rpRep();
-    if (!rep || !R.replayPanCan || !R.replayPanCan(rep, rp.end, dir)) { ovHoldStop(); return; }
+    if (!rep) { ovHoldStop(); return; }
+    if (!R.replayPanCan || !R.replayPanCan(rep, rp.end, dir)) {
+      /* At the oldest loaded row: the previous 100 are on the server; read the older page. */
+      if (dir < 0 && rep.more) rpOlderFor(rep, rep.floorEnd != null ? rep.floorEnd : rep.now);
+      ovHoldStop();
+      return;
+    }
     var end = R.replayPanRows(rep, rp.end, dir);
     rpPanTo(end);
     if (dir < 0) rpOlderFor(rep, end == null ? rep.now : end);
@@ -1294,130 +1349,72 @@
     if (ev.key === "Home") { ev.preventDefault(); rpPanTo(rep.floorEnd); rpOlderFor(rep, rep.floorEnd); return; }
     if (ev.key === "End") { ev.preventDefault(); rpPanTo(null); return; }
   });
-  /* ---- The record, cached: past rows never change ----
-   * Each desk's transition rows (doing history) merge by id into one cache per desk, kept in
-   * memory and in sessionStorage (slim rows, at most TRAIL_KEEP per desk, the least recently
-   * used desks dropped first when the quota is hit). Only the live tail near now is read
-   * again (page 1, once a minute); older pages are read only when a pan reaches past the
-   * oldest cached row, one page per desk per step, until the record ends. */
-  var TRAIL_KEEP = 1500, TRAIL_PAGE = 50, TRAIL_PREFIX = "rd-trail1|", TRAIL_LRU = "rd-trail1-lru";
-  var trailCache = {}, rpOlder = { busy: 0, end: false };
-  function trailOf(desk) {
-    var c = trailCache[desk];
-    if (c) return c;
-    c = trailCache[desk] = { byId: {}, n: 0, page: 1, done: false, oldest: null };
-    try {
-      var j = JSON.parse(sessionStorage.getItem(TRAIL_PREFIX + desk) || "null");
-      if (j && Array.isArray(j.rows)) { j.rows.forEach(function (r) { trailPut(c, r); }); c.done = !!j.done; c.page = Number(j.page) || 1; }
-    } catch (e) { /* no storage */ }
-    return c;
+  /* ---- The record: GET /api/v1/replay pages, cached in memory by id range ----
+   * The newest page is read first (limit = the window's row count). Rows newer than the
+   * cache come with after=<newest id> (the head is re-read every RPL_HEAD_MS while COLLAB is
+   * open); a pan, an arrow or a drag past the oldest loaded row reads before=<oldest id>.
+   * A before= page never changes (the server marks it immutable), so each is read once and
+   * kept under its id range. A 404 means the route is not on this mill yet: the pane says so
+   * and draws nothing; no line is made up from other reads. */
+  var RPL_HEAD_MS = 15000;
+  var rpl = null, rpOlder = { busy: 0, end: false };
+  function rplReset() {
+    rpl = { key: rosters().join(","), pages: {}, byId: {}, oldest: null, newest: null, more: true, missing: false, loaded: false, headAt: 0 };
+    rpOlder = { busy: 0, end: false };
+    data.replay = null;
   }
-  function trailPut(c, r) {
-    if (!r || r.id == null || c.byId[r.id]) return;
-    c.byId[r.id] = { id: r.id, desk: r.desk, at: r.at, doing: String(r.doing || "").slice(0, 160), on: r.on, act: r.act,
-      waiting_on: r.waiting_on || undefined, ended: r.ended != null ? !!r.ended : undefined,
-      ended_at: r.ended_at || undefined, ended_by: r.ended_by || undefined, peer: r.peer || undefined };
-    c.n++;
-    var t = Date.parse(String(r.at).replace(" ", "T") + "Z");
-    if (!isNaN(t) && (c.oldest == null || t < c.oldest)) c.oldest = t;
+  function rplUrl(q) {
+    return "/api/v1/replay?project=" + encodeURIComponent(rpl.key) + "&limit=" + R.replayCount(load(RP_COUNT_KEY, String(R.REPLAY_COUNT_DEFAULT))) + q;
   }
-  function trailRows(c) {
-    return Object.keys(c.byId).map(function (k) { return c.byId[k]; }).sort(function (x, y) { return x.at < y.at ? 1 : x.at > y.at ? -1 : 0; });
+  function rplGet(q) {
+    return fetch(rplUrl(q), { credentials: "same-origin" }).then(function (r) {
+      if (r.status === 404 || r.status === 405 || r.status === 501) return { missing: true };
+      return r.ok ? r.json() : null;
+    }).catch(function () { return null; });
   }
-  function trailSave(desk, c) {
-    var rows = trailRows(c).slice(0, TRAIL_KEEP), blob = JSON.stringify({ rows: rows, done: c.done && rows.length === c.n, page: c.page });
-    var lru = [];
-    try { lru = JSON.parse(sessionStorage.getItem(TRAIL_LRU) || "[]"); } catch (e) { lru = []; }
-    lru = lru.filter(function (d) { return d !== desk; }).concat([desk]);
-    for (var i = 0; i < 8; i++) {
-      try { sessionStorage.setItem(TRAIL_PREFIX + desk, blob); sessionStorage.setItem(TRAIL_LRU, JSON.stringify(lru)); return; }
-      catch (e) { var drop = lru.shift(); if (!drop || drop === desk) return; try { sessionStorage.removeItem(TRAIL_PREFIX + drop); } catch (e2) { return; } }
-    }
+  function rplTake(j, older) {
+    if (!j || !Array.isArray(j.rows)) return false;
+    var before = Object.keys(rpl.byId).length;
+    j.rows.forEach(function (r) { if (r && r.id != null) rpl.byId[r.id] = r; });
+    if (j.rows.length) rpl.pages[j.oldest_id + "-" + j.newest_id] = j.rows.map(function (r) { return r.id; });
+    if (j.oldest_id != null && (rpl.oldest == null || j.oldest_id < rpl.oldest)) rpl.oldest = j.oldest_id;
+    if (j.newest_id != null && (rpl.newest == null || j.newest_id > rpl.newest)) rpl.newest = j.newest_id;
+    if (older || !rpl.loaded) rpl.more = !!j.has_more;
+    rpl.loaded = true;
+    rplPublish();
+    return Object.keys(rpl.byId).length > before;
   }
-  function trailTake(desk, j, page) {
-    var c = trailOf(desk), before = c.n;
-    (j.history || []).forEach(function (r) { trailPut(c, r); });
-    var pg = j.page || {};
-    if (page > 1) c.page = Math.max(c.page, page);
-    if (!(j.history || []).length || (pg.of != null && page >= Number(pg.of))) c.done = c.done || page > 1 || !pg.next;
-    data.trail[desk] = trailRows(c);
-    trailSave(desk, c);
-    return c.n > before;
+  function rplPublish() {
+    var rows = Object.keys(rpl.byId).map(function (k) { return rpl.byId[k]; });
+    data.replay = { rows: rows, oldest_id: rpl.oldest, newest_id: rpl.newest, more: rpl.more, missing: rpl.missing, loaded: rpl.loaded };
+    rpOlder.end = rpl.loaded && !rpl.more;
   }
-  /* A pan reached back past the cache: read the next older page for each focused desk whose
-   * cache starts after the new window, then draw again. */
+  function fetchReplay() {
+    if (state.tab !== "collab") return;
+    if (!rpl || rpl.key !== rosters().join(",")) rplReset();
+    if (rpl.missing || inflight.rplHead || Date.now() - rpl.headAt < RPL_HEAD_MS) return;
+    var q = rpl.newest != null ? "&after=" + rpl.newest : "";
+    inflight.rplHead = rplGet(q).then(function (j) {
+      inflight.rplHead = null;
+      rpl.headAt = Date.now();
+      if (j && j.missing) { rpl.missing = true; rplPublish(); last.pane = null; paintSoon(); return; }
+      /* More new rows than one page: read the next newer page now, not in 15 s. */
+      if (rplTake(j, false) && q && j.has_more) rpl.headAt = 0;
+      if (!rp.playing) { last.pane = null; paintSoon(); }
+    });
+  }
+  /* A pan reached back past the oldest loaded row: read the next older page. */
   function rpOlderFor(rep, wantEnd) {
-    var b = rpBase();
-    if (!b || !rep) return;
-    var need = Math.max(0, (wantEnd != null ? wantEnd : rp.end == null ? rep.now : rp.end) - rep.ms), any = false;
-    b.desks.slice(0, 40).forEach(function (d) {
-      var c = trailOf(d.name), k = "older|" + d.name;
-      if (c.done || inflight[k] || (c.oldest != null && c.oldest <= need)) return;
-      any = true;
-      rpOlder.busy++;
-      var page = c.page + 1;
-      inflight[k] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(d.name) + "&limit=" + TRAIL_PAGE + "&page=" + page).then(function (j) {
-        inflight[k] = null;
-        rpOlder.busy--;
-        if (j && Array.isArray(j.history)) trailTake(d.name, j, page); else c.done = true;
-        if (!rp.playing) { last.pane = null; paintSoon(); }
-        if (!c.done && c.oldest != null && c.oldest > need) rpOlderFor(rpRep(), need + rep.ms);
-      });
+    if (!rpl || !rpl.loaded || !rpl.more || rpl.missing || inflight.rplOlder || rpl.oldest == null || !rep) return;
+    var need = (wantEnd != null ? wantEnd : rp.end == null ? rep.now : rp.end) - rep.ms;
+    if (rep.oldest != null && rep.floorEnd != null && wantEnd != null && wantEnd > rep.floorEnd && need > rep.oldest) return;
+    rpOlder.busy++;
+    inflight.rplOlder = rplGet("&before=" + rpl.oldest).then(function (j) {
+      inflight.rplOlder = null;
+      rpOlder.busy--;
+      if (j && !j.missing) rplTake(j, true);
+      if (!rp.playing) { last.pane = null; paintSoon(); }
     });
-    rpOlder.end = !any && b.desks.slice(0, 40).every(function (d) { return trailOf(d.name).done; });
-  }
-  /* The move rows (the transitions) of the cards and promises in the week, and each focused
-   * desk's own focus rows. Read again only when the item moved, or once a minute for a desk. */
-  var movesAt = {};
-  function fetchReplay(b) {
-    if (state.tab !== "collab" || !b.data.events) return;
-    var at = {};
-    R.replayItems(b, 200).forEach(function (key) { at[key] = 1; });
-    Object.keys(at).forEach(function (key) {
-      var stamp = itemStamp(b, key);
-      var k = "moves|" + key;
-      if (inflight[k] || movesAt[key] === stamp) return;
-      inflight[k] = getJson("/api/v1/doing/history?on=" + encodeURIComponent(key)).then(function (j) {
-        inflight[k] = null;
-        if (j && Array.isArray(j.history)) { data.moves[key] = j.history; movesAt[key] = stamp; if (!rp.playing) paintSoon(); }
-      });
-    });
-    /* The live tail: page 1 of each desk's record, once a minute, merged into its cache. */
-    b.desks.slice(0, 40).forEach(function (d) {
-      var k = "trail|" + d.name, c = trailOf(d.name);
-      if (!data.trail[d.name] && c.n) data.trail[d.name] = trailRows(c);
-      if (inflight[k] || (gotAt[k] && Date.now() - gotAt[k] < 60000)) return;
-      inflight[k] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(d.name) + "&limit=" + TRAIL_PAGE + "&page=1").then(function (j) {
-        inflight[k] = null;
-        gotAt[k] = Date.now();
-        if (j && Array.isArray(j.history) && trailTake(d.name, j, 1) && !rp.playing) paintSoon();
-      });
-    });
-    /* A panned window: the cards and promises its desks were on get their move rows too. */
-    if (rp.end != null && rp.rep) {
-      var lo = rp.rep.since, hi = rp.rep.until, more = {};
-      Object.keys(data.trail).forEach(function (desk) {
-        (data.trail[desk] || []).forEach(function (r) {
-          var t = Date.parse(String(r.at).replace(" ", "T") + "Z"), on = String(r.on || "");
-          if (t >= lo && t <= hi && /^(todo|hold)-\d+$/.test(on) && !data.moves[on]) more[on] = 1;
-        });
-      });
-      Object.keys(more).slice(0, 40).forEach(function (key) {
-        var k = "moves|" + key;
-        if (inflight[k]) return;
-        inflight[k] = getJson("/api/v1/doing/history?on=" + encodeURIComponent(key)).then(function (j) {
-          inflight[k] = null;
-          if (j && Array.isArray(j.history)) { data.moves[key] = j.history; if (!rp.playing) { last.pane = null; paintSoon(); } }
-        });
-      });
-    }
-  }
-  function itemStamp(b, key) {
-    var hit = "";
-    Object.keys(b.data.events || {}).forEach(function (r) {
-      (b.data.events[r] || []).forEach(function (e) { if (e && (e.kind + "-" + e.id) === key) hit = String(e.at); });
-    });
-    return hit;
   }
 
   /* ---- tabs + legacy panes ---- */

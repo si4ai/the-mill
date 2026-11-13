@@ -756,6 +756,14 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   --rd-k-wake: #b48790;
   --rd-k-doing: #b4b8be;
   --rd-k-score: #5e9a92;
+  /* Span outcomes (doing: finished, failed, stale, cleared; hold: drop, force, expire). */
+  --rd-end-finished: #7f988a;
+  --rd-end-failed: #a77b78;
+  --rd-end-stale: #6d7177;
+  --rd-end-cleared: #8d9095;
+  --rd-end-drop: #8c99a5;
+  --rd-end-force: #b09a74;
+  --rd-end-expire: #676b70;
 }
 /* ---- COLLAB replay: two views of the same rows; only time moves ---- */
 #rd .rd-collab-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1 1 auto; overflow: hidden; }
@@ -1039,41 +1047,52 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-group .rd-rp-hash { height: calc(8px * var(--rd-gs, 1)); }
 #rd .rd-dir-tb .rd-rp-group .rd-rp-hash { width: calc(8px * var(--rd-gs, 1)); height: 2px; }
 #rd .rd-rp-tick .rd-rp-gn { font-size: 9px; font-weight: 600; color: var(--dim); }
-/* Doing duration: a slim rounded span, Linear/Figma-like, not a chunky progress bar.
- * The start tick already marks the start; the bar fills the interval. */
-#rd .rd-rp-doing {
+/* Spans: a tw run (doing) and a held promise (hold). Live, a span is its kind colour, muted.
+ * Ended (the playhead passed its end row), the whole bar takes its outcome colour. The settle
+ * is a 300ms colour move while playing; paused, scrubbing or reduced motion just swap. */
+#rd .rd-rp-lapse {
+  --rd-span: color-mix(in srgb, var(--rd-k-doing) 78%, #8a8f96);
+  --rd-wait-shade: color-mix(in srgb, #11151a 42%, transparent);
   z-index: 2; width: 1px; height: 6px; padding: 0; gap: 0; overflow: visible;
   border-radius: 999px; pointer-events: auto; transform-origin: left center;
-  background:
-    linear-gradient(to bottom, color-mix(in srgb, #fff 22%, transparent), transparent 55%),
-    linear-gradient(to right, color-mix(in srgb, var(--rd-k-doing) 70%, #d5e0dc), var(--rd-k-doing));
+  background-color: var(--rd-span);
+  background-image: var(--rd-shade, none), linear-gradient(to bottom, color-mix(in srgb, #fff 18%, transparent), transparent 55%);
   opacity: .88;
 }
-#rd .rd-dir-tb .rd-rp-doing {
-  width: 6px; height: 1px; transform-origin: center top;
-  background:
-    linear-gradient(to right, color-mix(in srgb, #fff 22%, transparent), transparent 55%),
-    linear-gradient(to bottom, color-mix(in srgb, var(--rd-k-doing) 70%, #d5e0dc), var(--rd-k-doing));
+#rd .rd-rp-hold {
+  --rd-span: color-mix(in srgb, var(--rd-k-hold) 80%, #8a8f96);
+  height: 3px; margin-top: 1.5px; border-radius: 1px; background-image: none; opacity: .95;
 }
-#rd .rd-rp-doing.is-open {
-  background:
-    linear-gradient(to bottom, color-mix(in srgb, #fff 22%, transparent), transparent 55%),
-    linear-gradient(to right, transparent, color-mix(in srgb, var(--rd-k-doing) 75%, #d5e0dc) 16%, var(--rd-k-doing));
-}
-#rd .rd-dir-tb .rd-rp-doing.is-open {
-  background:
-    linear-gradient(to right, color-mix(in srgb, #fff 22%, transparent), transparent 55%),
-    linear-gradient(to bottom, transparent, color-mix(in srgb, var(--rd-k-doing) 75%, #d5e0dc) 16%, var(--rd-k-doing));
-}
+#rd .rd-dir-tb .rd-rp-lapse { width: 6px; height: 1px; transform-origin: center top; }
+#rd .rd-dir-tb .rd-rp-hold { width: 3px; margin: 0 0 0 1.5px; }
+#rd .rd-rp-lapse[data-end="finished"] { --rd-span: var(--rd-end-finished); }
+#rd .rd-rp-lapse[data-end="failed"] { --rd-span: var(--rd-end-failed); }
+#rd .rd-rp-lapse[data-end="stale"], #rd .rd-rp-lapse[data-end="ended"], #rd .rd-rp-lapse[data-end="newer"] { --rd-span: var(--rd-end-stale); }
+#rd .rd-rp-lapse[data-end="cleared"] { --rd-span: var(--rd-end-cleared); }
+#rd .rd-rp-hold[data-end="drop"], #rd .rd-rp-hold[data-end="replaced"], #rd .rd-rp-hold[data-end="handoff"] { --rd-span: var(--rd-end-drop); }
+#rd .rd-rp-hold[data-end="force"] { --rd-span: var(--rd-end-force); }
+#rd .rd-rp-hold[data-end="expire"] { --rd-span: var(--rd-end-expire); }
+#rd .rd-rp-playing .rd-rp-lapse { transition: background-color .3s ease-out; }
 #rd .rd-rp-playing .rd-rp-doing.is-open { animation: rd-rp-doing-pulse 1.8s ease-in-out infinite; }
 @keyframes rd-rp-doing-pulse { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
+  #rd .rd-rp-playing .rd-rp-lapse { transition: none; }
   #rd .rd-rp-playing .rd-rp-doing.is-open { animation: none; opacity: .88; }
 }
-#rd .rd-rp-doing:hover, #rd .rd-rp-doing:focus-visible {
+#rd .rd-rp-lapse:hover, #rd .rd-rp-lapse:focus-visible {
   opacity: 1;
-  outline: 1px solid color-mix(in srgb, var(--rd-k-doing) 65%, #fff);
+  outline: 1px solid color-mix(in srgb, var(--rd-span) 65%, #fff);
   outline-offset: 1px;
 }
+/* Promise caps: a small lock at the grant; the end cap says how it ended. */
+#rd .rd-rp-cap {
+  position: absolute; left: 0; top: 0; z-index: 3; width: 7px; height: 7px; box-sizing: border-box;
+  pointer-events: none; border-radius: 1.5px; background: var(--rd-k-hold);
+}
+#rd .rd-rp-cap.rd-cap-lock { border-radius: 2px 2px 1px 1px; box-shadow: inset 0 2px 0 color-mix(in srgb, #11151a 35%, transparent); }
+#rd .rd-rp-cap.rd-cap-drop, #rd .rd-rp-cap.rd-cap-replaced, #rd .rd-rp-cap.rd-cap-handoff { width: 2px; margin-left: 2.5px; background: var(--rd-end-drop); }
+#rd .rd-dir-tb .rd-rp-cap.rd-cap-drop, #rd .rd-dir-tb .rd-rp-cap.rd-cap-replaced, #rd .rd-dir-tb .rd-rp-cap.rd-cap-handoff { width: 7px; height: 2px; margin: 2.5px 0 0; }
+#rd .rd-rp-cap.rd-cap-force { transform-origin: center; background: var(--rd-end-force); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+#rd .rd-rp-cap.rd-cap-expire { border-radius: 50%; background: transparent; border: 1.5px solid var(--rd-end-expire); }
 #rd .rd-rp-tip-span { color: var(--dim); font-variant-numeric: tabular-nums; }
 #rd .rd-rp-tip-on { color: var(--dim); font-size: 11px; }

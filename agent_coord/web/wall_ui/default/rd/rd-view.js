@@ -372,7 +372,7 @@
     return '<i class="rd-ki k-' + h(kind) + '" title="' + h(KIND_WORD[kind] || kind) + '"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">' + (KIND_SVG[kind] || KIND_SVG.score) + "</svg></i>";
   }
   function legendHtml() {
-    return '<span class="rd-rp-legend" aria-label="Kinds">' + ["mail", "todo", "hold", "wake", "doing", "score"].map(function (k) {
+    return '<span class="rd-rp-legend" aria-label="Kinds">' + R.REPLAY_KINDS.map(function (k) {
       return '<span class="k-' + k + '">' + kindIcon(k) + h(KIND_WORD[k]) + "</span>";
     }).join("") + "</span>";
   }
@@ -491,7 +491,7 @@
    * age, the desks attached to the activity, and any labels, trees, watchers or roster. */
   var TIP_ROLE = {
     mail: { from: "sender", holders: "receiver", waiting: "" },
-    todo: { from: "from", holders: "claimer", waiting: "" },
+    todo: { from: "from", holders: "to", waiting: "" },
     hold: { from: "from", holders: "holder", waiting: "waiting" },
     wake: { from: "waker", holders: "woken", waiting: "" },
     doing: { from: "", holders: "doing", waiting: "" },
@@ -523,6 +523,8 @@
     add(roles.waiting, st.waiting);
     return bits.length ? '<div class="rd-rp-tip-desks">' + bits.join(arrow ? "" : " ") + "</div>" : "";
   }
+  var SPAN_END_WORD = { finished: "finished", failed: "failed", stale: "went stale", cleared: "cleared", drop: "released",
+    force: "forced", expire: "expired", handoff: "handed on", replaced: "taken again", ended: "ended" };
   function replayTip(row, now, span) {
     if (!row) return "";
     var word = KIND_WORD[row.kind] || row.kind || "";
@@ -536,11 +538,12 @@
       var ended = span.open ? "ongoing" : (span.end != null ? localWhen(span.end) : "");
       var dms = span.open && now != null ? now - span.start : (span.end != null ? span.end - span.start : null);
       var length = dms != null ? (R.msText ? R.msText(dms) : "") : "";
+      var how = span.ended && span.how ? (SPAN_END_WORD[span.how] || span.how) : "";
       spanHtml = '<div class="rd-rp-tip-span">' +
         (started ? "<time>" + h(started) + "</time>" : "") +
         (started && ended ? " \u00b7 " : "") +
         (span.open ? h("ongoing") : (ended ? "<time>" + h(ended) + "</time>" : "")) +
-        (length ? " \u00b7 " + h(length) : "") +
+        (length ? " \u00b7 " + h(length) : "") + (how ? " \u00b7 " + h(how) : "") +
         "</div>";
       if (span.item || row.item) spanHtml += '<div class="rd-rp-tip-on">' + h(span.item || row.item) + "</div>";
     }
@@ -612,7 +615,9 @@
     var dirBtn = '<button type="button" class="rd-rp-btn rd-rp-dir" data-rp-dir="' + (dir === "tb" ? "lr" : "tb") + '" aria-pressed="' + (dir === "tb" ? "true" : "false") + '" aria-label="Direction: ' + (dir === "tb" ? "top to bottom" : "left to right") + '" title="' + (dir === "tb" ? "Top to bottom; switch to left to right" : "Left to right; switch to top to bottom") + '">' + (dir === "tb" ? "\u2193" : "\u2192") + "</button>";
     var cluster = R.replayCluster((ui.clusters && ui.clusters[view]) || (R.REPLAY_CLUSTER_DEFAULT && R.REPLAY_CLUSTER_DEFAULT[view]));
     var clusterBtn = '<button type="button" class="rd-rp-btn rd-rp-cluster" data-rp-cluster="' + (cluster === "group" ? "spread" : "group") + '" aria-pressed="' + (cluster === "group" ? "true" : "false") + '" aria-label="Display: ' + cluster + '" title="' + (cluster === "group" ? "Group; switch to spread" : "Spread; switch to group") + '">' + cluster + "</button>";
-    var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' : stageHtml(rep, view);
+    /* No /api/v1/replay on this mill: say so; nothing is drawn from other reads. */
+    var body = rep.missing ? '<div class="rd-rp-stage rd-rp-empty rd-rp-missing" data-rp-missing="1">This mill does not serve the replay record yet (GET /api/v1/replay). Lines, ticks and spans show once it does.</div>'
+      : !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' : stageHtml(rep, view);
     return '<section class="rd-replay rv-' + view + " rd-dir-" + dir + " rd-cluster-" + cluster + '" data-rp-stage="1" data-rp-subtab="' + view + '" data-rp-dirnow="' + dir + '" data-rp-cluster-now="' + cluster + '">' +
       '<div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-btn rd-rp-go" data-rp-play="1" aria-label="Play">\u25b6</button>' +

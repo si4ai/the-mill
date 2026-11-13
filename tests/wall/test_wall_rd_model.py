@@ -28,9 +28,10 @@ OFFICE = {
     ]},
     "names": {"Office": [{"kind": "desk", "name": "retired", "deleted": True}]},
     "doing": {
-        "builder": {"owner": "builder", "alive": True, "stale": False, "doing": "wiring the stations route", "on": "todo-1191", "age": "47m"},
-        "gardener": {"owner": "gardener", "alive": True, "stale": False, "doing": "", "idle": "3h"},
-        "scout": {"owner": "scout", "alive": True, "stale": True, "doing": "sweeping the tree", "on": "todo-9"},
+        # Card 1207 shape: live tw runs per desk; seat liveness comes from agents.
+        "builder": {"n": 1, "doings": [{"id": 1, "created": "2026-11-13T03:13:00Z", "text": "wiring the stations route", "state": "active", "state_at": "2026-11-13T03:13:00Z", "card": None}]},
+        "gardener": {"n": 0, "doings": []},
+        "scout": {"n": 1, "doings": [{"id": 2, "created": "2026-11-13T03:00:00Z", "text": "sweeping the tree", "state": "active", "state_at": "2026-11-13T03:00:00Z", "card": None}]},
     },
     "todos": {"Office": {"needs": [
         {"id": 1191, "status": "claimed", "detail": "Desks last-connection on the stations route", "assigned": "builder"},
