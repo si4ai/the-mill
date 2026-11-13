@@ -474,23 +474,3 @@ number. Then:
 Turn the hooks on once per checkout so most hits never get committed:
 
     git config core.hooksPath .githooks
-
-### Possible improvements
-
-Not built; for discussion.
-
-- **Accept git's own revert wording.** Treat a subject of the form
-  `Revert "Revert "...""` as generated text, the way the Copilot
-  `Initial plan` subject is: let a `Revert` that directly follows
-  `Revert "` pass.
-- **Catch generated messages at commit time.** A `commit-msg` hook
-  already exists (`.githooks/commit-msg`), but it is opt-in per checkout,
-  the Copilot setup keeps it off, `--no-verify` skips it, and
-  `git revert` never calls it. A check that also covers reverts, for
-  example a `pre-push` hook that runs `check_pack.py --commits` on the
-  commits being pushed, would close that gap.
-- **One rule for bots.** Decide whether bot-authored PR bodies get the
-  name-token rule, and make `pr_text` and `check_pack --pr-message`
-  agree.
-- **Make `NAME_TOKEN_REVIEWED` consistent.** Either both history scans
-  read it, or neither does.
