@@ -2295,6 +2295,46 @@ def _drop_kind_checks(cur, table: str, column: str) -> None:
             cur.execute(f"ALTER TABLE `{table}` DROP CHECK `{name}`")
 
 
+def apply_1200(cn) -> list[str]:
+    """Card 1200: ON UPDATE CASCADE on every foreign key, and the id-change flag.
+
+    Idempotent. A fresh book already has the keys from tables.sql. migrations.sql
+    is the same shape for a book that was built before this card.
+    """
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "member"):
+            return []
+        cur.execute(
+            "SELECT UPDATE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS "
+            "WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'fk_member_desk' "
+            "LIMIT 1"
+        )
+        row = cur.fetchone()
+        cur.execute(
+            "SELECT ACTION_STATEMENT FROM information_schema.TRIGGERS "
+            "WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'name_fixed' LIMIT 1"
+        )
+        trig = cur.fetchone()
+        cascaded = row is not None and str(row[0]).upper() == "CASCADE"
+        flagged = trig is not None and "mill_allow_name_id_change" in str(trig[0])
+        if cascaded and flagged:
+            return []
+        blob = (sql_dir() / "migrations.sql").read_text(encoding="utf-8-sig")
+        for stmt in split_script(blob):
+            try:
+                cur.execute(stmt)
+            except Exception as exc:
+                raise RuntimeError(stmt[:240]) from exc
+        cn.commit()
+        return ["migrate_1200:cascade"]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
 def apply_1163(cn) -> list[str]:
     """One name string in the office. Plain id pointers, type triggers, collision suffixes.
 
@@ -2413,6 +2453,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             if did_1022:
                 applied.extend(reload_routines(cn))
             applied.extend(apply_1163(cn))
+            applied.extend(apply_1200(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])
