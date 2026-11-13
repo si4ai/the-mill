@@ -305,10 +305,13 @@
     });
   }
 
+  var lastBase = null;
+  function rpBase() { return lastBase; }
   function paint() {
     if (state.legacy) return;
     var now = Date.now();
     var b = R.base(dataFor(state.tab), scope(), now);
+    lastBase = b;
     var m = models(b);
     setHtml(root.querySelector(".rd-strip"), V.strip(R.strip(b, m), state.tab), "strip");
     setHtml(root.querySelector(".rd-hero"), V.hero(R.hero(b, state.tab, m[state.tab])), "hero");
@@ -356,7 +359,7 @@
     view: "desks", lastT: null, st: null, live: 0 };
   if (R.REPLAY_SPEEDS.indexOf(rp.speed) < 0) rp.speed = 1;
   function replayModel(b) {
-    var rep = R.collabReplay(b, { window: load(RP_WIN_KEY, "auto") });
+    var rep = R.collabReplay(b, { window: load(RP_WIN_KEY, "auto"), end: rp.end });
     if (!rp.playing) rp.rep = rep;
     return rep;
   }
@@ -381,6 +384,8 @@
     root.querySelectorAll("[data-rp-clip]").forEach(function (c) { c.setAttribute("width", x); });
     root.querySelectorAll("[data-rp-head]").forEach(function (l) { l.setAttribute("x1", x); l.setAttribute("x2", x); });
     root.querySelectorAll("[data-rp-trace]").forEach(function (tr) { tr.setAttribute("aria-valuenow", String(Math.round(1000 * frac))); });
+    var span = root.querySelector("[data-rp-span]");
+    if (span) span.textContent = spanText(rep);
     if (clockEl) { var d = new Date(t); clockEl.textContent = (rp.t == null && !rp.playing ? "now " : "") + d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
     if (play) { play.textContent = rp.playing ? "\u23f8" : "\u25b6"; play.setAttribute("aria-label", rp.playing ? "Pause" : "Play"); }
     if (list && sig !== rp.drawn) drawRows(list, rows, keys, sig, animate);
@@ -388,7 +393,7 @@
      * changes; at now it keeps the current state the row was drawn with. */
     var sec = root.querySelector(".rd-replay");
     if (sec) {
-      var past = rp.playing || rp.t != null;
+      var past = rp.playing || rp.t != null || rep.live === false;
       sec.classList.toggle("rd-rp-past", past);
       if (past) {
         var memo = {};
@@ -427,7 +432,7 @@
    * The six kind icons are the only things that fall. A row with two desks (a letter, a card
    * handed off, a contested promise) drops the same icon in both columns at once, joined by a
    * thin arc that fades; the far end may be the outside cloud. When the receiver picks it up
-   * later its pill pulses; until then the icon waits in its tray. Motion is transform and
+   * later its pill pulses; until then the icon waits in its tray. The pills never move. Motion is transform and
    * opacity only, at most RP_LIVE icons fall at once. */
   var RP_LIVE = 30, RP_TRAY = 5, rpText = {};
   function stageEls() {
@@ -440,7 +445,7 @@
     });
     st.querySelectorAll("[data-rp-tray]").forEach(function (el) { var l = lanes[el.getAttribute("data-rp-tray")]; if (l) { l.tray = el; l.col = el.parentNode; } });
     st.style.setProperty("--lanes", st.getAttribute("data-rp-lanes") || "1");
-    rp.st = { el: st, rain: st.querySelector("[data-rp-rain]"), lanes: lanes, locks: "", trays: "", place: "" };
+    rp.st = { el: st, rain: st.querySelector("[data-rp-rain]"), lanes: lanes, locks: "", trays: "" };
     rp.lastT = null;
     return rp.st;
   }
@@ -456,27 +461,9 @@
     el.title = title || "";
     return el;
   }
-  /* Gravity: the pills and their columns slide (transform only, eased in CSS) to the layout the
-   * rows up to the playhead give; worked out again every 1/400 of the window or on a resize. */
-  function placeLanes(S, rep, t) {
-    var wpx = S.el.clientWidth, bucket = Math.floor((t - rep.since) / Math.max(1, rep.ms / 400)), key = bucket + "|" + wpx;
-    if (key === S.place) return;
-    var first = !S.place;
-    S.place = key;
-    var pos = R.replayLayout(rep, t);
-    S.el.classList.toggle("rd-rp-snap", first);
-    Object.keys(S.lanes).forEach(function (id) {
-      var l = S.lanes[id], x = (pos[id] == null ? 0.5 : pos[id]) * wpx;
-      var tf = "translateX(" + x.toFixed(1) + "px) translateX(-50%)";
-      l.head.style.transform = tf;
-      if (l.col) l.col.style.transform = tf;
-    });
-    if (first) (window.requestAnimationFrame || setTimeout)(function () { S.el.classList.remove("rd-rp-snap"); });
-  }
   function drawStage(rep, t, animate) {
     var S = stageEls();
     if (!S) { rp.lastT = t; return; }
-    placeLanes(S, rep, t);
     /* Locks: held promises (solid) and waited-on ones (faded, amber edge) fade in and out. */
     var L = R.replayLocksAt(rep, t), ls = JSON.stringify(L);
     if (ls !== S.locks) {
@@ -563,8 +550,6 @@
       fade.onfinish = fade.oncancel = (function (pp) { return function () { if (pp.parentNode) pp.parentNode.removeChild(pp); }; })(path);
     }
   }
-  /* A resize moves the columns: place them again (the gravity layout is in fractions). */
-  window.addEventListener("resize", function () { if (state.tab === "collab" && rp.rep) drawReplay(false); });
   /* Picked up: the receiver's pill pulses once. */
   function catchAt(S, id) {
     var l = S.lanes[id];
@@ -645,26 +630,133 @@
     drawReplay(false);
   }
   function traceFrac(el, ev) { var r = el.getBoundingClientRect(); return r.width ? (ev.clientX - r.left) / r.width : 1; }
-  var dragTrace = null;
+  /* On a trace: a click seeks the playhead; a grab-hand drag slides the window itself through the
+   * recorded history (never past now), and the replay re-scopes to it: two minutes, anywhere. */
+  var dragTrace = null, PAN_PX = 4;
+  function spanText(rep) {
+    function f(t) { return new Date(t).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+    return f(rep.since) + " \u2013 " + (rep.live ? "now" : f(rep.until)) + (rpOlder.busy ? " \u00b7 loading older\u2026" : rpOlder.end && !rep.live && rep.oldest != null && rep.since <= rep.oldest ? " \u00b7 start of the record" : "");
+  }
+  function rpPanTo(end) {
+    if (end === rp.end) return;
+    rp.end = end; rp.playing = false; rp.t = null; rp.drawn = null; rp.st = null;
+    if (!rpPanTo.raf) rpPanTo.raf = (window.requestAnimationFrame || setTimeout)(function () { rpPanTo.raf = 0; last.pane = null; paint(); });
+  }
   root.addEventListener("pointerdown", function (ev) {
-    var el = closest(ev.target, "[data-rp-trace]");
-    if (!el) return;
-    dragTrace = el;
+    var el = closest(ev.target, "[data-rp-trace]"), rep = rpRep();
+    if (!el || !rep) return;
+    dragTrace = { el: el, x0: ev.clientX, w: el.getBoundingClientRect().width || 1, end0: rp.end, ms: rep.ms, moved: false };
     if (el.setPointerCapture) try { el.setPointerCapture(ev.pointerId); } catch (e) { /* capture is optional */ }
     ev.preventDefault();
-    rpSeek(traceFrac(el, ev));
   });
-  root.addEventListener("pointermove", function (ev) { if (dragTrace) rpSeek(traceFrac(dragTrace, ev)); });
-  ["pointerup", "pointercancel"].forEach(function (n) { root.addEventListener(n, function () { dragTrace = null; }); });
+  root.addEventListener("pointermove", function (ev) {
+    var d = dragTrace, rep = rpRep();
+    if (!d || !rep) return;
+    var dx = ev.clientX - d.x0;
+    if (!d.moved && Math.abs(dx) < PAN_PX) return;
+    if (!d.moved) { d.moved = true; root.classList.add("rd-rp-panning"); }
+    /* Drag right shows earlier time, as a map does: the window's end moves back. */
+    var dt = -dx / d.w * d.ms;
+    rpPanTo(R.replayPan(rep, d.end0, dt));
+    /* Asked for earlier than the cache holds: read older pages (the clamp eases as they land). */
+    if (dt < 0) rpOlderFor(rep, (d.end0 == null ? rep.now : d.end0) + dt);
+  });
+  ["pointerup", "pointercancel"].forEach(function (n) {
+    root.addEventListener(n, function (ev) {
+      var d = dragTrace;
+      dragTrace = null;
+      root.classList.remove("rd-rp-panning");
+      if (d && !d.moved && n === "pointerup") rpSeek(traceFrac(d.el, ev));
+    });
+  });
   root.addEventListener("keydown", function (ev) {
-    var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-trace") ? ev.target : null;
-    if (!el) return;
+    var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-trace") ? ev.target : null, rep = rpRep();
+    if (!el || !rep) return;
+    if (ev.shiftKey && (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "End")) {
+      /* Shift+arrows slide the window a quarter of its length; Shift+End goes back to now. */
+      ev.preventDefault();
+      var step = (ev.key === "ArrowLeft" ? -1 : 1) * rep.ms / 4;
+      rpPanTo(ev.key === "End" ? null : R.replayPan(rep, rp.end, step));
+      if (ev.key === "ArrowLeft") rpOlderFor(rep, (rp.end == null ? rep.now : rp.end) + step);
+      return;
+    }
     var at = (Number(el.getAttribute("aria-valuenow")) || 0) / 1000;
     var to = ev.key === "ArrowLeft" ? at - 0.01 : ev.key === "ArrowRight" ? at + 0.01 : ev.key === "Home" ? 0 : ev.key === "End" ? 1 : null;
     if (to == null) return;
     ev.preventDefault();
     rpSeek(to);
   });
+  /* ---- The record, cached: past rows never change ----
+   * Each desk's transition rows (doing history) merge by id into one cache per desk, kept in
+   * memory and in sessionStorage (slim rows, at most TRAIL_KEEP per desk, the least recently
+   * used desks dropped first when the quota is hit). Only the live tail near now is read
+   * again (page 1, once a minute); older pages are read only when a pan reaches past the
+   * oldest cached row, one page per desk per step, until the record ends. */
+  var TRAIL_KEEP = 1500, TRAIL_PAGE = 50, TRAIL_PREFIX = "rd-trail1|", TRAIL_LRU = "rd-trail1-lru";
+  var trailCache = {}, rpOlder = { busy: 0, end: false };
+  function trailOf(desk) {
+    var c = trailCache[desk];
+    if (c) return c;
+    c = trailCache[desk] = { byId: {}, n: 0, page: 1, done: false, oldest: null };
+    try {
+      var j = JSON.parse(sessionStorage.getItem(TRAIL_PREFIX + desk) || "null");
+      if (j && Array.isArray(j.rows)) { j.rows.forEach(function (r) { trailPut(c, r); }); c.done = !!j.done; c.page = Number(j.page) || 1; }
+    } catch (e) { /* no storage */ }
+    return c;
+  }
+  function trailPut(c, r) {
+    if (!r || r.id == null || c.byId[r.id]) return;
+    c.byId[r.id] = { id: r.id, desk: r.desk, at: r.at, doing: String(r.doing || "").slice(0, 160), on: r.on, act: r.act,
+      waiting_on: r.waiting_on || undefined, ended_at: r.ended_at || undefined, ended_by: r.ended_by || undefined, peer: r.peer || undefined };
+    c.n++;
+    var t = Date.parse(String(r.at).replace(" ", "T") + "Z");
+    if (!isNaN(t) && (c.oldest == null || t < c.oldest)) c.oldest = t;
+  }
+  function trailRows(c) {
+    return Object.keys(c.byId).map(function (k) { return c.byId[k]; }).sort(function (x, y) { return x.at < y.at ? 1 : x.at > y.at ? -1 : 0; });
+  }
+  function trailSave(desk, c) {
+    var rows = trailRows(c).slice(0, TRAIL_KEEP), blob = JSON.stringify({ rows: rows, done: c.done && rows.length === c.n, page: c.page });
+    var lru = [];
+    try { lru = JSON.parse(sessionStorage.getItem(TRAIL_LRU) || "[]"); } catch (e) { lru = []; }
+    lru = lru.filter(function (d) { return d !== desk; }).concat([desk]);
+    for (var i = 0; i < 8; i++) {
+      try { sessionStorage.setItem(TRAIL_PREFIX + desk, blob); sessionStorage.setItem(TRAIL_LRU, JSON.stringify(lru)); return; }
+      catch (e) { var drop = lru.shift(); if (!drop || drop === desk) return; try { sessionStorage.removeItem(TRAIL_PREFIX + drop); } catch (e2) { return; } }
+    }
+  }
+  function trailTake(desk, j, page) {
+    var c = trailOf(desk), before = c.n;
+    (j.history || []).forEach(function (r) { trailPut(c, r); });
+    var pg = j.page || {};
+    if (page > 1) c.page = Math.max(c.page, page);
+    if (!(j.history || []).length || (pg.of != null && page >= Number(pg.of))) c.done = c.done || page > 1 || !pg.next;
+    data.trail[desk] = trailRows(c);
+    trailSave(desk, c);
+    return c.n > before;
+  }
+  /* A pan reached back past the cache: read the next older page for each focused desk whose
+   * cache starts after the new window, then draw again. */
+  function rpOlderFor(rep, wantEnd) {
+    var b = rpBase();
+    if (!b || !rep) return;
+    var need = Math.max(0, (wantEnd != null ? wantEnd : rp.end == null ? rep.now : rp.end) - rep.ms), any = false;
+    b.desks.slice(0, 40).forEach(function (d) {
+      var c = trailOf(d.name), k = "older|" + d.name;
+      if (c.done || inflight[k] || (c.oldest != null && c.oldest <= need)) return;
+      any = true;
+      rpOlder.busy++;
+      var page = c.page + 1;
+      inflight[k] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(d.name) + "&limit=" + TRAIL_PAGE + "&page=" + page).then(function (j) {
+        inflight[k] = null;
+        rpOlder.busy--;
+        if (j && Array.isArray(j.history)) trailTake(d.name, j, page); else c.done = true;
+        if (!rp.playing) { last.pane = null; paintSoon(); }
+        if (!c.done && c.oldest != null && c.oldest > need) rpOlderFor(rpRep(), need + rep.ms);
+      });
+    });
+    rpOlder.end = !any && b.desks.slice(0, 40).every(function (d) { return trailOf(d.name).done; });
+  }
   /* The move rows (the transitions) of the cards and promises in the week, and each focused
    * desk's own focus rows. Read again only when the item moved, or once a minute for a desk. */
   var movesAt = {};
@@ -681,16 +773,35 @@
         if (j && Array.isArray(j.history)) { data.moves[key] = j.history; movesAt[key] = stamp; if (!rp.playing) paintSoon(); }
       });
     });
-    var since = new Date(b.now - R.REPLAY_WINDOWS.week).toISOString().slice(0, 19).replace("T", " ");
+    /* The live tail: page 1 of each desk's record, once a minute, merged into its cache. */
     b.desks.slice(0, 40).forEach(function (d) {
-      var k = "trail|" + d.name;
+      var k = "trail|" + d.name, c = trailOf(d.name);
+      if (!data.trail[d.name] && c.n) data.trail[d.name] = trailRows(c);
       if (inflight[k] || (gotAt[k] && Date.now() - gotAt[k] < 60000)) return;
-      inflight[k] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(d.name) + "&since=" + encodeURIComponent(since)).then(function (j) {
+      inflight[k] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(d.name) + "&limit=" + TRAIL_PAGE + "&page=1").then(function (j) {
         inflight[k] = null;
         gotAt[k] = Date.now();
-        if (j && Array.isArray(j.history)) { data.trail[d.name] = j.history; if (!rp.playing) paintSoon(); }
+        if (j && Array.isArray(j.history) && trailTake(d.name, j, 1) && !rp.playing) paintSoon();
       });
     });
+    /* A panned window: the cards and promises its desks were on get their move rows too. */
+    if (rp.end != null && rp.rep) {
+      var lo = rp.rep.since, hi = rp.rep.until, more = {};
+      Object.keys(data.trail).forEach(function (desk) {
+        (data.trail[desk] || []).forEach(function (r) {
+          var t = Date.parse(String(r.at).replace(" ", "T") + "Z"), on = String(r.on || "");
+          if (t >= lo && t <= hi && /^(todo|hold)-\d+$/.test(on) && !data.moves[on]) more[on] = 1;
+        });
+      });
+      Object.keys(more).slice(0, 40).forEach(function (key) {
+        var k = "moves|" + key;
+        if (inflight[k]) return;
+        inflight[k] = getJson("/api/v1/doing/history?on=" + encodeURIComponent(key)).then(function (j) {
+          inflight[k] = null;
+          if (j && Array.isArray(j.history)) { data.moves[key] = j.history; if (!rp.playing) { last.pane = null; paintSoon(); } }
+        });
+      });
+    }
   }
   function itemStamp(b, key) {
     var hit = "";

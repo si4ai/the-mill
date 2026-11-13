@@ -1066,10 +1066,12 @@
     opts = opts || {};
     var all = replayEvents(b);
     var want = REPLAY_WINDOWS[opts.window] ? opts.window : "auto";
-    var win = replayWindow(all, b.now, want);
-    var since = b.now - REPLAY_WINDOWS[win];
+    /* The window ends now, or at opts.end when panned back into the history. */
+    var live = opts.end == null || opts.end >= b.now, end = live ? b.now : opts.end;
+    var win = replayWindow(all, end, want);
+    var since = end - REPLAY_WINDOWS[win];
     var pick = pickIndex(b);
-    var rows = all.filter(function (e) { return e.at >= since && e.at <= b.now + MIN; }).map(function (e) {
+    var rows = all.filter(function (e) { return e.at >= since && e.at <= (live ? end + MIN : end); }).map(function (e) {
       return { key: e.key, item: e.item, at: e.at, kind: e.kind, act: e.act, actor: e.actor, dir: e.dir || "out", parts: sentence(b, e),
         outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null,
         lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "" };
@@ -1077,7 +1079,7 @@
     var lanes = replayLanes(b, rows);
     var known = !!(b.letters || b.data.events);
     var counts = {};
-    REPLAY_ORDER.forEach(function (w) { var s0 = b.now - REPLAY_WINDOWS[w]; counts[w] = all.filter(function (e) { return e.at >= s0; }).length; });
+    REPLAY_ORDER.forEach(function (w) { var s0 = end - REPLAY_WINDOWS[w]; counts[w] = all.filter(function (e) { return e.at >= s0 && e.at <= end + MIN; }).length; });
     /* Each desk's focus rows, oldest first: its state changes, to recolor its pill as the playhead moves. */
     var states = {};
     Object.keys(b.data.trail || {}).forEach(function (desk) {
@@ -1090,8 +1092,18 @@
     eachRoster(b.data.holds, b.scope.rosters, function (list) {
       (list || []).forEach(function (l) { if (l && str(l.owner)) (heldNow[laneOf(b, l.owner)] = heldNow[laneOf(b, l.owner)] || []).push({ item: "hold-" + l.id, text: str(l.resource) }); });
     });
-    return { known: known, want: want, window: win, since: since, until: b.now, ms: REPLAY_WINDOWS[win], rows: rows, counts: counts, states: states,
+    var oldest = null;
+    all.forEach(function (e) { if (oldest == null || e.at < oldest) oldest = e.at; });
+    return { known: known, want: want, window: win, since: since, until: end, live: live, now: b.now, oldest: oldest, ms: REPLAY_WINDOWS[win], rows: rows, counts: counts, states: states,
       lanes: lanes, heldNow: heldNow };
+  }
+  /* Panning: the window's end moved by dt, never past now nor before the oldest recorded row
+   * (that row stays in the window). null means "ends now". */
+  function replayPan(rep, end0, dt) {
+    var now = rep.now, end = (end0 == null ? now : end0) + dt;
+    var floor = rep.oldest != null ? Math.min(now, rep.oldest + rep.ms) : now;
+    end = Math.max(floor, Math.min(now, end));
+    return end >= now - 1000 ? null : Math.round(end);
   }
   /* ---- The stage: one column per desk, the activity drops from its desk ----
    * A lane is a focused desk (its name), the person, the office (rows no desk sent, like a wake),
@@ -1110,7 +1122,13 @@
     (b.data.trail ? Object.keys(b.data.trail) : []).forEach(function (n) { if (b.member(n)) used[n] = 1; });
     b.desks.forEach(function (d) { if (b.member(d.name)) used[d.name] = 1; });
     rows.forEach(function (r) { (r.parts || []).forEach(function (p) { if (p.t === "cloud") (p.names || [p.name]).forEach(function (n) { if (n) outside[n] = 1; }); }); });
-    var desks = Object.keys(used).filter(function (k) { return k.charAt(0) !== "@"; }).sort(function (x, y) { return x.toLowerCase() < y.toLowerCase() ? -1 : 1; });
+    /* Fixed order: the desks as the DESKS list sorts them, then any others a-z. */
+    var order = {};
+    b.desks.forEach(function (d, i) { order[d.name] = i; });
+    var desks = Object.keys(used).filter(function (k) { return k.charAt(0) !== "@"; }).sort(function (x, y) {
+      var ox = order[x] != null ? order[x] : 1e6, oy = order[y] != null ? order[y] : 1e6;
+      return ox - oy || (x.toLowerCase() < y.toLowerCase() ? -1 : 1);
+    });
     var out = [];
     if (used["@office"]) out.push({ id: "@office", t: "office", name: "office" });
     if (used["@human"]) out.push({ id: "@human", t: "human", name: "you" });
@@ -1189,7 +1207,7 @@
   /* The locks on each lane at t: promises held (from the move rows; at now, the holds table) and
    * promises waited on (a faded lock) until the waiter takes it. */
   function replayLocksAt(rep, t) {
-    if (t >= rep.until) {
+    if (rep.live !== false && t >= rep.until) {
       var now = {};
       Object.keys(rep.heldNow || {}).forEach(function (l) { now[l] = rep.heldNow[l].map(function (x) { return { item: x.item, text: x.text, wait: false }; }); });
       replayPendingHolds(rep, t, now);
@@ -1214,59 +1232,6 @@
       var l = out[r.lane] = out[r.lane] || [];
       if (!l.some(function (x) { return x.item === r.item; })) l.push({ item: r.item, text: r.text, wait: true });
     });
-  }
-  /* ---- Gravity: where each lane's pill sits on the stage at t, as a fraction of its width ----
-   * Every row between two lanes (a letter, a card handed off, a contested promise) pulls the pair
-   * together; the pull fades with a half-life of a sixth of the window, so desks that stop talking
-   * drift apart again. Two passes, both 1D: the order (each lane moves to the pull-weighted mean of
-   * its partners' places, then the lanes are re-ranked, a few rounds), then the gaps (a pair that
-   * pulls hard sits close, a pair that does not sits a full share apart, never closer than
-   * REPLAY_FLOOR of a share). Outside stays pinned at the right end. Same t, same layout. */
-  var REPLAY_FLOOR = 0.5, GRAVITY_ROUNDS = 12;
-  function replayLayout(rep, t) {
-    var lanes = rep.lanes, n = lanes.length, ix = {}, w = [], i, j;
-    if (!n) return {};
-    lanes.forEach(function (l, k) { ix[l.id] = k; w.push(lanes.map(function () { return 0; })); });
-    var half = Math.max(1, rep.ms / 6), maxw = 0;
-    rep.rows.forEach(function (r) {
-      if (r.at > t) return;
-      var k = Math.pow(0.5, (t - r.at) / half);
-      r.flows.forEach(function (f) {
-        var a = ix[f.from], z = ix[f.to];
-        if (a == null || z == null || a === z) return;
-        w[a][z] += k; w[z][a] += k;
-        if (w[a][z] > maxw) maxw = w[a][z];
-      });
-    });
-    var pin = ix["@out"], free = [];
-    for (i = 0; i < n; i++) if (i !== pin) free.push(i);
-    var rank = {};
-    free.forEach(function (k, r) { rank[k] = r; });
-    if (pin != null) rank[pin] = free.length;
-    for (var round = 0; round < GRAVITY_ROUNDS && maxw > 0; round++) {
-      var want = {};
-      free.forEach(function (k) {
-        var sw = 0, sp = 0;
-        for (j = 0; j < n; j++) if (w[k][j] > 0) { var q = w[k][j] / maxw; sw += q; sp += q * rank[j]; }
-        want[k] = sw ? (rank[k] + 2 * sp) / (1 + 2 * sw) : rank[k];
-      });
-      free.sort(function (a, z) { return want[a] - want[z] || rank[a] - rank[z] || a - z; });
-      free.forEach(function (k, r) { rank[k] = r; });
-    }
-    var ord = free.concat(pin != null ? [pin] : []);
-    var gaps = [];
-    for (i = 1; i < ord.length; i++) gaps.push(1 - 0.6 * (maxw ? w[ord[i - 1]][ord[i]] / maxw : 0));
-    var lo = 0.5 / n, span = 1 - 1 / n, floor = REPLAY_FLOOR / n;
-    for (var pass = 0; pass < 3; pass++) {
-      var sum = gaps.reduce(function (a, g) { return a + g; }, 0) || 1, scale = span / sum;
-      gaps = gaps.map(function (g) { return Math.max(g, floor / scale); });
-    }
-    var total = gaps.reduce(function (a, g) { return a + g; }, 0) || 1, x = lo, out = {};
-    ord.forEach(function (k, r) {
-      if (r) x += gaps[r - 1] * span / total;
-      out[lanes[k].id] = Math.round((n === 1 ? 0.5 : x) * 10000) / 10000;
-    });
-    return out;
   }
   /* ---- The monitor: one heart-monitor trace per lane, rows per slice (as actor or receiver) ---- */
   function replayLaneTrace(rep, n) {
@@ -1413,7 +1378,7 @@
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayLayout: replayLayout, replayItems: replayItems, replayStateAt: replayStateAt,
+    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayPan: replayPan, replayItems: replayItems, replayStateAt: replayStateAt,
     REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,

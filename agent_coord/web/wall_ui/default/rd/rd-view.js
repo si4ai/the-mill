@@ -504,7 +504,7 @@
       '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay" aria-label="What happened, newest first"></ol>';
     /* The density trace sits on top, over both subtabs; click or drag it to scrub. */
     return '<section class="rd-replay rv-' + view + '" data-rp-stage="1" data-rp-subtab="' + view + '">' +
-      '<div class="rd-rp-top">' + traceHtml(rep) + "</div>" + body + '<div class="rd-rp-bar">' +
+      '<div class="rd-rp-top">' + traceHtml(rep) + '<span class="rd-rp-span" data-rp-span="1" aria-live="polite"></span></div>' + body + '<div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
       '<span class="rd-rp-clock" data-rp-clock="1"></span>' +

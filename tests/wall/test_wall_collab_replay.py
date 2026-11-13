@@ -88,7 +88,14 @@ console.log(JSON.stringify({
   pendingNow: Object.fromEntries(Object.entries(R.replayPending(rep, now)).map(([k, v]) => [k, v.map(x => x.key)])),
   locksNow: R.replayLocksAt(rep, now),
   locksPast: R.replayLocksAt(rep, Date.parse('2026-11-13T04:29:00Z')),
-  layout: R.replayLayout(rep, now), layout2: R.replayLayout(rep, now),
+  past: (() => { const p = R.collabReplay(b, {window: 'hour', end: now - 25 * 60000});
+    return {live: p.live, since: p.since, until: p.until, keys: p.rows.map(r => r.key), oldest: p.oldest,
+      locksEnd: R.replayLocksAt(p, p.until),
+      panShort: R.replayPan(p, null, -10 * 60000)}; })(),
+  pan: (() => { const r = {now: now, oldest: now - 5 * 3600000, ms: 3600000};
+    return {now: R.replayPan(r, null, 60000), back: R.replayPan(r, null, -10 * 60000), far: R.replayPan(r, null, -365 * 86400000),
+      fwd: R.replayPan(r, now - 25 * 60000, 24 * 60000)}; })(),
+  nowMs: now,
   laneTrace: (() => { const t = R.replayLaneTrace(rep, 30); return Object.fromEntries(Object.entries(t.by).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])); })(),
   monitor: V.replay(rep, [], {speed: 1, view: 'activity'}),
   shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
@@ -238,15 +245,14 @@ def test_pickup_is_read_from_the_records_per_kind():
     assert any(x["wait"] for x in got["locksPast"]["validator"])
 
 
-def test_gravity_pulls_talking_desks_together_and_is_deterministic():
+def test_desk_pills_are_fixed_in_one_row():
     got = run()
-    lay = got["layout"]
-    assert lay == got["layout2"]
-    assert lay["@out"] == max(lay.values()), "the cloud stays pinned at the right end"
-    xs = sorted(lay.values())
-    n = len(xs)
-    assert all(b - a >= 0.5 / n - 1e-3 for a, b in zip(xs, xs[1:])), "pills never closer than the spacing floor"
-    assert abs(lay["builder"] - lay["validator"]) < abs(lay["builder"] - lay["@office"]), "the pair that talks sits closer"
+    desks = [l for l in got["lanes"] if not l.startswith("@")]
+    assert desks == ["builder", "validator", "gardener"], "the DESKS list order, not a layout that moves"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "replayLayout" not in app and "placeLanes" not in app, "no gravity: pills never move"
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "grid-template-columns: repeat(var(--lanes, 1), minmax(0, 1fr))" in css
 
 
 def test_activity_subtab_is_the_same_replay_one_trace_per_desk():
@@ -267,13 +273,11 @@ def test_activity_subtab_is_the_same_replay_one_trace_per_desk():
 
 def test_stage_motion_is_transform_and_opacity_only():
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    body = app[app.index("function dropRow"):app.index("window.addEventListener(\"resize\"")]
+    body = app[app.index("function dropRow"):app.index("function rpTick")]
     for frame in re.findall(r"\{ (?:transform|opacity)[^}]*\}", body):
         keys = set(re.findall(r"(\w+):", frame))
         assert keys <= {"transform", "opacity", "offset"}, frame
     assert "RP_LIVE" in app and "moving()" in app
-    css = (RD / "rd.css").read_text(encoding="utf-8")
-    assert "transition: transform 1.2s" in css
 
 
 def test_density_trace_sits_on_top_of_both_subtabs():
@@ -282,3 +286,31 @@ def test_density_trace_sits_on_top_of_both_subtabs():
         top = html.index('<div class="rd-rp-top">')
         assert top < html.index(body) < html.index('class="rd-rp-bar"'), "density on top, the subtab under it, controls last"
         assert html.index('data-rp-trace="1" role="slider" tabindex="0"') > top
+
+
+def test_panning_slides_the_window_through_the_record():
+    got = run()
+    p, now = got["past"], got["nowMs"]
+    assert p["live"] is False and p["until"] == now - 25 * 60000 and p["since"] == p["until"] - 3600000
+    assert "mail-100" not in p["keys"] and "focus-50" in p["keys"], "the window re-scopes: rows after its end are out"
+    assert "gardener" not in p["locksEnd"], "a past window does not borrow the holds table of now"
+    assert p["panShort"] is None, "a record shorter than the window has nowhere to pan"
+    pan = got["pan"]
+    assert pan["now"] is None, "never past now: the window ends now"
+    assert pan["back"] == now - 10 * 60000
+    assert pan["far"] == now - 4 * 3600000, "clamped so the oldest recorded row stays in the window"
+    assert pan["fwd"] == now - 60000
+    shell = got["shell"]
+    assert 'data-rp-span="1"' in shell, "the window's start and end show while panning"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "ev.shiftKey" in app and "PAN_PX" in app, "drag past a few pixels pans; Shift+arrows pan from the keyboard"
+    assert "!d.moved && n === \"pointerup\"" in app, "a click without a drag still seeks"
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "cursor: grab;" in css and "cursor: grabbing;" in css
+
+
+def test_the_record_is_cached_and_only_gaps_are_read():
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "&page=1" in app and '"&page=" + page' in app, "the tail is page 1; older pages only on a pan"
+    assert "sessionStorage" in app and "TRAIL_KEEP" in app and "TRAIL_LRU" in app, "kept across reloads, capped, least recent desk dropped"
+    assert "c.byId[r.id]" in app, "rows merge by id, so shifting pages never duplicate"

@@ -756,6 +756,10 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-bar > * { flex: 0 0 auto; }
 #rd .rd-rp-top { flex: 0 0 auto; padding: 2px 0 4px; }
 #rd .rd-rp-top .rd-rp-trace { width: 100%; height: 34px; }
+#rd.rd-rp-panning .rd-rp-trace, #rd .rd-rp-panning .rd-rp-trace { cursor: grabbing; }
+#rd .rd-rp-top { position: relative; }
+#rd .rd-rp-span { position: absolute; left: 6px; top: 4px; font-size: 11px; color: var(--dim); pointer-events: none; font-variant-numeric: tabular-nums; background: color-mix(in srgb, var(--panel) 75%, transparent); padding: 0 4px; border-radius: 3px; }
+#rd.rd-rp-panning .rd-rp-span, #rd .rd-rp-panning .rd-rp-span { color: var(--cyan); }
 #rd .rd-rp-bar .rd-time-range button { padding-top: 1px; padding-bottom: 1px; }
 #rd .rd-rp-blocking { flex: 0 0 auto; }
 #rd .rd-rp-blocking > summary { cursor: pointer; list-style: none; }
@@ -765,7 +769,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-blocking[open] > summary::before { content: "\25be "; }
 #rd .rd-rp-play { width: 28px; height: 24px; border: 1px solid var(--edge); border-radius: 6px; background: var(--panel); color: inherit; font-size: 14px; cursor: pointer; }
 /* The heart-monitor trace: bright to the left of the playhead, dim after it. */
-#rd .rd-rp-trace { position: relative; min-width: 160px; height: 30px; cursor: ew-resize; touch-action: none; border-radius: 4px; background: color-mix(in srgb, var(--panel) 70%, #000); }
+#rd .rd-rp-trace { position: relative; min-width: 160px; height: 30px; cursor: grab; touch-action: none; border-radius: 4px; background: color-mix(in srgb, var(--panel) 70%, #000); }
 #rd .rd-rp-trace:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
 #rd .rd-rp-trace svg { display: block; width: 100%; height: 100%; }
 #rd .rd-rp-trace polyline, #rd .rd-rp-trace line { fill: none; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
@@ -859,11 +863,12 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-pane.rd-rp-fs .rd-rp-past .rd-pill[data-st]::after { height: 3px; bottom: -4px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-top .rd-rp-trace { height: 56px; }
 
-/* ---- Stage: the lanes' pills across the top, gravity slides them; icons fall in the columns ---- */
+/* ---- Stage: the lanes' pills across the top, fixed in one row; icons fall straight down their columns ---- */
 #rd .rd-replay > .rd-rp-stage, #rd .rd-replay > .rd-rp-monitor { min-height: 0; }
 #rd .rd-rp-stage { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; overflow: hidden; }
-#rd .rd-rp-heads { position: relative; flex: 0 0 auto; height: 34px; }
-#rd .rd-rp-lane { position: absolute; left: 0; top: 6px; display: flex; justify-content: center; max-width: calc(96% / var(--lanes, 1)); transition: transform 1.2s ease-in-out; will-change: transform; }
+#rd .rd-rp-heads { position: relative; flex: 0 0 auto; height: 34px; align-items: center; }
+#rd .rd-rp-heads, #rd .rd-rp-rain { display: grid; grid-template-columns: repeat(var(--lanes, 1), minmax(0, 1fr)); }
+#rd .rd-rp-lane { position: relative; display: flex; justify-content: center; align-self: center; justify-self: center; min-width: 0; max-width: calc(100% - 6px); }
 #rd .rd-rp-lane > .rd-pill, #rd .rd-rp-lane > .rd-cloud { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; display: inline-block; line-height: 16px; }
 #rd .rd-pill.rd-office { border-color: color-mix(in srgb, var(--cyan) 50%, var(--edge)); cursor: default; color: var(--dim); }
 #rd .rd-rp-lane.rd-contest > .rd-pill { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 70%, transparent); }
@@ -872,9 +877,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-lock.rd-lock-wait { opacity: .45; outline: 1px solid var(--amber); }
 #rd .rd-rp-lock.rd-in, #rd .rd-rp-lock.rd-out { opacity: 0; }
 #rd .rd-rp-rain { position: relative; flex: 1 1 auto; overflow: hidden; min-height: 120px; }
-#rd .rd-rp-col { position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% / var(--lanes, 1)); transition: transform 1.2s ease-in-out; will-change: transform;
+#rd .rd-rp-col { position: relative; min-width: 0;
   background: linear-gradient(to right, transparent calc(50% - .5px), color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent calc(50% + .5px)); }
-#rd .rd-rp-snap .rd-rp-lane, #rd .rd-rp-snap .rd-rp-col { transition: none; }
 #rd .rd-rp-tray { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
 #rd .rd-rp-wait { outline: 1px dashed var(--amber); outline-offset: 2px; border-radius: 3px; }
 #rd .rd-rp-more { font-size: 10px; color: var(--dim); }
@@ -893,5 +897,5 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-mtrace { height: 100%; min-width: 0; background: transparent; }
 #rd .rd-rp-mlane.lt-cloud .rd-rp-tr-lit { stroke: var(--dim); filter: none; }
 @media (prefers-reduced-motion: reduce) {
-  #rd .rd-rp-lane, #rd .rd-rp-col, #rd .rd-rp-lock { transition: none; }
+  #rd .rd-rp-lock { transition: none; }
 }
