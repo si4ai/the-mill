@@ -2040,6 +2040,23 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                 self._send(code, _json(payload), "application/json; charset=utf-8")
                 return
 
+            # GET /api/v1/replay (path rewrite maps /api/v1/X -> /api/X). Cards 1205 and 1206.
+            if path == "/api/replay":
+                qs = parse_qs(urlparse(self.path).query)
+                from agent_coord.server.records.replay import cache_headers, parse_replay_page, v1_replay
+
+                limit, before, _after = parse_replay_page(qs)
+                del limit
+                try:
+                    with _office() as c:
+                        payload = v1_replay(c._cn, qs)
+                    code = 200
+                except Exception as e:
+                    code, payload = 500, {"error": err_text(e)}
+                extra = cache_headers(payload, before=before) if code == 200 else None
+                self._send(code, _json(payload), "application/json; charset=utf-8", extra)
+                return
+
             # GET /api/v1/{rooms,mailbox,tree-mail,tree-todo,todos,agents,scores,holds,watchers,events,names,map,timeline}
             # (path rewrite above maps /api/v1/X -> /api/X)
             _V1_PARTS = {
