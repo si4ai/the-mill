@@ -4129,7 +4129,9 @@
     }
 
     /* TODO List: a Jira-style table over the kanban's cards, one row per card. Rows, columns,
-     * sort and filter choices come from todo/todo.js (WallTodo); sort and filters persist. */
+     * sort, filter choices and column order come from todo/todo.js (WallTodo). Sort, filters
+     * and column order persist. Text fit is the shared TEXT control (Overflow | Wrap | Clip,
+     * as on MAIL); Reset columns puts all of these back to normal. */
     const TODO_LIST_KEY = "rd-todo-list";
     let _todoListCards = [];
     function loadTodoListOpt() {
@@ -4159,14 +4161,14 @@
       const T = window.WallTodo;
       if (!el || !T || !T.todoListView) return;
       wireTodoList();
-      const opt = loadTodoListOpt();
+      const opt = Object.assign(T.todoListDefaults(), loadTodoListOpt());
       const raw = {};
       const all = _todoListCards.map(r => { const row = T.todoListRow(r); raw[row.id] = r; return row; });
       if (!all.length) {
         el.innerHTML = `<div class="idle">No mill todo</div>`;
         return;
       }
-      const cols = T.todoListCols(all);
+      const cols = T.todoListCols(all, opt.order);
       const col = cols.some(c => c.key === opt.col) ? opt.col : "state";
       const dir = opt.dir === "desc" ? "desc" : "asc";
       const pick = T.todoListChoices(all);
@@ -4183,20 +4185,23 @@
       const count = rows.length === all.length ? `${all.length} cards` : `${rows.length} of ${all.length} cards`;
       const bar = `<div class="todo-jira-bar">` + sel("desk", "Desk", "All desks", pick.desks, desk) +
         sel("state", "State", "All states", pick.states, state) +
+        `<button type="button" class="todo-jira-reset" data-todo-reset="1" title="Default column order, text fit (Wrap), sort and filters">Reset columns</button>` +
         `<span class="todo-jira-n" aria-live="polite">${count}</span></div>`;
       const head = cols.map(c => {
         const on = c.key === col;
         const mark = on ? (dir === "asc" ? "\u25B2" : "\u25BC") : "";
-        return `<th scope="col" class="c-${c.key}" aria-sort="${on ? (dir === "asc" ? "ascending" : "descending") : "none"}">` +
-          `<button type="button" data-todo-sort="${c.key}" title="Sort by ${c.label.toLowerCase()}">${esc(c.label)}` +
+        return `<th scope="col" class="c-${c.key}" data-col="${c.key}" draggable="true" aria-sort="${on ? (dir === "asc" ? "ascending" : "descending") : "none"}">` +
+          `<button type="button" data-todo-sort="${c.key}" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" ` +
+          `title="Sort by ${c.label.toLowerCase()}. Drag the heading, or Alt+Left / Alt+Right, to move the column.">${esc(c.label)}` +
           `<span class="todo-jira-mark" aria-hidden="true">${mark}</span></button></th>`;
       }).join("");
       const cell = (row, c) => {
         const v = row[c.key];
         if (c.key === "state") return `<span class="todo-jira-st st-${esc(v)}">${esc(v)}</span>`;
         if (c.key === "title") return `<span class="todo-jira-ttl">${esc(v || "(no instructions)")}</span>` + millWatchBadge("todo", row.id);
-        if (c.key === "eta") return esc(v ? t(v) : "");
-        return esc(v);
+        /* Each value sits in its own span so Overflow can draw it over the cells to its right. */
+        if (c.key === "eta") return v ? `<span class="todo-jira-v">${esc(t(v))}</span>` : "";
+        return v ? `<span class="todo-jira-v">${esc(v)}</span>` : "";
       };
       /* On a phone the row stacks; these cells carry their own label (shown there only). */
       const LABELLED = { claimant: 1, asker: 1, eta: 1 };
@@ -4205,14 +4210,16 @@
         const r = raw[row.id] || {};
         const tr = `<tr class="todo-jira-row st-${esc(row.state)}${open ? " is-open" : ""}" data-todo-id="${esc(row.id)}" ` +
           `data-todo-trunc="${r.detail_trunc === true ? "1" : "0"}" tabindex="0" aria-expanded="${open ? "true" : "false"}">` +
-          cols.map(c => `<td class="c-${c.key}">${LABELLED[c.key] && row[c.key] ? `<span class="todo-jira-lbl">${esc(c.label)}</span>` : ""}${cell(row, c)}</td>`).join("") + `</tr>`;
+          /* The full text on hover, for Clip and Overflow cells cut at the edge. */
+          cols.map(c => `<td class="c-${c.key}"${row[c.key] && c.key !== "state" ? ` title="${esc(row[c.key])}"` : ""}>${LABELLED[c.key] && row[c.key] ? `<span class="todo-jira-lbl">${esc(c.label)}</span>` : ""}${cell(row, c)}</td>`).join("") + `</tr>`;
         return open ? tr + todoListMoreHtml(r, cols.length) : tr;
       }).join("");
       /* A repaint keeps the reader's place: scroll, and focus on the same header, menu or row. */
       const a = document.activeElement;
       let refocus = "";
       if (a && el.contains(a)) {
-        if (a.getAttribute("data-todo-sort")) refocus = `[data-todo-sort="${a.getAttribute("data-todo-sort")}"]`;
+        if (a.getAttribute("data-todo-reset")) refocus = "[data-todo-reset]";
+        else if (a.getAttribute("data-todo-sort")) refocus = `[data-todo-sort="${a.getAttribute("data-todo-sort")}"]`;
         else if (a.getAttribute("data-todo-filter")) refocus = `[data-todo-filter="${a.getAttribute("data-todo-filter")}"]`;
         else if (a.getAttribute("data-todo-id")) refocus = `tr[data-todo-id="${wallCssq(a.getAttribute("data-todo-id"))}"]`;
       }
@@ -4231,8 +4238,19 @@
     function wireTodoList() {
       if (document._todoListWired) return;
       document._todoListWired = true;
+      const T = window.WallTodo;
+      const saveAndPaint = o => { saveTodoListOpt(o); wallTodoListPaint(); };
+      /* The order drawn now (it already merges the saved order with the columns served). */
+      const drawnOrder = () => [...document.querySelectorAll("#jobs-list th[data-col]")].map(th => th.getAttribute("data-col"));
       document.addEventListener("click", ev => {
-        const b = ev.target && ev.target.closest ? ev.target.closest("#jobs-list [data-todo-sort]") : null;
+        const t = ev.target && ev.target.closest ? ev.target : null;
+        if (t && t.closest("#jobs-list [data-todo-reset]")) {
+          /* Normal text fit is the TEXT control's own default (Wrap, as on MAIL). */
+          try { if (typeof window.applyTextMode === "function") window.applyTextMode("wrap", "jobs"); } catch (eTm) {}
+          saveAndPaint(T.todoListDefaults());
+          return;
+        }
+        const b = t && t.closest("#jobs-list [data-todo-sort]");
         if (!b) return;
         const key = b.getAttribute("data-todo-sort");
         const o = loadTodoListOpt();
@@ -4250,6 +4268,49 @@
         saveTodoListOpt(o);
         wallTodoListPaint();
       });
+      /* Keyboard path for column order: Alt+Left / Alt+Right on a focused heading. Alt+Arrow is
+       * otherwise the Wall's previous / next pane (lib/keys.js, a document capture listener), so
+       * on a heading this one runs first (window capture) and keeps the stroke from switching panes. */
+      window.addEventListener("keydown", ev => {
+        if (!ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey || (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight")) return;
+        const b = ev.target && ev.target.closest ? ev.target.closest("#jobs-list [data-todo-sort]") : null;
+        if (!b) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const o = loadTodoListOpt();
+        o.order = T.todoColMove(drawnOrder(), b.getAttribute("data-todo-sort"), ev.key === "ArrowLeft" ? -1 : 1);
+        saveAndPaint(o);
+      }, true);
+      /* Drag a heading onto another to put it in that place. */
+      let dragCol = "";
+      const dropTh = ev => (dragCol && ev.target && ev.target.closest) ? ev.target.closest("#jobs-list th[data-col]") : null;
+      const dropClear = () => document.querySelectorAll("#jobs-list th.is-drop, #jobs-list th.is-dragging")
+        .forEach(th => th.classList.remove("is-drop", "is-dragging"));
+      document.addEventListener("dragstart", ev => {
+        const th = ev.target && ev.target.closest ? ev.target.closest("#jobs-list th[data-col]") : null;
+        if (!th) return;
+        dragCol = th.getAttribute("data-col");
+        th.classList.add("is-dragging");
+        try { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", dragCol); } catch (eDt) {}
+      });
+      document.addEventListener("dragover", ev => {
+        const th = dropTh(ev);
+        if (!th) return;
+        ev.preventDefault();
+        document.querySelectorAll("#jobs-list th.is-drop").forEach(x => { if (x !== th) x.classList.remove("is-drop"); });
+        if (th.getAttribute("data-col") !== dragCol) th.classList.add("is-drop");
+      });
+      document.addEventListener("drop", ev => {
+        const th = dropTh(ev);
+        if (!th) return;
+        ev.preventDefault();
+        const o = loadTodoListOpt();
+        o.order = T.todoColDrop(drawnOrder(), dragCol, th.getAttribute("data-col"));
+        dragCol = "";
+        dropClear();
+        saveAndPaint(o);
+      });
+      document.addEventListener("dragend", () => { dragCol = ""; dropClear(); });
       /* Enter or Space on a list row or a tree line opens the card, as a click does. */
       document.addEventListener("keydown", ev => {
         if (ev.key !== "Enter" && ev.key !== " ") return;

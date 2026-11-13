@@ -81,11 +81,66 @@
     };
   }
 
-  /* Columns to draw: the fixed three, plus each served column some row fills. */
-  function todoListCols(rows) {
-    return TODO_LIST_COLS.filter(function (c) {
+  /* Columns to draw: the fixed three, plus each served column some row fills, in the
+   * reader's saved order (todoColOrder) when one is given. */
+  function todoListCols(rows, order) {
+    var cols = TODO_LIST_COLS.filter(function (c) {
       return !c.ifServed || (rows || []).some(function (r) { return !!r[c.key]; });
     });
+    var at = {};
+    cols.forEach(function (c) { at[c.key] = c; });
+    return todoColOrder(order, cols.map(function (c) { return c.key; })).map(function (k) { return at[k]; });
+  }
+
+  /* The list's settings when nothing is saved, and what Reset columns goes back to. Text
+   * fit (Overflow | Wrap | Clip) is the Wall's shared TEXT control, not kept here. */
+  var TODO_LIST_DEFAULT = { col: "state", dir: "asc", desk: "", state: "", order: [] };
+  function todoListDefaults() {
+    var o = {};
+    Object.keys(TODO_LIST_DEFAULT).forEach(function (k) { o[k] = TODO_LIST_DEFAULT[k]; });
+    o.order = [];
+    return o;
+  }
+
+  /* A saved column order over the columns drawn now. Saved keys not drawn now drop out
+   * (and come back in place if their column returns); a drawn key the saved order never
+   * had goes right after the column it follows in the default order. */
+  function todoColOrder(saved, keys) {
+    keys = (keys || []).slice();
+    var have = {};
+    keys.forEach(function (k) { have[k] = 1; });
+    var out = [];
+    (Array.isArray(saved) ? saved : []).forEach(function (k) {
+      if (have[k] && out.indexOf(k) < 0) out.push(k);
+    });
+    var base = TODO_LIST_COLS.map(function (c) { return c.key; });
+    keys.forEach(function (k) {
+      if (out.indexOf(k) >= 0) return;
+      var at = 0;
+      for (var i = base.indexOf(k) - 1; i >= 0; i--) {
+        var j = out.indexOf(base[i]);
+        if (j >= 0) { at = j + 1; break; }
+      }
+      out.splice(at, 0, k);
+    });
+    return out;
+  }
+
+  /* Move one column by delta places (keyboard), clamped to the ends. */
+  function todoColMove(order, key, delta) {
+    var out = (order || []).slice(), i = out.indexOf(key);
+    if (i < 0) return out;
+    var j = Math.max(0, Math.min(out.length - 1, i + (Number(delta) || 0)));
+    out.splice(i, 1);
+    out.splice(j, 0, key);
+    return out;
+  }
+
+  /* Drop one column on another (drag): it takes the target's place. */
+  function todoColDrop(order, key, onto) {
+    var i = (order || []).indexOf(key), j = (order || []).indexOf(onto);
+    if (i < 0 || j < 0) return (order || []).slice();
+    return todoColMove(order, key, j - i);
   }
 
   function todoListCmp(col) {
@@ -177,6 +232,10 @@
     millJobsForOwner: millJobsForOwner,
     todoListRow: todoListRow,
     todoListCols: todoListCols,
+    todoListDefaults: todoListDefaults,
+    todoColOrder: todoColOrder,
+    todoColMove: todoColMove,
+    todoColDrop: todoColDrop,
     todoListView: todoListView,
     todoListChoices: todoListChoices,
     todoOutline: todoOutline,

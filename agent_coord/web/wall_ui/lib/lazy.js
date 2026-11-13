@@ -76,8 +76,8 @@
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow374",
-      css: "/todo/todo.css?v=wow374",
+      js: "/todo/todo.js?v=wow375",
+      css: "/todo/todo.css?v=wow375",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }

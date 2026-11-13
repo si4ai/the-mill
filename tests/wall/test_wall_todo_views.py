@@ -61,6 +61,21 @@ console.log(JSON.stringify({
   folded: lines({collapsed: {'2': 1}}),
   kept: lines({keep: {'1': 1, '3': 1}}),
   views: [R.todoView('', true), R.todoView('', false), R.todoView('list', true), R.todoView('nest', false), R.todoView('all', true)],
+  order: {
+    merged: T.todoColOrder(['asker', 'id', 'title'], ['id', 'title', 'state', 'claimant', 'asker']),
+    gone: T.todoColOrder(['eta', 'title', 'id', 'state', 'claimant', 'asker'], ['id', 'title', 'state', 'claimant', 'asker']),
+    back: T.todoColOrder(['eta', 'title', 'id', 'state', 'claimant', 'asker'], ['id', 'title', 'state', 'claimant', 'asker', 'eta']),
+    fresh: T.todoColOrder(['title', 'id', 'state', 'claimant', 'asker'], ['id', 'title', 'state', 'claimant', 'asker', 'eta']),
+    none: T.todoColOrder(null, ['id', 'title', 'state']),
+    junk: T.todoColOrder(['nope', 'title', 'title'], ['id', 'title']),
+    left: T.todoColMove(['id', 'title', 'state'], 'state', -1),
+    clampL: T.todoColMove(['id', 'title', 'state'], 'id', -1),
+    clampR: T.todoColMove(['id', 'title', 'state'], 'state', 5),
+    drop: T.todoColDrop(['id', 'title', 'state', 'claimant'], 'claimant', 'title'),
+    dropR: T.todoColDrop(['id', 'title', 'state', 'claimant'], 'id', 'state'),
+    cols: T.todoListCols(rows, ['asker', 'title']).map(c => c.key),
+    defaults: T.todoListDefaults(),
+  },
   head: V.hostHead('todo', {scope: {label: 'Office'}}, [{key: 'board', label: 'Kanban'}, {key: 'list', label: 'List'}, {key: 'nest', label: 'Tree', alone: true}], 'list'),
 }));
 """
@@ -127,3 +142,47 @@ def test_tree_is_its_own_button_beside_the_kanban_list_toggle():
     assert 'data-rd-view="nest"' in rest
     assert 'data-rd-view="list" class="on" aria-pressed="true"' in head
     assert head.count('aria-pressed="false"') == 2
+
+
+def test_column_order_merges_with_served_columns():
+    o = run()["order"]
+    assert o["merged"] == ["asker", "id", "title", "state", "claimant"]
+    # A saved column not served today drops out, and comes back in its saved place.
+    assert o["gone"] == ["title", "id", "state", "claimant", "asker"]
+    assert o["back"] == ["eta", "title", "id", "state", "claimant", "asker"]
+    # A column the saved order never had sits after its default neighbour.
+    assert o["fresh"] == ["title", "id", "state", "claimant", "asker", "eta"]
+    assert o["none"] == ["id", "title", "state"]
+    assert o["junk"] == ["id", "title"] or o["junk"] == ["title", "id"]
+    # id leads the default order, so a saved order without it gets it first.
+    assert o["cols"] == ["id", "asker", "title", "state", "claimant"]
+
+
+def test_column_moves_by_key_and_by_drop():
+    o = run()["order"]
+    assert o["left"] == ["id", "state", "title"]
+    assert o["clampL"] == ["id", "title", "state"]
+    assert o["clampR"] == ["id", "title", "state"]
+    assert o["drop"] == ["id", "claimant", "title", "state"]
+    assert o["dropR"] == ["title", "state", "id", "claimant"]
+
+
+def test_reset_restores_defaults_and_text_fit_is_the_shared_control():
+    assert run()["order"]["defaults"] == {"col": "state", "dir": "asc", "desk": "", "state": "", "order": []}
+    boot = (DEFAULT / "boot.js").read_text(encoding="utf-8")
+    start = boot.index("    function wallTodoListPaint() {")
+    paint = boot[start:boot.index("\n    function wireTodoList() {", start)]
+    # No list-only wrap toggle: text fit is the Wall's TEXT control (Overflow | Wrap | Clip), as on MAIL.
+    assert "data-todo-density" not in boot and "Truncate" not in paint
+    assert 'data-todo-reset="1"' in paint and 'draggable="true"' in paint
+    assert 'aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"' in paint
+    assert 'window.applyTextMode("wrap", "jobs")' in boot
+    # Alt+Arrow on a heading moves the column and must beat lib/keys.js's document-capture
+    # pane switch, so it listens on window in the capture phase and stops the stroke.
+    wire = boot.split("function wireTodoList()", 1)[1].split("/* nest time window", 1)[0]
+    alt = wire.split("Keyboard path for column order", 1)[1].split("/* Drag a heading", 1)[0]
+    assert 'window.addEventListener("keydown"' in alt and "ev.stopPropagation()" in alt and "}, true);" in alt
+    css = (DEFAULT / "todo" / "todo.css").read_text(encoding="utf-8")
+    for mode in ("overflow", "wrap", "clip"):
+        assert f'#pane-todo[data-todo-text="{mode}"] .todo-jira td' in css
+    assert "table-layout: fixed" in css and "width: max-content" not in css
