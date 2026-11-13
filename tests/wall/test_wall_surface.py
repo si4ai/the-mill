@@ -45,7 +45,7 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow344",
+    "boot.js": "wow345",
     "board.css": "wow345",
     "lazy.js": "wow344",
     "shell.css": "wow345",
