@@ -2371,8 +2371,10 @@ _BOOK_TO_UTC_1207 = "CONVERT_TZ(d.created, @@session.time_zone, '+00:00')"
 def _reanchor_connect_1207(cur) -> int:
     """Connect and disconnect rows (card 1028) were anchored on activity('doing', desk_id); once tw doing ids pass
     the desk ids they land on a real run's trail (Validator, 1207 q4). Move them to the connect anchor
-    (connect_activity.anchor_id), then drop the old pseudo activity row when nothing else uses it. A rerun
-    finds nothing to move. Returns the transition rows moved."""
+    (connect_activity.anchor_id), then drop the old pseudo activity row when nothing else uses it. The new
+    activity row takes the connecting desk's desk_id (the old activity id), not the copied row's desk_id,
+    which may belong to a tw run that reused that id. A rerun finds nothing to move. Returns the transition
+    rows moved."""
     from agent_coord.server.connect_activity import CONNECT_ANCHOR_BASE
 
     if not _table_exists(cur, "transition") or not _table_exists(cur, "activity"):
@@ -2381,7 +2383,7 @@ def _reanchor_connect_1207(cur) -> int:
            " AND t.activity_id < %s")
     cur.execute(
         "INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act, bytes)"
-        " SELECT a.type, a.id + %s, a.created, a.updated, a.desk_id, a.roster_id, a.act, a.bytes"
+        " SELECT a.type, a.id + %s, a.created, a.updated, a.id, a.roster_id, a.act, a.bytes"
         " FROM activity a WHERE a.type = 'doing' AND a.id IN"
         f" (SELECT DISTINCT t.activity_id FROM transition t WHERE {old})",
         (CONNECT_ANCHOR_BASE, CONNECT_ANCHOR_BASE),
@@ -2416,6 +2418,20 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
     try:
         if not _table_exists(cur, "doing") or not _table_exists(cur, "transition_edge"):
             return applied
+        # A zone that cannot convert must stop before any write, so "Nothing was changed" is true:
+        # the name-row deletes, the connect re-anchor and the rename edge would otherwise already
+        # be committed (Validator W1).
+        acts = ", ".join(f"'{a}'" for a in _MOVE_ACTS_1207)
+        utc = _BOOK_TO_UTC_1207
+        if _column_exists(cur, "doing", "act"):
+            cur.execute(f"SELECT @@session.time_zone, COUNT(*) FROM doing d WHERE d.act IN ({acts}) AND {utc} IS NULL")
+            tz, bad = cur.fetchone()
+            if int(bad or 0):
+                raise RuntimeError(
+                    f"card 1207: session time_zone {tz!r} cannot convert {int(bad)} doing.created values to UTC"
+                    " (CONVERT_TZ is NULL; load the MySQL time zone tables, or set time_zone to SYSTEM or an"
+                    " offset like the book was written with), then start the office again. Nothing was changed."
+                )
         # Part 1 of this card anchored name events on focus rows; those edges and rows go.
         names = ", ".join(f"'{r}'" for r in _NAME_REASONS_1207)
         cur.execute(f"DELETE FROM transition WHERE activity_type = 'doing' AND reason IN ({names})")
@@ -2436,7 +2452,6 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
         if cur.rowcount:
             applied.append("transition_edge.card_1207")
         cn.commit()
-        acts = ", ".join(f"'{a}'" for a in _MOVE_ACTS_1207)
         # 0. A row that is not a tw run but that a tree node names can't go (doing_no_delete_in_tree,
         # fk_tree_activity), and a plan's node is the user's: the row stays, with its node and activity row,
         # and gets one terminal row (any -> cleared, clear, meta.cause migrate_1207) so no reader counts it live.
@@ -2455,15 +2470,7 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
         if moves:
             # The book clock (doing.created, CURRENT_TIMESTAMP in the session zone) to UTC (transition.at), per
             # row: on a DST zone a row from the other half of the year has the other offset (Validator, 1207).
-            utc = _BOOK_TO_UTC_1207
-            cur.execute(f"SELECT @@session.time_zone, COUNT(*) FROM doing d WHERE d.act IN ({acts}) AND {utc} IS NULL")
-            tz, bad = cur.fetchone()
-            if int(bad or 0):
-                raise RuntimeError(
-                    f"card 1207: session time_zone {tz!r} cannot convert {int(bad)} doing.created values to UTC"
-                    " (CONVERT_TZ is NULL; load the MySQL time zone tables, or set time_zone to SYSTEM or an"
-                    " offset like the book was written with), then start the office again. Nothing was changed."
-                )
+            # The CONVERT_TZ guard ran at the start of this function, before any write.
             if _column_exists(cur, "doing", "evidence"):
                 # 1. Evidence: the card's newest ship/done/back row; ship or done with evidence -> meta.evidence,
                 # byte-equal. A step back leaves none. Only the newest is kept (meta holds one).

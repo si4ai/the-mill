@@ -1,6 +1,7 @@
 """Card 1207: apply_1207 on an existing (pre-1207) book, the cases Validator's pre-fold measure found
-(take-over, a DST-split book, a tree node on a name row, the connect anchor) plus the evidence and tw card
-steps, each on its own rows of one fresh book reshaped to the old doing columns before every test.
+(take-over, a DST-split book, a tree node on a name row, the connect anchor, a compressed hold) plus the
+evidence and tw card steps, each on its own rows of one fresh book reshaped to the old doing columns before
+every test.
 
 Times: doing.created is the book clock (the session zone); transition.at is UTC.
 """
@@ -190,16 +191,44 @@ def test_a_dst_split_book_is_converted_per_row(cn):
 
 def test_a_zone_that_cannot_convert_stops_before_any_change(cn, monkeypatch):
     from agent_coord.install import migrate
+    from agent_coord.server.connect_activity import anchor_id
 
     d = _desk(cn, "tz")
     c = _card(cn, d)
     _move(cn, d, c, "claim", "2026-10-15 10:00:00")
+    # Early-step rows: a name-delete transition, a connect row on activity('doing', desk_id),
+    # and the rename edge removed so a premature insert would show.
+    named = _x(cn, "INSERT INTO doing (created, desk_id, roster_id, text, act) VALUES"
+                   " ('2026-10-15 09:00:00', %s, 1, 'roster:tmp', 'delete')", (d,))
+    _x(cn, "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('doing', %s, %s, 1, 'delete')",
+       (named, d))
+    _tr(cn, "doing", named, "any", "cleared", "name_delete", d, "2026-10-15 09:00:01")
+    _x(cn, "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('doing', %s, %s, 1, 'focus')", (d, d))
+    _tr(cn, "doing", d, "seated", "connected", "connect", d, "2026-10-15 08:00:00")
+    _x(cn, "UPDATE transition SET join_key = %s WHERE activity_id = %s AND reason = 'connect'",
+       (f"connect:{d}:1", d))
+    _x(cn, "DELETE FROM transition_edge WHERE activity_type = 'todo' AND from_state = 'any'"
+           " AND to_state = 'same' AND reason = 'rename'")
     cn.commit()
+    tables = ("doing", "transition", "activity", "tree", "seat", "label", "watcher", "todo", "hold",
+              "transition_edge")
+
+    def _sums():
+        return {t: _q(cn, f"CHECKSUM TABLE `{t}`")[0][1] for t in tables}
+
+    before = _sums()
     monkeypatch.setattr(migrate, "_BOOK_TO_UTC_1207", "CONVERT_TZ(d.created, 'No/Such_Zone', '+00:00')")
     with pytest.raises(RuntimeError, match="cannot convert"):
         _apply(cn)
+    assert _sums() == before
     assert _q(cn, "SELECT act FROM doing WHERE on_id = %s AND on_type = 'todo'", (c,)) == [("claim",)]
     assert _trail(cn, c) == []
+    assert _q(cn, "SELECT reason FROM transition WHERE activity_id = %s AND activity_type = 'doing'"
+                  " AND reason = 'name_delete'", (named,)) == [("name_delete",)]
+    assert _q(cn, "SELECT activity_id FROM transition WHERE join_key = %s", (f"connect:{d}:1",)) == [(d,)]
+    assert _q(cn, "SELECT COUNT(*) FROM activity WHERE type = 'doing' AND id = %s", (anchor_id(d),)) == [(0,)]
+    assert _q(cn, "SELECT COUNT(*) FROM transition_edge WHERE activity_type = 'todo' AND from_state = 'any'"
+                  " AND to_state = 'same' AND reason = 'rename'") == [(0,)]
     monkeypatch.undo()
     _apply(cn)  # leave the book upgraded for the next test
     assert len(_trail(cn, c)) == 1
@@ -258,9 +287,33 @@ def test_connect_rows_leave_a_tw_run_that_shares_the_desk_id(cn):
         ("tw_start",)]
     assert _q(cn, "SELECT reason FROM transition WHERE activity_type = 'doing' AND activity_id = %s ORDER BY id",
               (anchor_id(sat),)) == [("connect",), ("disconnect",)]
+    assert _q(cn, "SELECT desk_id FROM activity WHERE type = 'doing' AND id = %s",
+              (anchor_id(sat),)) == [(sat,)]
     name = _q(cn, "SELECT name FROM name WHERE id = %s", (runner,))[0][0]
     assert [x["state"] for x in live_doings(cn, [name])[name]["doings"]] == ["active"]
     assert _apply(cn).get("connect_rows_moved") == 0  # a rerun moves nothing
+
+
+# compressed hold (MU15) ---------------------------------------------------------------------------------------
+
+def test_a_compressed_hold_row_covers_the_hold_move(cn):
+    """A hold move whose item already has a compressed transition (n>1, n<=100) is covered, not backfilled.
+
+    The compressed row is more than 5 seconds after the move, so the time-window
+    clause does not cover it; only the n>1 clause does (MU15 mutates n>1 to n>100).
+    """
+    d = _desk(cn, "hld")
+    res = _x(cn, "INSERT INTO name (type, name) VALUES ('res', %s)", (f"u1207-res-{uuid.uuid4().hex[:6]}",))
+    hid = _x(cn, "INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", (d, res))
+    _x(cn, "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('hold', %s, %s, 1, 'hold')", (hid, d))
+    _move(cn, d, hid, "hold", "2026-09-20 10:00:00", on_type="hold")
+    _x(cn, "INSERT INTO transition (at, activity_type, activity_id, from_state, to_state, reason, desk_id, n)"
+           " VALUES ('2026-09-20 10:10:00', 'hold', %s, 'free', 'held', 'hold_grant', %s, 2)", (hid, d))
+    cn.commit()
+    _apply(cn)
+    assert _q(cn, "SELECT from_state, to_state, reason, n, desk_id FROM transition"
+                  " WHERE activity_type = 'hold' AND activity_id = %s ORDER BY id", (hid,)) == [
+        ("free", "held", "hold_grant", 2, d)]
 
 
 # evidence and the tw card -------------------------------------------------------------------------------------
