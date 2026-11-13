@@ -100,3 +100,23 @@ def test_unserved_scores_stay_hidden():
     got = run()
     assert not got["scoreKnown"]
     assert "NaN" not in got["html"] and "undefined" not in got["html"]
+
+
+MAIL_SCRIPT = r"""
+require(process.argv[1] + '/rd-model.js');
+const data = JSON.parse(process.argv[2]);
+const b = WallRd.base(data, {rosters: ['Office'], range: '7d'}, Date.parse(process.argv[3]));
+const m = WallRd.mail(b, {});
+console.log(JSON.stringify({groups: m.groups.map(g => [g.desk, g.n]), waiting: m.waiting}));
+"""
+
+
+def test_mail_leaves_out_letters_waiting_on_a_deleted_desk():
+    letter = {"created": "2026-11-13 04:00:00", "from": "builder", "body": "ping",
+              "mail_tos": [{"deskId": "retired", "receipt": 0}, {"deskId": "gardener", "receipt": 0}]}
+    data = dict(OFFICE, mail={"Office": [dict(letter, id=1), dict(letter, id=2, mail_tos=[{"deskId": "retired", "receipt": 0}])]})
+    out = subprocess.run([NODE, "-e", MAIL_SCRIPT, "--", str(RD), json.dumps(data), NOW],
+                         capture_output=True, text=True, check=True, timeout=30)
+    got = json.loads(out.stdout)
+    assert got["groups"] == [["gardener", 1]]
+    assert got["waiting"] == 1

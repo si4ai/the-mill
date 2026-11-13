@@ -245,7 +245,8 @@
       agentsKnown: agentsKnown,
       all: all, desks: desks, byName: byName,
       inScope: function (name) { var d = byName[str(name)]; return !!d && d.checked; },
-      offDesk: function (name) { return !!sc.off[str(name)]; }
+      offDesk: function (name) { return !!sc.off[str(name)]; },
+      isDeleted: function (name) { return !!deleted[str(name)]; }
     };
     b.kpis = collectKpis(b);
     b.labels = collectLabels(b);
@@ -606,7 +607,7 @@
     b.letters.forEach(function (m) {
       if (!inRange(b, m.at)) return;
       m.tos.forEach(function (t) {
-        if (!t.unread || !t.desk || t.desk === "*" || b.offDesk(t.desk)) return;
+        if (!t.unread || !t.desk || t.desk === "*" || b.offDesk(t.desk) || b.isDeleted(t.desk)) return;
         (by[t.desk] || (by[t.desk] = [])).push(m);
       });
     });
