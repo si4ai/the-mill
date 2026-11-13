@@ -1922,8 +1922,8 @@
    *   3. Else if the row is not ended (no ended flag, no ended_by): the
    *      span is open and runs to the playhead, unless that desk is no
    *      longer working (stale, disconnected, or idle). Then the span
-   *      ends at the desk's last-seen time, so a leftover doing does
-   *      not cover the idle time after it and block a void.
+   *      follows the last run of activity on that desk, plus a short
+   *      grace, and does not jump to last-seen across a quiet gap.
    *   4. Else ended is true but no timestamp and no next row: the end
    *      time was not sent, so we do not invent one; the start tick
    *      stays and there is no span.
@@ -1937,6 +1937,7 @@
     });
     return close;
   }
+  var REPLAY_DOING_GRACE_MS = 2 * 60 * 60 * 1000;
   function replayDoingEnd(row, nextAt, closeAt) {
     if (row.endedAt != null) return { end: row.endedAt, open: false, how: row.endedBy || "" };
     if (nextAt != null) return { end: nextAt, open: false, how: row.endedBy || "newer" };
@@ -1949,9 +1950,37 @@
     }
     return { end: null, open: false, how: row.endedBy || "ended" };
   }
+  /* Walk activity on one desk from the doing's start, in time order, and
+   * stop at the first gap longer than the grace. last-seen is kept only
+   * when it still sits in that run. */
+  function replayDoingLastRun(rep, desk, start, nextAt, closeAt) {
+    var times = [], cap = nextAt, i, last;
+    (rep && rep.pool || []).forEach(function (r) {
+      if (!r || r.at == null || r.at < start) return;
+      if (cap != null && !(r.at < cap)) return;
+      if ((r.actor || r.lane || "") !== desk) return;
+      times.push(r.at);
+    });
+    if (closeAt != null && closeAt >= start && (cap == null || closeAt < cap)) times.push(closeAt);
+    times.sort(function (a, b) { return a - b; });
+    last = start;
+    for (i = 0; i < times.length; i++) {
+      if (times[i] - last <= REPLAY_DOING_GRACE_MS) last = times[i];
+      else break;
+    }
+    return last;
+  }
+  function replayDoingSpanEnd(rep, row, nextAt, desk) {
+    var ev = replayDoingEnd(row, nextAt, (rep.doingClose || {})[desk]);
+    if (ev.how === "stale" && ev.end != null) {
+      ev = { end: replayDoingLastRun(rep, desk, row.at, nextAt, ev.end), open: false, how: "stale" };
+    }
+    return ev;
+  }
   /* Doing intervals for the window scale: open spans run to hi, not the playhead,
    * so the map stays fixed for a given window. A stale desk's leftover doing
-   * ends at last-seen instead, so it does not occupy the idle tail. */
+   * follows the last run of activity on that desk, so it does not occupy a
+   * later quiet stretch and block a void. */
   function replayDoingIntervals(rep, hi) {
     hi = hi != null ? hi : (rep && rep.until);
     var byDesk = {}, spans = [];
@@ -1963,7 +1992,7 @@
     Object.keys(byDesk).forEach(function (desk) {
       var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
       list.forEach(function (r, i) {
-        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null, (rep.doingClose || {})[desk]);
+        var ev = replayDoingSpanEnd(rep, r, list[i + 1] ? list[i + 1].at : null, desk);
         if (!ev.open && ev.end == null) return;
         var end = ev.open || ev.end == null ? hi : ev.end;
         if (!(end > r.at)) return;
@@ -1989,7 +2018,7 @@
     Object.keys(byDesk).forEach(function (desk) {
       var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
       list.forEach(function (r, i) {
-        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null, (rep.doingClose || {})[desk]);
+        var ev = replayDoingSpanEnd(rep, r, list[i + 1] ? list[i + 1].at : null, desk);
         if (!ev.open && ev.end == null) return;
         if (t < r.at) return;
         var endDraw = ev.open || ev.end == null || ev.end > t ? t : ev.end;
@@ -2025,7 +2054,7 @@
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

@@ -1037,3 +1037,78 @@ console.log(JSON.stringify({{
     assert out["liveIvOpen"] is True and out["liveIvEnd"] == out["now"]
     assert out["mailId"] == "mail-200>builder>validator"
     assert out["fadeMin"] >= out["floor"] and out["mailFade"] >= out["floor"]
+
+def test_labels_request_uses_office_and_failure_is_not_fatal():
+    """Labels are office-wide, so the Wall asks project=Office, not the focused roster.
+
+    A 400 or a dropped read must not throw, and must be remembered so the
+    next paint does not keep retrying.
+    """
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "function partRoster" in app
+    assert 'kind === "labels" ? "Office"' in app
+    assert 'kind === "labels"' in app and "gotAt[key] = Date.now()" in app
+    assert "A 400 or a dropped read must not block the tab" in app
+
+def test_stale_doing_last_run_does_not_cover_a_later_quiet_gap():
+    """A leftover doing stops at the last run of work, not at a later last-seen.
+
+    When last-seen is days after the last activity on that desk, the quiet
+    stretch in between collapses, and mail in the later cluster keeps its
+    line. A last-seen still inside the grace stays on the run, as in the
+    earlier stale-doing case.
+    """
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+function iso(ms) {{ return new Date(ms).toISOString().replace("T", " ").replace("Z", "").slice(0, 19); }}
+const now = Date.parse("2026-11-13T08:00:00Z");
+const t0 = now - 5 * 86400000, tMail0 = t0 + 60000, tMail1 = now - 12 * 3600000, seen = now - 60000;
+const data = {{
+  agents: {{Office: [
+    {{owner: "builder", alive: false, stale: true, heartbeat: iso(seen)}},
+    {{owner: "validator", alive: true, stale: false, heartbeat: iso(now - 60000)}}
+  ]}},
+  doing: {{builder: {{owner: "builder", alive: false, stale: true, doing: "leftover work", on: "todo-1"}}}},
+  rosterList: [{{name: "Office", desks: 2}}],
+  todos: {{Office: {{needs: [{{id: 9, title: "old card", owner: "validator", created: iso(t0)}}]}}}},
+  holds: {{Office: []}}, scores: {{Office: []}},
+  mail: {{Office: [
+    {{id: 200, created: iso(tMail0), from: "builder", body: "early",
+      mail_tos: [{{deskId: "validator", receipt: 1}}]}},
+    {{id: 201, created: iso(tMail1), from: "builder", body: "late",
+      mail_tos: [{{deskId: "validator", receipt: 1}}]}}
+  ]}},
+  events: {{Office: [{{id: 9, kind: "wake", at: iso(t0), owner: "System", roster_id: "Office"}}]}},
+  labels: {{Office: {{rows: [], checks: {{}}}}}}, trees: {{Office: []}}, rooms: {{Office: []}}, moves: {{}},
+  trail: {{builder: [{{id: 1, desk: "builder", at: iso(t0), doing: "leftover work", on: "todo-1", act: "focus"}}]}}
+}};
+const b = R.base(data, {{rosters: ["Office"], range: "7d"}}, now);
+const rep = R.collabReplay(b, {{count: 300}});
+const scale = R.replayScale(rep);
+const iv = R.replayDoingIntervals(rep, rep.until);
+const at = R.replayItemsAt(rep, rep.until, 400, "desks");
+const early = at.links.find(l => l.id === "mail-200>builder>validator");
+const late = at.links.find(l => l.id === "mail-201>builder>validator");
+const skip = (scale && scale.breaks || []).reduce((s, br) => s + (br.skip || 0), 0);
+console.log(JSON.stringify({{
+  since: rep.since, until: rep.until, t0: t0, tMail0: tMail0, tMail1: tMail1, seen: seen,
+  grace: R.REPLAY_DOING_GRACE_MS,
+  ivEnd: iv[0] && iv[0].end, ivOpen: iv[0] && iv[0].open, ivHow: iv[0] && iv[0].how,
+  breaks: (scale && scale.breaks || []).length, skip: skip,
+  earlyId: early && early.id, lateId: late && late.id,
+  earlyPos: early && early.pos, latePos: late && late.pos,
+  fadeMin: at.links.length ? Math.min(...at.links.map(l => l.fade)) : null,
+  floor: R.REPLAY_LINK_FADE
+}}));
+"""
+    out = _node(script)
+    assert out["ivEnd"] == out["tMail0"]
+    assert out["ivOpen"] is False
+    assert out["breaks"] >= 1
+    assert out["skip"] > 3 * 86400000
+    assert out["earlyId"] and out["lateId"]
+    assert out["fadeMin"] >= out["floor"]
+    assert out["latePos"] is not None and out["earlyPos"] is not None
+    assert abs(out["latePos"] - out["earlyPos"]) > 0.2

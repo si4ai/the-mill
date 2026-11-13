@@ -105,23 +105,49 @@
       return r.ok ? r.json() : null;
     }).catch(function () { return null; });
   }
+  /* Labels are office-wide. The live mill answers GET /api/v1/labels only
+   * with project=Office; a roster such as the-mill is a 400. Other parts
+   * still use the focused roster. */
+  function partRoster(kind, roster) {
+    return kind === "labels" ? "Office" : roster;
+  }
+  function storePart(kind, roster, win, rows) {
+    if (win) (winData[kind + "|" + win] || (winData[kind + "|" + win] = {}))[roster] = rows;
+    else data[kind][roster] = rows;
+  }
   function fetchPart(kind, roster, force, win) {
     win = win || "";
-    var key = kind + "|" + roster + "|" + win;
+    var req = partRoster(kind, roster);
+    var key = kind + "|" + req + "|" + win;
     if (inflight[key]) return inflight[key];
     if (!force && gotAt[key] && Date.now() - gotAt[key] < FRESH_MS[kind]) return Promise.resolve();
-    var url = ROUTE[kind].replace("%R", encodeURIComponent(roster)) + (win ? "&window=" + win : "");
+    var url = ROUTE[kind].replace("%R", encodeURIComponent(req)) + (win ? "&window=" + win : "");
     inflight[key] = getJson(url).then(function (j) {
       inflight[key] = null;
       if (j && !j.error) {
         var rows = PICK[kind](j) || [];
-        if (win) (winData[kind + "|" + win] || (winData[kind + "|" + win] = {}))[roster] = rows;
-        else data[kind][roster] = rows;
+        storePart(kind, req, win, rows);
+        if (roster !== req) storePart(kind, roster, win, rows);
         gotAt[key] = Date.now();
       } else if (win) {
         /* A server before card 1193 refuses the window; read the whole list and cut it here. */
         noWindow[kind] = true;
         return fetchPart(kind, roster, force, "");
+      } else if (kind === "labels") {
+        /* A 400 or a dropped read must not block the tab or retry every paint. */
+        var empty = { rows: [], checks: {} };
+        storePart(kind, req, win, empty);
+        if (roster !== req) storePart(kind, roster, win, empty);
+        gotAt[key] = Date.now();
+      }
+      paintSoon();
+    }).catch(function () {
+      inflight[key] = null;
+      if (kind === "labels") {
+        var empty = { rows: [], checks: {} };
+        storePart(kind, req, win, empty);
+        if (roster !== req) storePart(kind, roster, win, empty);
+        gotAt[key] = Date.now();
       }
       paintSoon();
     });
