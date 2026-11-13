@@ -150,9 +150,16 @@
       var ok = rosters.filter(function (r) { return rosterNames.indexOf(r) >= 0; });
       if (ok.length) rosters = ok;
     }
+    /* only: the desks of the station picked on the Wall rail (null = every desk on the roster). */
+    var only = null;
+    if (Array.isArray(scope.only)) {
+      only = {};
+      scope.only.forEach(function (n) { if (str(n)) only[str(n)] = 1; });
+    }
     return {
       rosters: rosters,
-      off: Object.assign({}, scope.off || {}),
+      only: only,
+      label: str(scope.label) || rosters.join(" + "),
       range: RANGES.indexOf(scope.range) >= 0 ? scope.range : "7d"
     };
   }
@@ -234,7 +241,7 @@
       d.rosters = rostersOf[o];
       /* In range: connected now, or last seen since the range start. Never seen: left out. */
       if (!d.connected && (d.lastSeenAt == null || d.lastSeenAt < start)) return;
-      d.checked = !sc.off[o];
+      d.checked = !sc.only || !!sc.only[o];
       all.push(d);
     });
     var byName = {};
@@ -245,7 +252,7 @@
       agentsKnown: agentsKnown,
       all: all, desks: desks, byName: byName,
       inScope: function (name) { var d = byName[str(name)]; return !!d && d.checked; },
-      offDesk: function (name) { return !!sc.off[str(name)]; },
+      offDesk: function (name) { return !!sc.only && !sc.only[str(name)]; },
       isDeleted: function (name) { return !!deleted[str(name)]; }
     };
     b.kpis = collectKpis(b);
@@ -337,12 +344,6 @@
     return out;
   }
   function inRange(b, at) { return at != null && at >= b.start; }
-  function waitingOn(b, desk) {
-    if (!b.letters) return null;
-    return b.letters.filter(function (m) {
-      return m.tos.some(function (t) { return t.desk === desk && t.unread; });
-    });
-  }
 
   /* ---- scores per desk ---- */
   function deskScores(b, desk) {
@@ -387,16 +388,10 @@
     return (tc - ta) || byName(a, c);
   }
   function urgency(a, c) {
-    /* Working desks always lead, then waiting, then idle; signals only order inside a state. */
+    /* Most active first: working, waiting, idle, then the latest activity inside a state. */
     var ra = STATE_RANK[a.state], rc = STATE_RANK[c.state];
     if (ra !== rc) return (ra == null ? 9 : ra) - (rc == null ? 9 : rc);
-    var oa = (a.wait && a.wait.overDay) || 0, oc = (c.wait && c.wait.overDay) || 0;
-    if (oa !== oc) return oc - oa;
-    var fa = a.scores && a.scores.off ? 1 : 0, fc = c.scores && c.scores.off ? 1 : 0;
-    if (fa !== fc) return fc - fa;
-    var na = a.wait ? a.wait.letters + a.wait.cards : 0, nc = c.wait ? c.wait.letters + c.wait.cards : 0;
-    if (na !== nc) return nc - na;
-    return byName(a, c);
+    return byRecent(a, c);
   }
   function sortDesks(rows, sort, away) {
     var cmp = sort === "az" ? byName : sort === "za" ? function (a, c) { return byName(c, a); }
@@ -426,7 +421,6 @@
     return {
       sort: sort, connected: live, away: away, selected: selected,
       known: b.agentsKnown,
-      oldLetters: live.filter(function (r) { return r.wait && r.wait.overDay; }).length,
       scoreOff: live.filter(function (r) { return r.scores && r.scores.off; }).length
     };
   }
@@ -435,31 +429,7 @@
     var d = b.byName[str(name)];
     if (!d) return null;
     var r = deskRow(b, d);
-    var waiting = waitingOn(b, d.name);
-    var attn = [];
-    if (waiting) {
-      waiting.slice(0, 3).forEach(function (m) {
-        var age = m.at != null ? b.now - m.at : null;
-        attn.push({ kind: "letter", id: "mail-" + m.id, title: "from " + m.from, note: firstLine(m.body, 140), when: dur(age),
-          flag: age != null && age > DAY ? "over a day" : "", heat: age == null ? "" : age > 2 * DAY ? "older" : age > DAY ? "hot" : "" });
-      });
-    }
-    var moreLetters = r.wait ? Math.max(0, r.wait.letters - (waiting ? Math.min(3, waiting.length) : 0)) : 0;
     var plist = prioList(b, d.name);
-    (plist || []).slice(0, 3).forEach(function (p) {
-      var current = r.on === "todo-" + p.id;
-      attn.push({ kind: "prio", rank: p.pos, ord: p.ord, id: "todo-" + p.id, title: p.title,
-        note: current ? "current doing" + (r.age ? " \u00b7 for " + r.age : "") : prioNote(p, d.name) });
-    });
-    if (b.cards) {
-      b.cards.forEach(function (c) {
-        if (c.status !== "claimed" || c.desk !== d.name) return;
-        var lab = lastActivity(b, c.id);
-        if (lab == null || b.now - lab <= STUCK_MS) return;
-        attn.push({ kind: "card", id: "todo-" + c.id, title: c.title, flag: "stuck " + dur(b.now - lab), heat: "older",
-          note: "claimed, no activity for " + dur(b.now - lab), when: dur(b.now - lab) });
-      });
-    }
     var cur = itemOf(r.on);
     var card = null;
     if (cur && cur.kind === "todo" && b.cards) {
@@ -478,7 +448,7 @@
       .filter(function (x) { return x.rows && x.rows.length; });
     var runs = deskRuns(b, d.name);
     return {
-      desk: r, attention: attn, moreLetters: moreLetters, lettersKnown: !!waiting,
+      desk: r,
       card: card, chat: chat, holds: holds ? holds.filter(function (h0) { return h0.desk === d.name; }) : null,
       trail: trail ? trail.slice(0, 6).map(function (t) {
         return { at: utc(t.at), doing: str(t.doing), on: str(t.on), ended: t.ended ? endWord(t.ended_by) : "", current: !t.ended };
@@ -868,13 +838,54 @@
     return out;
   }
 
+  /* ---- which platform scores each tab shows (SCORE shows every one) ----
+   * One table, first match wins. A tab with no match gets no score strip: nothing is made up. */
+  var SCORE_TABS = [
+    { re: /^doing\./, tabs: ["desks"] },
+    { re: /^mill-desk\./, tabs: ["desks"] },
+    { re: /^mill-wall\.ticks$/, tabs: ["desks"] },
+    { re: /^system$/, tabs: ["desks"] },
+    { re: /^cards$/, tabs: ["todo"] },
+    { re: /^(todo|card)\./, tabs: ["todo"] },
+    { re: /wake/, tabs: ["mail"] },
+    { re: /^(mail|letter)\./, tabs: ["mail"] },
+    { re: /^(hold|room|tree)\./, tabs: ["collab"] },
+    { re: /^(label|prio)\./, tabs: ["priorities"] }
+  ];
+  function scoreTabs(kpi) {
+    var k = str(kpi);
+    for (var i = 0; i < SCORE_TABS.length; i++) if (SCORE_TABS[i].re.test(k)) return SCORE_TABS[i].tabs.concat(["score"]);
+    return ["score"];
+  }
+  function scoreText(kpi, v) {
+    if (/_ms$/.test(kpi)) return msText(v);
+    if (/(end_reason|last_run)$/.test(kpi)) return endWord(v);
+    return str(v);
+  }
+  /* The tab's score strip: roster scores, and desk scores that are off target (the on-target
+   * desk scores are counted, not listed). Off target first. */
+  function tabScores(b, tab) {
+    if (!b.kpis) return null;
+    var rows = [], onDesk = 0;
+    b.kpis.forEach(function (k) {
+      var name = str(k.kpi), owner = str(k.owner), v = str(k.value);
+      if (v === "" || scoreTabs(name).indexOf(tab) < 0) return;
+      if (owner && !b.inScope(owner)) return;
+      var off = kpiMiss(v, k.target);
+      if (owner && !off) { onDesk++; return; }
+      rows.push({ kpi: name, label: kpiLabel(name), desk: owner, value: scoreText(name, v), target: str(k.target), note: str(k.note), off: off });
+    });
+    rows.sort(function (a, c) { return (c.off ? 1 : 0) - (a.off ? 1 : 0) || (a.desk || "").localeCompare(c.desk || "") || a.label.localeCompare(c.label); });
+    return { rows: rows, off: rows.filter(function (r) { return r.off; }).length, onDesk: onDesk };
+  }
+
   /* ---- strip cards + summary line ---- */
   function strip(b, m) {
     var dk = m.desks, td = m.todo, ml = m.mail, pr = m.priorities, sc = m.score, cb = m.collab;
     var waiting = 0, waitKnown = false, overDay = 0;
     b.desks.forEach(function (d) { if (d.wait) { waitKnown = true; waiting += d.wait.letters; overDay += d.wait.overDay || 0; } });
     return [
-      { tab: "desks", label: "DESKS", n: dk ? dk.connected.length : null, cue: dk ? dk.away.length + " away" : "", warn: !!(dk && dk.oldLetters) },
+      { tab: "desks", label: "DESKS", n: dk ? dk.connected.length : null, cue: dk ? dk.away.length + " away" : "", warn: false },
       { tab: "todo", label: "TODO", n: td ? td.open : null, cue: "open cards", warn: !!(td && td.attention) },
       { tab: "mail", label: "MAIL", n: ml ? ml.waiting : (waitKnown ? waiting : null), cue: "waiting", warn: ml ? !!ml.overDay : overDay > 0 },
       { tab: "priorities", label: "PRIORITIES", n: pr ? pr.lists : null, cue: "lists", warn: false },
@@ -883,7 +894,7 @@
     ];
   }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
-  function rosterText(sc) { return sc.rosters.join(" + "); }
+  function rosterText(sc) { return sc.label || sc.rosters.join(" + "); }
   function rangeText(r) { return r === "today" ? "today" : r === "30d" ? "last 30 days" : "last 7 days"; }
   function hero(b, tab, m) {
     var R = rosterText(b.scope);
@@ -893,17 +904,15 @@
     if (tab === "score" && m) return { lead: plural(m.off, "score") + " off target on " + R + ".", rest: "Grouped by impact. Desks are rows inside each group. Platform scores only." };
     if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Shared work on " + R + ": promises, rooms and card trees, grouped by kind." };
     if (tab === "desks" && m) {
-      var bits = [];
-      if (m.oldLetters) bits.push(m.oldLetters + " " + (m.oldLetters === 1 ? "has" : "have") + " letters older than a day.");
-      if (m.scoreOff) bits.push(m.scoreOff + " " + (m.scoreOff === 1 ? "has" : "have") + " a doing score off target.");
-      return { lead: plural(m.connected.length, "desk") + " here, " + m.away.length + " disconnected.", rest: bits.join(" ") };
+      return { lead: plural(m.connected.length, "desk") + " connected, " + m.away.length + " disconnected on " + R + ".",
+        rest: "Most active first." };
     }
     return { lead: "Loading " + R + "\u2026", rest: "" };
   }
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, feed: feed, strip: strip, hero: hero,
+    score: score, collab: collab, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

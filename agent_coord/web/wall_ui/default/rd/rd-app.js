@@ -1,8 +1,10 @@
 /* WALL_UI_DEFAULT_RD_APP - wires the Wall redesign into the page: reads, scope, tabs, clicks.
  * Marker: WALL_UI_DEFAULT_RD_APP
  * Reads are plain GETs on the routes the Wall already uses. Each tab asks only for what it
- * paints; the strip counts fill in as the reads land. The old panes (GUIDE, GLOSSARY, ADMIN,
- * WIRE) still open from More; on those hashes the old shell shows and this one steps aside. */
+ * paints; the strip counts fill in as the reads land. Scope is the station or roster picked on
+ * the Wall's own left rail (boot.js calls railPick). The time range sits on the tabs it cuts.
+ * The old panes (GUIDE, GLOSSARY, ADMIN, WIRE) still open from More; on those hashes the old
+ * shell shows and this one steps aside. */
 (function () {
   "use strict";
   var R = window.WallRd, V = window.WallRdView;
@@ -43,35 +45,82 @@
     scores: function (j) { return j.kpis; }, holds: function (j) { return j.locks; }, rooms: function (j) { return j.trees; },
     trees: function (j) { return j.trees; }, events: function (j) { return j.events; }, runs: function (j) { return j.rows; }
   };
+  /* Card 1193: these reads take ?window=1d|7d|30d on the tab that shows a time range. */
+  var WINDOWED = { desks: ["agents"], mail: ["mail"], score: ["scores"], collab: ["holds", "rooms"] };
+  var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
-  var SCOPE_KEY = "rd-scope", SORT_KEY = "factory-desks-sort", TAB_KEY = "rd-tab";
+  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, doing: null, stations: null, rosterList: null };
+  var winData = {}, noWindow = {};
   var gotAt = {}, inflight = {};
-  var state = { tab: "desks", legacy: false, scope: loadScope(), sort: load(SORT_KEY, "urgency"), sel: {}, phoneDesk: false };
+  var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false };
 
   function load(k, d) { try { var v = localStorage.getItem(k); return v == null || v === "" ? d : v; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
-  function loadScope() { try { return R.normScope(JSON.parse(localStorage.getItem(SCOPE_KEY) || "null")); } catch (e) { return R.normScope(null); } }
-  function saveScope() { save(SCOPE_KEY, JSON.stringify(state.scope)); }
+  /* The rail pick boot.js saved for this tab ({kind: "project"|"lan"|"role", id}). */
+  function loadPick() {
+    var p = null;
+    try { p = JSON.parse(sessionStorage.getItem("mill-rail-pick") || "null"); } catch (e) { p = null; }
+    return p && p.kind && p.id ? { kind: String(p.kind), id: String(p.id) } : null;
+  }
+  function loadRange() {
+    var r = {};
+    try { r = JSON.parse(localStorage.getItem(RANGE_KEY) || "{}") || {}; } catch (e) { r = {}; }
+    return r;
+  }
+  function rangeOf(tab) { return R.RANGES.indexOf(state.range[tab]) >= 0 ? state.range[tab] : "7d"; }
+  /* Roster pick: that roster. Station pick: the desks seen at that station, on the Office roster. */
+  function scope() {
+    var p = state.pick, sc = { rosters: ["Office"], label: "Office", range: rangeOf(state.tab) };
+    if (p && p.kind === "project") { sc.rosters = [p.id]; sc.label = p.id; }
+    else if (p && p.kind === "lan") {
+      sc.label = "station " + p.id;
+      sc.only = (data.stations || []).filter(function (r) { return String(r.lan_ip || "").trim() === p.id; })
+        .map(function (r) { return String(r.name || ""); });
+    }
+    return sc;
+  }
+  function rosters() { return scope().rosters; }
+  function windowFor(kind, tab) {
+    return WINDOWED[tab] && WINDOWED[tab].indexOf(kind) >= 0 && !noWindow[kind] ? WINDOW_Q[rangeOf(tab)] : "";
+  }
 
   function getJson(url) {
     return fetch(url, { cache: "no-store", credentials: "same-origin" }).then(function (r) {
       return r.ok ? r.json() : null;
     }).catch(function () { return null; });
   }
-  function fetchPart(kind, roster, force) {
-    var key = kind + "|" + roster;
+  function fetchPart(kind, roster, force, win) {
+    win = win || "";
+    var key = kind + "|" + roster + "|" + win;
     if (inflight[key]) return inflight[key];
     if (!force && gotAt[key] && Date.now() - gotAt[key] < FRESH_MS[kind]) return Promise.resolve();
-    var url = ROUTE[kind].replace("%R", encodeURIComponent(roster));
+    var url = ROUTE[kind].replace("%R", encodeURIComponent(roster)) + (win ? "&window=" + win : "");
     inflight[key] = getJson(url).then(function (j) {
       inflight[key] = null;
-      if (j && !j.error) { data[kind][roster] = PICK[kind](j) || []; gotAt[key] = Date.now(); }
-      else if (data[kind][roster] === undefined) data[kind][roster] = kind === "todos" || kind === "labels" ? null : null;
+      if (j && !j.error) {
+        var rows = PICK[kind](j) || [];
+        if (win) (winData[kind + "|" + win] || (winData[kind + "|" + win] = {}))[roster] = rows;
+        else data[kind][roster] = rows;
+        gotAt[key] = Date.now();
+      } else if (win) {
+        /* A server before card 1193 refuses the window; read the whole list and cut it here. */
+        noWindow[kind] = true;
+        return fetchPart(kind, roster, force, "");
+      }
       paintSoon();
     });
     return inflight[key];
+  }
+  /* The data a tab paints from: its windowed reads where it has them, the full lists otherwise. */
+  function dataFor(tab) {
+    var out = Object.assign({}, data);
+    (WINDOWED[tab] || []).forEach(function (kind) {
+      var w = windowFor(kind, tab), got = w ? winData[kind + "|" + w] : null;
+      if (got) out[kind] = Object.assign({}, data[kind], got);
+    });
+    return out;
   }
   function fetchCore(force) {
     var jobs = [];
@@ -96,18 +145,25 @@
         paintSoon();
       }));
     }
-    state.scope.rosters.forEach(function (r) { jobs.push(fetchPart("agents", r, force)); jobs.push(fetchPart("names", r)); });
+    rosters().forEach(function (r) {
+      jobs.push(fetchPart("agents", r, force));
+      var w = windowFor("agents", state.tab);
+      if (w) jobs.push(fetchPart("agents", r, force, w));
+      jobs.push(fetchPart("names", r));
+    });
     return Promise.all(jobs);
   }
   function fetchTab(tab, force) {
     var jobs = [];
-    (NEEDS[tab] || []).forEach(function (k) { state.scope.rosters.forEach(function (r) { jobs.push(fetchPart(k, r, force)); }); });
+    (NEEDS[tab] || []).forEach(function (k) {
+      rosters().forEach(function (r) { jobs.push(fetchPart(k, r, force, windowFor(k, tab))); });
+    });
     return Promise.all(jobs);
   }
   /* The strip counts every tab: after the open tab, read the small parts for the rest. */
   function fetchCounts() {
     ["todos", "labels", "scores", "holds", "mail", "rooms"].forEach(function (k) {
-      state.scope.rosters.forEach(function (r) { fetchPart(k, r); });
+      rosters().forEach(function (r) { fetchPart(k, r); });
     });
   }
   function fetchHistory(desk) {
@@ -141,7 +197,7 @@
   }
   function models(b) {
     var m = {};
-    m.desks = R.desks(b, { sort: state.sort, selected: state.sel.desks });
+    m.desks = R.desks(b, { selected: state.sel.desks });
     m.todo = R.todo(b, { selected: state.sel.todo });
     m.mail = R.mail(b, { selected: state.sel.mail });
     m.priorities = R.priorities(b, { selected: state.sel.priorities });
@@ -156,12 +212,10 @@
   function paint() {
     if (state.legacy) return;
     var now = Date.now();
-    var b = R.base(data, state.scope, now);
+    var b = R.base(dataFor(state.tab), scope(), now);
     var m = models(b);
-    setHtml(root.querySelector(".rd-rail"), V.rail(data.rosterList, b), "rail");
     setHtml(root.querySelector(".rd-strip"), V.strip(R.strip(b, m), state.tab), "strip");
     setHtml(root.querySelector(".rd-hero"), V.hero(R.hero(b, state.tab, m[state.tab])), "hero");
-    setHtml(root.querySelector(".rd-filter-bar"), V.chips(b), "chips");
     var pane = root.querySelector(".rd-pane");
     var t = state.tab, html;
     if (t === "desks") {
@@ -169,7 +223,7 @@
       state.sel.desks = dm.selected;
       var dd = dm.selected ? R.deskDetail(b, dm.selected) : null;
       if (dm.selected) fetchHistory(dm.selected);
-      html = V.paneHead("desks", b, V.sort(dm.sort)) +
+      html = V.paneHead("desks", b) +
         '<div class="rd-pane-body"><div class="rd-here-split">' +
         '<div class="rd-here-col">' + scrollWrap("here", "rd-here", V.desksList(dm, now)) + "</div>" +
         scrollWrap("desk", "rd-here-desk", V.deskDetail(dd, now), "aside") +
@@ -218,7 +272,6 @@
   /* ---- clicks ---- */
   function closest(t, sel) { return t && t.closest ? t.closest(sel) : null; }
   function scopeChanged() {
-    saveScope();
     last = {};
     fetchCore().then(function () { return fetchTab(state.tab); }).then(fetchCounts);
     paint();
@@ -226,36 +279,12 @@
   root.addEventListener("click", function (ev) {
     var t = ev.target, el;
     if ((el = closest(t, "[data-rd-tab]"))) { setTab(el.getAttribute("data-rd-tab")); return; }
-    if ((el = closest(t, "[data-rd-roster]"))) {
-      var r = el.getAttribute("data-rd-roster"), list = state.scope.rosters.slice(), i = list.indexOf(r);
-      if (i >= 0) { if (list.length > 1) list.splice(i, 1); } else list.push(r);
-      state.scope.rosters = list;
+    if ((el = closest(t, "[data-rd-range]"))) {
+      state.range[state.tab] = el.getAttribute("data-rd-range");
+      save(RANGE_KEY, JSON.stringify(state.range));
       scopeChanged();
       return;
     }
-    if ((el = closest(t, "[data-rd-unroster]"))) {
-      var u = el.getAttribute("data-rd-unroster");
-      state.scope.rosters = state.scope.rosters.filter(function (x) { return x !== u; });
-      if (!state.scope.rosters.length) state.scope.rosters = ["Office"];
-      scopeChanged();
-      return;
-    }
-    if ((el = closest(t, "[data-rd-deskpick]"))) {
-      var d = el.getAttribute("data-rd-deskpick");
-      if (state.scope.off[d]) delete state.scope.off[d]; else state.scope.off[d] = 1;
-      scopeChanged();
-      return;
-    }
-    if ((el = closest(t, "[data-rd-range]"))) { state.scope.range = el.getAttribute("data-rd-range"); scopeChanged(); return; }
-    if ((el = closest(t, "[data-rd-clear]"))) {
-      if (el.getAttribute("data-rd-clear") === "desks") state.scope.off = {};
-      else state.scope.range = "7d";
-      scopeChanged();
-      return;
-    }
-    if ((el = closest(t, "[data-rd-filters]"))) { root.classList.add("rd-filters-open"); return; }
-    if (closest(t, ".rd-filter-sheet-back")) { root.classList.remove("rd-filters-open"); return; }
-    if ((el = closest(t, "[data-rd-sort]"))) { state.sort = el.getAttribute("data-rd-sort"); save(SORT_KEY, state.sort); paint(); return; }
     if ((el = closest(t, "[data-rd-back]"))) { state.phoneDesk = false; paint(); return; }
     if ((el = closest(t, "[data-rd-go]"))) {
       ev.preventDefault();
@@ -284,15 +313,12 @@
   root.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" && ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rd-pick")) ev.target.click();
   });
-  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") root.classList.remove("rd-filters-open"); });
 
   /* ---- start ---- */
   function skeleton() {
-    root.innerHTML = '<aside class="rd-rail" aria-label="Scope filter"></aside>' +
-      '<div class="rd-shell-main"><div class="rd-glance-band"><div class="rd-glance-status"><div class="rd-strip" role="tablist" aria-label="Office tabs"></div>' +
+    root.innerHTML = '<div class="rd-shell-main"><div class="rd-glance-band"><div class="rd-glance-status"><div class="rd-strip" role="tablist" aria-label="Office tabs"></div>' +
       '<div class="rd-hero" aria-live="polite"></div></div></div>' +
-      '<div class="rd-filter-bar" aria-label="Active filter"></div><div class="rd-filter-sheet-back"></div>' +
-      '<main class="rd-main"><div class="rd-pane"></div></main></div>';
+      '<div class="rd-main"><div class="rd-pane"></div></div></div>';
   }
   window.WallRdApp = {
     /* boot.js leaves these hashes to this shell, so it does not rewrite #todo to #session. */
@@ -300,7 +326,15 @@
       var n = String(name || "").replace(/^#/, "").toLowerCase();
       return !state.legacy && has(ALIAS, n);
     },
-    repaint: function () { last = {}; paint(); }
+    repaint: function () { last = {}; paint(); },
+    /* boot.js: the station or roster picked on the left rail changed. */
+    railPick: function (pick) {
+      var next = pick && pick.kind && pick.id ? { kind: String(pick.kind), id: String(pick.id) } : null;
+      if (JSON.stringify(next) === JSON.stringify(state.pick)) return;
+      state.pick = next;
+      state.sel = {};
+      scopeChanged();
+    }
   };
   skeleton();
   var start = hashName();

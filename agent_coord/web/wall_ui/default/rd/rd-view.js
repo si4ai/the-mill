@@ -33,34 +33,6 @@
   function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
 
   /* ---- scope rail ---- */
-  function railHtml(rosters, base) {
-    var sc = base.scope;
-    var names = (rosters || []).filter(function (r) { return r.desks || sc.rosters.indexOf(r.name) >= 0; })
-      .map(function (r) { return r.name; });
-    sc.rosters.forEach(function (r) { if (names.indexOf(r) < 0) names.unshift(r); });
-    names.sort(function (a, b) { return (a === "Office" ? -1 : b === "Office" ? 1 : a.localeCompare(b)); });
-    var rosterRows = names.map(function (n) {
-      var on = sc.rosters.indexOf(n) >= 0;
-      return '<button type="button" class="rd-rail-row rd-check' + (on ? " on" : "") + '" data-rd-roster="' + h(n) + '" aria-pressed="' + on + '">' +
-        '<span class="rd-box" aria-hidden="true"></span><span class="rd-nm">' + h(n) + "</span></button>";
-    }).join("");
-    var desks = base.all.slice().sort(function (a, b) {
-      return (b.connected ? 1 : 0) - (a.connected ? 1 : 0) || (b.lastSeenAt || 0) - (a.lastSeenAt || 0) || a.name.localeCompare(b.name);
-    });
-    var deskRows = desks.length ? desks.map(function (d) {
-      var dot = d.connected ? (d.state === "working" ? "" : " idle") : " disconnected";
-      var agoText = d.connected ? "now" : R.ago(base.now - d.lastSeenAt);
-      return '<button type="button" class="rd-rail-row rd-check' + (d.checked ? " on" : "") + (d.connected ? "" : " away") + '" data-rd-deskpick="' + h(d.name) + '" aria-pressed="' + d.checked + '">' +
-        '<span class="rd-box" aria-hidden="true"></span><span class="rd-rail-dot' + dot + '"></span><span class="rd-nm">' + h(d.name) + '</span><span class="rd-ago">' + h(agoText) + "</span></button>";
-    }).join("") : '<p class="rd-rail-hint">' + (base.agentsKnown ? "No desk seen in this range." : "Loading\u2026") + "</p>";
-    var ranges = R.RANGES.map(function (k) {
-      return '<button type="button" data-rd-range="' + k + '"' + (k === sc.range ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (k === "today" ? "Today" : k) + "</button>";
-    }).join("");
-    return '<div class="rd-rail-sec"><span class="rd-rail-lbl">Rosters</span><p class="rd-rail-hint">Pick one or more.</p>' + rosterRows + "</div>" +
-      '<div class="rd-rail-sec"><span class="rd-rail-lbl">Desks</span><p class="rd-rail-hint">Seen ' + h(R.rangeText(sc.range)) + ".</p>" + deskRows + "</div>" +
-      '<div class="rd-rail-sec"><span class="rd-rail-lbl">Time</span><div class="rd-time-range" role="group" aria-label="Time range">' + ranges + "</div></div>";
-  }
-
   function stripHtml(cards, tab) {
     return cards.map(function (c) {
       var on = c.tab === tab;
@@ -71,28 +43,14 @@
   }
   function heroHtml(x) { return "<b>" + h(x.lead) + "</b>" + (x.rest ? " " + h(x.rest) : ""); }
 
-  function chipsHtml(base) {
-    var sc = base.scope;
-    var off = base.all.filter(function (d) { return !d.checked; }).length;
-    var deskText = off ? (base.all.length - off) + " of " + base.all.length : "all seen " + R.rangeText(sc.range);
-    var html = '<button type="button" class="rd-filter-open" data-rd-filters="open">Filter</button>';
-    sc.rosters.forEach(function (r) {
-      html += '<span class="rd-filter-chip"><b>Roster:</b> ' + h(r) + ' <button type="button" data-rd-unroster="' + h(r) + '" aria-label="Remove ' + h(r) + ' roster">\u00d7</button></span>';
-    });
-    html += '<span class="rd-filter-chip"><b>Desks:</b> ' + h(deskText) + (off ? ' <button type="button" data-rd-clear="desks" aria-label="Clear desk filter">\u00d7</button>' : "") + "</span>";
-    html += '<span class="rd-filter-chip"><b>Time:</b> ' + h(sc.range === "today" ? "Today" : sc.range) + (sc.range !== "7d" ? ' <button type="button" data-rd-clear="time" aria-label="Back to 7 days">\u00d7</button>' : "") + "</span>";
-    return html;
-  }
 
   /* ---- DESKS ---- */
-  var SORT_LABEL = { urgency: "Urgency", az: "A-Z", za: "Z-A", recent: "Recent activity" };
   function waitHtml(w) {
     if (!w || (!w.letters && !w.cards)) return "";
     var parts = [];
-    if (w.letters) parts.push(plural(w.letters, "letter") + " waiting" + (w.overDay ? " \u00b7 " + w.overDay + " older than a day" : ""));
+    if (w.letters) parts.push(plural(w.letters, "letter") + " waiting");
     if (w.cards) parts.push(plural(w.cards, "card") + " waiting");
-    var cls = w.overDay >= 2 ? " older" : w.overDay ? " hot" : "";
-    return '<span class="rd-wait' + cls + '">' + h(parts.join(", ")) + "</span>";
+    return '<span class="rd-wait">' + h(parts.join(", ")) + "</span>";
   }
   function priosLine(p) {
     if (p == null) return "";
@@ -145,16 +103,13 @@
       '<span class="rd-here-state ' + h(state) + '">' + h(state) + "</span>" +
       doing + meta + priosLine(r.prios) + (r.connected ? rowChips(r) : "") + "</button></div>";
   }
+  /* One list, most active first: working, waiting, idle, then disconnected (dimmed, last seen). */
   function desksListHtml(m, now) {
     if (!m.known) return '<div class="rd-loading">Loading desks\u2026</div>';
-    var html = '<div class="rd-here-section">Connected \u00b7 ' + m.connected.length + "</div>" +
-      (m.connected.length ? m.connected.map(function (r) { return deskRowHtml(r, m.selected, now); }).join("")
-        : '<div class="rd-empty-line">No desk is connected on this scope. Ask your agent to join.</div>');
-    if (m.away.length) {
-      html += '<div class="rd-here-section away">Disconnected \u00b7 ' + m.away.length + "</div>" +
-        m.away.map(function (r) { return deskRowHtml(r, m.selected, now); }).join("");
-    }
-    return html;
+    var rows = m.connected.concat(m.away);
+    if (!rows.length) return '<div class="rd-empty-line">No desk on this scope in this range.</div>';
+    return '<div class="rd-here-section">' + h(plural(rows.length, "desk")) + " \u00b7 " + m.connected.length + " connected</div>" +
+      rows.map(function (r) { return deskRowHtml(r, m.selected, now); }).join("");
   }
   function srow(label, last, opts) {
     opts = opts || {};
@@ -202,14 +157,6 @@
       (rost ? '<div class="rd-sg rosters"><h4>Rosters <span class="rd-sub">the roster\u2019s scores, not this desk\u2019s</span></h4><div class="rd-roster-cols">' + rost + "</div></div>" : "") +
       "</div></section>";
   }
-  function attnHtml(a) {
-    var kindLbl = { letter: "letter", prio: "prio", card: "card" }[a.kind] || a.kind;
-    var flag = a.kind === "prio" ? rank(a.rank, a.ord) : h(a.flag || "");
-    return '<div class="rd-attn' + (a.heat ? " " + a.heat : "") + '"><span class="rd-kind ' + h(a.kind) + '">' + h(kindLbl) + "</span>" +
-      '<span class="rd-flag' + (a.heat === "older" ? " days" : a.heat === "hot" ? " day" : "") + '">' + flag + "</span>" +
-      '<span class="rd-title">' + item(a.id) + " " + h(a.title) + (a.note ? '<span class="rd-note">' + h(a.note) + "</span>" : "") + "</span>" +
-      '<span class="rd-when">' + h(a.when || "") + "</span></div>";
-  }
   function deskDetailHtml(dd, now) {
     if (!dd) return '<div class="rd-empty-line">Pick a desk.</div>';
     var r = dd.desk;
@@ -227,15 +174,7 @@
     if (r.rosters.length) facts.push("on " + h(r.rosters.join(", ")));
     var html = '<div class="rd-desk-head"><b>' + h(r.name) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(state) + "</span></div>" +
       '<div class="rd-desk-doing">' + text + '<div class="rd-facts">' + facts.join(" \u00b7 ") + "</div></div>" + scoresBlock(dd);
-    var attn = dd.attention.map(attnHtml).join("");
-    var lettersAt = dd.attention.filter(function (a) { return a.kind === "letter"; }).length;
-    if (dd.moreLetters) {
-      var more = '<a class="rd-more-link" href="#mail" data-rd-go="mail">' + h(plural(dd.moreLetters, "more letter")) + " waiting</a>";
-      var idx = attn.split('<div class="rd-attn').slice(0, lettersAt + 1).join('<div class="rd-attn').length;
-      attn = attn.slice(0, idx) + more + attn.slice(idx);
-    }
-    html += '<div class="rd-desk-grid"><section class="rd-block needs"><h3>NEEDS ATTENTION <span class="rd-sub">oldest letters, then this desk\u2019s list, then stuck cards</span></h3>' +
-      (attn || '<p class="rd-empty">No waiting letters, no ranked card, nothing stuck.</p>') + "</section>";
+    html += '<div class="rd-desk-grid">';
     html += '<section class="rd-block card"><h3>CARD <span class="rd-sub">current</span></h3>' + (dd.card
       ? '<div class="rd-card-title">' + item(dd.card.id) + (dd.card.title ? " \u00b7 " + h(dd.card.title) : "") + '</div><div class="rd-card-facts">' +
         (dd.card.status ? "<span>" + h(dd.card.status) + "</span>" : "") + (r.age ? "<span>for " + h(r.age) + "</span>" : "") +
@@ -268,10 +207,16 @@
       return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(f.at)) + '</span><div><span class="rd-who">' + h(f.who) + '</span><span class="rd-k ' + h(f.kind) + '">' + h(f.kind) + '</span><span class="rd-text">' + h(f.text) + "</span></div></div>";
     }).join("") : '<p class="rd-empty">Nothing in the latest activity.</p>');
   }
-  function sortHtml(sort) {
-    return '<span class="rd-sort-switch" role="group" aria-label="Sort desks"><span class="rd-lbl">SORT</span>' + R.SORTS.map(function (k) {
-      return '<button type="button" data-rd-sort="' + k + '"' + (k === sort ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + SORT_LABEL[k] + "</button>";
-    }).join("") + "</span>";
+  /* A tab's platform scores (rd-model SCORE_TABS), off target first. None served: no strip. */
+  function tabScoresHtml(t) {
+    if (!t || (!t.rows.length && !t.onDesk)) return "";
+    var shown = t.rows.slice(0, 10);
+    return '<div class="rd-tab-scores" aria-label="Scores for this tab">' + shown.map(function (k) {
+      var val = h(k.value) + (k.target !== "" ? '<span class="rd-tgt"> / ' + h(k.target) + "</span>" : "");
+      return '<span class="rd-score-chip' + (k.off ? " off" : "") + '" title="' + h(k.kpi + (k.note ? " \u00b7 " + k.note : "")) + '">' +
+        (k.desk ? '<span class="rd-chip-lbl">' + h(k.desk) + "</span> " : "") + h(k.label) + " <b>" + val + "</b></span>";
+    }).join("") + (t.rows.length > shown.length ? '<span class="rd-more-line">' + h(plural(t.rows.length - shown.length, "more score")) + "</span>" : "") +
+      (t.onDesk ? '<span class="rd-score-chip ok">' + h(plural(t.onDesk, "desk score")) + " on target</span>" : "") + "</div>";
   }
 
   /* ---- grouped tabs ---- */
@@ -410,17 +355,25 @@
     priorities: "one column per desk \u00b7 ranks are 1-based, ord on hover", score: "grouped by impact \u00b7 desks are rows \u00b7 platform scores only",
     collab: "grouped by kind: what blocks someone, promises, rooms, trees"
   };
+  /* The time range lives on the tabs it cuts (DESKS, MAIL, SCORE, COLLAB), one per tab. */
+  var TIMED = { desks: 1, mail: 1, score: 1, collab: 1 };
+  function rangeHtml(range) {
+    return '<span class="rd-time-range" role="group" aria-label="Time range">' + R.RANGES.map(function (k) {
+      return '<button type="button" data-rd-range="' + k + '"' + (k === range ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (k === "today" ? "Today" : k) + "</button>";
+    }).join("") + "</span>";
+  }
   function paneHead(tab, base, extra) {
     var sc = base.scope;
     var label = { desks: "DESKS", todo: "TODO", mail: "MAIL", priorities: "PRIORITIES", score: "SCORE", collab: "COLLAB" }[tab];
-    var scope = tab === "desks" ? "" : sc.rosters.join(" + ") + " \u00b7 " + R.rangeText(sc.range) + " \u00b7 " + SCOPE_TEXT[tab];
+    var timed = !!TIMED[tab];
+    var scope = tab === "desks" ? "" : sc.label + (timed ? " \u00b7 " + R.rangeText(sc.range) : "") + " \u00b7 " + SCOPE_TEXT[tab];
     return '<div class="rd-pane-head">' + (tab === "desks" ? '<button type="button" class="rd-desk-back" data-rd-back="1">Back</button>' : "") +
-      "<h2>" + label + "</h2>" + (extra || "") + (scope ? '<span class="rd-pane-scope">' + h(scope) + "</span>" : "") + "</div>";
+      "<h2>" + label + "</h2>" + (extra || "") + (timed ? rangeHtml(sc.range) : "") + (scope ? '<span class="rd-pane-scope">' + h(scope) + "</span>" : "") + "</div>";
   }
 
   global.WallRdView = {
-    h: h, rail: railHtml, strip: stripHtml, hero: heroHtml, chips: chipsHtml,
-    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, sort: sortHtml, paneHead: paneHead,
+    h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
+    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead,
     todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";

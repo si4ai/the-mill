@@ -45,8 +45,10 @@ require(process.argv[1] + '/rd-view.js');
 const data = JSON.parse(process.argv[2]);
 const now = Date.parse(process.argv[3]);
 const R = WallRd, V = WallRdView;
-const b = R.base(data, {rosters: ['Office'], range: '7d'}, now);
+const sc = JSON.parse(process.argv[5] || '{}');
+const b = R.base(data, Object.assign({rosters: ['Office'], range: '7d'}, sc), now);
 const desks = R.desks(b, {sort: process.argv[4] || 'urgency'});
+const ts = {}; ['desks', 'todo', 'mail', 'priorities', 'collab', 'score'].forEach(t => { ts[t] = R.tabScores(b, t); });
 const todo = R.todo(b, {});
 const score = R.score(b, {});
 console.log(JSON.stringify({
@@ -54,13 +56,16 @@ console.log(JSON.stringify({
   away: desks.away.map(d => d.name),
   todo: todo.groups.map(g => [g.label, g.rows.length]),
   scoreKnown: score !== null,
+  tabScores: ts,
+  scoreTabs: ['doing.task.last_run', 'mill-desk.hint_drop', 'system', 'cards', 'mill-wall.api_ms', 'wake.wasted'].map(k => R.scoreTabs(k)),
+  deskHtml: V.desksList(desks, now),
   html: V.desksList(desks, now) + V.todo(todo) + (score ? V.score(score) : ''),
 }));
 """
 
 
-def run(data: dict = OFFICE, sort: str = "urgency") -> dict:
-    out = subprocess.run([NODE, "-e", SCRIPT, "--", str(RD), json.dumps(data), NOW, sort],
+def run(data: dict = OFFICE, sort: str = "urgency", scope: dict | None = None) -> dict:
+    out = subprocess.run([NODE, "-e", SCRIPT, "--", str(RD), json.dumps(data), NOW, sort, json.dumps(scope or {})],
                          capture_output=True, text=True, check=True, timeout=30)
     return json.loads(out.stdout)
 
@@ -120,3 +125,45 @@ def test_mail_leaves_out_letters_waiting_on_a_deleted_desk():
     got = json.loads(out.stdout)
     assert got["groups"] == [["gardener", 1]]
     assert got["waiting"] == 1
+
+
+def test_desks_is_one_list_most_active_first():
+    got = run()
+    order = [n for n, _ in got["connected"]] + got["away"]
+    assert order[:2] == ["builder", "gardener"]
+    assert set(order[2:]) == {"scout", "auditor"}
+    html = got["deskHtml"]
+    assert "Needs attention" not in html and "NEEDS ATTENTION" not in html
+    assert html.index("builder") < html.index("gardener") < html.index("scout")
+
+
+def test_station_pick_scopes_to_its_desks():
+    got = run(scope={"only": ["gardener", "scout"], "label": "station 192.0.2.5"})
+    names = [n for n, _ in got["connected"]] + got["away"]
+    assert sorted(names) == ["gardener", "scout"]
+
+
+def test_score_keys_map_to_tabs_in_one_table():
+    tabs = run()["scoreTabs"]
+    assert tabs[0] == ["desks", "score"]  # doing.task.last_run
+    assert tabs[1] == ["desks", "score"]  # mill-desk.hint_drop
+    assert tabs[2] == ["desks", "score"]  # system
+    assert tabs[3] == ["todo", "score"]  # cards
+    assert tabs[4] == ["score"]  # mill-wall.api_ms: the SCORE dashboard only
+    assert tabs[5] == ["mail", "score"]  # wake scores
+
+
+def test_tab_score_strip_shows_off_target_and_counts_the_rest():
+    data = dict(OFFICE)
+    data["scores"] = {"Office": [
+        {"id": 1, "kpi": "doing.task.end_reason", "owner": "builder", "value": "failed", "target": "finished"},
+        {"id": 2, "kpi": "system", "owner": "gardener", "value": "9", "target": ""},
+        {"id": 3, "kpi": "cards", "owner": "", "value": "4", "target": "2"},
+    ]}
+    got = run(data)
+    desks = got["tabScores"]["desks"]
+    assert [r["desk"] for r in desks["rows"]] == ["builder"] and desks["rows"][0]["off"]
+    assert desks["onDesk"] == 1
+    assert got["tabScores"]["priorities"]["rows"] == []
+    assert got["tabScores"]["todo"]["rows"][0]["label"]
+    assert len(got["tabScores"]["score"]["rows"]) >= 2

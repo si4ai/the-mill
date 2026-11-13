@@ -1196,6 +1196,11 @@
       const sub = document.getElementById("subnav");
       if (sub) sub.classList.toggle("is-later", !!hidden);
     }
+    /* The redesigned shell (rd/rd-app.js) shows the old TODO views inside its TODO tab. */
+    window.WallLegacy = Object.assign(window.WallLegacy || {}, {
+      showTab: function (n) { showTab(n); },
+      setJobsView: function (v) { setJobsView(v); }
+    });
     function showTab(name) {
       /* The DESKS tab keeps its pane id (pane-session); #desks is its hash alias. */
       if (name === "desks") name = "session";
@@ -6396,6 +6401,12 @@
         const on = !!(railPick && el.getAttribute("data-kind") === railPick.kind && el.getAttribute("data-id") === railPick.id);
         el.classList.toggle("on", on);
       });
+      /* The redesigned tabs scope to the station or roster picked here. */
+      try {
+        const pick = railPick ? { kind: railPick.kind, id: railPick.id } : null;
+        window.WallLegacy = Object.assign(window.WallLegacy || {}, { pick: pick });
+        if (window.WallRdApp && window.WallRdApp.railPick) window.WallRdApp.railPick(pick);
+      } catch (eRd) {}
     }
     const roleDeskCache = {};
     async function desksForPick(kind, id) {
