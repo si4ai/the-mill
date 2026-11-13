@@ -5,15 +5,14 @@ import re
 from pathlib import Path
 
 BOOT = Path(__file__).resolve().parents[2] / "agent_coord/web/wall_ui/default/boot.js"
+# The DESKS tab rows own the desk-list order now (boot.js paints #here through desksModel).
+ROWS = Path(__file__).resolve().parents[2] / "agent_coord/web/wall_ui/default/session/desks-rows.js"
 
 
 def _rank_map() -> dict[str, int]:
-    src = BOOT.read_text(encoding="utf-8")
-    m = re.search(r"const ordered = live\.slice\(\)\.sort", src)
-    assert m, "here-rail sort not found"
-    head = src[max(0, m.start() - 600):m.start()]
-    maps = re.findall(r"\{\s*(working:[^}]*)\}", head)
-    assert len(maps) == 1, f"expected one fixed rank map before the sort, found {len(maps)}"
+    src = ROWS.read_text(encoding="utf-8")
+    maps = re.findall(r"STATE_RANK = \{\s*(working:[^}]*)\}", src)
+    assert len(maps) == 1, f"expected one fixed STATE_RANK map, found {len(maps)}"
     return {k: int(v) for k, v in re.findall(r"(\w+):\s*(\d+)", maps[0])}
 
 
@@ -25,5 +24,5 @@ def test_working_ranks_before_idle_and_gone() -> None:
 
 
 def test_no_score_miss_flip_of_the_order() -> None:
-    src = BOOT.read_text(encoding="utf-8")
-    assert "idle: 0" not in src
+    for path in (BOOT, ROWS):
+        assert "idle: 0" not in path.read_text(encoding="utf-8")

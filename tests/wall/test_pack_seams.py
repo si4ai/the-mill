@@ -68,7 +68,7 @@ def test_knob_helpers_pure():
     assert resolve_pane_order(None)[0] == "session"
     ordered = resolve_pane_order(["mail", "session"])
     assert ordered[:2] == ["mail", "session"]
-    assert set(ordered) == {"session", "floor", "jobs", "score", "mail", "plan"}
+    assert set(ordered) == {"session", "floor", "jobs", "score", "mail", "plan", "priorities"}
     flags = apply_chrome_flags({"show_wire": True, "land_tab": "floor"})
     assert flags["show_wire"] is True
     assert flags["land_tab"] == "floor"
@@ -142,7 +142,7 @@ def test_merge_knob_layer_ladder_pack_assets_survive():
     )
     assert merged["applied_layers"] == ["defaults", "db_knobs", "pack_css_js_override"]
     assert merged["pane_order"][:2] == ["mail", "session"]
-    assert set(merged["pane_order"]) == {"session", "floor", "jobs", "score", "mail", "plan"}
+    assert set(merged["pane_order"]) == {"session", "floor", "jobs", "score", "mail", "plan", "priorities"}
     assert merged["land_tab"] == "mail"
     assert merged["density"] == "compact"
     assert merged["mail_default_view"] == "graph"

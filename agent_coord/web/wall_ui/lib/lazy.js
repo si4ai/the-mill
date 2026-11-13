@@ -155,13 +155,13 @@
     },
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
     doingPaint: {
-      js: "/doing/doing-paint.js?v=wow324",
+      js: "/doing/doing-paint.js?v=wow347",
       css: "/doing/doing.css?v=wow324",
       marker: "WALL_UI_DEFAULT_DOING_PAINT"
     },
     /* Card 1153: PRIORITIES tab, each desk's ranked list. Loads on first open. */
     prioritiesPaint: {
-      js: "/priorities/priorities-paint.js?v=wow344",
+      js: "/priorities/priorities-paint.js?v=wow346",
       css: "/priorities/priorities.css?v=wow344",
       marker: "WALL_UI_DEFAULT_PRIORITIES_PAINT"
     }

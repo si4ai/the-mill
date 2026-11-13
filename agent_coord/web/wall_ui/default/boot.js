@@ -1156,7 +1156,7 @@
       if (key === "scorecards") key = "score";
       if (key === "trees" || key === "plan" || key === "nest") key = "jobs";
       const map = { session: "strip-here", floor: "strip-floor", jobs: "strip-todo", score: "strip-score", mail: "strip-mail" };
-      const id = key === "priorities" ? "" : (map[key] || "strip-here");
+      const id = key === "priorities" ? "strip-priorities" : (map[key] || "strip-here");
       document.querySelectorAll(".strip .kpi.strip-nav").forEach(el => {
         if (el.id === "wall-invite-box") {
           try { el.classList.remove("on"); } catch (eInvOn) {}
@@ -1197,6 +1197,8 @@
       if (sub) sub.classList.toggle("is-later", !!hidden);
     }
     function showTab(name) {
+      /* The DESKS tab keeps its pane id (pane-session); #desks is its hash alias. */
+      if (name === "desks") name = "session";
       if (name === "stations" || name === "leases" || name === "watch") {
         try { wallBumpSwitchGen(); } catch (eGenS) {}
         paintStripTab("session");
@@ -3146,7 +3148,7 @@
     window.addEventListener("hashchange", () => {
       let name = (location.hash || "#session").replace("#", "");
       if (name === "scorecards") name = "score"; /* SCORE_BOOT_FIX */
-      if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(name)) showTab(name);
+      if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(name)) showTab(name);
     });
     const adminOpen = document.getElementById("admin-open");
     if (adminOpen) adminOpen.addEventListener("click", () => showTab("admin"));
@@ -3666,9 +3668,10 @@
       const scoreB = scoreLoad ? "..." : esc(scoreOff ? String(scoreOff) : "ok");
       const mailB = mailLoad ? "\u2014" : esc(mailVal);
       el.innerHTML =
-        `<span class="kpi strip-nav${sessLoad ? " kpi-loading" : ""}" id="strip-here" title="Desks connected now" role="link" tabindex="0" data-wall-strip-loading="${sessLoad ? "1" : "0"}">CONNECTED${sessLoad ? loadSpin : ""}<b>${sessB}</b>${sessLoad ? "" : `<span class="kpi-cue">${esc(sessCue)}</span>`}</span>` +
+        `<span class="kpi strip-nav${sessLoad ? " kpi-loading" : ""}" id="strip-here" title="Desks on this scope" role="link" tabindex="0" data-wall-strip-loading="${sessLoad ? "1" : "0"}">DESKS${sessLoad ? loadSpin : ""}<b>${sessB}</b>${sessLoad ? "" : `<span class="kpi-cue">${esc(sessCue)}</span>`}</span>` +
         `<span class="kpi strip-nav${todoLoad ? " kpi-loading" : ""}" id="strip-todo" title="Open cards" role="link" tabindex="0" data-wall-strip-loading="${todoLoad ? "1" : "0"}">TODO${todoLoad ? loadSpin : ""}<b>${todoB}</b>${todoLoad ? "" : `<span class="kpi-cue">${esc(todoCue)}</span>`}</span>` +
         `<span class="kpi strip-nav${mailCls}${mailLoad ? " kpi-loading" : ""}" id="strip-mail" title="${esc(mailTitle)}" role="link" tabindex="0" data-wall-strip-loading="${mailLoad ? "1" : "0"}">MAIL${mailLoad ? loadSpin : ""}<b>${mailB}</b>${mailLoad ? "" : mailCue}</span>` +
+        `<span class="kpi strip-nav" id="strip-priorities" title="Each desk's ranked list" role="link" tabindex="0">PRIORITIES<span class="kpi-cue">desk lists</span></span>` +
         `<span class="kpi strip-nav${scoreCls}${scoreLoad ? " kpi-loading" : ""}" id="strip-score" title="Last against target" role="link" tabindex="0" data-wall-strip-loading="${scoreLoad ? "1" : "0"}">SCORE${scoreLoad ? loadSpin : ""}<b>${scoreB}</b>${scoreLoad ? "" : `<span class="kpi-cue">${esc(scoreCue)}</span>`}</span>` +
         `<span class="kpi strip-nav strip-later${floorLoad ? " kpi-loading" : ""}" id="strip-floor" title="Shared letters, cards, and promises" role="link" tabindex="0" data-wall-strip-loading="${floorLoad ? "1" : "0"}">COLLAB${floorLoad ? loadSpin : ""}<b>${floorB}</b>${floorLoad ? "" : `<span class="kpi-cue">${esc(floorCue)}</span>`}</span>`;
       /* strip() innerHTML destroys per-chip listeners. One-time document
@@ -3685,6 +3688,7 @@
           else if (id === "strip-todo") showTab("jobs");
           else if (id === "strip-score") showTab("score");
           else if (id === "strip-mail") showTab("mail");
+          else if (id === "strip-priorities") showTab("priorities");
         };
         document.addEventListener("click", function (ev) {
           const t = ev.target;
@@ -3875,9 +3879,21 @@
       if (!v || v.state !== "ok" || !v.byOwner) return null;
       return v.byOwner[String(owner || "").trim()] || null;
     }
+    function wallDoingStale(view) {
+      /* The server's own flags on the doing view. A doing text left on a desk that is not alive
+         (or is stale) is a leftover, not work. No time threshold of ours. */
+      return !!view && (view.alive === false || view.stale === true);
+    }
+    function wallDoingLeftover(view) {
+      /* "last: <doing>, <age> ago" for a stale view's leftover text; "" when there is none. */
+      if (!wallDoingStale(view)) return "";
+      const text = String(view.doing || "").trim();
+      if (!text) return "";
+      return "last: " + text + (view.age ? ", " + view.age + " ago" : "");
+    }
     function wallDoingText(owner, seatText) {
       const v = wallDoingView(owner);
-      if (v) return String(v.doing || "").trim();
+      if (v) return wallDoingStale(v) ? "" : String(v.doing || "").trim();
       return String(seatText || "").trim();
     }
     function wallDoingWaitN(view) {
@@ -3941,6 +3957,12 @@
       } : null;
       const pack = (state, note) => ({ state, waiting_on: "", note: note || "", doing, view, job, stale });
       if (view) {
+        /* A stale view's leftover text is never "working". The seat decides gone vs idle: a
+           connected seat with a stale doing view is idle (with the leftover as its last). */
+        if (wallDoingStale(view)) {
+          const left = wallDoingLeftover(view);
+          return stale ? pack("gone", left || "gone") : pack("idle", left || "idle");
+        }
         if (stale && !doing) return pack("gone", "gone");
         if (doing) return pack("working", doing);
         return pack("idle", view.idle ? ("idle " + view.idle) : "idle");
@@ -4534,6 +4556,67 @@
     let _hereDesk = { key: "", ready: false, inflight: false, got: {}, needs: [], issues: [], mailbox: [], locks: [] };
     function hereDeskLoad() { return wallLazyCall("deskPaint", "hereDeskLoad", hereDeskLoad, arguments); }
     function paintHereDesk() { return wallLazyCall("deskPaint", "paintHereDesk", paintHereDesk, arguments); }
+    /* DESKS tab rows (Wall redesign): session/desks-rows.js builds them from reads the Wall
+     * already makes. Away desks come from the rail's pov?part=desks read (card 1191). */
+    const DESKS_SORT_KEY = "factory-desks-sort";
+    let _desksPrioAsked = false;
+    function loadDesksSort() {
+      try {
+        const v = String(localStorage.getItem(DESKS_SORT_KEY) || "");
+        if ((window.WALL_DESKS_SORTS || []).indexOf(v) >= 0) return v;
+      } catch (e) {}
+      return "urgency";
+    }
+    function wallDesksRepaint() {
+      const d = window._floor;
+      if (d) try { board(d, { hereOnly: true }); } catch (eDesks) {}
+    }
+    window.wallDesksRepaint = wallDesksRepaint;
+    function wallDesksPrios() {
+      if (typeof window.prioDeskTops === "function") return window.prioDeskTops(3);
+      if (!_desksPrioAsked && typeof wallEnsureModule === "function") {
+        _desksPrioAsked = true;
+        wallEnsureModule("prioritiesPaint").then(wallDesksRepaint, function () {});
+      }
+      return null;
+    }
+    function wallDesksStations() {
+      /* Which away desks this rail scope can name. A roster other than Office cannot say yet. */
+      const rows = Array.isArray(window.__railDeskRows) ? window.__railDeskRows : null;
+      if (!rows || !railPick || !railPick.kind) return { rows: rows, ok: true };
+      if (railPick.kind === "lan") return { rows: rows.filter(r => String(r.lan_ip || "").trim() === railPick.id), ok: true };
+      if (railPick.desks) return { rows: rows.filter(r => rowInDeskSet({ owner: r.name }, railPick.desks)), ok: true };
+      /* TODO(card 1193): roster member desks on pov?part=rosters scope away desks to a roster. */
+      return { rows: rows, ok: String(railPick.id || "") === "Office" };
+    }
+    function wallDesksHtml(d, live, mine) {
+      const st = wallDesksStations();
+      const doing = (window.WALL_DOING && window.WALL_DOING.state === "ok") ? window.WALL_DOING.byOwner : null;
+      const ctx = {
+        live: live.map(r => ({ owner: r.owner, state: hereGlance(d, r).state, seat: r.doing,
+          seatAlive: r.alive !== false && r.connected !== false && !r.stale })),
+        doing: doing,
+        stations: st.rows,
+        awayScope: st.ok,
+        prios: wallDesksPrios(),
+        kpis: (_officeScores && _officeScores.kpis) || [],
+        sort: loadDesksSort(),
+        mine: mine,
+        selected: _hereOwner
+      };
+      if (typeof window.desksModel !== "function") return "";
+      return window.desksHtml(window.desksModel(ctx));
+    }
+    function wireDesksSort() {
+      if (document._desksSortWired) return;
+      document._desksSortWired = true;
+      document.addEventListener("click", function (ev) {
+        const b = ev.target && ev.target.closest ? ev.target.closest("#here [data-desks-sort]") : null;
+        if (!b) return;
+        try { localStorage.setItem(DESKS_SORT_KEY, b.getAttribute("data-desks-sort")); } catch (e) {}
+        wallDesksRepaint();
+      });
+    }
     function wireHereFront() {
       if (document._hereFrontWired) return;
       document._hereFrontWired = true;
@@ -4671,6 +4754,7 @@
       const h = document.getElementById("here");
       try { paintHereScores(d); } catch (eScores) {}
       try { wireHereFront(); } catch (eHereWire) {}
+      try { wireDesksSort(); } catch (eDesksWire) {}
       if (!h) return;
       /* #718: desks not read for this scope yet (a TODO or MAIL poll): keep the hourglass,
          never a false "No desks are here". */
@@ -4691,39 +4775,10 @@
           h.innerHTML = `<div class="empty-session">${label}</div>`;
           return;
         }
-        h.innerHTML = '<div class="empty-session"><b>No desks are here.</b> Ask your agent to join.</div>';
-        return;
       }
       const mine = String((typeof wallResolveDeskId === "function" ? wallResolveDeskId() : "") || "").trim();
-      /* Working desks always lead; idle and gone sit last (no score-miss flip). */
-      const rank = { working: 0, waiting: 1, blocked: 2, here: 3, idle: 4, gone: 5 };
-      const ordered = live.slice().sort((a, b) => {
-        const ao = String(a.owner || "").trim();
-        const bo = String(b.owner || "").trim();
-        const am = mine && ao === mine ? 0 : 1;
-        const bm = mine && bo === mine ? 0 : 1;
-        if (am !== bm) return am - bm;
-        const ga = hereGlance(d, a).state;
-        const gb = hereGlance(d, b).state;
-        const ra = rank[ga] != null ? rank[ga] : 9;
-        const rb = rank[gb] != null ? rank[gb] : 9;
-        if (ra !== rb) return ra - rb;
-        return ao.localeCompare(bo);
-      });
       const hereTop = h.scrollTop;
-      h.innerHTML = ordered.map(r => {
-        const g = hereGlance(d, r);
-        const owner = String(r.owner || "").trim();
-        const on = owner && owner === _hereOwner ? " on" : "";
-        /* #818: the item link and the waiting-on pill sit beside the row button, not in it. */
-        return `<div class="here-line" data-here-owner="${esc(owner)}">` +
-          `<button type="button" class="here-row${on}" data-here-owner="${esc(owner)}">` +
-          `<span class="here-dot ${esc(g.state || "")}"></span>` +
-          `<span class="here-name">${esc(millName("desk", owner))}</span>` +
-          `<span class="here-state">${esc(g.state || "")}</span>` +
-          wallDoingRow(owner, r.doing) +
-          `</button>` + wallDoingMeta(owner) + `</div>`;
-      }).join("");
+      h.innerHTML = wallDesksHtml(d, live, mine);
       h.scrollTop = hereTop;
       /* #818: the doing view loads after this first paint (lazy) and repaints only on change. */
       try { wallDoingSync(); } catch (eDoing) {}
@@ -6051,7 +6106,7 @@
       deskId: null,
       prefs: {
         land_tab: "session",
-        tabs: ["session", "jobs", "score", "mail", "plan"],
+        tabs: ["session", "jobs", "mail", "priorities", "score", "floor", "plan"],
         density: "comfortable",
         css_vars: {},
         chrome_flags: {},
@@ -6060,7 +6115,7 @@
         pack_id: "default",
         keyboard_profile: "windows",
         keyboard_overrides: {},
-        pane_order: ["session", "jobs", "score", "mail", "plan"]
+        pane_order: ["session", "jobs", "mail", "priorities", "score", "floor", "plan"]
       },
       pack: null,
       officeDefault: null,
@@ -6524,6 +6579,8 @@
       }
       const desksP = part("desks").then(function (desks) {
         try { paintDesks(desks); } catch (eD) {}
+        /* DESKS lists the away desks from this read (card 1191). */
+        try { wallDesksRepaint(); } catch (eDeskRows) {}
         return desks;
       });
       const rostersP = part("rosters").then(function (rosters) {
@@ -7790,7 +7847,7 @@
           if (nestHash && savedTab && !savedIsTodo) start = savedTab;
           else if (!start) start = savedTab || "session";
           if (start === "scorecards") start = "score"; /* SCORE_BOOT_FIX */
-          if (["session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
+          if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
           else showTab("session");
         }
         tick(true);
