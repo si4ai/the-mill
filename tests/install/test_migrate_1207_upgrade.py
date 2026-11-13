@@ -348,3 +348,75 @@ def test_a_tw_runs_card_goes_to_its_tw_start_meta(cn):
     meta = _q(cn, "SELECT meta FROM transition WHERE activity_type = 'doing' AND activity_id = %s", (run,))[0][0]
     assert json.loads(meta) == {"card": card}
     assert _q(cn, "SELECT COUNT(*) FROM doing WHERE id = %s", (run,)) == [(1,)]
+
+
+# assign: the assignee rode on doing.peer_id (Validator W1, letter 6278) ----------------------------------------
+
+def _assign_meta(cn, card: int) -> list:
+    import json
+
+    return [json.loads(r[0]) if r[0] is not None else None for r in _q(
+        cn, "SELECT meta FROM transition WHERE activity_type = 'todo' AND activity_id = %s AND reason = 'assign'"
+            " ORDER BY id", (card,))]
+
+
+def test_an_uncovered_assign_gets_the_assignee_in_meta_to(cn):
+    a, b = _desk(cn, "asg"), _desk(cn, "asgee")
+    card = _card(cn, b)
+    row = _move(cn, a, card, "assign", "2026-09-05 10:00:00", peer=b)
+    cn.commit()
+    _apply(cn)
+    meta = _assign_meta(cn, card)
+    assert meta == [{"to": b}]
+    assert isinstance(meta[0]["to"], int)
+    assert _q(cn, "SELECT COUNT(*) FROM doing WHERE id = %s", (row,)) == [(0,)]
+
+
+def test_a_covered_assign_keeps_its_meta_and_gains_to(cn):
+    a, b = _desk(cn, "asgc"), _desk(cn, "asgcee")
+    card = _card(cn, b)
+    row = _move(cn, a, card, "assign", "2026-09-06 10:00:00", peer=b)
+    _tr(cn, "todo", card, "open", "claimed", "assign", a, "2026-09-06 10:00:01", meta='{"fx": 1}')
+    plain = _card(cn, b)
+    _move(cn, a, plain, "assign", "2026-09-07 10:00:00", peer=b)
+    _tr(cn, "todo", plain, "open", "claimed", "assign", a, "2026-09-07 10:00:01")
+    cn.commit()
+    rep = _apply(cn)
+    assert rep["moves_covered"] >= 2
+    assert _assign_meta(cn, card) == [{"fx": 1, "to": b}]
+    assert _assign_meta(cn, plain) == [{"to": b}]
+    assert _q(cn, "SELECT COUNT(*) FROM doing WHERE id = %s", (row,)) == [(0,)]
+
+
+def test_a_missing_or_zero_peer_invents_no_to(cn):
+    a = _desk(cn, "asgn")
+    unc_null, unc_zero, cov_null = _card(cn, a), _card(cn, a), _card(cn, a)
+    _move(cn, a, unc_null, "assign", "2026-09-08 10:00:00")
+    _move(cn, a, unc_zero, "assign", "2026-09-08 11:00:00", peer=0)
+    _move(cn, a, cov_null, "assign", "2026-09-08 12:00:00")
+    _tr(cn, "todo", cov_null, "open", "claimed", "assign", a, "2026-09-08 12:00:01")
+    cn.commit()
+    _apply(cn)
+    for card in (unc_null, unc_zero, cov_null):
+        metas = _assign_meta(cn, card)
+        assert len(metas) == 1 and "to" not in (metas[0] or {})
+
+
+def test_an_existing_meta_to_is_not_overwritten(cn):
+    a, b, c = _desk(cn, "asgo"), _desk(cn, "asgo2"), _desk(cn, "asgo3")
+    card = _card(cn, b)
+    _move(cn, a, card, "assign", "2026-09-09 10:00:00", peer=c)
+    _tr(cn, "todo", card, "open", "claimed", "assign", a, "2026-09-09 10:00:01", meta='{"to": %d}' % b)
+    cn.commit()
+    _apply(cn)
+    assert _assign_meta(cn, card) == [{"to": b}]
+
+
+def test_a_rerun_on_a_migrated_book_is_a_no_op(cn):
+    a, b = _desk(cn, "asgr"), _desk(cn, "asgree")
+    card = _card(cn, b)
+    _move(cn, a, card, "assign", "2026-09-10 10:00:00", peer=b)
+    cn.commit()
+    _apply(cn)
+    _apply(cn)
+    assert _assign_meta(cn, card) == [{"to": b}]

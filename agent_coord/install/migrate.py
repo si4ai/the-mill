@@ -2539,6 +2539,19 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
                     [frm, to, reason, act, atype] + args,
                 )
                 backfilled += cur.rowcount
+                if act == "assign" and peer:
+                    # 0.8.14 kept the assignee on doing.peer_id, and step 4 deletes that row: copy it to the
+                    # transition's meta.to (todo_activity.emit_assign's shape), for the row just backfilled and
+                    # for an old one that lacks it, matched as the cover is. Other meta keys and a set 'to' stay.
+                    cur.execute(
+                        "UPDATE transition t JOIN doing d ON t.activity_type = d.on_type AND t.activity_id = d.on_id"
+                        " AND t.desk_id = d.desk_id AND t.reason = %s"
+                        f" AND ABS(TIMESTAMPDIFF(SECOND, {utc}, t.at)) <= 5"
+                        " SET t.meta = JSON_SET(IFNULL(t.meta, JSON_OBJECT()), '$.to', CAST(d.peer_id AS SIGNED))"
+                        " WHERE d.act = %s AND d.on_type = %s AND d.peer_id > 0"
+                        "   AND JSON_EXTRACT(IFNULL(t.meta, JSON_OBJECT()), '$.to') IS NULL",
+                        [reason, act, atype],
+                    )
             rep["moves_covered"] = covered
             rep["moves_backfilled"] = backfilled
             # 3. A name's trash, restore or purge (text 'kind:name'): dropped (no anchor; counted).
