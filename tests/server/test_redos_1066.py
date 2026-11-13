@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_coord.server.admin import door
-from agent_coord.server.redact import _PAN
+from agent_coord.server.redact import _PAN, PH, redact_text
 
 ROOT = Path(__file__).resolve().parents[2]
 _SLOW_S = 0.3
@@ -45,6 +45,20 @@ def test_pan_card_and_spaced_card_match_short_does_not() -> None:
     assert _PAN.search("12345") is None
 
 
+@pytest.mark.parametrize("sep", [" ", "-", ""])
+def test_pan_amex_4_6_5_is_redacted(sep: str) -> None:
+    amex = sep.join(("3782", "822463", "10005"))
+    out = redact_text("amex " + amex)[0]
+    assert PH["pan"] in out and amex not in out
+
+
+@pytest.mark.parametrize("sep", [" ", "-", ""])
+def test_pan_visa_4_4_4_4_is_still_redacted(sep: str) -> None:
+    visa = sep.join(("4111", "1111", "1111", "1111"))
+    out = redact_text("card " + visa)[0]
+    assert PH["pan"] in out and visa not in out
+
+
 def test_parse_ttl_examples_and_junk() -> None:
     assert door.parse_ttl("3600")[0] == 3600
     assert door.parse_ttl("7d")[0] == 7 * 86400
@@ -74,6 +88,9 @@ def test_home_path_ordinary_user_still_matches() -> None:
 def test_redos_patterns_finish_on_long_input() -> None:
     mod = _pack()
     _under("pan", lambda: _PAN.search("9" * 8000 + "x"))
+    _under("pan spaced", lambda: _PAN.search("9 " * 8000 + "x"))
+    _under("pan groups", lambda: _PAN.search("9999 " * 4000 + "x"))
+    _under("pan amex groups", lambda: _PAN.search("9999 999999 " * 2000 + "x"))
     _under("ttl", lambda: door._TTL_RE.search("1" + (" " * 8000) + "x"))
     _under("home backslash", lambda: mod._HOME_PATH_RE.search("\\" * 8000))
     _under("home slash", lambda: mod._HOME_PATH_RE.search("/" * 8000))
