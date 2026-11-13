@@ -24,6 +24,7 @@ from . import tree as rec_tree
 from . import watcher as rec_watcher
 from agent_coord.helpers.names import MillName
 from agent_coord.helpers.ident import iso6
+from .wall_scope import ALL as SCOPE_ALL, WallScope
 
 
 
@@ -92,16 +93,18 @@ def _gid(r: dict[str, Any]):
 
 
 def window_bucket(window: str) -> tuple[datetime, str]:
-    """15m->min, 1h->5min, 24h->hour, 7d->day."""
+    """15m->min, 1h->5min, 24h|1d->hour, 7d|1w->day, 30d->day."""
     w = (window or "24h").strip().lower()
     now = datetime.now()
     if w in ("15m", "15min"):
         return now - timedelta(minutes=15), "min"
     if w in ("1h", "hour"):
         return now - timedelta(hours=1), "5min"
-    if w in ("7d", "week"):
+    if w in ("7d", "week", "1w"):
         return now - timedelta(days=7), "day"
-    return now - timedelta(hours=24), "hour"
+    if w == "30d":  # card 1193: the Wall's longest window
+        return now - timedelta(days=30), "day"
+    return now - timedelta(hours=24), "hour"  # 24h, and 1d (card 1193)
 
 
 def _name_catalog(rows_in: list[dict]) -> list[dict]:
@@ -256,6 +259,7 @@ def parse_tree_parent_id(
 TREE_WINDOW_DURATIONS = {
     "1d": timedelta(days=1),
     "1w": timedelta(days=7),
+    "7d": timedelta(days=7),  # card 1193: the shared Wall window name for 1w
     "30d": timedelta(days=30),
 }
 
@@ -282,7 +286,7 @@ def parse_tree_window(
         return None
     if key not in TREE_WINDOW_DURATIONS:
         raise ValueError(
-            "invalid window; use window=1d|1w|30d or omit for All"
+            "invalid window; use window=1d|7d|30d (1w = 7d) or omit for All"
         )
     n = now if now is not None else datetime.now()
     return n - TREE_WINDOW_DURATIONS[key]
@@ -307,6 +311,13 @@ def filter_trees_by_window(
             out.append(tree)
     return out
 
+
+
+def filter_trees_by_desks(trees: list[dict], scope: WallScope) -> list[dict]:
+    """Card 1193: keep forests with a node whose desk (who) is a selected desk."""
+    if scope.desks is None:
+        return list(trees or [])
+    return [t for t in trees or [] if any(scope.desk_hit(n.get("who")) for n in t.get("nodes") or [])]
 
 
 def _parse_parent_type_id(parent_id: str | None) -> tuple[str, int] | None:
@@ -1580,6 +1591,11 @@ def build_mailbox(
         if want and _nm(mp) not in want and not _keep(row, want):
             continue
         mailbox.append(row)
+    return mailbox, _desk_unread(mailbox)
+
+
+def _desk_unread(mailbox: list[dict]) -> dict[str, int]:
+    """Letters per recipient desk over the listed rows."""
     desk_unread: dict[str, int] = {}
     for m in mailbox:
         tos = m.get("mail_tos") or []
@@ -1594,7 +1610,7 @@ def build_mailbox(
             if not dst or dst == "*":
                 continue
             desk_unread[dst] = desk_unread.get(dst, 0) + 1
-    return mailbox, desk_unread
+    return desk_unread
 
 
 def build_todos(
@@ -1603,6 +1619,7 @@ def build_todos(
     want: set[str] | None = None,
     *,
     lean: bool = True,
+    scope: WallScope = SCOPE_ALL,
 ) -> tuple[list[dict], list[dict]]:
     """Todos isolate: mill_todo_select -> needs + issues.
     lean=True (list/poll): truncate detail to LIST_TEXT_MAX; set detail_trunc when
@@ -1613,6 +1630,9 @@ def build_todos(
     for mp, mp_rows in _todo_by_aff(cn, mail_ps):
         for r in mp_rows:
             st = r.get("status") or "open"
+            # card 1193: desks= is the volunteer or the asker; window= cuts on card updated.
+            if not scope.desk_hit(r.get("assigned"), r.get("creator")) or not scope.in_window(r.get("updated")):
+                continue
             fields = rec_todo.unpack(r.get("body") or "", r.get("id"))
             detail = fields["detail"]
             detail_trunc = False
@@ -1785,12 +1805,19 @@ def build_holds(
     cn,
     mail_ps: list[str],
     want: set[str] | None = None,
+    *,
+    scope: WallScope = SCOPE_ALL,
 ) -> list[dict]:
-    """Currently held locks. One row per resource, not per project. Free rows stay out."""
+    """Currently held locks. One row per resource, not per project. Free rows stay out.
+
+    Card 1193: desks= is the holder; window= cuts on held-since (hold.updated).
+    """
     del mail_ps, want
     locks: list[dict] = []
     for r in rec_hold.find(cn, held=True):
         if r.get("desk_id") is None:
+            continue
+        if not scope.desk_hit(r.get("desk")) or not scope.in_window(r.get("updated")):
             continue
         locks.append(
             {
@@ -1808,6 +1835,8 @@ def build_scores(
     cn,
     mail_ps: list[str],
     want: set[str] | None = None,
+    *,
+    scope: WallScope = SCOPE_ALL,
 ) -> list[dict]:
     """Scores isolate: mill_score_select per project and Office; dedupe owner|kpi|aff."""
     kpis: list[dict] = []
@@ -1832,6 +1861,9 @@ def build_scores(
             }
             key = (row["owner"], row["kpi"], aff)
             if key in seen_kpi:
+                continue
+            # card 1193: desks= is the score's desk; window= cuts on score updated.
+            if not scope.desk_hit(row["owner"]) or not scope.in_window(r.get("updated")):
                 continue
             office = aff in (CONST_OFFICE,) or int(_gid(r) or 0) == 1
             if office or _keep(row, want):
@@ -1935,16 +1967,28 @@ def v1_rooms(
     *,
     desk: str | None = None,
     scope: str | None = None,
+    wall: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Rooms isolate. Stamp trust. Every room at every trust level (#672, S-3).
 
     ?desk= and ?scope=membership are still accepted (older Wall glass sends them
     under limited trust) but no longer filter: nothing is private between desks
     in an office, and the Wall shows humans every room.
+
+    Card 1193: ?desks= keeps rooms a selected desk wrote in or was sent a letter in;
+    ?window= keeps rooms whose newest letter is inside the window.
     """
     _mail_ps, want = _v1_project_scope(project, projects)
     out = _v1_envelope(["rooms"])
-    out["trees"] = build_rooms(cn, want)
+    trees = build_rooms(cn, want)
+    if wall.active and trees:
+        facts = rec_tree.room_scope_facts(cn, [str(t.get("name") or "") for t in trees])
+        trees = [
+            t for t in trees
+            if wall.desk_hit(sorted((facts.get(str(t.get("name") or "")) or {}).get("desks") or ()))
+            and wall.in_window((facts.get(str(t.get("name") or "")) or {}).get("last_at"))
+        ]
+    out["trees"] = trees
     if desk:
         out["desk"] = desk
     return out
@@ -1958,10 +2002,13 @@ def v1_mailbox(
     *,
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Mailbox isolate. ?fp=mail:hex empty-on-match (body skip; fp echoed).
     Lean list page: ?limit= (default 50) + ?cursor=; response next cursor or null.
     Pages in Python after mill_mail_list (SP LIMIT 500). desk_unread from full set.
+    Card 1193: ?desks= is the sender or a recipient; ?window= cuts on created.
+    A scoped read skips the fp empty-on-match (a window moves with the clock).
     """
     mail_ps, want = _v1_project_scope(project, projects)
     out = _v1_envelope(["mail"])
@@ -1970,12 +2017,18 @@ def v1_mailbox(
     mail_fp = _projects_part_fp(cn, mail_ps, "mail") if mail_ps else ""
     if mail_fp:
         out["fp"] = {"mail": mail_fp}
-    if mail_fp and client_fps.get("mail") == mail_fp:
+    if mail_fp and not scope.active and client_fps.get("mail") == mail_fp:
         out["mailbox"] = []
         out["desk_unread"] = {}
         out["next"] = None
         return out
     mailbox, desk_unread = build_mailbox(cn, mail_ps, want)
+    if scope.active:
+        mailbox = [
+            m for m in mailbox
+            if scope.desk_hit(m.get("from"), m.get("to") or []) and scope.in_window(m.get("created"))
+        ]
+        desk_unread = _desk_unread(mailbox)
     page, nxt = page_by_cursor(mailbox, page_lim, page_cur)
     out["mailbox"] = page
     out["desk_unread"] = desk_unread
@@ -1993,8 +2046,12 @@ def v1_tree_mail(
     depth: int | None = None,
     parent_id: str | None = None,
     window: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
-    """Mail trees progressive + optional ?window=1d|1w|30d (omit=All)."""
+    """Mail trees progressive + optional ?window=1d|7d|30d (1w = 7d; omit=All).
+
+    Card 1193: ?desks= keeps forests with a node by a selected desk.
+    """
     _mail_ps, want = _v1_project_scope(project, projects)
     out = _v1_envelope(["trees"])
     aff = _v1_aff_ids(cn, want)
@@ -2006,6 +2063,7 @@ def v1_tree_mail(
     if since is not None:
         last = rec_tree.forest_last_activity(cn, aff)
         full = filter_trees_by_window(full, since, last)
+    full = filter_trees_by_desks(full, scope)
     trees, nxt = page_trees_progressive(
         full, page_lim, page_cur, depth=depth_cap, parent_id=pid
     )
@@ -2024,8 +2082,12 @@ def v1_tree_todo(
     depth: int | None = None,
     parent_id: str | None = None,
     window: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
-    """Todo trees progressive + optional ?window=1d|1w|30d (omit=All)."""
+    """Todo trees progressive + optional ?window=1d|7d|30d (1w = 7d; omit=All).
+
+    Card 1193: ?desks= keeps forests with a node by a selected desk.
+    """
     _mail_ps, want = _v1_project_scope(project, projects)
     out = _v1_envelope(["trees"])
     aff = _v1_aff_ids(cn, want)
@@ -2037,6 +2099,7 @@ def v1_tree_todo(
     if since is not None:
         last = rec_tree.forest_last_activity(cn, aff)
         full = filter_trees_by_window(full, since, last)
+    full = filter_trees_by_desks(full, scope)
     trees, nxt = page_trees_progressive(
         full, page_lim, page_cur, depth=depth_cap, parent_id=pid
     )
@@ -2053,8 +2116,11 @@ def v1_todos(
     *,
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Todos isolate. ?fp=todos:hex empty-on-match (body skip; fp echoed).
+    Card 1193: ?desks= is the volunteer or asker; ?window= cuts on card updated,
+    so a card done inside the window stays listed.
     Lean list page: ?limit= (default 50) + ?cursor=; response next cursor or null.
     Stream order: needs then issues; page split back into those keys.
     """
@@ -2065,12 +2131,12 @@ def v1_todos(
     todos_fp = _projects_part_fp(cn, mail_ps, "todos") if mail_ps else ""
     if todos_fp:
         out["fp"] = {"todos": todos_fp}
-    if todos_fp and client_fps.get("todos") == todos_fp:
+    if todos_fp and not scope.active and client_fps.get("todos") == todos_fp:
         out["needs"] = []
         out["issues"] = []
         out["next"] = None
         return out
-    needs, issues = build_todos(cn, mail_ps, want)
+    needs, issues = build_todos(cn, mail_ps, want, scope=scope)
     need_ids = {int(c.get("id") or 0) for c in needs}
     stream = list(needs) + list(issues)
     page, nxt = page_by_cursor(stream, page_lim, page_cur)
@@ -2125,8 +2191,10 @@ def v1_scores(
     *,
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Scores isolate. ?fp=scores:hex empty-on-match (body skip; fp echoed).
+    Card 1193: ?desks= is the score's desk; ?window= cuts on score updated.
     Lean list page: ?limit= (default 50) + ?cursor=; response next cursor or null.
     """
     mail_ps, want = _v1_project_scope(project, projects)
@@ -2136,11 +2204,11 @@ def v1_scores(
     scores_fp = _projects_part_fp(cn, mail_ps, "scores") if mail_ps else ""
     if scores_fp:
         out["fp"] = {"scores": scores_fp}
-    if scores_fp and client_fps.get("scores") == scores_fp:
+    if scores_fp and not scope.active and client_fps.get("scores") == scores_fp:
         out["kpis"] = []
         out["next"] = None
         return out
-    kpis = build_scores(cn, mail_ps, want)
+    kpis = build_scores(cn, mail_ps, want, scope=scope)
     for row in kpis:
         if row.get("id") in (None, ""):
             row["id"] = "|".join(
@@ -2153,9 +2221,14 @@ def v1_scores(
 
 
 
+def _roster_list(project: str | list[str]) -> list[str]:
+    raws = project if isinstance(project, (list, tuple)) else str(project or "").split(",")
+    return list(dict.fromkeys(_nm(x.strip()) for x in raws if str(x).strip()))
+
+
 def v1_activity_buckets(
     cn,
-    project: str,
+    project: str | list[str],
     *,
     bucket: str = "hour",
     since: datetime | None = None,
@@ -2163,16 +2236,29 @@ def v1_activity_buckets(
     act: str = "",
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Card 1160: Score tab activity counts for one roster.
 
     rows: updated (bucket start), type, act, desk, desk_id, roster, items, id.
     Lean list page: ?limit= (default 50) + ?cursor=; next cursor or null.
+    Card 1193: project is a roster or a comma list (rows of every roster, oldest
+    bucket first); ?desks= narrows to those desks; ?window= is a since= (the later wins).
     """
     page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
-    rows = rec_activity.buckets(cn, _nm(project), bucket, since, type_s, act)
+    rosters = _roster_list(project)
+    if scope.since is not None and (since is None or scope.since > since):
+        since = scope.since
+    rows = []
+    for roster in rosters:
+        rows.extend(r for r in rec_activity.buckets(cn, roster, bucket, since, type_s, act) if scope.desk_hit(r.get("desk")))
+    if len(rosters) > 1:
+        rows.sort(key=lambda r: (str(r.get("updated") or ""), str(r.get("type") or ""), str(r.get("act") or ""),
+                                 int(r.get("desk_id") or 0), str(r.get("roster") or "")))
     for row in rows:
         row["id"] = "|".join(str(row.get(k) or "") for k in ("updated", "type", "act", "desk_id"))
+        if len(rosters) > 1:
+            row["id"] += "|" + str(row.get("roster") or "")
     page, nxt = page_by_cursor(rows, page_lim, page_cur)
     out = _v1_envelope(["activity-buckets"])
     out["bucket"] = bucket
@@ -2183,19 +2269,30 @@ def v1_activity_buckets(
 
 def v1_score_runs(
     cn,
-    project: str,
+    project: str | list[str],
     *,
     phase: str = "",
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Card 1160: Score tab tw runs for one roster, newest first.
 
     rows: id, desk, phase, last_run, at, plus the stored dwell and end fields.
     Lean list page: ?limit= (default 50) + ?cursor=; next cursor or null.
+    Card 1193: project is a roster or a comma list (merged, newest first);
+    ?desks= narrows to those desks; ?window= cuts on at.
     """
     page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
-    rows = rec_score.runs(cn, _nm(project), phase)
+    rosters = _roster_list(project)
+    rows = []
+    for roster in rosters:
+        rows.extend(
+            r for r in rec_score.runs(cn, roster, phase)
+            if scope.desk_hit(r.get("desk")) and scope.in_window(r.get("at"))
+        )
+    if len(rosters) > 1:
+        rows.sort(key=lambda r: (str(r.get("at") or ""), int(r.get("id") or 0)), reverse=True)
     page, nxt = page_by_cursor(rows, page_lim, page_cur)
     out = _v1_envelope(["score-runs"])
     out["rows"] = page
@@ -2211,8 +2308,10 @@ def v1_holds(
     *,
     limit: int | None = None,
     cursor: str | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Holds isolate. ?fp=holds:hex empty-on-match (body skip; fp echoed).
+    Card 1193: ?desks= is the holder; ?window= cuts on held-since.
     Lean list page: ?limit= (default 50) + ?cursor=; response next cursor or null.
     """
     mail_ps, want = _v1_project_scope(project, projects)
@@ -2222,11 +2321,11 @@ def v1_holds(
     holds_fp = _projects_part_fp(cn, mail_ps, "holds") if mail_ps else ""
     if holds_fp:
         out["fp"] = {"holds": holds_fp}
-    if holds_fp and client_fps.get("holds") == holds_fp:
+    if holds_fp and not scope.active and client_fps.get("holds") == holds_fp:
         out["locks"] = []
         out["next"] = None
         return out
-    locks = build_holds(cn, mail_ps, want)
+    locks = build_holds(cn, mail_ps, want, scope=scope)
     for row in locks:
         if row.get("id") in (None, ""):
             row["id"] = "|".join(
@@ -2244,6 +2343,8 @@ def v1_labels(
     names: list[str] | None = None,
     limit: int | None = None,
     cursor: str | None = None,
+    projects: list[str] | None = None,
+    scope: WallScope = SCOPE_ALL,
 ) -> dict[str, Any]:
     """Card 1153: the Wall PRIORITIES tab. Office-wide label rows (records.label.wall_rows).
 
@@ -2255,6 +2356,7 @@ def v1_labels(
 
     page_lim, page_cur = parse_list_page(limit=limit, cursor=cursor)
     rows = rec_label.wall_rows(cn, names)
+    rows = narrow_label_rows(rows, projects, scope)
     off = [
         {"label": r["label"], "id": r["id"], "roster": r["card"]["roster"]}
         for r in rows
@@ -2262,10 +2364,36 @@ def v1_labels(
     ]
     page, nxt = page_by_cursor(rows, page_lim, page_cur, get_key=lambda r: f"{r['label']}|{r['type']}|{r['id']}")
     out = _v1_envelope(["labels"])
-    out["project"] = CONST_OFFICE
+    shown = [p for p in (projects or []) if p.casefold() != CONST_OFFICE.casefold()]
+    out["project"] = ",".join(shown) if shown else CONST_OFFICE
     out["rows"] = page
     out["next"] = nxt
     out["checks"] = {"off_roster": off}
+    return out
+
+
+def narrow_label_rows(
+    rows: list[dict], projects: list[str] | None, scope: WallScope = SCOPE_ALL
+) -> list[dict]:
+    """Card 1193: narrow office-wide label rows to the Wall filter.
+
+    A project list other than Office alone keeps a row when its card's roster is
+    listed or the label is named after a listed roster. desks= keeps a row whose
+    label is a selected desk's list or whose card's volunteer is selected.
+    window= keeps a row ranked (updated) or whose card moved (last_activity_at)
+    inside the window.
+    """
+    picked = {p.casefold() for p in projects or [] if p.casefold() != CONST_OFFICE.casefold()}
+    out = []
+    for r in rows:
+        card = r.get("card") or {}
+        if picked and str(card.get("roster") or "").casefold() not in picked and str(r.get("label") or "").casefold() not in picked:
+            continue
+        if not scope.desk_hit(r.get("label"), card.get("volunteer")):
+            continue
+        if not scope.in_window(r.get("updated"), card.get("last_activity_at")):
+            continue
+        out.append(r)
     return out
 
 

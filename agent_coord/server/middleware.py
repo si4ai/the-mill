@@ -489,23 +489,35 @@ _LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 def _labels_read(qs: dict[str, list[str]]) -> tuple[int, Any]:
     """Card 1153: GET /api/v1/labels for the Wall PRIORITIES tab. Read-only.
 
-    Labels are office-wide, so the only scope is ?project=Office. names=a,b picks
+    Labels are office-wide. ?project=Office reads them all; card 1193: a comma
+    roster list narrows the rows to cards on those rosters and lists named after
+    them, and ?desks= / ?window= narrow like the other Wall lists. names=a,b picks
     labels; omitted means every desk-named label plus human-priorities. {rows, next,
     checks} pages like /scores. A refusal is 400 {"error"}.
     """
     from agent_coord.server.records import floor as rec_floor
+    from agent_coord.server.records import wall_scope
 
     def one(key: str) -> str:
         return str((qs.get(key) or [""])[0] or "").strip()
 
-    if one("project").casefold() != CONST_OFFICE.casefold() or one("role") or one("lan"):
-        return 400, {"error": "GET /api/v1/labels requires ?project=Office (labels are office-wide)"}
+    projects = wall_scope.project_list(qs, "project")
+    if not projects or one("role") or one("lan"):
+        return 400, {"error": "GET /api/v1/labels requires ?project=Office or a roster list (labels are office-wide)"}
+    if len(projects) > 100 or any(not _LABEL_NAME.fullmatch(p) for p in projects):
+        return 400, {"error": "GET /api/v1/labels: project= is up to 100 roster names, comma separated"}
     names = [x.strip() for x in one("names").split(",") if x.strip()]
     if any(not _LABEL_NAME.fullmatch(n) for n in names) or len(names) > 100:
         return 400, {"error": "GET /api/v1/labels: names= is up to 100 label names, comma separated"}
+    try:
+        scope = wall_scope.parse_scope(qs)
+    except wall_scope.ScopeError as e:
+        return 400, {"error": f"GET /api/v1/labels: {e}"}
     page_lim, page_cur = rec_floor.parse_list_page(qs)
     with _office() as c:
-        return 200, rec_floor.v1_labels(c._cn, names=names or None, limit=page_lim, cursor=page_cur)
+        return 200, rec_floor.v1_labels(
+            c._cn, names=names or None, limit=page_lim, cursor=page_cur, projects=projects, scope=scope
+        )
 
 
 _DOING_ITEM = re.compile(r"(mail|todo|hold|score)-([1-9][0-9]{0,18})")
@@ -517,7 +529,9 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     office book as every other Wall GET; the Wall computes nothing itself.
 
     /api/v1/doing takes exactly one of all=1, desk=D or project=R and returns
-    the _desk_view list. /api/v1/doing/history takes desk=D and/or on=ITEM
+    the _desk_view list. Card 1193 adds desks=d1,d2 and a comma project=R1,R2
+    (either alone, both, or with all=1), and window=1d|7d|30d on the heartbeat.
+    /api/v1/doing/history takes desk=D and/or on=ITEM
     (mail-N, todo-N, hold-N, score-N), plus since= and page=, and returns
     {history, page} with ended_by. A refusal is 400 {"error"}.
     """
@@ -529,12 +543,37 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     desk, project = one("desk"), one("project")
     try:
         if path == "/api/doing":
+            from agent_coord.server.records import wall_scope
+
             every = one("all").lower() in ("1", "true", "yes")
-            if int(every) + int(bool(desk)) + int(bool(project)) != 1:
-                return 400, {"error": "GET /api/v1/doing requires one of ?all=1 or ?desk= or ?project="}
-            body: dict[str, Any] = {"desk": desk, "project": project, "all": every}
+            projects = wall_scope.project_list(qs, "project")
+            try:
+                scope = wall_scope.parse_scope(qs)
+            except wall_scope.ScopeError as e:
+                return 400, {"error": f"GET /api/v1/doing: {e}"}
+            if scope.desks is None and len(projects) <= 1:
+                if int(every) + int(bool(desk)) + int(bool(project)) != 1:
+                    return 400, {"error": "GET /api/v1/doing requires one of ?all=1 or ?desk= or ?project= (or ?desks=)"}
+                body: dict[str, Any] = {"desk": desk, "project": project, "all": every}
+                with _office() as c:
+                    views = rpc._h_session(c, body, project, None)
+                return 200, [v for v in views if scope.in_window(v.get("heartbeat"))]
+            if desk:
+                return 400, {"error": "GET /api/v1/doing: desk= is one desk; use desks= alone for a list"}
+            views = []
+            seen: set[str] = set()
             with _office() as c:
-                return 200, rpc._h_session(c, body, project, None)
+                for roster in projects or [""]:
+                    body = {"desk": "", "project": roster, "all": not roster}
+                    for v in rpc._h_session(c, body, roster, None):
+                        who = str(v.get("owner") or "")
+                        if who in seen:
+                            continue
+                        seen.add(who)
+                        views.append(v)
+            return 200, [
+                v for v in views if scope.desk_hit(v.get("owner")) and scope.in_window(v.get("heartbeat"))
+            ]
         on_raw = one("on")
         on = None
         if on_raw:
@@ -581,10 +620,18 @@ def _score_tab_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     def one(key: str) -> str:
         return str((qs.get(key) or [""])[0] or "").strip()
 
+    from agent_coord.server.records import wall_scope
+
     route = path[len("/api/") :]
-    project = one("project")
-    if not project or "," in project or one("role") or one("lan"):
-        return 400, {"error": f"GET /api/v1/{route} requires one ?project="}
+    project = wall_scope.project_list(qs, "project")
+    if not project or one("role") or one("lan"):
+        return 400, {"error": f"GET /api/v1/{route} requires ?project= (one roster or a comma list)"}
+    if len(project) > 100 or any(not _LABEL_NAME.fullmatch(p) for p in project):
+        return 400, {"error": f"GET /api/v1/{route}: project= is up to 100 roster names, comma separated"}
+    try:
+        scope = wall_scope.parse_scope(qs)
+    except wall_scope.ScopeError as e:
+        return 400, {"error": f"GET /api/v1/{route}: {e}"}
     page_lim, page_cur = rec_floor.parse_list_page(qs)
     if route == "score-runs":
         phase = one("phase")
@@ -592,7 +639,7 @@ def _score_tab_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
             return 400, {"error": "GET /api/v1/score-runs: phase= is start, finished or failed"}
         with _office() as c:
             return 200, rec_floor.v1_score_runs(
-                c._cn, project, phase=phase, limit=page_lim, cursor=page_cur
+                c._cn, project, phase=phase, limit=page_lim, cursor=page_cur, scope=scope
             )
     bucket = one("bucket") or "hour"
     if bucket not in ("min", "hour", "day"):
@@ -620,6 +667,7 @@ def _score_tab_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
             act=act,
             limit=page_lim,
             cursor=page_cur,
+            scope=scope,
         )
 
 
@@ -1706,9 +1754,25 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                     (pov_type,),
                                 )
                                 rows = [
-                                    {"name": _stored(str(r[0] or "")), "desks": int(r[1] or 0)}
+                                    {"name": _stored(str(r[0] or "")), "desks": int(r[1] or 0), "members": []}
                                     for r in cur.fetchall() if r and r[0]
                                 ]
+                                # card 1193: the live member desk names on each roster, sorted,
+                                # so the filter pane can list the desks of the selected rosters.
+                                cur.execute(
+                                    "SELECT n.name, d.name FROM name n"
+                                    " JOIN member m ON m.name_id=n.id"
+                                    " JOIN name d ON d.id=m.desk_id"
+                                    "  AND d.deleted IS NULL AND d.type = 'desk'"
+                                    " WHERE n.deleted IS NULL AND n.type = %s"
+                                    " ORDER BY n.name, d.name",
+                                    (pov_type,),
+                                )
+                                by_roster = {rec["name"]: rec for rec in rows}
+                                for r in cur.fetchall():
+                                    rec = by_roster.get(_stored(str((r or ("", ""))[0] or "")))
+                                    if rec is not None and r[1]:
+                                        rec["members"].append(_stored(str(r[1])))
                         finally:
                             cur.close()
                         if part == "rosters":
@@ -2035,6 +2099,18 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     except Exception:
                         pass
                     return
+                from agent_coord.server.records import wall_scope
+
+                # Card 1193: the Wall left-pane scope (?desks=, ?window=), one parse for every list.
+                try:
+                    wall = wall_scope.parse_scope(qs)
+                except wall_scope.ScopeError as e:
+                    self._send(400, _json({"error": f"GET /api/v1/{v1_name}: {e}"}), "application/json; charset=utf-8")
+                    return
+                if wall.active and (role_name or lan):
+                    err = {"error": f"GET /api/v1/{v1_name}: desks= and window= go with ?project="}
+                    self._send(400, _json(err), "application/json; charset=utf-8")
+                    return
                 want_timings = str((qs.get("timings") or [""])[0] or "").strip().lower() in (
                     "1",
                     "true",
@@ -2094,6 +2170,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                         win_s or "",
                         str(parse_tree_depth(qs) or ""),
                         str(parse_tree_parent_id(qs) or ""),
+                        wall.key(),
                         pane_ver,
                     )
                 )
@@ -2140,6 +2217,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                     "depth": parse_tree_depth(qs),
                                     "parent_id": parse_tree_parent_id(qs),
                                     "window": win_s,
+                                    "scope": wall,
                                 }
                             else:
                                 kwargs = {
@@ -2148,6 +2226,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                     "limit": page_lim,
                                     "cursor": page_cur,
                                 }
+                                if builder_name in ("v1_mailbox", "v1_todos", "v1_scores", "v1_holds"):
+                                    kwargs["scope"] = wall
                             if builder_name == "v1_timeline":
                                 kwargs["parts"] = part_list or None
                             return builder(c._cn, **kwargs)
@@ -2159,6 +2239,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 projects=plist,
                                 desk=desk_q,
                                 scope=scope_q,
+                                wall=wall,
                             )
                         return builder(c._cn, projects=plist)
 
@@ -2242,6 +2323,23 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
 
                 span = window.strip().lower()
                 page_lim, page_cur = parse_list_page(qs)
+                from agent_coord.server.records import wall_scope
+
+                # Card 1193: ?desks= narrows the rows to those desks before the page cut.
+                try:
+                    act_desks = wall_scope.WallScope(
+                        desks=wall_scope.parse_desks(qs.get("desks")) if "desks" in qs else None
+                    )
+                except wall_scope.ScopeError as e:
+                    self._send(400, _json({"error": f"GET /api/activity: {e}"}), "application/json; charset=utf-8")
+                    return
+
+                def _by_desk(rows: list) -> list:
+                    if act_desks.desks is None:
+                        return rows
+                    return [r for r in rows if act_desks.desk_hit((r or {}).get("owner"), (r or {}).get("desk"))]
+
+                desk_key = act_desks.key()
                 cut = _activity_cut(qs, project)
                 if span == "between" or span in ("min", "hourly", "hour", "daily", "day"):
                     if cut is None:
@@ -2260,13 +2358,13 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                     except (TypeError, ValueError):
                         per_desk = 50
                     shown = 50 if per_desk < 1 or per_desk > 50 else per_desk
-                    cache_key = f"activity|between|{scope}|{ident}|{shown}"
+                    cache_key = f"activity|between|{scope}|{ident}|{shown}|{desk_key}"
 
                     def produce() -> bytes:
                         with _office() as c:
                             from agent_coord.server.records import activity as rec_activity
 
-                            rows = rec_activity.between_rows(c._cn, scope, ident, per_desk)
+                            rows = _by_desk(rec_activity.between_rows(c._cn, scope, ident, per_desk))
                         return _json(
                             {
                                 "project": project,
@@ -2284,7 +2382,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                         "hour" if span in ("hourly", "hour") else "day"
                     )
                     cache_key = (
-                        f"activity|span|{scope}|{ident}|{span}|{page_lim}|{page_cur or ''}"
+                        f"activity|span|{scope}|{ident}|{span}|{page_lim}|{page_cur or ''}|{desk_key}"
                     )
 
                     def produce() -> bytes:
@@ -2296,7 +2394,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 c._cn, scope, ident, grain
                             )
                             rows, nxt = page_activity_rows(
-                                raw_rows, limit=page_lim, cursor=page_cur
+                                _by_desk(raw_rows), limit=page_lim, cursor=page_cur
                             )
                         return _json(
                             {
@@ -2314,7 +2412,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
 
                     proj_name = _stored(project)
                     cache_key = (
-                        f"activity|bucket|{proj_name}|{window}|{type_s}|{page_lim}|{page_cur or ''}"
+                        f"activity|bucket|{proj_name}|{window}|{type_s}|{page_lim}|{page_cur or ''}|{desk_key}"
                     )
 
                     def produce() -> bytes:
@@ -2335,7 +2433,7 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 )
                             )
                             rows, nxt = page_activity_rows(
-                                raw_rows, limit=page_lim, cursor=page_cur
+                                _by_desk(raw_rows), limit=page_lim, cursor=page_cur
                             )
                         return _json(
                             {

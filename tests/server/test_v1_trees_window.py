@@ -25,6 +25,7 @@ def test_parse_tree_window_omit_all_and_tokens() -> None:
     assert parse_tree_window(window="") is None
     assert parse_tree_window({"window": ["1d"]}, now=now) == now - timedelta(days=1)
     assert parse_tree_window({"window": ["1w"]}, now=now) == now - timedelta(days=7)
+    assert parse_tree_window({"window": ["7d"]}, now=now) == now - timedelta(days=7)  # card 1193
     assert parse_tree_window({"window": ["30d"]}, now=now) == now - timedelta(days=30)
     assert parse_tree_window(window="1D", now=now) == now - timedelta(days=1)
 
@@ -32,7 +33,7 @@ def test_parse_tree_window_omit_all_and_tokens() -> None:
 def test_parse_tree_window_invalid_raises() -> None:
     with pytest.raises(ValueError, match="invalid window"):
         parse_tree_window({"window": ["2d"]})
-    with pytest.raises(ValueError, match="1d\\|1w\\|30d"):
+    with pytest.raises(ValueError, match="1d\\|7d\\|30d"):
         parse_tree_window(window="24h")
 
 

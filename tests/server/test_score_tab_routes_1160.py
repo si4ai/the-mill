@@ -47,7 +47,7 @@ def _client(monkeypatch, cn=None) -> TestClient:
 @pytest.mark.parametrize("url,word", [
     ("/api/v1/activity-buckets", "project"),
     ("/api/v1/score-runs", "project"),
-    ("/api/v1/activity-buckets?project=a,b", "project"),
+    ("/api/v1/activity-buckets?project=a;b", "project"),  # card 1193: a comma list is allowed
     ("/api/v1/activity-buckets?project=Office&role=x", "project"),
     ("/api/v1/activity-buckets?project=Office&bucket=week", "bucket"),
     ("/api/v1/activity-buckets?project=Office&type=letter", "type"),
