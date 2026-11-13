@@ -257,20 +257,45 @@ def _ring_after(desk: str, why: str) -> None:
         _bc_log(f"push ring err desk={desk} why={why} err={type(e).__name__}")
 
 
-def ring_waiting(cn, desk: str, why: str) -> str:
-    """#832: wake an armed desk that is not sitting and has rows it never got live.
+def _webhook_delivery(cn, desk: str) -> bool:
+    """True when the join row is armed for webhook. A lookup miss stays websocket."""
+    try:
+        from agent_coord.server.records import join as rec_join
 
-    Runs when its last socket leaves and when a live frame found no socket. The POST
-    names the newest waiting hint or letter; post_desk's window, wake_on and checks
-    apply as for any other wake. sitting | none | post_desk's result.
+        return bool(rec_join.wake_state(cn, desk).get("armed"))
+    except Exception:
+        return False
+
+
+def ring_waiting(cn, desk: str, why: str) -> str:
+    """Wake by the delivery the desk picked at join, not by whether a socket is up.
+
+    websocket: never POST. A live socket already has the frame; a gone socket keeps
+    the row queued for the next connect. webhook: POST under the usual lease even
+    when a socket is up. sitting | queued | none | post_desk's result.
     """
     from agent_coord.server.mill_json import stamp_mill
     from agent_coord.server.poke_key import FIELD, hint_key, letter_key
     from agent_coord.server.records import push as rec_push
     from agent_coord.server.wake import ADDRESSED, ROOM, post_desk
 
-    if any(k in HUB.rooms for k in _desk_room_keys(desk)):
+    sitting = any(k in HUB.rooms for k in _desk_room_keys(desk))
+    webhook = _webhook_delivery(cn, desk)
+    if sitting and not webhook:
         return "sitting"
+    if not webhook:
+        # No POST. An empty queue is still none; a waiting row stays queued for connect.
+        try:
+            pending = rec_push.waiting(cn, desk)
+        except Exception:
+            pending = None
+        if pending:
+            return "queued"
+        try:
+            unread = unread_mail_frames(cn, desk, limit=1)
+        except Exception:
+            unread = None
+        return "queued" if unread else "none"
     row = rec_push.waiting(cn, desk)
     if not row:
         # #949 / #826: push may be empty after a short connect marked rows sent
@@ -687,6 +712,7 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
     # Receipt dests arrive as reason=addressed via mail_push.wake_reason_for_dest
     # (card 1093); no per-letter receipt override needed.
     real_miss = reason == "addressed" or kind in ("hint", "receipt")
+    webhook = _webhook_delivery(cn, desk)
     if sitting:
         try:
             _notify_rooms(keys or [desk], stamp_mill(live), row=(who, rid))
@@ -696,28 +722,30 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
             _mark_error(cn, rid)
             _bc_log(f"push notify err desk={desk} kind={kind} err={e}")
     elif real_miss:
-        # Real miss: owed hop, then ring an armed desk for mail/receipt.
+        # websocket with no socket: owed until the next connect. No POST.
         try:
             if rid:
                 rec_push.mark(cn, rid, "missed")
         except Exception as e:
             _bc_log(f"push mark err desk={desk} kind={kind} err={type(e).__name__}")
         outcome = "missed"
-        if kind in ("mail", "receipt"):
-            try:
-                from agent_coord.server.wake import post_desk
+    # Room copies stay queued. A webhook POST is only for an addressed item.
+    if webhook and reason != "room" and kind in ("mail", "receipt", "hint"):
+        # The join said webhook. POST even when a socket is up.
+        try:
+            from agent_coord.server.wake import post_desk
 
-                post_desk(
-                    cn,
-                    desk,
-                    live,
-                    hint_id=mid,
-                    reason=reason,
-                    room=room,
-                    wake_id=rid,
-                )
-            except Exception as e:
-                _bc_log(f"webhook desk={desk} kind={kind} err={type(e).__name__}")
+            post_desk(
+                cn,
+                desk,
+                live,
+                hint_id=mid,
+                reason=reason,
+                room=room,
+                wake_id=rid,
+            )
+        except Exception as e:
+            _bc_log(f"webhook desk={desk} kind={kind} err={type(e).__name__}")
     # else: room copy, not sitting - stays queued until sync; no owed, no POST.
     return outcome
 

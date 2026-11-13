@@ -235,6 +235,10 @@ def test_emit_unit_put_queued_addressed_marks_missed(monkeypatch) -> None:
     posts: list[dict] = []
     monkeypatch.setattr(HUB, "rooms", {})
     monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": True, "host": "", "wake_on": "addressed"},
+    )
+    monkeypatch.setattr(
         rec_push,
         "put",
         lambda cn, desk, kind, payload, outcome: logged.append((desk, kind, outcome))
