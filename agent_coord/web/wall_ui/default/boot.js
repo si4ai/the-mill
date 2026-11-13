@@ -3943,9 +3943,10 @@
     }
     function hereGlance(d, agent) {
       /* SESSION_GLANCE SoR: docs/acceptance/ACCEPTANCE-SESSION-GLANCE.md
-         #818: the state comes from the server's doing view when it is read (doing -> working,
-         none -> idle). Without it: a claimed card, the seat's doing text, or recent activity
-         -> working, else here. Never parsed out of the text. */
+         Card 1207: the state comes from the server's doing view (live tw runs) when it is read:
+         a live run in state waiting -> waiting (as the strip and score counts), another live
+         run -> working, none -> idle. Without the view: a claimed card or recent activity ->
+         working, else here. Never parsed out of any text. */
       const view = wallDoingView(agent.owner);
       const doing = wallDoingText(agent.owner);
       const jobs = millJobsForOwner(d, agent.owner, millGid(agent));
@@ -3959,12 +3960,13 @@
       } : null;
       const pack = (state, note) => ({ state, note: note || "", doing, view, job, stale });
       if (view) {
-        /* A stale view's leftover text is never "working". The seat decides gone vs idle: a
-           connected seat with a stale doing view is idle (with the leftover as its last). */
+        /* A stale view's runs are never "working". The seat decides gone vs idle: a connected
+           seat with a stale doing view is idle. */
         if (wallDoingStale(view)) {
           return stale ? pack("gone", "gone") : pack("idle", "idle");
         }
         if (stale && !doing) return pack("gone", "gone");
+        if (doing && (view.doings || []).some(x => x && x.state === "waiting")) return pack("waiting", doing);
         if (doing) return pack("working", doing);
         return pack("idle", "idle");
       }

@@ -303,7 +303,7 @@
       if (!row || !scoreDoingTaskRowVisible(row)) return;
       out.push(row);
     });
-    return out.slice(0, 8);
+    return out.slice(0, typeof WALL_DOINGS_CAP === "number" ? WALL_DOINGS_CAP : 20);
   }
   var DOING_TASK_LAST_DONE_KEYS = ["end_reason", "dwell_active_ms", "dwell_idle_ms"];
   /* Per-score timestamps only. Never treat dwell_idle_ms (or other leaf values) as a clock. */

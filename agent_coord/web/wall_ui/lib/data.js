@@ -286,6 +286,8 @@
    * connection is the latest rows[].last_connected (ISO UTC, null = never). The rail shows
    * live stations and those seen inside windowDays; Admin lists every station. */
   var STATION_RAIL_DAYS = 7;
+  /* Card 1207: the server sends at most this many live doings per desk (records.doing.DOINGS_CAP). */
+  var DOINGS_CAP = 20;
   function wallIsoMs(raw) {
     if (raw == null || raw === "") return null;
     var t = Date.parse(String(raw));
@@ -344,6 +346,7 @@
   global.wallStations = wallStations;
   global.wallRailStations = wallRailStations;
   global.WALL_STATION_RAIL_DAYS = STATION_RAIL_DAYS;
+  global.WALL_DOINGS_CAP = DOINGS_CAP;
   global.WALL_ACT_LABELS = WALL_ACT_LABELS;
   global.wallActLabel = wallActLabel;
   global.wallActHasEvidence = wallActHasEvidence;

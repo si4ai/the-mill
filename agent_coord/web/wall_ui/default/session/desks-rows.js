@@ -79,6 +79,9 @@
   function newest(view) {
     return (view && Array.isArray(view.doings) && view.doings[0]) || null;
   }
+  function waiting(view) {
+    return !!view && Array.isArray(view.doings) && view.doings.some(function (x) { return x && x.state === "waiting"; });
+  }
   function doingText(view) {
     var n = (view && num(view.n)) || 0;
     if (!n) return "";
@@ -100,8 +103,9 @@
       away: false,
       stale: stale,
       mine: !!(ctx.mine && owner === ctx.mine),
-      /* A connected seat with a stale doing view is idle, whatever the glance said. */
-      state: stale ? "idle" : String(a.state || (cur ? "working" : "idle")),
+      /* A connected seat with a stale doing view is idle, whatever the glance said; a live run in
+         state waiting makes the desk waiting (as the strip and score counts). */
+      state: stale ? "idle" : (cur && waiting(view) ? "waiting" : String(a.state || (cur ? "working" : "idle"))),
       doing: cur,
       on: cur && newest(view) && newest(view).card != null ? "todo-" + newest(view).card : "",
       time: cur && newest(view) && utc(newest(view).created) != null ? ago(ctx.now - utc(newest(view).created)) : "",

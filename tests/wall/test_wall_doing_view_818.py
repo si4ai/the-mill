@@ -133,7 +133,8 @@ def test_strip_shows_the_newest_live_doing_its_card_and_age():
     got = _run()
     assert got["ok"] == "ok"
     assert got["urls"][0] == "/api/v1/doing?all=1"
-    assert got["glance"] == {"builder": "working", "wall-ui": "working", "validator": "working", "gardener": "idle", "grok-tui": "idle"}
+    # builder has a live run in state waiting: the chip says waiting (card 1207, as the strip counts)
+    assert got["glance"] == {"builder": "waiting", "wall-ui": "working", "validator": "working", "gardener": "idle", "grok-tui": "idle"}
     assert ">landing the doing routes<" in got["row"]["builder"]
     # a live run with no text (tw text is privacy-dropped) reads as the count
     assert ">1 doing<" in got["row"]["validator"]

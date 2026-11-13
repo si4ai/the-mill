@@ -50,7 +50,11 @@ const live = scoreDoingTaskLiveRows([
   { id: 3, created: '2026-11-13T03:00:00Z', text: '', state: 'failed', state_at: '2026-11-13T03:05:00Z', card: null },
 ]);
 
+const many = scoreDoingTaskLiveRows(Array.from({ length: 25 }, (_, i) => (
+  { id: i + 1, created: '2026-11-13T01:00:00Z', text: '', state: 'active', state_at: '2026-11-13T01:00:00Z', card: null })));
 const out = {
+  cap: WALL_DOINGS_CAP,
+  manyIds: many.map(r => r.id),
   tasked: wallActLabel('task'),
   builderKeys: Object.keys(builder).sort(),
   builderWait: scoreDoingTaskFormatLeaf('wait_by_cause', builder.wait_by_cause),
@@ -186,3 +190,10 @@ def test_phase_a_last_done_ago_only_from_real_timestamp():
     assert got["lastWithFinishedAt"]["end_reason"] == "tw_finished"
     assert "ago" not in got["lastWithDocAt"]
     assert got["lastWithDocAt"]["end_reason"] == "tw_finished"
+
+
+def test_phase_a_lists_up_to_the_shared_doings_cap():
+    # card 1207 (wall-ui): the panel follows the server cap of 20 (lib/data.js WALL_DOINGS_CAP), not TASK_CAP 8.
+    got = _run()
+    assert got["cap"] == 20
+    assert got["manyIds"] == list(range(1, 21))

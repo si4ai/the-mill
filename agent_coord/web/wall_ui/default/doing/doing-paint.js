@@ -129,7 +129,7 @@ function wallDoingTaskList(owner) {
   return raw.filter(function (t) {
     const st = String((t && t.state) || "").trim().toLowerCase();
     return st !== "finished" && st !== "failed";
-  }).slice(0, 8);
+  }).slice(0, typeof WALL_DOINGS_CAP === "number" ? WALL_DOINGS_CAP : 20);
 }
 function wallDoingTaskRowHtml(row) {
   if (!row) return "";

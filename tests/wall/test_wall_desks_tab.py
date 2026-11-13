@@ -215,15 +215,16 @@ def _line(html: str, desk: str) -> str:
 
 def test_urgency_puts_failed_runs_then_working_first():
     got = _run(_ctx())
-    # validator's last run failed; builder, gardener and wall-ui work (by name); scout is idle.
-    assert got["connected"] == ["validator", "builder", "gardener", "wall-ui", "scout"]
+    # validator's last run failed; gardener and wall-ui work (by name); builder has a run waiting; scout is idle.
+    assert got["connected"] == ["validator", "gardener", "wall-ui", "builder", "scout"]
+    assert got["model"]["connected"][3]["state"] == "waiting"
 
 
 def test_working_desks_lead_an_idle_desk_that_needs_attention():
     # scout is idle but its last run failed: it still sits below every working desk.
     kpis = _ctx()["kpis"] + [{"kpi": "doing.task.last_run", "owner": "scout", "value": "failed"}]
     got = _run(_ctx(kpis=kpis))
-    assert got["connected"] == ["validator", "builder", "gardener", "wall-ui", "scout"]
+    assert got["connected"] == ["validator", "gardener", "wall-ui", "builder", "scout"]
     # Its failed run still shows in the Needs attention block.
     assert {a["kind"] for a in got["attention"] if a["desk"] == "scout"} == {"score"}
 
@@ -264,7 +265,9 @@ def test_row_leads_with_doing_time_then_top_three_priorities_one_based():
     assert "fourth is not shown" not in row
     assert 'data-doing-go="todo-1191"' in row
     assert "filing the stations route" in row
-    assert "waiting" not in row  # card 1207: no waiting-on-it count
+    assert "letters waiting" not in row and "nothing waiting" not in row  # card 1207: no waiting-on-it count
+    # a live run in state waiting paints the desk waiting, as the strip and score counts do
+    assert 'class="here-state">waiting<' in row
     # a run with no text reads as the count of live doings
     assert "1 doing<" in _line(got["html"], "wall-ui")
     assert "Last run <b>active</b>" in row

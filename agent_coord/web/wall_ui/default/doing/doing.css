@@ -1,5 +1,5 @@
-/* WALL_UI_DEFAULT_DOING - #818 PR C: the doing view beside each CONNECTED row, the
-   waiting-on pill and its popover, card and desk trails, and the two blank slots. */
+/* WALL_UI_DEFAULT_DOING - #818 PR C: the doing view beside each CONNECTED row (card 1207:
+   live tw runs), card and desk trails, and the claimed slot. */
 .doing-meta {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .5rem;
   margin-top: -.3rem; padding: 0 .4rem .4rem 1.45rem; font-size: 12px; color: var(--dim);
@@ -8,13 +8,11 @@
 a.doing-on { text-decoration: none; border-bottom: 1px dotted currentColor; }
 a.doing-on:hover, a.doing-on:focus-visible { color: var(--ink); }
 .doing-age { color: var(--dim); font-variant-numeric: tabular-nums; }
-.doing-ended:empty, .doing-asked:empty, .card-claimed:empty { display: none; }
+.doing-ended:empty, .card-claimed:empty { display: none; }
 .doing-ended { color: var(--dim); font-size: 11px; letter-spacing: .03em; }
 .doing-ended[data-ended-by="finished"] { color: var(--green); }
 .doing-ended[data-ended-by="cleared"] { color: var(--amber); }
-.doing-asked { font-size: 10.5px; border: 1px solid var(--edge); border-radius: 4px; padding: 0 .25rem; color: var(--dim); }
 .here-doing.is-idle, .here-doing-now.is-idle { color: var(--dim); font-style: italic; }
-.doing-last { font-style: normal; }
 .doing-view .doing-facts { display: flex; flex-wrap: wrap; gap: .2rem .45rem; align-items: baseline; font-size: 12px; color: var(--dim); margin-top: .2rem; }
 .doing-trail { display: flex; flex-direction: column; gap: .12rem; margin-top: .3rem; font-size: 12px; color: var(--dim); text-align: left; }
 .doing-trail:empty { display: none; }
