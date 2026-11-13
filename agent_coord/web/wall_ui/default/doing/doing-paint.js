@@ -132,7 +132,10 @@ function wallDoingRowHtml(owner, seatText) {
   const v = wallDoingView(owner);
   if (!v) return "";
   const line = String(v.line || "");
-  if (String(v.doing || "").trim()) {
+  /* A stale view (alive false or stale true): its doing text is a leftover, never "working". */
+  const left = wallDoingLeftover(v);
+  if (left) return `<span class="here-doing is-idle is-stale" title="${esc(line)}">${esc(left)}</span>`;
+  if (!wallDoingStale(v) && String(v.doing || "").trim()) {
     return `<span class="here-doing" title="${esc(line)}">${esc(v.doing)}</span>`;
   }
   const last = v.last && String(v.last.doing || "").trim();
@@ -143,8 +146,13 @@ function wallDoingRowHtml(owner, seatText) {
 function wallDoingMetaHtml(owner) {
   const v = wallDoingView(owner);
   if (!v) return "";
-  const cur = String(v.doing || "").trim();
+  const gone = wallDoingStale(v);
+  const cur = gone ? "" : String(v.doing || "").trim();
   const last = v.last || null;
+  if (gone && String(v.doing || "").trim()) {
+    /* The leftover's age is in the row text; here only its item link and the waiting pill. */
+    return `<span class="doing-meta">` + wallDoingItemHtml(v.on) + wallDoingWaitHtml(owner, v) + `</span>`;
+  }
   const on = cur ? v.on : (last && last.on);
   const age = cur ? v.age : (last && last.age);
   const ended = cur ? "" : (last && last.ended_by);
@@ -267,10 +275,14 @@ function wallDoingDeskHtml(owner, seatText) {
       : `<div class="here-doing-now is-idle">${esc("-")}</div>`;
     return `<div class="here-doing doing-view">${head}${tasksHtml}${scoresHtml}</div>`;
   }
-  const cur = String(v.doing || "").trim();
+  const cur = wallDoingStale(v) ? "" : String(v.doing || "").trim();
   const last = v.last || null;
+  const left = wallDoingLeftover(v);
   let head;
-  if (cur) {
+  if (left) {
+    head = `<div class="here-doing-now is-idle is-stale">${esc(left)}</div>` +
+      (v.on ? `<div class="doing-facts">on ${wallDoingItemHtml(v.on)}</div>` : "");
+  } else if (cur) {
     head = `<div class="here-doing-now">${esc(cur)}</div>` +
       `<div class="doing-facts">${v.on ? "on " + wallDoingItemHtml(v.on) : ""}<span class="doing-age">${esc(v.age ? "for " + v.age : "")}</span></div>`;
   } else {

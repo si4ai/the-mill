@@ -4,9 +4,9 @@
 The top tabs are DESKS (default), TODO, MAIL, PRIORITIES, SCORE, COLLAB. DESKS rows come
 from default/session/desks-rows.js, run here in Node on reads shaped like the live routes:
 GET /api/v1/doing?all=1 views, GET /api/pov?part=desks rows (card 1191), the labels read
-(top 3 per desk) and Office score rows. Fields a server does not send yet (card 1192
-n_over_day / oldest_at, card 1193 scope, card 1194 doing time) hide their element; the
-degrade tests strip them and check nothing is made up.
+(top 3 per desk) and Office score rows. Old letters use card 1192's n_over_day / oldest_at;
+an older office server without them, and fields not served yet (card 1193 scope, card 1194
+doing time), hide their element. The degrade tests strip them and check nothing is made up.
 """
 from __future__ import annotations
 

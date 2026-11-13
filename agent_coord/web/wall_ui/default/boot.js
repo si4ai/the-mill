@@ -3879,9 +3879,21 @@
       if (!v || v.state !== "ok" || !v.byOwner) return null;
       return v.byOwner[String(owner || "").trim()] || null;
     }
+    function wallDoingStale(view) {
+      /* The server's own flags on the doing view. A doing text left on a desk that is not alive
+         (or is stale) is a leftover, not work. No time threshold of ours. */
+      return !!view && (view.alive === false || view.stale === true);
+    }
+    function wallDoingLeftover(view) {
+      /* "last: <doing>, <age> ago" for a stale view's leftover text; "" when there is none. */
+      if (!wallDoingStale(view)) return "";
+      const text = String(view.doing || "").trim();
+      if (!text) return "";
+      return "last: " + text + (view.age ? ", " + view.age + " ago" : "");
+    }
     function wallDoingText(owner, seatText) {
       const v = wallDoingView(owner);
-      if (v) return String(v.doing || "").trim();
+      if (v) return wallDoingStale(v) ? "" : String(v.doing || "").trim();
       return String(seatText || "").trim();
     }
     function wallDoingWaitN(view) {
@@ -3945,6 +3957,12 @@
       } : null;
       const pack = (state, note) => ({ state, waiting_on: "", note: note || "", doing, view, job, stale });
       if (view) {
+        /* A stale view's leftover text is never "working". The seat decides gone vs idle: a
+           connected seat with a stale doing view is idle (with the leftover as its last). */
+        if (wallDoingStale(view)) {
+          const left = wallDoingLeftover(view);
+          return stale ? pack("gone", left || "gone") : pack("idle", left || "idle");
+        }
         if (stale && !doing) return pack("gone", "gone");
         if (doing) return pack("working", doing);
         return pack("idle", view.idle ? ("idle " + view.idle) : "idle");
@@ -4575,7 +4593,8 @@
       const st = wallDesksStations();
       const doing = (window.WALL_DOING && window.WALL_DOING.state === "ok") ? window.WALL_DOING.byOwner : null;
       const ctx = {
-        live: live.map(r => ({ owner: r.owner, state: hereGlance(d, r).state, seat: r.doing })),
+        live: live.map(r => ({ owner: r.owner, state: hereGlance(d, r).state, seat: r.doing,
+          seatAlive: r.alive !== false && r.connected !== false && !r.stale })),
         doing: doing,
         stations: st.rows,
         awayScope: st.ok,
