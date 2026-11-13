@@ -496,6 +496,33 @@
     drawReplay(false);
     rp.raf = (window.requestAnimationFrame || setTimeout)(rpTick);
   }
+  /* Full screen: the pane (it outlives repaints, so a redraw does not drop it) goes native full
+   * screen; without the API it covers the viewport. rd-rp-fs on the pane drives the layout either way. */
+  function fsEl() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function rpFull(on) {
+    var pane = root.querySelector(".rd-pane");
+    if (!pane) return;
+    rp.full = !!on;
+    pane.classList.toggle("rd-rp-fs", rp.full);
+    if (rp.full && !fsEl()) {
+      var req = pane.requestFullscreen || pane.webkitRequestFullscreen;
+      if (req) { var p = req.call(pane); if (p && p.catch) p.catch(function () {}); }
+    } else if (!rp.full && fsEl()) {
+      var ex = document.exitFullscreen || document.webkitExitFullscreen;
+      if (ex) { var q = ex.call(document); if (q && q.catch) q.catch(function () {}); }
+    }
+    if (state.tab === "collab") paint();
+  }
+  /* Esc (or the browser's own exit) leaves native full screen: follow it. */
+  ["fullscreenchange", "webkitfullscreenchange"].forEach(function (n) {
+    document.addEventListener(n, function () { if (rp.full && !fsEl()) rpFull(false); });
+  });
+  /* The folded blocking list keeps its open state across repaints. */
+  root.addEventListener("toggle", function (ev) {
+    var el = ev.target;
+    if (el && el.getAttribute && el.getAttribute("data-rp-blocking")) rp.blockOpen = el.open;
+  }, true);
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && rp.full && !fsEl()) rpFull(false); });
   /* Paused, one event at a time: the playhead jumps to the next row and plays only its motion. */
   function rpStep() {
     var rep = rpRep();
@@ -575,7 +602,7 @@
     if (!fromHash && hashName() !== tab) {
       try { history.replaceState(null, "", "#" + tab); } catch (e) { location.hash = tab; }
     }
-    if (changed) { last.pane = null; rpStop(); }
+    if (changed) { last.pane = null; rpStop(); if (rp.full) rpFull(false); }
     paint();
     fetchTab(tab).then(fetchCounts);
   }
@@ -624,6 +651,7 @@
     }
     if ((el = closest(t, "[data-rp-play]"))) { if (rp.playing) rpPause(); else rpPlay(); return; }
     if ((el = closest(t, "[data-rp-step]"))) { rpStep(); return; }
+    if ((el = closest(t, "[data-rp-full]"))) { rpFull(!rp.full); return; }
     if ((el = closest(t, "[data-rp-win]"))) { save(RP_WIN_KEY, el.getAttribute("data-rp-win")); rpStop(); paint(); return; }
     if ((el = closest(t, "[data-rp-speed]"))) {
       var sp = Number(el.getAttribute("data-rp-speed")) || 1;

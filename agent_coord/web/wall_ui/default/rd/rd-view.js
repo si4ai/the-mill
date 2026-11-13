@@ -399,14 +399,15 @@
     var s = Math.round(R.REPLAY_PLAY_MS / 1000 / (speed || 1));
     return (WIN_WORD[win] || win) + " in " + (s >= 60 && s % 60 === 0 ? (s / 60) + " min" : s + "s");
   }
-  function blockingHtml(rows) {
+  /* Under the stage and folded, so the replay gets the height; the count says when to open it. */
+  function blockingHtml(rows, open) {
     if (rows == null) return "";
-    return '<section class="rd-block"><h3>BLOCKING SOMEONE NOW <span class="rd-sub">oldest first</span></h3>' + (rows.length ? "<ul>" + rows.map(function (r) {
+    return '<details class="rd-block rd-rp-blocking" data-rp-blocking="1"' + (open ? " open" : "") + '><summary><h3>BLOCKING SOMEONE NOW <span class="rd-sub">' + h(plural(rows.length, "row")) + ' \u00b7 oldest first</span></h3></summary>' + (rows.length ? "<ul>" + rows.map(function (r) {
       var head = r.kind === "wait" ? partHtml(r.me) + " <span>is waiting on</span> " + (r.on ? partHtml(r.on) : "")
         : r.kind === "unread" ? "<span>" + h(r.title.replace(/ waiting on .*$/, "")) + " waiting on</span> " + partHtml(r.me)
         : "<span>promise</span> <code>" + h(r.title) + "</code> <span>held by</span> " + partHtml(r.me);
       return "<li>" + head + (r.note ? " " + flag(r.note, r.kind === "unread" ? "older" : "hot") : "") + "</li>";
-    }).join("") + "</ul>" : empty("Nothing is blocking anyone.")) + "</section>";
+    }).join("") + "</ul>" : empty("Nothing is blocking anyone.")) + "</details>";
   }
   /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
   function replayHtml(rep, blocking, ui) {
@@ -419,8 +420,7 @@
     var speeds = R.REPLAY_SPEEDS.map(function (x) {
       return '<button type="button" data-rp-speed="' + x + '"' + (x === ui.speed ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (x === 0.25 ? "\u00bc" : x === 0.5 ? "\u00bd" : x) + "x</button>";
     }).join("");
-    return blockingHtml(blocking) +
-      '<section class="rd-replay"><div class="rd-rp-bar">' +
+    return '<section class="rd-replay" data-rp-stage="1"><div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
       '<input type="range" class="rd-rp-scrub" data-rp-scrub="1" min="0" max="1000" value="1000" aria-label="Replay position">' +
@@ -428,8 +428,10 @@
       '<span class="rd-time-range" role="group" aria-label="Replay window">' + wins + "</span>" +
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
       '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep.window, ui.speed)) + "</span>" + legendHtml() +
-      '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span></div>" +
-      (rep.known ? '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay"></ol>' : '<div class="rd-loading">Loading COLLAB\u2026</div>') + "</section>";
+      '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span>" +
+      '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div>" +
+      (rep.known ? '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay"></ol>' : '<div class="rd-loading">Loading COLLAB\u2026</div>') + "</section>" +
+      blockingHtml(blocking, ui.blockOpen);
   }
 
   var SCOPE_TEXT = {

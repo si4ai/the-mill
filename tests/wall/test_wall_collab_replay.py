@@ -80,6 +80,7 @@ console.log(JSON.stringify({
   stateWorking: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:06:00Z')),
   stateWaiting: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:34:00Z')),
   shell: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1}),
+  shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
 }));
 """
 
@@ -160,3 +161,26 @@ def test_collab_has_no_between_ring_view():
     assert '{ key: "replay", label: "Replay" }' in app
     css = (RD / "rd.css").read_text(encoding="utf-8")
     assert "prefers-reduced-motion" in css
+
+
+def test_the_stage_leads_and_blocking_folds_below_it():
+    got = run()
+    shell = got["shell"]
+    assert shell.index('data-rp-stage="1"') < shell.index('data-rp-blocking="1"'), "the replay stage comes first"
+    assert re.search(r'<details class="rd-block rd-rp-blocking" data-rp-blocking="1">', shell), "folded by default"
+    assert 'data-rp-blocking="1" open>' in got["shellFull"], "an opened list stays open on repaint"
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "min-height: 70vh" in css and "flex-wrap: nowrap" in css
+
+
+def test_full_screen_toggle_with_a_viewport_fallback():
+    got = run()
+    assert 'data-rp-full="1" aria-label="Full screen" aria-pressed="false"' in got["shell"]
+    assert 'aria-pressed="true" title="Leave full screen (Esc)"' in got["shellFull"]
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "requestFullscreen" in app and "fullscreenchange" in app and '"Escape"' in app
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    fs = [ln for ln in css.splitlines() if "rd-rp-fs" in ln]
+    assert any("position: fixed; inset: 0" in ln for ln in fs), "covers the viewport without the API"
+    assert any(".rd-rp-bar { order: 2" in ln for ln in fs), "controls sit along the bottom"
+    assert any(".rd-pill" in ln and "font-size: 18px" in ln for ln in fs), "desk pills scale up"

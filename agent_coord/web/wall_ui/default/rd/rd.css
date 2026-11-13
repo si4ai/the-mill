@@ -746,13 +746,23 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd #pane-todo.rd-todo-all #todo-done-span { display: inline-flex !important; }
 
 /* ---- COLLAB replay: rows the playhead passes slide in; nothing moves on its own ---- */
-#rd .rd-collab-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; }
+#rd .rd-collab-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 #rd .rd-block h3, #rd .rd-replay h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .06em; }
 #rd .rd-block ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 9.5em; overflow: auto; }
 #rd .rd-block li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
-#rd .rd-replay { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
-#rd .rd-rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 8px; border-bottom: 1px solid var(--edge); }
-#rd .rd-rp-play { width: 32px; height: 28px; border: 1px solid var(--edge); border-radius: 6px; background: var(--panel); color: inherit; font-size: 14px; cursor: pointer; }
+/* The stage takes most of the tab height; the controls are one slim row that scrolls sideways. */
+#rd .rd-replay { display: flex; flex-direction: column; min-height: 70vh; flex: 1 1 auto; }
+#rd .rd-rp-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 2px 0 4px; border-bottom: 1px solid var(--edge); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; }
+#rd .rd-rp-bar > * { flex: 0 0 auto; }
+#rd .rd-rp-bar .rd-rp-scrub { flex: 1 1 140px; }
+#rd .rd-rp-bar .rd-time-range button { padding-top: 1px; padding-bottom: 1px; }
+#rd .rd-rp-blocking { flex: 0 0 auto; }
+#rd .rd-rp-blocking > summary { cursor: pointer; list-style: none; }
+#rd .rd-rp-blocking > summary::-webkit-details-marker { display: none; }
+#rd .rd-rp-blocking > summary h3 { display: inline; }
+#rd .rd-rp-blocking > summary::before { content: "\25b8 "; color: var(--dim); }
+#rd .rd-rp-blocking[open] > summary::before { content: "\25be "; }
+#rd .rd-rp-play { width: 28px; height: 24px; border: 1px solid var(--edge); border-radius: 6px; background: var(--panel); color: inherit; font-size: 14px; cursor: pointer; }
 #rd .rd-rp-scrub { flex: 1 1 180px; min-width: 120px; accent-color: var(--cyan); }
 #rd .rd-rp-clock { font-variant-numeric: tabular-nums; min-width: 9ch; color: var(--dim); font-size: 12px; }
 #rd .rd-rp-rate { font-size: 12px; color: var(--dim); }
@@ -814,3 +824,20 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-past .rd-pill[data-st] { position: relative; }
 #rd .rd-rp-past .rd-pill[data-st]::after { content: ""; position: absolute; left: 6px; bottom: -3px; height: 2px; width: calc((100% - 12px) * var(--dw, 0)); background: var(--green); border-radius: 1px; }
 #rd .rd-rp-past .rd-pill[data-st="waiting"]::after { background: var(--amber); }
+
+/* Full screen (native, or covering the viewport without the API): the stage fills it, the
+ * desks and icons scale up, the controls sit in a slim bar along the bottom. */
+#rd .rd-pane.rd-rp-fs { position: fixed; inset: 0; z-index: 9999; margin: 0; padding: 12px 16px 0; background: var(--bg, #0b0e12); display: flex; flex-direction: column; width: auto; height: auto; max-width: none; }
+#rd .rd-pane.rd-rp-fs:fullscreen { width: 100vw; height: 100vh; }
+#rd .rd-pane.rd-rp-fs > .rd-pane-head, #rd .rd-pane.rd-rp-fs .rd-rp-blocking { display: none; }
+#rd .rd-pane.rd-rp-fs .rd-collab-body { flex: 1 1 auto; height: 100%; }
+#rd .rd-pane.rd-rp-fs .rd-replay { min-height: 0; flex: 1 1 auto; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list { order: 1; }
+#rd .rd-pane.rd-rp-fs .rd-rp-bar { order: 2; border-bottom: 0; border-top: 1px solid var(--edge); padding: 4px 0 6px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-row { height: 52px; font-size: 20px; gap: 14px; grid-template-columns: 6ch 24px 1fr; }
+#rd .rd-pane.rd-rp-fs .rd-rp-row time { font-size: 16px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-pill, #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-cloud { height: 32px; font-size: 18px; padding: 0 12px; border-radius: 16px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-ki svg { width: 22px; height: 22px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-sdot { width: 14px; height: 14px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-move { font-size: 15px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-past .rd-pill[data-st]::after { height: 3px; bottom: -4px; }
