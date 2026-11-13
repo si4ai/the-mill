@@ -4,9 +4,11 @@
  * already makes and paints #here; tests/wall/test_wall_desks_tab.py runs this file in Node.
  *
  * ctx {
- *   live:     [{ owner, state, seat, seatAlive }]  connected desks, state from hereGlance (the doing
+ *   live:     [{ owner, state, seatAlive }]  connected desks, state from hereGlance (the doing
  *                                        view wins); seatAlive false: the seat row itself is not alive
- *   doing:    { owner: view } | null     GET /api/v1/doing?all=1 views (null = not read)
+ *   doing:    { owner: view } | null     GET /api/v1/doing?all=1 views (null = not read); card 1207:
+ *                                        n live doings (tw runs) and doings [{ id, created, text, state,
+ *                                        state_at, card }], newest first (at most 20)
  *   stations: [pov desks row] | null     GET /api/pov?part=desks rows (card 1191): name, connected,
  *                                        last_connected (UTC ISO), recent_activity { at, type, thing }
  *   prios:    { desk: [{ pos, id, ord, title, overdue }] } | null   labels read (null = not read)
@@ -70,26 +72,19 @@
     return out;
   }
 
-  function waitOf(view) {
-    if (!view) return null;
-    var w = view.waiting_on_it || {};
-    var L = w.letters || {};
-    var C = w.cards || {};
-    return {
-      letters: num(L.n) || 0,
-      cards: num(C.n) || 0,
-      /* Card 1192 fields. Absent on a server without it: null, and the row says nothing about age. */
-      overDay: has(L, "n_over_day") ? (num(L.n_over_day) || 0) : null,
-      oldestAt: has(L, "oldest_at") && String(L.oldest_at || "") ? String(L.oldest_at) : null
-    };
-  }
-
   /* The server's own flags on the doing view. Its doing text on a desk that is not alive (or is
    * stale) is a leftover, never "working". No time threshold here. */
   function viewStale(view) { return !!view && (view.alive === false || view.stale === true); }
-  function leftover(view) {
-    var text = String(view.doing || "").trim();
-    return text ? text + (view.age ? ", " + view.age + " ago" : "") : "";
+  /* Card 1207: a desk's doing is its live tw runs: the newest run's text, or "N doings", or idle. */
+  function newest(view) {
+    return (view && Array.isArray(view.doings) && view.doings[0]) || null;
+  }
+  function doingText(view) {
+    var n = (view && num(view.n)) || 0;
+    if (!n) return "";
+    var top = newest(view);
+    var text = top ? String(top.text || "").trim() : "";
+    return text || (n + " doing" + (n === 1 ? "" : "s"));
   }
 
   function liveRow(a, ctx, byStation) {
@@ -99,9 +94,7 @@
     var recent = st && st.recent_activity ? utc(st.recent_activity.at) : null;
     if (viewStale(view) && a.seatAlive === false) return staleAwayRow(owner, view, ctx, st, recent);
     var stale = viewStale(view);
-    var cur = stale ? "" : (view ? String(view.doing || "").trim() : String(a.seat || "").trim());
-    var last = view && view.last ? view.last : null;
-    var lastDoing = stale ? leftover(view) : (!cur && last ? String(last.doing || "").trim() : "");
+    var cur = stale ? "" : doingText(view);
     return {
       desk: owner,
       away: false,
@@ -110,10 +103,8 @@
       /* A connected seat with a stale doing view is idle, whatever the glance said. */
       state: stale ? "idle" : String(a.state || (cur ? "working" : "idle")),
       doing: cur,
-      lastDoing: lastDoing,
-      on: view ? String((cur || stale ? view.on : (last && last.on)) || "") : "",
-      time: view && !stale ? String((cur ? view.age : view.idle) || "") : "",
-      wait: waitOf(view),
+      on: cur && newest(view) && newest(view).card != null ? "todo-" + newest(view).card : "",
+      time: cur && newest(view) && utc(newest(view).created) != null ? ago(ctx.now - utc(newest(view).created)) : "",
       prios: ctx.prios ? (ctx.prios[owner] || []).slice(0, PRIO_TOP) : null,
       scores: scoresFor(ctx.kpis, owner),
       recentAt: recent != null ? recent : (st ? utc(st.last_connected) : null)
@@ -129,8 +120,8 @@
       state: "disconnected",
       lastSeenAt: lc,
       lastSeen: lc != null ? ago(ctx.now - lc) : "",
-      last: leftover(view),
-      lastKind: "doing",
+      last: "",
+      lastKind: "",
       recentAt: recent != null ? recent : lc,
       prios: ctx.prios ? (ctx.prios[owner] || []).slice(0, PRIO_TOP) : null
     };
@@ -173,14 +164,9 @@
     if (a.mine !== b.mine) return a.mine ? -1 : 1;
     var ra = STATE_RANK[a.state], rb = STATE_RANK[b.state];
     if (ra !== rb) return (ra == null ? 9 : ra) - (rb == null ? 9 : rb);
-    var wa = a.wait || {}, wb = b.wait || {};
-    var oa = wa.overDay || 0, ob = wb.overDay || 0;
-    if (oa !== ob) return ob - oa;
     var fa = a.scores.some(function (s) { return s.off; }) ? 1 : 0;
     var fb = b.scores.some(function (s) { return s.off; }) ? 1 : 0;
     if (fa !== fb) return fb - fa;
-    var na = (wa.letters || 0) + (wa.cards || 0), nb = (wb.letters || 0) + (wb.cards || 0);
-    if (na !== nb) return nb - na;
     return byName(a, b);
   }
   function sortRows(rows, sort, away) {
@@ -198,11 +184,6 @@
   function attentionOf(rows) {
     var out = [];
     rows.forEach(function (r) {
-      var w = r.wait;
-      if (w && w.overDay) {
-        out.push({ desk: r.desk, kind: "letter", text: w.overDay + " letter" + (w.overDay === 1 ? "" : "s") + " waiting over a day" +
-          (w.oldestAt ? ", oldest since " + w.oldestAt.slice(5, 16) : "") });
-      }
       r.scores.forEach(function (s) {
         if (s.off) out.push({ desk: r.desk, kind: "score", text: s.label + " " + s.value });
       });
@@ -240,7 +221,6 @@
       away: away,
       awayKnown: Array.isArray(ctx.stations) && ctx.awayScope !== false,
       attention: attentionOf(connected),
-      attentionKnown: connected.some(function (r) { return r.wait && r.wait.overDay != null; }),
       selected: String(ctx.selected || "")
     };
   }
@@ -250,20 +230,6 @@
     var tab = m ? { mail: "mail", todo: "jobs", score: "score" }[m[1]] : "";
     if (!tab) return '<span class="doing-on">' + h(on) + "</span>";
     return '<a class="doing-on" href="#' + tab + '" data-doing-go="' + h(on) + '">' + h(on) + "</a>";
-  }
-  function waitHtml(w) {
-    if (!w) return "";
-    var bits = [];
-    if (w.letters) {
-      var s = w.letters + " letter" + (w.letters === 1 ? "" : "s") + " waiting";
-      if (w.overDay) s += " \u00b7 " + w.overDay + " over a day";
-      bits.push(s);
-    }
-    if (w.cards) bits.push(w.cards + " card" + (w.cards === 1 ? "" : "s") + " waiting");
-    if (!bits.length) return '<span class="desk-wait zero">nothing waiting</span>';
-    var cls = "desk-wait" + (w.overDay ? " older" : "");
-    var since = w.oldestAt ? ' <span class="desk-oldest" title="oldest waiting letter, office clock">oldest since ' + h(w.oldestAt.slice(5, 16)) + "</span>" : "";
-    return '<span class="' + cls + '">' + h(bits.join(", ")) + since + "</span>";
   }
   function priosHtml(p) {
     /* null: the labels read has not landed (or the route is missing), so the line is left out. */
@@ -291,18 +257,17 @@
         priosHtml(r.prios) + "</div>";
     }
     var text = r.doing ? '<span class="desk-text">' + h(r.doing) + "</span>"
-      : '<span class="desk-text is-idle">idle' + (r.lastDoing ? '<span class="doing-last"> \u00b7 last: ' + h(r.lastDoing) + "</span>" : "") + "</span>";
-    var time = r.time ? '<span class="desk-time" title="' + (r.doing ? "doing this for" : "idle for") + '">' + h(r.time) + "</span>" : "";
+      : '<span class="desk-text is-idle">idle</span>';
+    var time = r.time ? '<span class="desk-time" title="' + "newest doing" + '">' + h(r.time) + "</span>" : "";
     return '<div class="here-line desk-line' + (r.stale ? " stale" : "") + '" data-here-owner="' + h(r.desk) + '">' +
       '<button type="button" class="here-row' + on + '" data-here-owner="' + h(r.desk) + '">' +
       '<span class="here-dot ' + h(r.state) + '"></span><span class="here-name">' + h(r.desk) + "</span>" +
       '<span class="here-state">' + h(r.state) + "</span>" +
       '<span class="desk-doing">' + time + text + "</span></button>" +
-      '<div class="desk-meta">' + (r.on ? itemHtml(r.on) : "") + waitHtml(r.wait) + "</div>" +
+      '<div class="desk-meta">' + (r.on ? itemHtml(r.on) : "") + "</div>" +
       priosHtml(r.prios) + scoresHtml(r.scores) + "</div>";
   }
   function attentionHtml(m) {
-    /* Old letters come from card 1192's waiting_on_it.letters n_over_day and oldest_at. */
     var items = m.attention;
     var body = items.length
       ? items.map(function (a) {

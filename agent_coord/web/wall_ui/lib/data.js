@@ -18,7 +18,7 @@
     session: "No desks are here. Ask your agent to join.",
     score_kpi: "Honest empty \u2014 no agent_kpi yet.",
     score_progress: "Honest empty \u2014 no desks/needs/spend yet.",
-    score_bottlenecks: "None \u2014 no waiting_on / stalled JOBs.",
+    score_bottlenecks: "None \u2014 no waiting tw runs / stalled JOBs.",
     mail: "no mail for this filter (floor-only or empty)",
     floor: "Honest empty \u2014 no floor glance yet.",
     spend: "no spend yet. After a model turn: mill spend --source grok --tokens N"
@@ -255,7 +255,6 @@
     task: "tasked",
     replace: "replaced"
   };
-  var WALL_ACT_FOCUS = { focus: 1, clear: 1, finish: 1 };
   var WALL_ACT_EVIDENCE = { ship: 1, done: 1 };
 
   function wallActLabel(act) {
@@ -263,9 +262,6 @@
     if (!a) return "";
     if (Object.prototype.hasOwnProperty.call(WALL_ACT_LABELS, a)) return WALL_ACT_LABELS[a];
     return a;
-  }
-  function wallActIsFocus(act) {
-    return !!WALL_ACT_FOCUS[String(act == null ? "" : act).trim()];
   }
   function wallActHasEvidence(act) {
     return !!WALL_ACT_EVIDENCE[String(act == null ? "" : act).trim()];
@@ -350,7 +346,6 @@
   global.WALL_STATION_RAIL_DAYS = STATION_RAIL_DAYS;
   global.WALL_ACT_LABELS = WALL_ACT_LABELS;
   global.wallActLabel = wallActLabel;
-  global.wallActIsFocus = wallActIsFocus;
   global.wallActHasEvidence = wallActHasEvidence;
   global.wallCardEvidenceFromTrail = wallCardEvidenceFromTrail;
   global.WALL_UI_LIB_DATA = "WALL_UI_LIB_DATA";

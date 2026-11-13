@@ -21,7 +21,7 @@ EMPTY_MESSAGES = {
     "session": "No desks are here. Ask your agent to join.",
     "score_kpi": "Honest empty - no agent_kpi yet.",
     "score_progress": "Honest empty - no desks/needs/spend yet.",
-    "score_bottlenecks": "None - no waiting_on / stalled JOBs.",
+    "score_bottlenecks": "None - no waiting tw runs / stalled JOBs.",
     "mail": "no mail for this filter (floor-only or empty)",
     "floor": "Honest empty - no floor glance yet.",
     "spend": "no spend yet",

@@ -62,6 +62,7 @@ const stubs = {
   wallPaintFloorPartEarly: () => {}, showTab: () => {}, window: {},
   paintStripTab: () => {}, wallApplyInviteGate: () => {}, paintHereScores: () => {},
   paintHereDesk: () => {}, wireHereFront: () => {}, _hereOwner: '',
+  wallDoingView: () => null,  // card 1207: Waiting counts desks with a live tw run in state waiting
 };
 const names = Object.keys(stubs);
 const api = new Function(...names, body + '\nreturn { strip, wallResetStripReady, wallSyncStripTabLoading };')(...names.map((n) => stubs[n]));

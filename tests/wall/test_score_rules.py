@@ -219,7 +219,7 @@ def test_pulse_counts_from_kpis_even_when_no_hot():
                 "updated_at": fresh,
             },
         ],
-        "agents": [{"owner": "builder", "waiting_on": "validator"}],
+        "agents": [{"owner": "builder", "doings": [{"id": 1, "state": "waiting"}]}],  # card 1207: a waiting tw run
         "spend_lines": [
             {"at": fresh, "tokens": 10, "source": "grok"},
             {"at": fresh, "tokens": 5, "source": "mill"},
@@ -288,7 +288,10 @@ def test_spend_fallback_aggregate_without_at():
 
 
 def test_waiting_live_agents_alias():
-    assert score_waiting({"live_agents": [{"waiting_on": "x"}, {"waiting_on": ""}]}) == 1
+    # card 1207: a desk waits when one of its live tw runs is in state waiting (on the agent or in d.doing).
+    live = [{"owner": "a", "doings": [{"state": "waiting"}]}, {"owner": "b", "doings": [{"state": "started"}]},
+            {"owner": "c"}, {"owner": "d", "waiting_on": "x"}]
+    assert score_waiting({"live_agents": live, "doing": {"c": {"doings": [{"state": "waiting"}]}}}) == 2
     assert score_waiting({}) == 0
 
 

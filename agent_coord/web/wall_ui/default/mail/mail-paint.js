@@ -59,7 +59,7 @@
         if (card.need_id) eta.need_id = card.need_id;
         return eta;
       }
-      const doing = wallDoingText(sess.owner, sess.doing);
+      const doing = wallDoingText(sess.owner);
       const idleNid = r => {
         const nid = String(r.need_id || "");
         return nid === "leftover" || nid.indexOf("idle-") === 0;
