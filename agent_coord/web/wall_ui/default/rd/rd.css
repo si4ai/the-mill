@@ -745,6 +745,18 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd #pane-todo.rd-todo-all #jobs-outline { display: flex !important; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; }
 #rd #pane-todo.rd-todo-all #todo-done-span { display: inline-flex !important; }
 
+/* ---- COLLAB kind colours: one palette, used everywhere in this tab ----
+ * Desk state rings stay as they are (working green, waiting amber, idle grey).
+ * Kind colours avoid those two hues so a mail or card cannot be read as a state.
+ * Icon shape is the second cue, for common colour-vision deficiency. */
+#rd {
+  --rd-k-mail: #4ec3ff;
+  --rd-k-todo: #ff7043;
+  --rd-k-hold: #c084fc;
+  --rd-k-wake: #ff5c8a;
+  --rd-k-doing: #e8eef5;
+  --rd-k-score: #2ee6d6;
+}
 /* ---- COLLAB replay: two views of the same rows; only time moves ---- */
 #rd .rd-collab-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 #rd .rd-block h3, #rd .rd-replay h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .06em; }
@@ -775,8 +787,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-trace svg { display: block; width: 100%; height: 100%; }
 #rd .rd-rp-bars-dim rect { opacity: .32; }
 #rd .rd-rp-bars-lit rect { opacity: 1; }
-#rd .rd-rp-bars .k-mail { fill: var(--cyan); } #rd .rd-rp-bars .k-todo { fill: var(--amber); } #rd .rd-rp-bars .k-hold { fill: var(--mag); }
-#rd .rd-rp-bars .k-wake { fill: #f07178; } #rd .rd-rp-bars .k-doing { fill: var(--green); } #rd .rd-rp-bars .k-score { fill: #7eb8f0; }
+#rd .rd-rp-bars .k-mail { fill: var(--rd-k-mail); } #rd .rd-rp-bars .k-todo { fill: var(--rd-k-todo); } #rd .rd-rp-bars .k-hold { fill: var(--rd-k-hold); }
+#rd .rd-rp-bars .k-wake { fill: var(--rd-k-wake); } #rd .rd-rp-bars .k-doing { fill: var(--rd-k-doing); } #rd .rd-rp-bars .k-score { fill: var(--rd-k-score); }
 #rd .rd-rp-vp { fill: color-mix(in srgb, var(--cyan) 16%, transparent); stroke: var(--cyan); stroke-width: 2; cursor: grab; pointer-events: auto; }
 #rd.rd-rp-panning .rd-rp-vp, #rd .rd-rp-panning .rd-rp-vp { cursor: grabbing; }
 #rd .rd-rp-tr-head { stroke: var(--cyan); stroke-width: 1.5; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -789,8 +801,9 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-row { position: relative; display: grid; grid-template-columns: 6ch 14px 1fr; align-items: center; gap: 8px; height: 32px; padding: 0 6px; border-bottom: 1px solid color-mix(in srgb, var(--edge) 35%, transparent); font-size: 13px; overflow: hidden; }
 #rd .rd-rp-row time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; }
 #rd .rd-rp-row .rd-k { justify-self: start; font-size: 11px; padding: 0 5px; border: 1px solid var(--edge); border-radius: 4px; }
-#rd .rd-rp-row .rd-k.doing { color: var(--green); } #rd .rd-rp-row .rd-k.mail { color: var(--cyan); }
-#rd .rd-rp-row .rd-k.todo { color: var(--amber); } #rd .rd-rp-row .rd-k.hold { color: var(--mag); }
+#rd .rd-rp-row .rd-k.doing { color: var(--rd-k-doing); } #rd .rd-rp-row .rd-k.mail { color: var(--rd-k-mail); }
+#rd .rd-rp-row .rd-k.todo { color: var(--rd-k-todo); } #rd .rd-rp-row .rd-k.hold { color: var(--rd-k-hold); }
+#rd .rd-rp-row .rd-k.wake { color: var(--rd-k-wake); } #rd .rd-rp-row .rd-k.score { color: var(--rd-k-score); }
 #rd .rd-rp-s { display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #rd .rd-rp-s .rd-q { color: var(--dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #rd .rd-rp-empty { padding: 12px 6px; color: var(--dim); }
@@ -828,14 +841,17 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-past .rd-pill[data-st="disconnected"] { opacity: .5; border-style: dashed; }
 @media (prefers-reduced-motion: reduce) { #rd .rd-rp-past .rd-pill[data-st] { transition: none; } }
 
-/* The six activity kinds: one icon each, in the kind's colour. */
+/* The six activity kinds: one icon each, filled and stroked in the kind's colour. */
 #rd .rd-ki { display: inline-flex; width: 12px; height: 12px; color: var(--dim); }
-#rd .rd-ki svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
-#rd .rd-ki.k-mail { color: var(--cyan); } #rd .rd-ki.k-todo { color: var(--amber); } #rd .rd-ki.k-hold { color: var(--mag); }
-#rd .rd-ki.k-wake { color: #f07178; } #rd .rd-ki.k-doing { color: var(--green); } #rd .rd-ki.k-score { color: #7eb8f0; }
+#rd .rd-ki svg { fill: color-mix(in srgb, currentColor 42%, transparent); stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+#rd .rd-ki.k-mail { color: var(--rd-k-mail); } #rd .rd-ki.k-todo { color: var(--rd-k-todo); } #rd .rd-ki.k-hold { color: var(--rd-k-hold); }
+#rd .rd-ki.k-wake { color: var(--rd-k-wake); } #rd .rd-ki.k-doing { color: var(--rd-k-doing); } #rd .rd-ki.k-score { color: var(--rd-k-score); }
 #rd .rd-ki.rd-ghost { position: absolute; pointer-events: none; z-index: 2; }
 #rd .rd-rp-legend { display: inline-flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--dim); }
 #rd .rd-rp-legend > span { display: inline-flex; align-items: center; gap: 3px; }
+#rd .rd-rp-legend > span.k-mail { color: var(--rd-k-mail); } #rd .rd-rp-legend > span.k-todo { color: var(--rd-k-todo); }
+#rd .rd-rp-legend > span.k-hold { color: var(--rd-k-hold); } #rd .rd-rp-legend > span.k-wake { color: var(--rd-k-wake); }
+#rd .rd-rp-legend > span.k-doing { color: var(--rd-k-doing); } #rd .rd-rp-legend > span.k-score { color: var(--rd-k-score); }
 #rd .rd-sdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--green); }
 #rd .rd-sdot.off { background: #f07178; }
 #rd .rd-pill.rd-contest { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 70%, transparent); }
@@ -879,7 +895,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   background: linear-gradient(to right, transparent calc(50% - .5px), color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent calc(50% + .5px)); }
 #rd .rd-rp-tray { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
 #rd .rd-rp-wait { outline: 1px dashed var(--amber); outline-offset: 2px; border-radius: 3px; }
-#rd .rd-rp-more { font-size: 10px; color: var(--dim); }
+#rd .rd-rp-more { font-size: 10px; height: 16px; padding: 0 5px; border-radius: 8px; border: 1px dashed color-mix(in srgb, var(--ink) 35%, var(--edge));
+  color: var(--ink); background: color-mix(in srgb, var(--panel) 70%, var(--dim)); cursor: pointer; line-height: 14px; font-variant-numeric: tabular-nums; }
 #rd .rd-rp-field { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 3; }
 #rd .rd-rp-item { position: absolute; top: 0; left: 0; z-index: 3; display: inline-flex; align-items: center; gap: 3px; pointer-events: auto; will-change: transform, opacity; white-space: nowrap; overflow: hidden; box-sizing: border-box; }
 #rd .rd-rp-item .rd-ki { flex: 0 0 auto; }
@@ -890,15 +907,24 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-dnm.st-waiting { border-color: var(--amber); }
 #rd .rd-dnm.st-idle { border-color: color-mix(in srgb, var(--dim) 55%, var(--edge)); }
 #rd .rd-dnm.st-disconnected { opacity: .5; border-style: dashed; }
-#rd .rd-dnm.rd-cloud-nm { border-style: dashed; color: var(--dim); }
+#rd .rd-dnm.rd-cloud-nm { border-style: dashed; }
 #rd .rd-rp-to { color: var(--dim); font-size: 10px; }
-#rd .rd-pill.rd-kind { cursor: default; gap: 4px; }
-#rd .rd-pill.rd-kind.k-mail { border-color: var(--cyan); } #rd .rd-pill.rd-kind.k-todo { border-color: var(--amber); }
-#rd .rd-pill.rd-kind.k-hold { border-color: var(--mag); } #rd .rd-pill.rd-kind.k-wake { border-color: #f07178; }
-#rd .rd-pill.rd-kind.k-doing { border-color: var(--green); } #rd .rd-pill.rd-kind.k-score { border-color: #7eb8f0; }
+#rd .rd-rp-dchip .rd-dnm { border-color: var(--rd-k, var(--edge)); background: color-mix(in srgb, var(--rd-k, var(--panel)) 30%, var(--panel)); color: var(--ink); }
+#rd .rd-rp-dchip .rd-dnm.st-working, #rd .rd-rp-dchip .rd-dnm.st-waiting, #rd .rd-rp-dchip .rd-dnm.st-idle { border-color: var(--rd-k, var(--edge)); }
+#rd .rd-rp-dchip.k-mail, #rd .rd-rp-dchip .rd-dnm.k-mail { --rd-k: var(--rd-k-mail); }
+#rd .rd-rp-dchip.k-todo, #rd .rd-rp-dchip .rd-dnm.k-todo { --rd-k: var(--rd-k-todo); }
+#rd .rd-rp-dchip.k-hold, #rd .rd-rp-dchip .rd-dnm.k-hold { --rd-k: var(--rd-k-hold); }
+#rd .rd-rp-dchip.k-wake, #rd .rd-rp-dchip .rd-dnm.k-wake { --rd-k: var(--rd-k-wake); }
+#rd .rd-rp-dchip.k-doing, #rd .rd-rp-dchip .rd-dnm.k-doing { --rd-k: var(--rd-k-doing); }
+#rd .rd-rp-dchip.k-score, #rd .rd-rp-dchip .rd-dnm.k-score { --rd-k: var(--rd-k-score); }
+#rd .rd-pill.rd-kind { cursor: default; gap: 4px; color: var(--rd-k, inherit); border-color: var(--rd-k, var(--edge)); background: color-mix(in srgb, var(--rd-k, var(--panel)) 22%, var(--panel)); }
+#rd .rd-pill.rd-kind.k-mail { --rd-k: var(--rd-k-mail); } #rd .rd-pill.rd-kind.k-todo { --rd-k: var(--rd-k-todo); }
+#rd .rd-pill.rd-kind.k-hold { --rd-k: var(--rd-k-hold); } #rd .rd-pill.rd-kind.k-wake { --rd-k: var(--rd-k-wake); }
+#rd .rd-pill.rd-kind.k-doing { --rd-k: var(--rd-k-doing); } #rd .rd-pill.rd-kind.k-score { --rd-k: var(--rd-k-score); }
 #rd .rd-rp-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
 #rd .rd-rp-links path { fill: none; stroke-width: 1.2; stroke: var(--dim); }
-#rd .rd-rp-links .k-mail { stroke: var(--cyan); } #rd .rd-rp-links .k-todo { stroke: var(--amber); } #rd .rd-rp-links .k-hold { stroke: var(--mag); }
+#rd .rd-rp-links .k-mail { stroke: var(--rd-k-mail); } #rd .rd-rp-links .k-todo { stroke: var(--rd-k-todo); } #rd .rd-rp-links .k-hold { stroke: var(--rd-k-hold); }
+#rd .rd-rp-links .k-wake { stroke: var(--rd-k-wake); } #rd .rd-rp-links .k-doing { stroke: var(--rd-k-doing); } #rd .rd-rp-links .k-score { stroke: var(--rd-k-score); }
 #rd .rd-rp-catch { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid var(--green); pointer-events: none; }
 #rd .rd-rp-many .rd-rp-lane > .rd-pill, #rd .rd-rp-many .rd-rp-lane > .rd-cloud { font-size: 10px; padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) {
@@ -935,3 +961,36 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-dir-tb .rd-rp-rain { grid-template-rows: none; grid-template-columns: repeat(var(--lanes, 1), minmax(72px, 1fr)); flex: 1 1 auto; min-height: 120px; }
 #rd .rd-dir-tb .rd-rp-col { background: linear-gradient(to right, transparent calc(50% - .5px), color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent calc(50% + .5px)); }
 #rd .rd-dir-tb .rd-rp-lane { justify-self: center; align-self: center; }
+
+/* ---- COLLAB details card: one shared popup, positioned near the pointer ----
+ * Shown on hover or focus of an item (kind icon or desk chip) or a fixed pill.
+ * pointer-events none so it never steals the hover or the playhead. */
+#rd .rd-rp-tip { position: fixed; z-index: 80; max-width: 34ch; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--edge); background: color-mix(in srgb, var(--panel) 94%, black 6%);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5); color: var(--ink); font-size: 12px; line-height: 1.35;
+  pointer-events: none; white-space: normal; }
+#rd .rd-rp-tip[hidden] { display: none; }
+#rd .rd-rp-tip-k { display: flex; align-items: center; gap: 6px; font-weight: 650; letter-spacing: .02em; }
+#rd .rd-rp-swatch { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--rd-k, currentColor); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-k, currentColor) 40%, transparent); }
+#rd .rd-rp-tip-k.k-mail { --rd-k: var(--rd-k-mail); color: var(--rd-k-mail); } #rd .rd-rp-tip-k.k-todo { --rd-k: var(--rd-k-todo); color: var(--rd-k-todo); }
+#rd .rd-rp-tip-k.k-hold { --rd-k: var(--rd-k-hold); color: var(--rd-k-hold); } #rd .rd-rp-tip-k.k-wake { --rd-k: var(--rd-k-wake); color: var(--rd-k-wake); }
+#rd .rd-rp-tip-k.k-doing { --rd-k: var(--rd-k-doing); color: var(--rd-k-doing); } #rd .rd-rp-tip-k.k-score { --rd-k: var(--rd-k-score); color: var(--rd-k-score); }
+#rd .rd-rp-tip-title { margin-top: 4px; color: var(--ink); font-size: 13px; }
+#rd .rd-rp-tip-time { margin-top: 2px; color: var(--dim); font-variant-numeric: tabular-nums; }
+#rd .rd-rp-tip-desks { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+#rd .rd-rp-tip-desk { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--edge); background: var(--panel); }
+#rd .rd-rp-tip-arrow { color: var(--dim); }
+#rd .rd-rp-tip-tags { margin-top: 6px; }
+#rd .rd-rp-tip-tags .rd-tags { margin-left: 0; }
+#rd .rd-rp-tip-sum { margin-top: 4px; color: var(--dim); }
+#rd .rd-pane.rd-rp-fs .rd-rp-tip { z-index: 100; }
+#rd .rd-rp-tip-list { display: grid; gap: 4px; margin-top: 6px; max-height: 40vh; overflow: auto; }
+#rd .rd-rp-tip-hit { display: flex; align-items: center; gap: 6px; }
+#rd .rd-rp-tip-hit.k-mail { --rd-k: var(--rd-k-mail); } #rd .rd-rp-tip-hit.k-todo { --rd-k: var(--rd-k-todo); }
+#rd .rd-rp-tip-hit.k-hold { --rd-k: var(--rd-k-hold); } #rd .rd-rp-tip-hit.k-wake { --rd-k: var(--rd-k-wake); }
+#rd .rd-rp-tip-hit.k-doing { --rd-k: var(--rd-k-doing); } #rd .rd-rp-tip-hit.k-score { --rd-k: var(--rd-k-score); }
+#rd .rd-rp-tip-hit .rd-rp-swatch { background: var(--rd-k, currentColor); }
+#rd .rd-rp-group { --rd-gs: 1; gap: 3px; align-items: center; }
+#rd .rd-rp-group .rd-ki, #rd .rd-rp-group .rd-ki svg { width: calc(12px * var(--rd-gs)); height: calc(12px * var(--rd-gs)); }
+#rd .rd-rp-gn { font-size: calc(10px * min(var(--rd-gs), 1.6)); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: inherit; }
+#rd .rd-rp-btn.rd-rp-cluster { text-transform: none; letter-spacing: 0; font-size: 11px; min-width: 4.4em; }

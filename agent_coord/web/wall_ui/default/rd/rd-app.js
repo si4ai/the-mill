@@ -63,7 +63,7 @@
   var WINDOWED = { desks: ["agents"], score: ["scores"] };
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
-  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-";
+  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-", RP_CLUSTER_KEY = "rd-replay-cluster-";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, moves: {}, trail: {}, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
@@ -355,9 +355,12 @@
    * the window and walks the playhead forward in R.REPLAY_PLAY_MS / speed. Position is a
    * function of the playhead, the item's time and the span: nothing else moves. */
   var rp = { playing: false, t: null, t0: 0, wall0: 0, rep: null, raf: 0, drawn: null, speed: Number(load(RP_SPEED_KEY, "1")) || 1,
-    view: "desks", lastT: null, st: null, live: 0, dirs: { desks: dirOf("desks"), activity: dirOf("activity") } };
+    view: "desks", lastT: null, st: null, live: 0, dirs: { desks: dirOf("desks"), activity: dirOf("activity") },
+    clusters: { desks: clusterOf("desks"), activity: clusterOf("activity") } };
   /* Each subtab keeps its own direction; both start left to right. */
   function dirOf(view) { var v = load(RP_DIR_KEY + view, R.REPLAY_DIR_DEFAULT[view]); return v === "tb" ? "tb" : "lr"; }
+  /* Display: group is the default; spread is the alternate. Each subtab remembers its own. */
+  function clusterOf(view) { return R.replayCluster(load(RP_CLUSTER_KEY + view, R.REPLAY_CLUSTER_DEFAULT[view])); }
   function rpAxis() { return R.replayAxis(rp.dirs[rp.view]); }
   if (R.REPLAY_SPEEDS.indexOf(rp.speed) < 0) rp.speed = 1;
   function replayModel(b) {
@@ -412,6 +415,7 @@
       }
     }
     drawStage(rep, t, animate);
+    tipTick();
   }
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   function moving() { return !(still && still.matches); }
@@ -477,7 +481,7 @@
     var el = document.createElement("span");
     el.className = ((cls || "").indexOf("rd-rp-lock") >= 0 ? "" : "rd-rp-item ") + cls;
     el.innerHTML = V.kindIcon(kind);
-    el.title = (title || "") + (tags ? " \u00b7 " + V.tagsText(tags) : "");
+    if ((cls || "").indexOf("rd-rp-lock") >= 0 && title) el.setAttribute("data-lock-text", title);
     var one = firstTag(tags);
     if (one) {
       var w = document.createElement("span");
@@ -491,9 +495,9 @@
   function laneWord(id) {
     return id === "@out" ? "outside" : id === "@office" ? "office" : id === "@human" ? "you" : (id || "");
   }
-  function nameChip(id, t) {
+  function nameChip(id, t, kind) {
     var s = document.createElement("span"), st = id && id.charAt(0) !== "@" ? (R.replayStateAt(rpRep(), id, t) || "") : "";
-    s.className = "rd-dnm" + (st ? " st-" + st : "") + (id === "@out" ? " rd-cloud-nm" : "");
+    s.className = "rd-dnm" + (kind ? " k-" + kind : "") + (st ? " st-" + st : "") + (id === "@out" ? " rd-cloud-nm" : "");
     s.textContent = laneWord(id);
     return s;
   }
@@ -502,36 +506,301 @@
     var el = document.createElement("span"), r = it.row, f = r.flows && r.flows[0];
     var a = f && f.from !== f.to ? f.from : (r.lane || (f && f.from) || r.actor);
     var b = f && f.from !== f.to ? f.to : "";
-    el.className = "rd-rp-item rd-rp-dchip";
-    el.title = rowText(r) + (b ? " (" + laneWord(a) + " \u2192 " + laneWord(b) + ")" : "");
-    var chip = nameChip(a, t);
+    el.className = "rd-rp-item rd-rp-dchip k-" + it.kind;
+    var chip = nameChip(a, t, it.kind);
     if (b) chip.textContent = laneWord(a) + "\u2192" + laneWord(b);
     el.appendChild(chip);
     return el;
   }
-  function drawItems(S, rep, t) {
-    var g = rpGeom(S), ax = g.ax, got = R.replayItemsAt(rep, t, RP_ITEMS, rp.view), seen = {};
-    got.items.forEach(function (it) {
-      var L = g.lanes[it.lane];
-      if (!L) return;
-      var el = S.items[it.id];
-      if (!el) { el = S.items[it.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags); S.field.appendChild(el); }
-      seen[it.id] = 1;
-      var room = Math.max(16, (L.room || 40) - 6);
-      if (el.rdRoom !== room) { el.style.maxWidth = room + "px"; el.rdRoom = room; }
-      var half = ax.main === "x" ? (el.offsetHeight || RP_ICON) / 2 : Math.min(el.offsetWidth || RP_ICON, room) / 2;
-      var m = L.start + it.pos * L.len, c = L.cross - half;
+
+  var TIP_ID = "rd-rp-tip", tipOn = null;
+  function tipHost() { return closest(root.querySelector("[data-rp-stage]"), ".rd-pane") || root; }
+  function tipEl() {
+    var host = tipHost(), el = (host && host.querySelector("#" + TIP_ID)) || root.querySelector("#" + TIP_ID);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = TIP_ID;
+      el.className = "rd-rp-tip";
+      el.setAttribute("role", "tooltip");
+      el.hidden = true;
+      (host || root).appendChild(el);
+    } else if (host && el.parentNode !== host) host.appendChild(el);
+    return el;
+  }
+  function tipTarget(t) { return closest(t, "[data-rp-tip]"); }
+  function prepItem(el, it) {
+    el.tabIndex = 0;
+    el.setAttribute("data-rp-tip", "item");
+    el.removeAttribute("title");
+    el.rdRow = it && it.row ? it.row : it;
+    var lab = ((it && it.kind) || (el.rdRow && el.rdRow.kind) || "") + (el.rdRow && el.rdRow.text ? ", " + el.rdRow.text : "");
+    if (lab) el.setAttribute("aria-label", lab);
+  }
+  function hideTip() {
+    var t = root.querySelector("#" + TIP_ID);
+    if (tipOn && tipOn.el) tipOn.el.removeAttribute("aria-describedby");
+    tipOn = null;
+    if (t) { t.hidden = true; t.style.left = ""; t.style.top = ""; }
+  }
+  function placeTip(x, y, anchor) {
+    var tip = tipEl();
+    tip.style.left = "0px";
+    tip.style.top = "0px";
+    var w = tip.offsetWidth || 160, h = tip.offsetHeight || 80, pad = 8, left, top;
+    if (anchor) {
+      left = anchor.left;
+      top = anchor.bottom + 8;
+      if (top + h + pad > window.innerHeight) top = anchor.top - h - 8;
+      if (left + w + pad > window.innerWidth) left = window.innerWidth - w - pad;
+    } else {
+      left = x + 14;
+      top = y + 18;
+      if (left + w + pad > window.innerWidth) left = x - w - 12;
+      if (top + h + pad > window.innerHeight) top = y - h - 12;
+    }
+    left = Math.max(pad, Math.min(left, window.innerWidth - w - pad));
+    top = Math.max(pad, Math.min(top, window.innerHeight - h - pad));
+    tip.style.left = Math.round(left) + "px";
+    tip.style.top = Math.round(top) + "px";
+  }
+  function laneWinCount(rep, t, laneId) {
+    if (!rep || !laneId) return 0;
+    var n = 0, items = R.replayItemsAt(rep, t, RP_ITEMS, rp.view).items, i;
+    for (i = 0; i < items.length; i++) if (items[i].lane === laneId) n++;
+    return n;
+  }
+  function fillTip(el) {
+    var tip = tipEl(), html = "", kind = el.getAttribute("data-rp-tip"), id, name, k, row;
+    if (kind === "lane") {
+      id = (closest(el, "[data-lane]") || {}).getAttribute ? closest(el, "[data-lane]").getAttribute("data-lane") : "";
+      name = (el.getAttribute("data-rd-desk") || el.getAttribute("aria-label") || el.textContent || id).replace(/\s+/g, " ").trim();
+      k = el.classList.contains("rd-kind") ? id : "";
+      html = V.replayLaneTip({ name: name, kind: k || undefined, count: laneWinCount(rpRep(), rpNow(), id) });
+    } else if (kind === "group" || kind === "more") {
+      var list = (el.rdGroup && el.rdGroup.items) || (el.rdOverflow && el.rdOverflow.items) || [];
+      var rows = list.map(function (it) { return it.row || it; }).filter(Boolean);
+      if (!rows.length) return false;
+      html = rows.length === 1 ? V.replayTip(rows[0], rpNow()) : V.replayOverflowTip(rows, rpNow());
+    } else {
+      row = el.rdRow;
+      if (!row) return false;
+      html = V.replayTip(row, rpNow());
+    }
+    if (!html) return false;
+    tip.innerHTML = html;
+    tip.hidden = false;
+    el.setAttribute("aria-describedby", TIP_ID);
+    return true;
+  }
+  function showTip(el, ev, fromFocus) {
+    if (!el || dragTrace) return;
+    if (tipOn && tipOn.el && tipOn.el !== el) tipOn.el.removeAttribute("aria-describedby");
+    if (!fillTip(el)) { hideTip(); return; }
+    var ptr = ev && ev.clientX != null ? { x: ev.clientX, y: ev.clientY } : (tipOn && tipOn.ptr) || null;
+    tipOn = { el: el, ptr: fromFocus ? null : ptr, fromFocus: !!fromFocus };
+    if (fromFocus || !ptr) placeTip(0, 0, el.getBoundingClientRect());
+    else placeTip(ptr.x, ptr.y);
+  }
+  function tipTick() {
+    if (!tipOn) return;
+    if (!tipOn.el || !tipOn.el.isConnected) { hideTip(); return; }
+    if (!tipOn.fromFocus && tipOn.ptr && document.elementFromPoint) {
+      var under = document.elementFromPoint(tipOn.ptr.x, tipOn.ptr.y), el = under && tipTarget(under);
+      if (!el) { hideTip(); return; }
+      if (el !== tipOn.el) { showTip(el, { clientX: tipOn.ptr.x, clientY: tipOn.ptr.y }, false); return; }
+    }
+    fillTip(tipOn.el);
+    if (tipOn.fromFocus) placeTip(0, 0, tipOn.el.getBoundingClientRect());
+    else if (tipOn.ptr) placeTip(tipOn.ptr.x, tipOn.ptr.y);
+  }
+  function fitItem(el, ax, room) {
+    if (ax.main === "x") { el.style.maxWidth = "16ch"; el.style.maxHeight = ""; }
+    else { el.style.maxWidth = Math.max(16, room || 72) + "px"; el.style.maxHeight = ""; }
+  }
+  function applyLanePitch(S, ax, pitch) {
+    if (!S.el) return;
+    var ids = [];
+    S.el.querySelectorAll("[data-lane]").forEach(function (el) { ids.push(el.getAttribute("data-lane")); });
+    var tmpl = ids.map(function (id) { return Math.round(pitch[id] || 40) + "px"; }).join(" ");
+    if (S.pitch === tmpl) return;
+    S.pitch = tmpl;
+    var heads = S.el.querySelector(".rd-rp-heads"), rain = S.el.querySelector(".rd-rp-rain");
+    var prop = ax.main === "x" ? "gridTemplateRows" : "gridTemplateColumns";
+    var clr = ax.main === "x" ? "gridTemplateColumns" : "gridTemplateRows";
+    [heads, rain].forEach(function (el) { if (!el) return; el.style[prop] = tmpl; el.style[clr] = ""; });
+    if (ax.main === "y") {
+      var sum = ids.reduce(function (n, id) { return n + (pitch[id] || 40); }, 0) + "px";
+      if (heads) heads.style.minWidth = sum;
+      if (rain) rain.style.minWidth = sum;
+    }
+    S.geo = null;
+  }
+  function moreChip(ov) {
+    var el = document.createElement("button");
+    el.type = "button";
+    el.className = "rd-rp-item rd-rp-more";
+    el.textContent = "+" + ov.n;
+    el.tabIndex = 0;
+    el.setAttribute("data-rp-tip", "more");
+    el.setAttribute("aria-label", "+" + ov.n + " more");
+    el.rdOverflow = ov;
+    return el;
+  }
+  function groupMark(g) {
+    var el = document.createElement("span");
+    el.className = "rd-rp-item rd-rp-group k-" + g.kind;
+    el.innerHTML = V.kindIcon(g.kind) + '<span class="rd-rp-gn">' + g.n + "</span>";
+    el.tabIndex = 0;
+    el.setAttribute("data-rp-tip", "group");
+    el.setAttribute("aria-label", g.n + " " + g.kind);
+    el.style.setProperty("--rd-gs", String(g.scale));
+    el.rdGroup = g;
+    return el;
+  }
+  function clearMore(S, keep) {
+    S.more = S.more || {};
+    Object.keys(S.more).forEach(function (id) {
+      if (keep && keep[id]) return;
+      var el = S.more[id];
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      delete S.more[id];
+    });
+  }
+  function placePacked(S, ax, items, pack, sizes) {
+    var g = rpGeom(S);
+    items.forEach(function (it) {
+      var L = g.lanes[it.lane], el = S.items[it.id], p = pack.place[it.id];
+      if (!L || !el) return;
+      if (p && p.hide) { el.hidden = true; el.style.opacity = "0"; return; }
+      el.hidden = false;
+      var sz = sizes[it.id] || { main: RP_ICON, cross: RP_ICON };
+      var rows = pack.rows[it.lane] || 1, rowH = L.room / rows, row = p ? p.row : 0;
+      var origin = L.cross - L.room / 2;
+      var c = origin + row * rowH + Math.max(0, (rowH - sz.cross) / 2);
+      var m = L.start + it.pos * L.len;
       var tf = ax.main === "x" ? "translate(" + m.toFixed(1) + "px," + c.toFixed(1) + "px)" : "translate(" + c.toFixed(1) + "px," + m.toFixed(1) + "px)";
       if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
       var op = it.pos > 0.92 ? ((1 - it.pos) / 0.08).toFixed(2) : "1";
       if (el.rdOp !== op) { el.style.opacity = op; el.rdOp = op; }
     });
+    return g;
+  }
+  function measureItems(S, ids, ax) {
+    var sizes = {};
+    ids.forEach(function (id) {
+      var el = S.items[id];
+      if (!el) return;
+      sizes[id] = ax.main === "x"
+        ? { main: el.offsetWidth || RP_ICON, cross: el.offsetHeight || RP_ICON }
+        : { main: el.offsetHeight || RP_ICON, cross: Math.min(el.offsetWidth || RP_ICON, 72) };
+    });
+    return sizes;
+  }
+  function packAndGrow(S, ax, items, sizes) {
+    var g0 = rpGeom(S);
+    var pack = R.replayPack(items, {
+      maxRows: R.REPLAY_PACK_ROWS,
+      sizeOf: function (it) { return sizes[it.id] || { main: RP_ICON, cross: RP_ICON }; },
+      lenOf: function (it) { return (g0.lanes[it.lane] && g0.lanes[it.lane].len) || 1; }
+    });
+    var pitch = {};
+    Object.keys(g0.lanes).forEach(function (id) {
+      var rows = pack.rows[id] || 1, xh = 16;
+      items.forEach(function (it) {
+        var p = pack.place[it.id];
+        if (it.lane === id && sizes[it.id] && (!p || !p.hide)) xh = Math.max(xh, sizes[it.id].cross);
+      });
+      pitch[id] = Math.max(40, rows * (xh + 4) + 8);
+    });
+    applyLanePitch(S, ax, pitch);
+    return pack;
+  }
+  function drawSpreadItems(S, rep, t, ax, got, seen) {
+    var g = rpGeom(S);
+    got.items.forEach(function (it) {
+      var L = g.lanes[it.lane];
+      if (!L) return;
+      var el = S.items[it.id];
+      if (!el || el.rdGroup) {
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+        el = S.items[it.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags);
+        prepItem(el, it);
+        S.field.appendChild(el);
+      } else el.rdRow = it.row;
+      seen[it.id] = 1;
+      el.hidden = false;
+      fitItem(el, ax, L.room);
+    });
+    var sizes = measureItems(S, Object.keys(seen), ax);
+    var pack = packAndGrow(S, ax, got.items.filter(function (it) { return !!rpGeom(S).lanes[it.lane]; }), sizes);
+    placePacked(S, ax, got.items, pack, sizes);
+    S.more = S.more || {};
+    var keep = {};
+    pack.overflow.forEach(function (ov) {
+      keep[ov.id] = 1;
+      var el = S.more[ov.id];
+      if (!el) { el = S.more[ov.id] = moreChip(ov); S.field.appendChild(el); }
+      else { el.rdOverflow = ov; el.textContent = "+" + ov.n; el.setAttribute("aria-label", "+" + ov.n + " more"); }
+      /* Place the +N as a virtual item on the overflow strip. */
+      var fake = { id: ov.id, lane: ov.lane, pos: ov.pos };
+      sizes[ov.id] = ax.main === "x" ? { main: el.offsetWidth || 22, cross: el.offsetHeight || 16 } : { main: el.offsetHeight || 16, cross: el.offsetWidth || 22 };
+      S.items[ov.id] = el;
+      pack.place[ov.id] = { row: ov.row, hide: false };
+      seen[ov.id] = 1;
+      placePacked(S, ax, [fake], pack, sizes);
+      delete S.items[ov.id];
+    });
+    clearMore(S, keep);
+  }
+  function drawGroupItems(S, rep, t, ax, got, seen) {
+    var marks = R.replayGroup(got.items, { span: rep.ms, buckets: R.REPLAY_GROUP_BUCKETS });
+    var g = rpGeom(S);
+    marks.forEach(function (m) {
+      var L = g.lanes[m.lane];
+      if (!L) return;
+      var el = S.items[m.id], it = m.items[0];
+      if (m.n === 1) {
+        if (!el || el.rdGroup) {
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+          el = S.items[m.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags);
+          prepItem(el, it);
+          S.field.appendChild(el);
+        } else el.rdRow = it.row;
+      } else {
+        if (!el || !el.rdGroup) {
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+          el = S.items[m.id] = groupMark(m);
+          S.field.appendChild(el);
+        } else {
+          el.rdGroup = m;
+          var gn = el.querySelector(".rd-rp-gn");
+          if (gn && gn.textContent !== String(m.n)) gn.textContent = String(m.n);
+          el.style.setProperty("--rd-gs", String(m.scale));
+          el.setAttribute("aria-label", m.n + " " + m.kind);
+        }
+      }
+      seen[m.id] = 1;
+      el.hidden = false;
+      fitItem(el, ax, L.room);
+    });
+    var packed = marks.filter(function (m) { return !!rpGeom(S).lanes[m.lane]; });
+    var sizes = measureItems(S, packed.map(function (m) { return m.id; }), ax);
+    var pack = packAndGrow(S, ax, packed, sizes);
+    placePacked(S, ax, packed, pack, sizes);
+    clearMore(S, {});
+  }
+  function drawItems(S, rep, t) {
+    var g = rpGeom(S), ax = g.ax, got = R.replayItemsAt(rep, t, RP_ITEMS, rp.view), seen = {};
+    var mode = (rp.clusters && rp.clusters[rp.view]) === "spread" ? "spread" : "group";
+    if (mode === "spread") drawSpreadItems(S, rep, t, ax, got, seen);
+    else drawGroupItems(S, rep, t, ax, got, seen);
     Object.keys(S.items).forEach(function (id) {
       if (seen[id]) return;
       var el = S.items[id];
-      if (el.parentNode) el.parentNode.removeChild(el);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
       delete S.items[id];
     });
+    g = rpGeom(S);
     var paths = got.links.map(function (k) {
       var A = g.lanes[k.from], B = g.lanes[k.to];
       if (!A || !B) return "";
@@ -564,8 +833,10 @@
         S.lanes[id].head.classList.toggle("rd-contest", (L[id] || []).some(function (x) { return x.wait; }));
         Object.keys(want).forEach(function (k) {
           if (have[k]) return;
-          var x = want[k], el = icon("hold", "rd-rp-lock rd-in" + (x.wait ? " rd-lock-wait" : ""), (x.wait ? "waiting for " : "holds ") + (x.text || x.item));
+          var x = want[k], txt = (x.wait ? "waiting for " : "holds ") + (x.text || x.item);
+          var el = icon("hold", "rd-rp-lock rd-in" + (x.wait ? " rd-lock-wait" : ""), txt);
           el.setAttribute("data-k2", k);
+          prepItem(el, { kind: "hold", row: { kind: "hold", text: txt, at: null, state: {}, tags: null } });
           box.appendChild(el);
           (window.requestAnimationFrame || setTimeout)(function () { el.classList.remove("rd-in"); });
         });
@@ -698,9 +969,34 @@
     rpPanTo(end);
     if (end != null) rpOlderFor(rep, end);
   }
+  root.addEventListener("pointerover", function (ev) {
+    if (dragTrace) return;
+    var el = tipTarget(ev.target);
+    if (el) showTip(el, ev, false);
+  });
+  root.addEventListener("pointermove", function (ev) {
+    if (!tipOn || dragTrace || tipOn.fromFocus) return;
+    tipOn.ptr = { x: ev.clientX, y: ev.clientY };
+    if (tipTarget(ev.target) === tipOn.el) placeTip(ev.clientX, ev.clientY);
+  });
+  root.addEventListener("pointerout", function (ev) {
+    if (!tipOn || tipOn.fromFocus) return;
+    if (ev.relatedTarget && tipTarget(ev.relatedTarget) === tipOn.el) return;
+    hideTip();
+  });
+  root.addEventListener("focusin", function (ev) {
+    var el = tipTarget(ev.target);
+    if (el) showTip(el, ev, true);
+  });
+  root.addEventListener("focusout", function (ev) {
+    if (!tipOn || !tipOn.fromFocus) return;
+    if (ev.relatedTarget && tipTarget(ev.relatedTarget)) return;
+    hideTip();
+  });
   root.addEventListener("pointerdown", function (ev) {
     var el = closest(ev.target, "[data-rp-ov]"), rep = rpRep();
     if (!el || !rep) return;
+    hideTip();
     var bx = el.getBoundingClientRect(), frac = ovFrac(el, ev);
     var vp = R.replayViewport(rep, rpNow(), { lo: Number(el.getAttribute("data-lo")), hi: Number(el.getAttribute("data-hi")) });
     var onVp = frac >= vp.lo - 0.01 && frac <= vp.hi + 0.01;
@@ -942,6 +1238,12 @@
     if ((el = closest(t, "[data-rp-dir]"))) {
       rp.dirs[rp.view] = el.getAttribute("data-rp-dir") === "tb" ? "tb" : "lr";
       save(RP_DIR_KEY + rp.view, rp.dirs[rp.view]);
+      rp.st = null; rp.drawn = null; last.pane = null; paint();
+      return;
+    }
+    if ((el = closest(t, "[data-rp-cluster]"))) {
+      rp.clusters[rp.view] = R.replayCluster(el.getAttribute("data-rp-cluster"));
+      save(RP_CLUSTER_KEY + rp.view, rp.clusters[rp.view]);
       rp.st = null; rp.drawn = null; last.pane = null; paint();
       return;
     }

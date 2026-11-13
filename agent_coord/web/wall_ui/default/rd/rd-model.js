@@ -1204,6 +1204,83 @@
   }
   /* The young end of a two-desk transition is joined by a line that fades as the pair ages. */
   var REPLAY_LINK_AGE = 0.08;
+  /* ---- Packing: items keep their time, collisions go across the lane ----
+   * Greedy interval packing per lane, each frame. An item stays at its age along the
+   * time axis; if its interval would overlap another on the same sub-row, it moves to
+   * the next sub-row (vertical when time runs left to right, horizontal when time
+   * runs top to bottom). A lane grows with the number of sub-rows, up to
+   * REPLAY_PACK_ROWS. Leftovers become +N overflow chips, clustered by overlap, on
+   * one extra strip so they do not cover a visible item. */
+  var REPLAY_PACK_ROWS = 4;
+  function replayPack(items, opts) {
+    opts = opts || {};
+    var maxRows = opts.maxRows || REPLAY_PACK_ROWS, gap = opts.gap != null ? opts.gap : 2;
+    var moreW = opts.overflowMain || 22;
+    var sizeOf = opts.sizeOf || function () { return { main: 14, cross: 14 }; };
+    var lenOf = opts.lenOf || function () { return opts.len || 1; };
+    var byLane = {}, place = {}, overflow = [], rows = {}, i, r, it, list, lane;
+    for (i = 0; i < items.length; i++) {
+      it = items[i];
+      (byLane[it.lane] = byLane[it.lane] || []).push(it);
+    }
+    Object.keys(byLane).forEach(function (lane) {
+      list = byLane[lane].slice().sort(function (a, b) { return a.pos - b.pos || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
+      var ends = [], hidden = [];
+      list.forEach(function (it) {
+        var main = Math.max(1, (sizeOf(it).main || 14)), len = Math.max(1, lenOf(it));
+        var start = it.pos * len, end = start + main + gap, row = -1;
+        for (r = 0; r < ends.length; r++) if (ends[r] <= start + 0.01) { row = r; break; }
+        if (row < 0 && ends.length < maxRows) { row = ends.length; ends.push(0); }
+        if (row >= 0) { ends[row] = end; place[it.id] = { row: row, hide: false }; }
+        else hidden.push(it);
+      });
+      var clusters = [];
+      hidden.forEach(function (it) {
+        var len = Math.max(1, lenOf(it)), start = it.pos * len;
+        var end = start + Math.max(moreW, (sizeOf(it).main || 14)) + gap;
+        var last = clusters[clusters.length - 1];
+        if (last && start < last.end) { last.ids.push(it.id); last.items.push(it); last.end = Math.max(last.end, end); }
+        else clusters.push({ ids: [it.id], items: [it], start: start, end: end, pos: it.pos, lane: lane });
+      });
+      hidden.forEach(function (it) { place[it.id] = { row: -1, hide: true }; });
+      var strip = clusters.length ? 1 : 0;
+      clusters.forEach(function (c, n) {
+        overflow.push({ id: "more-" + lane + "-" + n, lane: lane, pos: c.pos, n: c.ids.length, ids: c.ids, items: c.items, row: ends.length });
+      });
+      rows[lane] = Math.max(1, ends.length + strip);
+    });
+    return { place: place, overflow: overflow, rows: rows };
+  }
+  /* Group mode (the default): items of the same kind on the same lane that fall in
+   * the same time bucket merge into one mark. Size grows with the count (square
+   * root, clamped). The playhead does not change which bucket an item is in, because
+   * buckets are locked to the item's own time. */
+  var REPLAY_CLUSTER_DEFAULT = { desks: "group", activity: "group" };
+  var REPLAY_GROUP_BUCKETS = 36;
+  function replayCluster(v) { return v === "spread" ? "spread" : "group"; }
+  function groupScale(n) {
+    if (!(n > 1)) return 1;
+    var s = Math.sqrt(n);
+    return s < 1 ? 1 : s > 2.6 ? 2.6 : s;
+  }
+  function replayGroup(items, opts) {
+    opts = opts || {};
+    var nB = opts.buckets || REPLAY_GROUP_BUCKETS, span = Math.max(1, opts.span || 1);
+    var bucketMs = span / nB, groups = {}, order = [], i, it, id, g, at, b;
+    for (i = 0; i < (items || []).length; i++) {
+      it = items[i];
+      at = it.row && it.row.at != null ? it.row.at : 0;
+      b = Math.floor(at / Math.max(1, bucketMs));
+      id = "grp-" + it.lane + "-" + it.kind + "-" + b;
+      if (!groups[id]) { groups[id] = { id: id, lane: it.lane, kind: it.kind, pos: 0, at: at, n: 0, items: [], scale: 1 }; order.push(id); }
+      g = groups[id];
+      g.items.push(it);
+      g.n++;
+      g.pos = (g.pos * (g.n - 1) + it.pos) / g.n;
+      if (it.row && it.row.at != null && it.row.at < g.at) g.at = it.row.at;
+    }
+    return order.map(function (id) { g = groups[id]; g.scale = groupScale(g.n); return g; });
+  }
   /* The same instances, two views: desks places each on every desk lane in its state (and
    * joins a two-desk transition with a line); activity places each once on its kind lane. */
   function replayItemsAt(rep, t, cap, view) {
@@ -1518,7 +1595,7 @@
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

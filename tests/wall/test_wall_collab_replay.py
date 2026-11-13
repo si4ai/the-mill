@@ -123,6 +123,53 @@ console.log(JSON.stringify({
   keysDesksItems: [...new Set(R.replayItemsAt(rep, mid, 400, 'desks').items.map(i => i.key))].sort(),
   shellFull: V.replay(rep, {speed: 1, full: true, view: 'desks'}),
   vp: R.replayViewport(rep, mid, ov),
+  tips: (() => {
+    const by = Object.fromEntries(rep.rows.map(r => [r.key, r]));
+    return {
+      mail: V.replayTip(by['mail-100'], now),
+      todo: V.replayTip(by['move-2'], now),
+      doing: V.replayTip(by['focus-50'], now),
+      wake: V.replayTip(by['act-wake-9'], now),
+      score: V.replayTip(by['act-score-40'], now),
+      hold: V.replayTip(by['act-hold-3'], now),
+      lane: V.replayLaneTip({ name: 'builder', count: 3 }),
+      kind: V.replayLaneTip({ kind: 'mail', name: 'mail', count: 1 }),
+      empty: V.replayLaneTip({ name: 'office', count: 0 }),
+    };
+  })(),
+  cluster: { dflt: R.REPLAY_CLUSTER_DEFAULT, scale: [R.groupScale(1), R.groupScale(4), R.groupScale(100)], buckets: R.REPLAY_GROUP_BUCKETS },
+  pack: (() => {
+    const items = [
+      {id:'a', lane:'mail', pos:0.10}, {id:'b', lane:'mail', pos:0.10}, {id:'c', lane:'mail', pos:0.10},
+      {id:'d', lane:'mail', pos:0.10}, {id:'e', lane:'mail', pos:0.10},
+      {id:'f', lane:'mail', pos:0.80},
+      {id:'g', lane:'todo', pos:0.20}, {id:'h', lane:'todo', pos:0.90},
+    ];
+    const p = R.replayPack(items, {len: 1000, sizeOf: () => ({main: 40, cross: 16}), maxRows: 4, gap: 2});
+    return { place: p.place, rows: p.rows, overflow: p.overflow.map(o => ({n: o.n, ids: o.ids, lane: o.lane, pos: o.pos, row: o.row})) };
+  })(),
+  groups: (() => {
+    const at = (ms) => ({at: Date.parse('2026-11-13T04:00:00Z') + ms});
+    const items = [
+      {id:'m1', lane:'builder', kind:'mail', pos:0.2, row: at(0)},
+      {id:'m2', lane:'builder', kind:'mail', pos:0.21, row: at(1000)},
+      {id:'m3', lane:'builder', kind:'mail', pos:0.8, row: at(3*3600000)},
+      {id:'t1', lane:'builder', kind:'todo', pos:0.2, row: at(500)},
+      {id:'m4', lane:'validator', kind:'mail', pos:0.2, row: at(0)},
+    ];
+    const g = R.replayGroup(items, {span: 6*3600000, buckets: 36});
+    return g.map(x => ({id: x.id, lane: x.lane, kind: x.kind, n: x.n, scale: x.scale, ids: x.items.map(i => i.id), pos: x.pos}));
+  })(),
+  overflowTip: (() => {
+    const by = Object.fromEntries(rep.rows.map(r => [r.key, r]));
+    return V.replayOverflowTip([by['mail-100'], by['mail-101']].filter(Boolean), now);
+  })(),
+  clusterShell: {
+    group: V.replay(rep, {speed: 1, view: 'desks', clusters: {desks: 'group'}}),
+    spread: V.replay(rep, {speed: 1, view: 'activity', clusters: {activity: 'spread'}}),
+    defDesks: V.replay(rep, {speed: 1, view: 'desks'}),
+    defActivity: V.replay(rep, {speed: 1, view: 'activity'}),
+  },
 }));
 """
 
@@ -331,8 +378,9 @@ def test_position_is_a_function_of_the_playhead_the_time_and_the_window():
 
 def test_stage_motion_is_transform_and_opacity_only():
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    body = app[app.index("function drawItems"):app.index("function drawStage")]
+    body = app[app.index("function placePacked"):app.index("function drawStage")]
     assert "el.style.transform" in body and "el.style.opacity" in body
+    assert "placePacked" in body and "drawSpreadItems" in body and "drawGroupItems" in body
     assert "RP_ITEMS" in app and "moving()" in app
 
 
@@ -467,3 +515,122 @@ def test_direction_toggles_per_subtab_and_both_start_left_to_right():
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert 'RP_DIR_KEY = "rd-replay-dir-"' in app and "save(RP_DIR_KEY + rp.view" in app, "each subtab keeps its own choice"
     assert "el.style.transform" in app and "ax.main === \"x\"" in app, "placement follows the axis"
+
+
+def test_kind_palette_is_single_sourced_and_used_on_bars_icons_and_chips():
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    kinds = ["mail", "todo", "hold", "wake", "doing", "score"]
+    values = {}
+    for k in kinds:
+        hits = re.findall(rf"--rd-k-{k}:\s*(#[0-9a-fA-F]{{6}})", css)
+        assert len(hits) == 1, k
+        values[k] = hits[0].lower()
+        assert css.count(f"var(--rd-k-{k})") >= 5, k + " should be used, not restated"
+    # not the desk state-ring green or waiting amber
+    assert values["doing"] != "#4fdd9b" and values["todo"] != "#e4b56a"
+    assert len(set(values.values())) == 6, "each kind has its own colour"
+    assert "#rd .rd-rp-bars .k-mail { fill: var(--rd-k-mail); }" in css
+    assert "#rd .rd-ki.k-mail { color: var(--rd-k-mail); }" in css
+    assert "fill: color-mix(in srgb, currentColor" in css, "icons are filled, not a faint outline"
+    assert "#rd .rd-rp-dchip.k-mail, #rd .rd-rp-dchip .rd-dnm.k-mail { --rd-k: var(--rd-k-mail); }" in css
+    assert "#rd .rd-pill.rd-kind.k-mail { --rd-k: var(--rd-k-mail); }" in css
+    assert "#rd .rd-rp-links .k-mail { stroke: var(--rd-k-mail); }" in css
+    assert "#rd .rd-rp-legend > span.k-mail { color: var(--rd-k-mail); }" in css
+    assert "#rd .rd-rp-bars-dim rect { opacity: .32; }" in css
+    assert "#rd .rd-rp-bars-lit rect { opacity: 1; }" in css
+    got = run()
+    act, desks = got["activity"], got["shell"]
+    for k in kinds:
+        assert f'class="k-{k}"' in act, "bar or legend named for " + k
+        assert f"rd-pill rd-kind k-{k}" in act
+        assert f'class="rd-ki k-{k}"' in desks
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert 'rd-rp-dchip k-" + it.kind' in app and 'k-" + kind' in app
+    # no second hex palette for kinds in the javascript
+    assert not re.search(r"#[0-9a-fA-F]{6}", app)
+
+def test_hover_shows_one_shared_details_card():
+    got = run()
+    mail, todo, doing, wake, score, hold = (got["tips"][k] for k in ("mail", "todo", "doing", "wake", "score", "hold"))
+    # kind row with a colour swatch, then title, local time and relative age
+    assert 'class="rd-rp-tip-k k-mail"' in mail and 'class="rd-rp-swatch"' in mail and ">mail</div>" in mail
+    assert "re-measure #450" in mail
+    assert "<time>" in mail and "ago" in mail
+    assert "sender builder" in mail and "receiver validator" in mail
+    assert "rd-tag-l" in mail and "builder" in mail  # label
+    assert "rd-tag-t" in mail  # mail room
+    assert 'class="rd-rp-tip-k k-todo"' in todo and "Stations route" in todo
+    assert "claimer builder" in todo
+    assert "rd-tag-l" in todo and "rd-tag-t" in todo and "rd-tag-w" in todo and "rd-tag-r" in todo
+    assert 'class="rd-rp-tip-k k-doing"' in doing and "wiring the route" in doing and "doing builder" in doing
+    assert 'class="rd-rp-tip-k k-wake"' in wake
+    assert 'class="rd-rp-tip-k k-score"' in score and "score builder" in score
+    assert 'class="rd-rp-tip-k k-hold"' in hold and "holder gardener" in hold
+    assert "3 in the window" in got["tips"]["lane"] and "builder" in got["tips"]["lane"]
+    assert 'class="rd-rp-tip-k k-mail"' in got["tips"]["kind"] and "1 in the window" in got["tips"]["kind"] and 'class="rd-rp-swatch"' in got["tips"]["kind"]
+    assert "0 in the window" in got["tips"]["empty"]
+    # one shared popup in the shell, reused for every item
+    for html in (got["shell"], got["activity"]):
+        assert html.count('id="rd-rp-tip"') == 1
+        assert 'role="tooltip"' in html and "rd-rp-tip" in html
+        assert 'data-rp-tip="lane"' in html
+    assert got["activity"].count('data-rp-tip="lane"') == 6, "each activity-type pill is hoverable"
+    assert 'data-rd-desk="builder"' in got["shell"] and 'data-rp-tip="lane"' in got["shell"]
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "#rd .rd-rp-tip { position: fixed;" in css
+    assert "#rd .rd-rp-tip { " in css and "pointer-events: none;" in css
+    assert "#rd .rd-rp-swatch" in css
+    for k in ("mail", "todo", "hold", "wake", "doing", "score"):
+        assert f"#rd .rd-rp-tip-k.k-{k} {{ --rd-k: var(--rd-k-{k});" in css
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "TIP_ID = " in app and "aria-describedby" in app
+    assert "tabIndex = 0" in app and 'data-rp-tip", "item"' in app
+    assert "pointerover" in app and "focusin" in app and "function tipTick" in app
+    assert "function prepItem" in app, "items are tagged, not given their own tip nodes"
+    assert app.count('id = TIP_ID') == 1 or app.count('id="rd-rp-tip"') <= 1
+    view = (RD / "rd-view.js").read_text(encoding="utf-8")
+    assert "function replayTip" in view and "function replayLaneTip" in view
+
+def test_items_pack_into_subrows_then_overflow():
+    p = run()["pack"]
+    place, rows, overflow = p["place"], p["rows"], p["overflow"]
+    assert rows["mail"] == 5, "four visible rows plus an overflow strip"
+    assert rows["todo"] == 1
+    for i, k in enumerate("abcd"):
+        assert place[k]["row"] == i and not place[k]["hide"], k
+    assert place["e"]["hide"] is True
+    assert place["f"]["row"] == 0 and not place["f"]["hide"], "far along the time axis, same first row"
+    assert place["g"]["row"] == place["h"]["row"] == 0 and not place["g"]["hide"]
+    assert len(overflow) == 1 and overflow[0]["n"] == 1 and overflow[0]["ids"] == ["e"]
+    assert overflow[0]["pos"] == 0.10, "the +N stays at the hidden item's time"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "function drawSpreadItems" in app and "R.replayPack" in app
+
+
+def test_group_mode_merges_by_lane_kind_and_time_and_is_the_default():
+    got = run()
+    assert got["cluster"]["dflt"] == {"desks": "group", "activity": "group"}
+    assert got["cluster"]["scale"] == [1, 2, 2.6]
+    groups = {(g["lane"], g["kind"], g["n"]): g for g in got["groups"]}
+    near = [g for g in got["groups"] if g["lane"] == "builder" and g["kind"] == "mail"]
+    assert len(near) == 2, "two mail buckets on builder: the close pair, and the far one"
+    close = next(g for g in near if g["n"] == 2)
+    assert close["ids"] == ["m1", "m2"] and close["scale"] == 2 ** 0.5 or abs(close["scale"] - (2 ** 0.5)) < 1e-9
+    far = next(g for g in near if g["n"] == 1)
+    assert far["ids"] == ["m3"] and far["scale"] == 1
+    todo = next(g for g in got["groups"] if g["kind"] == "todo")
+    assert todo["n"] == 1 and todo["ids"] == ["t1"], "a different kind on the same lane stays its own mark"
+    other = next(g for g in got["groups"] if g["lane"] == "validator")
+    assert other["n"] == 1 and other["ids"] == ["m4"], "the same kind on another lane is not merged"
+    tip = got["overflowTip"]
+    assert "+2 mail" in tip and "rd-rp-tip-list" in tip and "re-measure #450" in tip
+    sh = got["clusterShell"]
+    assert 'data-rp-cluster-now="group"' in sh["group"] and 'data-rp-cluster-now="group"' in sh["defDesks"]
+    assert 'data-rp-cluster-now="group"' in sh["defActivity"], "both subtabs start in group"
+    assert 'data-rp-cluster-now="spread"' in sh["spread"]
+    assert "data-rp-cluster=" in sh["defDesks"] and "rd-rp-cluster" in sh["defDesks"]
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "RP_CLUSTER_KEY" in app and "save(RP_CLUSTER_KEY + rp.view" in app
+    assert "function drawGroupItems" in app and "replayOverflowTip" in app
+    assert 'data-rp-tip", "group"' in app
+

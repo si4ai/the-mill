@@ -18,6 +18,12 @@
     if (d.toDateString() === now.toDateString()) return hm;
     return d.getDate() + " " + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
   }
+  function localWhen(t) {
+    if (t == null) return "";
+    var d = new Date(t), mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getDate() + " " + mon + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
   function rank(pos, ord) {
     return '<span class="rd-rank"' + (ord != null ? ' title="ord ' + h(ord) + '"' : "") + ">#" + h(pos) + "</span>";
   }
@@ -367,7 +373,7 @@
   }
   function legendHtml() {
     return '<span class="rd-rp-legend" aria-label="Kinds">' + ["mail", "todo", "hold", "wake", "doing", "score"].map(function (k) {
-      return '<span>' + kindIcon(k) + h(KIND_WORD[k]) + "</span>";
+      return '<span class="k-' + k + '">' + kindIcon(k) + h(KIND_WORD[k]) + "</span>";
     }).join("") + "</span>";
   }
   function cloud(names) {
@@ -469,12 +475,90 @@
    * Desks: fixed pills are the desks (office, then the pick, then one outside cloud). Activity:
    * fixed pills are the six kinds. Each pill heads a lane; items travel out along it as they
    * age. One axis config turns both left to right or top to bottom. */
+
+  /* One shared details card: kind (with its colour swatch), title, local time and relative
+   * age, the desks attached to the activity, and any labels, trees, watchers or roster. */
+  var TIP_ROLE = {
+    mail: { from: "sender", holders: "receiver", waiting: "" },
+    todo: { from: "from", holders: "claimer", waiting: "" },
+    hold: { from: "from", holders: "holder", waiting: "waiting" },
+    wake: { from: "waker", holders: "woken", waiting: "" },
+    doing: { from: "", holders: "doing", waiting: "" },
+    score: { from: "", holders: "score", waiting: "" }
+  };
+  function tipTitle(row) {
+    if (row && row.text) return row.text;
+    var q = ((row && row.parts) || []).filter(function (p) { return p.t === "quote" || p.t === "item"; })[0];
+    return q ? (q.v || "") : "";
+  }
+  function tipDesks(row) {
+    var st = (row && row.state) || {}, kind = (row && row.kind) || "", roles = TIP_ROLE[kind] || TIP_ROLE.doing;
+    var bits = [], arrow = false;
+    function add(role, names) {
+      (names || []).forEach(function (n) {
+        if (!n || !role) return;
+        bits.push('<span class="rd-rp-tip-desk">' + h(role) + " " + h(n) + "</span>");
+      });
+    }
+    if (roles.from && (st.from || []).length && roles.holders && (st.holders || []).length) {
+      add(roles.from, st.from);
+      bits.push('<span class="rd-rp-tip-arrow" aria-hidden="true">\u2192</span>');
+      add(roles.holders, st.holders);
+      arrow = true;
+    } else {
+      add(roles.holders, st.holders);
+      add(roles.from, st.from);
+    }
+    add(roles.waiting, st.waiting);
+    return bits.length ? '<div class="rd-rp-tip-desks">' + bits.join(arrow ? "" : " ") + "</div>" : "";
+  }
+  function replayTip(row, now) {
+    if (!row) return "";
+    var word = KIND_WORD[row.kind] || row.kind || "";
+    var title = tipTitle(row);
+    var when = localWhen(row.at), rel = row.at != null && now != null ? R.ago(now - row.at) : "";
+    var time = when || rel ? '<div class="rd-rp-tip-time">' + (when ? "<time>" + h(when) + "</time>" : "") + (when && rel ? " \u00b7 " : "") + (rel ? h(rel) : "") + "</div>" : "";
+    var tags = tagsHtml(row.tags, 8);
+    return '<div class="rd-rp-tip-k k-' + h(row.kind) + '"><i class="rd-rp-swatch" aria-hidden="true"></i>' + h(word) + "</div>" +
+      (title ? '<div class="rd-rp-tip-title">' + h(title) + "</div>" : "") + time + tipDesks(row) +
+      (tags ? '<div class="rd-rp-tip-tags">' + tags + "</div>" : "");
+  }
+  function replayLaneTip(opts) {
+    opts = opts || {};
+    var n = opts.count || 0, sum = n === 1 ? "1 in the window" : n + " in the window";
+    var head = opts.kind
+      ? '<div class="rd-rp-tip-k k-' + h(opts.kind) + '"><i class="rd-rp-swatch" aria-hidden="true"></i>' + h(KIND_WORD[opts.kind] || opts.kind) + "</div>"
+      : '<div class="rd-rp-tip-title">' + h(opts.name || "") + "</div>";
+    return head + '<div class="rd-rp-tip-sum">' + h(sum) + "</div>";
+  }
+  function replayOverflowTip(rows, now) {
+    rows = rows || [];
+    var n = rows.length, max = 12, extra = n > max ? n - max : 0;
+    var kind = n && rows.every(function (r) { return r.kind === rows[0].kind; }) ? rows[0].kind : "";
+    var word = kind ? (KIND_WORD[kind] || kind) : "more";
+    var head = kind
+      ? '<div class="rd-rp-tip-k k-' + h(kind) + '"><i class="rd-rp-swatch" aria-hidden="true"></i>' + h("+" + n + " " + word) + "</div>"
+      : '<div class="rd-rp-tip-title">+' + h(String(n)) + " more</div>";
+    var hits = rows.slice(0, max).map(function (row) {
+      var w = KIND_WORD[row.kind] || row.kind || "";
+      var title = tipTitle(row);
+      var desks = ((row.state && row.state.holders) || []).concat((row.state && row.state.from) || []);
+      var who = desks.filter(function (d, i) { return d && desks.indexOf(d) === i; }).join(", ");
+      return '<div class="rd-rp-tip-hit k-' + h(row.kind) + '"><i class="rd-rp-swatch" aria-hidden="true"></i><span>' +
+        h(w) + (title ? " \u00b7 " + h(title) : "") + (who ? " \u00b7 " + h(who) : "") + "</span></div>";
+    }).join("");
+    return head + '<div class="rd-rp-tip-list">' + hits + (extra ? '<div class="rd-rp-tip-sum">+' + extra + " more</div>" : "") + "</div>";
+  }
+  function withLaneTip(html, tab) {
+    return html.replace(/<(span|button)\b/, "<$1" + (tab ? ' tabindex="0"' : "") + ' data-rp-tip="lane"');
+  }
+
   function laneHead(l) {
-    var pill = l.t === "kind" ? '<span class="rd-pill rd-kind k-' + h(l.id) + '" title="' + h(KIND_WORD[l.id] || l.name) + '">' + kindIcon(l.id) + h(KIND_WORD[l.id] || l.name) + "</span>"
-      : l.t === "desk" ? partHtml({ t: "desk", name: l.name, state: l.state })
-      : l.t === "human" ? partHtml({ t: "human", name: l.name })
-      : l.t === "cloud" ? partHtml({ t: "cloud", names: l.names && l.names.length ? l.names : ["desks off this pick"] })
-      : '<span class="rd-pill rd-office" title="rows no desk sent, like a wake">office</span>';
+    var pill = l.t === "kind" ? withLaneTip('<span class="rd-pill rd-kind k-' + h(l.id) + '" aria-label="' + h(KIND_WORD[l.id] || l.name) + '">' + kindIcon(l.id) + h(KIND_WORD[l.id] || l.name) + "</span>", true)
+      : l.t === "desk" ? withLaneTip(partHtml({ t: "desk", name: l.name, state: l.state }), false)
+      : l.t === "human" ? withLaneTip(partHtml({ t: "human", name: l.name }), true)
+      : l.t === "cloud" ? withLaneTip(partHtml({ t: "cloud", names: l.names && l.names.length ? l.names : ["desks off this pick"] }), true)
+      : withLaneTip('<span class="rd-pill rd-office" aria-label="office, rows no desk sent">office</span>', true);
     var locks = l.t === "desk" ? '<span class="rd-rp-locks" data-rp-locks="' + h(l.id) + '"></span>' : "";
     return '<div class="rd-rp-lane" data-lane="' + h(l.id) + '">' + pill + locks + "</div>";
   }
@@ -501,8 +585,10 @@
     var view = ui.view === "activity" ? "activity" : "desks";
     var dir = (ui.dirs && ui.dirs[view]) === "tb" ? "tb" : R.REPLAY_DIR_DEFAULT[view];
     var dirBtn = '<button type="button" class="rd-rp-btn rd-rp-dir" data-rp-dir="' + (dir === "tb" ? "lr" : "tb") + '" aria-pressed="' + (dir === "tb" ? "true" : "false") + '" aria-label="Direction: ' + (dir === "tb" ? "top to bottom" : "left to right") + '" title="' + (dir === "tb" ? "Top to bottom; switch to left to right" : "Left to right; switch to top to bottom") + '">' + (dir === "tb" ? "\u2193" : "\u2192") + "</button>";
+    var cluster = R.replayCluster((ui.clusters && ui.clusters[view]) || (R.REPLAY_CLUSTER_DEFAULT && R.REPLAY_CLUSTER_DEFAULT[view]));
+    var clusterBtn = '<button type="button" class="rd-rp-btn rd-rp-cluster" data-rp-cluster="' + (cluster === "group" ? "spread" : "group") + '" aria-pressed="' + (cluster === "group" ? "true" : "false") + '" aria-label="Display: ' + cluster + '" title="' + (cluster === "group" ? "Group; switch to spread" : "Spread; switch to group") + '">' + cluster + "</button>";
     var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' : stageHtml(rep, view);
-    return '<section class="rd-replay rv-' + view + " rd-dir-" + dir + '" data-rp-stage="1" data-rp-subtab="' + view + '" data-rp-dirnow="' + dir + '">' +
+    return '<section class="rd-replay rv-' + view + " rd-dir-" + dir + " rd-cluster-" + cluster + '" data-rp-stage="1" data-rp-subtab="' + view + '" data-rp-dirnow="' + dir + '" data-rp-cluster-now="' + cluster + '">' +
       '<div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-btn rd-rp-go" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-btn" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
@@ -510,9 +596,9 @@
       '<span class="rd-time-range" role="group" aria-label="Rows in the window">' + counts + "</span>" +
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
       '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep, ui.speed)) + "</span>" + legendHtml() +
-      dirBtn + '<button type="button" class="rd-rp-btn rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div>" +
+      dirBtn + clusterBtn + '<button type="button" class="rd-rp-btn rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div>" +
       '<div class="rd-rp-top">' + overviewHtml(rep) + '<span class="rd-rp-span" data-rp-span="1" aria-live="polite"></span></div>' +
-      body + "</section>";
+      body + '<div id="rd-rp-tip" class="rd-rp-tip" role="tooltip" hidden></div></section>';
   }
 
   var SCOPE_TEXT = {
@@ -554,7 +640,7 @@
     h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
     desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead, viewSwitch: viewSwitch,
     todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml,
-    replay: replayHtml, kindIcon: kindIcon, replayRows: replayRows, speedText: speedText, tagsHtml: tagsHtml, tagsText: tagsText
+    replay: replayHtml, kindIcon: kindIcon, replayRows: replayRows, speedText: speedText, tagsHtml: tagsHtml, tagsText: tagsText, replayTip: replayTip, replayLaneTip: replayLaneTip, replayOverflowTip: replayOverflowTip
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";
 })(typeof window !== "undefined" ? window : globalThis);
