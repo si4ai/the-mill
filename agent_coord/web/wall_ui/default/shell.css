@@ -264,8 +264,7 @@ main {
 .pane.on {
   display: flex; flex-direction: column; gap: 8px; min-height: 0;
   flex: 1 1 auto; overflow: hidden;
-  max-width: 800px; width: 100%;
-  margin-left: auto; margin-right: auto;
+  width: 100%;
 }
 #pane-session.on {
   display: flex; flex-direction: column;

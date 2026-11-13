@@ -90,3 +90,119 @@ def test_shell_structure_layout_rules():
         assert needle in src, needle
     assert len(src.encode("utf-8")) < 16_000
 
+
+BOARD_CSS = ROOT / "default" / "board.css"
+_PANE_ON_SEL = re.compile(r"^(?:\.pane|#pane-[a-z0-9-]+)\.on$")
+
+
+def _rule_blocks(src: str):
+    """Yield (selector, body) for each rule, walking into @media bodies."""
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    i = 0
+    n = len(src)
+    while i < n:
+        j = src.find("{", i)
+        if j < 0:
+            break
+        sel = src[i:j].strip()
+        depth = 1
+        k = j + 1
+        while k < n and depth:
+            if src[k] == "{":
+                depth += 1
+            elif src[k] == "}":
+                depth -= 1
+            k += 1
+        body = src[j + 1 : k - 1]
+        if sel.startswith("@") and "{" in body:
+            yield from _rule_blocks(body)
+        else:
+            yield sel, body
+        i = k
+
+
+_CAP_PROP = re.compile(r"(?:^|;)\s*(max-width|max-inline-size)\s*:\s*([^;]+)", re.I)
+_MARGIN_AUTO = re.compile(
+    r"(?:^|;)\s*(margin(?:-left|-right|-inline(?:-start|-end)?)?)\s*:\s*([^;]*\bauto\b[^;]*)",
+    re.I,
+)
+
+
+def _subject(part: str) -> str:
+    """Last compound of a selector: the element the rule styles."""
+    return re.split(r"\s*[>+~]\s*|\s+", part.strip())[-1]
+
+
+def _is_pane_box(part: str) -> bool:
+    """True when the rule styles a pane or its .pane-body, at any nesting."""
+    subj = _subject(part)
+    toks = set(re.findall(r"[.#][A-Za-z0-9_-]+", subj))
+    if ".pane-body" in toks:
+        return True
+    return ".pane" in toks or any(t.startswith("#pane-") for t in toks)
+
+
+def _pane_caps(src: str) -> list[str]:
+    hits = []
+    for sel, body in _rule_blocks(src):
+        parts = [p for p in sel.split(",") if _is_pane_box(p)]
+        if not parts:
+            continue
+        for prop, val in _CAP_PROP.findall(body):
+            if val.strip().lower() not in ("none", "100%"):
+                hits.append(f"{sel.strip()} {{{prop}: {val.strip()}}}")
+        for prop, val in _MARGIN_AUTO.findall(body):
+            hits.append(f"{sel.strip()} {{{prop}: {val.strip()}}}")
+    return hits
+
+
+def test_pane_cap_detector_catches_each_cap_shape():
+    """The no-cap check must see every way a pane width cap comes back."""
+    caps = [
+        ".pane.on { max-width: 800px; }",
+        "main .pane.on { max-width: 800px; }",
+        "#pane-score.on { max-inline-size: 60rem; }",
+        "#pane-list.on > .pane-body { max-width: 50rem; }",
+        ".pane.on { margin-left: auto; margin-right: auto; }",
+        ".pane.on { margin: 0 auto; }",
+        "#pane-x.on { margin-inline: auto; }",
+        "@media (min-width: 900px) { .pane.on { max-width: 900px; } }",
+    ]
+    for css in caps:
+        assert _pane_caps(css), css
+    fine = [
+        ".pane.on { width: 100%; max-width: none; }",
+        "#pane-score .score-pulse { max-width: 100%; margin: 0 auto; }",
+        "#guide { max-width: 48rem; }",
+    ]
+    for css in fine:
+        assert not _pane_caps(css), css
+
+
+def test_panes_have_no_width_cap():
+    """Panes stay fluid: no pane or .pane-body rule caps width or centres it."""
+    hits = []
+    for path in sorted((ROOT / "default").rglob("*.css")):
+        for hit in _pane_caps(path.read_text(encoding="utf-8")):
+            hits.append(f"{path.relative_to(ROOT)}: {hit}")
+    assert not hits, "pane width cap still present: " + "; ".join(hits)
+
+
+def test_prose_keeps_48rem_measure():
+    """Only prose keeps a readable width: #guide and .idle stay at 48rem."""
+    src = BOARD_CSS.read_text(encoding="utf-8")
+    widths = {}
+    for sel, body in _rule_blocks(src):
+        for part in (p.strip() for p in sel.split(",")):
+            if part in ("#guide", ".idle"):
+                m = re.search(r"max-width\s*:\s*([^;]+)", body)
+                if m:
+                    widths[part] = m.group(1).strip()
+    assert widths == {"#guide": "48rem", ".idle": "48rem"}, widths
+
+
+def test_pane_on_rule_is_not_duplicated_in_board_css():
+    src = BOARD_CSS.read_text(encoding="utf-8")
+    for sel, _body in _rule_blocks(src):
+        parts = [p.strip() for p in sel.split(",")]
+        assert ".pane.on" not in parts, f"duplicate .pane.on rule in board.css: {sel}"
