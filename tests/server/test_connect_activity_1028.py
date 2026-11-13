@@ -114,7 +114,7 @@ def _flip_rows(cn, desk_id: int):
         cur.execute(
             "SELECT reason, n FROM transition WHERE activity_type='doing'"
             " AND activity_id=%s ORDER BY id",
-            (desk_id,),
+            (ca.anchor_id(desk_id),),
         )
         return [(str(r[0]), int(r[1] or 1)) for r in cur.fetchall()]
     finally:

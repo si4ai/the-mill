@@ -119,11 +119,13 @@ def delete(cn, project: str, desk: str) -> list[dict]:
     return call(cn, "mill_join_delete", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK)])
 
 
-def reset(cn, project: str, desk: str) -> list[dict]:
-    """Clear token_hash so the desk name can mill join again (lost hash)."""
+def reset(cn, project: str, desk: str, by: str | None = None) -> list[dict]:
+    """Clear token_hash so the desk name can mill join again (lost hash). by: the resetting desk; another
+    desk's reset frees the holds as hold_force with meta.by (card 1207)."""
     from agent_coord.server.records.name import bare
 
-    return call(cn, "mill_join_reset", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK)])
+    return call(cn, "mill_join_reset", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK),
+                                        bare(by, CONST_DESK) if by else None])
 
 
 def select(cn, project: str) -> list[dict]:

@@ -266,3 +266,63 @@ def test_connected_serves_n_and_doings_only(w):
     for row in view["doings"]:
         assert set(row) == {"id", "created", "text", "state", "state_at", "card"}
         assert row["created"].endswith("Z") and row["state_at"].endswith("Z")
+
+
+# Validator's pre-fold measure (card 1207): the moves that left doing keep their data -------------------------
+
+def test_assign_writes_one_assign_transition(w):
+    need, tid = w.card()
+    w.ok(["assign", R, need, ME], desk=PEER)
+    rows = _rows(w.cn, "SELECT from_state, to_state, reason FROM transition WHERE activity_type = 'todo'"
+                       " AND activity_id = %s AND reason = 'assign'", (tid,))
+    assert rows == [("open", "claimed", "assign")]
+
+
+def test_a_card_rename_keeps_its_evidence(w):
+    need, tid = w.card()
+    w.ok(["claim", R, need])
+    w.ok(["pass", R, need, "--evidence", "ev 1207 rename"])
+    new = need + "-r"
+    w.ok(["rename", "todo", R, need, new, "--yes"], desk=PEER)
+    assert _rows(w.cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.evidence')) FROM todo WHERE id = %s", (tid,)) == [
+        ("ev 1207 rename",)]
+
+
+def test_an_admin_reset_of_another_desk_frees_its_holds_with_by(w):
+    from agent_coord.server.records import join as here
+    from tests.server.records.conftest import admin_desk
+
+    admin = admin_desk(w.cn)
+    victim = _joined(w, "d1207-rs-" + uuid.uuid4().hex[:4])
+    selfie = _joined(w, "d1207-rself-" + uuid.uuid4().hex[:4])
+    w.ok(["hold", "r1207-a-" + uuid.uuid4().hex[:6]], desk=victim)
+    w.ok(["hold", "r1207-b-" + uuid.uuid4().hex[:6]], desk=selfie)
+    here.reset(w.cn, R, victim, by=admin)
+    here.reset(w.cn, R, selfie, by=selfie)
+    w.cn.commit()
+    ids = {d: int(scalar_done(w.cn, "SELECT id FROM name WHERE type = 'desk' AND name = %s", (d,)))
+           for d in (admin, victim, selfie)}
+    freed = "SELECT reason, JSON_EXTRACT(meta, '$.by') FROM transition WHERE activity_type = 'hold'" \
+            " AND desk_id = %s AND to_state = 'free'"
+    assert [(r, int(b)) for r, b in _rows(w.cn, freed, (ids[victim],))] == [("hold_force", ids[admin])]
+    assert _rows(w.cn, freed, (ids[selfie],)) == [("hold_drop", None)]
+
+
+def test_connect_rows_go_on_their_own_anchor_not_a_doing_id(w):
+    from agent_coord.server import connect_activity as ca
+
+    desk = _joined(w, "d1207-cn-" + uuid.uuid4().hex[:4])
+    did = int(scalar_done(w.cn, "SELECT id FROM name WHERE type = 'desk' AND name = %s", (desk,)))
+    ca.emit_connect(w.cn, desk_id=did, session_id=1207)
+    w.cn.commit()
+    got = _rows(w.cn, "SELECT activity_id FROM transition WHERE activity_type = 'doing' AND join_key = %s",
+                (f"connect:{did}:1207",))
+    assert got == [(ca.anchor_id(did),)] and ca.anchor_id(did) > 2**40 and ca.anchor_id(did) < 2**53
+
+
+def _rows(cn, sql, args=()):
+    cur = cn.cursor()
+    cur.execute(sql, args)
+    out = [tuple(r) for r in cur.fetchall()]
+    cur.close()
+    return out

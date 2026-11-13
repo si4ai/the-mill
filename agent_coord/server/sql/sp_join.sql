@@ -130,13 +130,17 @@ BEGIN
   SELECT p_desk AS owner, 'clocked-out' AS op;
 END //
 
+-- p_by: the desk running the reset (an admin), NULL when unknown. Card 1207 (Validator): a reset of another
+-- desk frees its holds as hold_force with meta.by, as a retire does; the desk's own reset (or no p_by) is hold_drop.
 CREATE PROCEDURE mill_join_reset(
   IN p_project VARCHAR(64),
-  IN p_desk    VARCHAR(64)
+  IN p_desk    VARCHAR(64),
+  IN p_by      VARCHAR(64)
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_desk BIGINT UNSIGNED;
+  DECLARE v_by BIGINT UNSIGNED;
   DECLARE v_released INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_desk = NULL;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
@@ -152,10 +156,14 @@ BEGIN
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     CALL mill_doing_clear_live(v_desk, v_desk, 'reset');
   END IF;
-  -- Card 842: a reset desk owns no lock. Free its holds like a drop would. Reset takes no actor, so the
-  -- drop rows name the reset desk itself.
+  -- Card 842: a reset desk owns no lock. Free its holds like a drop would; the rows name the holder, and
+  -- meta.by the resetting desk when it is another one (hold_force).
+  SET v_by = NULL;
+  IF NULLIF(TRIM(IFNULL(p_by, '')), '') IS NOT NULL THEN
+    SELECT id INTO v_by FROM name WHERE type = 'desk' AND name = TRIM(p_by) LIMIT 1;
+  END IF;
   IF v_desk IS NOT NULL THEN
-    CALL mill_hold_release_desk(v_desk, v_desk, v_ts, v_released);
+    CALL mill_hold_release_desk(v_desk, IFNULL(v_by, v_desk), v_ts, v_released);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_desk AS owner, 'reset' AS op, v_released AS released;

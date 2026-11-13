@@ -1,7 +1,8 @@
 """Card 1028: connect FEATURE transitions + score views (no new schema).
 
 Uses existing D2/D3 edges (doing: seated<->connected / connect|disconnect).
-activity_id is the desk_id (desk-level connect lifecycle); join_key
+activity_id is anchor_id(desk_id) (desk-level connect lifecycle; card 1207: CONNECT_ANCHOR_BASE + desk_id, so it
+never lands on a real tw doing id, which counts up from 1); join_key
 connect:{desk_id}:{session_id} scopes score reads. Meta carries startup_ms
 only (no names/hosts).
 """
@@ -38,6 +39,15 @@ _live: dict[int, int] = {}
 _sess_seq = 0
 
 
+# Card 1207 (Validator q4): the plain desk id collided with tw doing ids. Far past any doing id, and under 2**53 so
+# a JSON reader keeps it exact. migrate.apply_1207 moves the old rows here.
+CONNECT_ANCHOR_BASE = 10**15
+
+
+def anchor_id(desk_id: int) -> int:
+    return CONNECT_ANCHOR_BASE + int(desk_id)
+
+
 def join_key(desk_id: int, session_id: int) -> str:
     return f"connect:{int(desk_id)}:{int(session_id)}"
 
@@ -50,14 +60,14 @@ def _safe_put(cn, **kw) -> None:
 
 
 def _ensure_activity(cn, desk_id: int) -> None:
-    """activity(type=doing, id=desk_id) so fk_transition_activity is satisfied."""
+    """activity(type=doing, id=anchor_id(desk_id)) so fk_transition_activity is satisfied."""
     try:
         db_call(
             cn,
             "mill_activity_put",
             [
                 "doing",
-                int(desk_id),
+                anchor_id(desk_id),
                 datetime.now(timezone.utc).replace(tzinfo=None),
                 int(desk_id),
                 1,
@@ -98,7 +108,7 @@ def emit_connect(
     _safe_put(
         cn,
         activity_type=ActivityType.doing,
-        activity_id=did,
+        activity_id=anchor_id(did),
         from_state=State.seated,
         to_state=State.connected,
         reason=Reason.connect,
@@ -125,7 +135,7 @@ def emit_disconnect(cn, *, desk_id: int, session_id: int | None = None) -> None:
     _safe_put(
         cn,
         activity_type=ActivityType.doing,
-        activity_id=did,
+        activity_id=anchor_id(did),
         from_state=State.connected,
         to_state=State.seated,
         reason=Reason.disconnect,

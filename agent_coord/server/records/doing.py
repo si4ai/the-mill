@@ -282,7 +282,8 @@ DOINGS_CAP = 20
 
 
 def _utc_iso(at: Any, off: int = 0) -> str | None:
-    """A DATETIME as ISO UTC with Z; off moves a book-clock value to UTC (transition.at is UTC already)."""
+    """A UTC DATETIME as ISO UTC with Z. doing.created (book clock) is converted per row in SQL first
+    (CONVERT_TZ from the session zone), so a run from the other side of a DST change reads right."""
     if at is None:
         return None
     from datetime import datetime, timedelta
@@ -303,11 +304,12 @@ def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
     live = ("NOT EXISTS (SELECT 1 FROM transition ended WHERE ended.activity_type='doing'"
             " AND ended.activity_id=g.id AND ended.to_state IN (%s, %s, %s, %s))")
     rows = rows_done(cn, """
-        SELECT d.name AS desk, x.id, x.created, x.text, x.state, x.state_at, x.n,
-               TIMESTAMPDIFF(SECOND, NOW(), UTC_TIMESTAMP()) AS off
+        SELECT d.name AS desk, x.id, x.created_utc, x.text, x.state, x.state_at, x.n
           FROM name d
           JOIN LATERAL (
             SELECT g.id, g.created, g.text, t.to_state AS state, t.at AS state_at,
+                   IFNULL(CONVERT_TZ(g.created, @@session.time_zone, '+00:00'),
+                          g.created + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS created_utc,
                    COUNT(*) OVER () AS n
               FROM doing g
               LEFT JOIN transition t ON t.id=(
@@ -326,8 +328,7 @@ def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
         slot["n"] = int(r.get("n") or 0)
         if len(slot["doings"]) >= DOINGS_CAP:
             continue
-        off = int(r.get("off") or 0)
-        created = _utc_iso(r.get("created"), off)
+        created = _utc_iso(r.get("created_utc"))
         slot["doings"].append({
             "id": int(r["id"]),
             "created": created,

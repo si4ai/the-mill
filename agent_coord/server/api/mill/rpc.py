@@ -1225,7 +1225,7 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     # Card 881: capture hold ids before release so watchers get a drop-shaped hint.
     desk = _stored(who)
     freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=desk, held=True) or []) if r.get("id")]
-    rows = rec_join.reset(c._cn, _stored(project), desk)
+    rows = rec_join.reset(c._cn, _stored(project), desk, by=_stored(owner) if owner else None)
     # #892: drop the in-memory wake lease so the next holder is not coalesced.
     wake.gate_clear(desk, cn=c._cn)
     _poke_freed_holds(c, freed, owner=owner)
