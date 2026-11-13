@@ -90,3 +90,54 @@ def test_shell_structure_layout_rules():
         assert needle in src, needle
     assert len(src.encode("utf-8")) < 16_000
 
+
+BOARD_CSS = ROOT / "default" / "board.css"
+_PANE_ON_SEL = re.compile(r"^(?:\.pane|#pane-[a-z0-9-]+)\.on$")
+
+
+def _rule_blocks(src: str):
+    """Yield (selector, body) for each rule, walking into @media bodies."""
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    i = 0
+    n = len(src)
+    while i < n:
+        j = src.find("{", i)
+        if j < 0:
+            break
+        sel = src[i:j].strip()
+        depth = 1
+        k = j + 1
+        while k < n and depth:
+            if src[k] == "{":
+                depth += 1
+            elif src[k] == "}":
+                depth -= 1
+            k += 1
+        body = src[j + 1 : k - 1]
+        if sel.startswith("@") and "{" in body:
+            yield from _rule_blocks(body)
+        else:
+            yield sel, body
+        i = k
+
+
+def test_pane_on_has_no_max_width_cap():
+    """Panes stay fluid: no .pane.on or #pane-*.on rule may set max-width."""
+    hits = []
+    for path in sorted((ROOT / "default").rglob("*.css")):
+        src = path.read_text(encoding="utf-8")
+        for sel, body in _rule_blocks(src):
+            parts = [p.strip() for p in sel.split(",")]
+            if not any(_PANE_ON_SEL.fullmatch(p) for p in parts):
+                continue
+            if re.search(r"max-width\s*:", body):
+                rel = path.relative_to(ROOT)
+                hits.append(f"{rel}: {sel}")
+    assert not hits, "pane.on max-width cap still present: " + "; ".join(hits)
+
+
+def test_pane_on_rule_is_not_duplicated_in_board_css():
+    src = BOARD_CSS.read_text(encoding="utf-8")
+    for sel, _body in _rule_blocks(src):
+        parts = [p.strip() for p in sel.split(",")]
+        assert ".pane.on" not in parts, f"duplicate .pane.on rule in board.css: {sel}"
