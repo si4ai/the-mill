@@ -1,4 +1,4 @@
-"""Card 1191 on a real book: the Wall's station clock on GET /api/pov?part=desks. Row F229.
+"""Card 1191 on a real book: the Wall's station clock on GET /api/pov?part=desks. Row F-wall-station-clock.
 
 GET /api/pov?part=desks
     every station of a live desk, whatever its age (no 1-day filter); retired
