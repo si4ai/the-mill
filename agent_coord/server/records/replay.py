@@ -11,7 +11,7 @@ from typing import Any
 
 REPLAY_DEFAULT = 100
 REPLAY_CAP = 1000
-_MOVE_ACTS = ("claim", "assign", "unclaim", "ship", "done", "replace")
+_TODO_MOVES = ("claim", "take_over", "assign", "unclaim", "pass_ship", "pass_done")
 _ENDED = ("finished", "failed", "cleared")
 
 
@@ -91,7 +91,7 @@ def v1_replay(cn, qs: dict[str, list[str]]) -> dict[str, Any]:
         order = "t.id ASC" if after is not None and before is None else "t.id DESC"
         cur.execute(
             "SELECT t.id, t.activity_type, t.activity_id, t.from_state, t.to_state, "
-            "t.reason, t.at, t.desk_id, dn.name AS from_desk "
+            "t.reason, t.at, t.desk_id, t.meta, dn.name AS from_desk "
             "FROM transition t "
             "JOIN activity a ON a.type = t.activity_type AND a.id = t.activity_id "
             "LEFT JOIN name dn ON dn.id = t.desk_id AND t.desk_id <> 0 "
@@ -159,31 +159,80 @@ def _attach_mail(cn, rows: list[dict]) -> None:
             row["to_desks"] = sorted(set(by.get(int(row["activity_id"]), [])))
 
 
+def _meta_ids(meta: Any) -> list[int]:
+    if isinstance(meta, str):
+        try:
+            import json
+            meta = json.loads(meta)
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(meta, dict):
+        return []
+    out: list[int] = []
+    for key in ("by", "holder", "to", "from"):
+        try:
+            num = int(meta.get(key) or 0)
+        except (TypeError, ValueError):
+            num = 0
+        if num > 0:
+            out.append(num)
+    return out
+
+
 def _attach_moves(cn, rows: list[dict]) -> None:
-    want = [r for r in rows if r["type"] in ("todo", "hold") and not r["to_desks"]]
+    """Each todo or hold move names the desks of that move, not of the whole card."""
+    want = [r for r in rows if r["type"] in ("todo", "hold")]
     if not want:
         return
     cur = cn.cursor(dictionary=True)
     try:
-        marks = ",".join(["%s"] * len(_MOVE_ACTS))
-        pairs = {(r["type"], int(r["activity_id"])) for r in want}
-        # one read of move rows for these items; peer is the other desk
+        pairs = {(str(r["type"]), int(r["activity_id"])) for r in want}
         types = sorted({p[0] for p in pairs})
         ids = sorted({p[1] for p in pairs})
         cur.execute(
-            "SELECT d.on_type, d.on_id, d.act, n.name AS peer "
-            "FROM doing d LEFT JOIN name n ON n.id = d.peer_id "
-            f"WHERE d.act IN ({marks}) AND d.on_type IN ({','.join(['%s'] * len(types))}) "
-            f"AND d.on_id IN ({','.join(['%s'] * len(ids))})",
-            [*_MOVE_ACTS, *types, *ids],
+            "SELECT t.id, t.activity_type, t.activity_id, t.reason, t.desk_id, "
+            "t.meta, n.name AS desk "
+            "FROM transition t LEFT JOIN name n ON n.id = t.desk_id AND t.desk_id <> 0 "
+            f"WHERE t.activity_type IN ({','.join(['%s'] * len(types))}) "
+            f"AND t.activity_id IN ({','.join(['%s'] * len(ids))}) "
+            "ORDER BY t.id",
+            [*types, *ids],
         )
-        peer: dict[tuple[str, int], str] = {}
+        history: dict[tuple[str, int], list[dict]] = {}
         for rec in cur.fetchall():
-            if rec.get("peer"):
-                peer[(str(rec["on_type"]), int(rec["on_id"]))] = str(rec["peer"])
+            history.setdefault((str(rec["activity_type"]), int(rec["activity_id"])), []).append(rec)
+        need = set()
+        for rec in history.values():
+            for one in rec:
+                need.update(_meta_ids(one.get("meta")))
+        names: dict[int, str] = {}
+        if need:
+            marks = ",".join(["%s"] * len(need))
+            cur.execute(f"SELECT id, name FROM name WHERE id IN ({marks})", list(need))
+            names = {int(r["id"]): str(r["name"]) for r in cur.fetchall()}
     finally:
         cur.close()
-    for row in want:
-        name = peer.get((str(row["type"]), int(row["activity_id"])))
-        if name:
-            row["to_desks"] = [name]
+    by_id = {int(r["id"]): r for r in want}
+    for seq in history.values():
+        prev_desk = ""
+        for rec in seq:
+            row = by_id.get(int(rec["id"]))
+            desk = str(rec.get("desk") or "")
+            meta_names = [names[i] for i in _meta_ids(rec.get("meta")) if i in names and names[i] != desk]
+            if row is None:
+                prev_desk = desk or prev_desk
+                continue
+            reason = str(rec.get("reason") or "")
+            if row["type"] == "hold":
+                if meta_names:
+                    row["to_desks"] = meta_names
+                elif desk:
+                    row["to_desks"] = [desk]
+                if prev_desk and prev_desk != desk:
+                    row["from_desk"] = prev_desk
+            elif reason in _TODO_MOVES:
+                if prev_desk and prev_desk != desk:
+                    row["from_desk"] = prev_desk
+                if desk:
+                    row["to_desks"] = [desk]
+            prev_desk = desk or prev_desk

@@ -60,6 +60,25 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
             "VALUES ('mail', 1, 'none', 'sent', 'send', %s)",
             (desk,),
         )
+        cur.execute("SELECT id FROM name WHERE name = 'to-a'")
+        other = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES "
+            "('todo', 2, %s, %s, 'claim'), ('hold', 3, %s, %s, 'hold')",
+            (desk, roster, desk, roster),
+        )
+        cur.execute(
+            "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id) VALUES "
+            "('todo', 2, 'open', 'claimed', 'claim', %s), "
+            "('todo', 2, 'claimed', 'claimed', 'take_over', %s), "
+            "('hold', 3, 'free', 'held', 'hold_grant', %s)",
+            (desk, other, desk),
+        )
+        cur.execute(
+            "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, meta) "
+            "VALUES ('hold', 3, 'held', 'free', 'hold_force', %s, %s)",
+            (desk, '{"by": %d}' % int(other)),
+        )
         # 6000 later rows on the same activity. The old letter stays reachable by id.
         cur.execute(
             "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id) "
@@ -82,6 +101,20 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
         cn.commit()
         cur.close()
         assert _q(cn, "SELECT COUNT(*) FROM transition")[0][0] >= 6000
+        bulk = _q(
+            cn,
+            "SELECT MIN(id) FROM transition WHERE activity_type = 'mail' AND activity_id = 1 AND id > "
+            "(SELECT MIN(id) FROM transition WHERE activity_type = 'mail' AND activity_id = 1)",
+        )[0][0]
+        early = v1_replay(cn, {"limit": ["10"], "before": [str(bulk)], "project": ["r1206"]})
+        by_reason = {(r["type"], r["reason"]): r for r in early["rows"]}
+        claim = by_reason[("todo", "claim")]
+        takeover = by_reason[("todo", "take_over")]
+        assert claim["to_desks"] == ["from-desk"]
+        assert takeover["from_desk"] == "from-desk" and takeover["to_desks"] == ["to-a"]
+        assert claim["to_desks"] != takeover["to_desks"]
+        assert by_reason[("hold", "hold_grant")]["to_desks"] == ["from-desk"]
+        assert by_reason[("hold", "hold_force")]["to_desks"] == ["to-a"]
 
         head = v1_replay(cn, {"limit": ["100"], "project": ["r1206"]})
         assert len(head["rows"]) == 100
