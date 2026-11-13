@@ -297,14 +297,18 @@ def test_connect_rows_leave_a_tw_run_that_shares_the_desk_id(cn):
 # compressed hold (MU15) ---------------------------------------------------------------------------------------
 
 def test_a_compressed_hold_row_covers_the_hold_move(cn):
-    """A hold move whose item already has a compressed transition (n>1, n<=100) is covered, not backfilled."""
+    """A hold move whose item already has a compressed transition (n>1, n<=100) is covered, not backfilled.
+
+    The compressed row is more than 5 seconds after the move, so the time-window
+    clause does not cover it; only the n>1 clause does (MU15 mutates n>1 to n>100).
+    """
     d = _desk(cn, "hld")
     res = _x(cn, "INSERT INTO name (type, name) VALUES ('res', %s)", (f"u1207-res-{uuid.uuid4().hex[:6]}",))
     hid = _x(cn, "INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", (d, res))
     _x(cn, "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('hold', %s, %s, 1, 'hold')", (hid, d))
     _move(cn, d, hid, "hold", "2026-09-20 10:00:00", on_type="hold")
     _x(cn, "INSERT INTO transition (at, activity_type, activity_id, from_state, to_state, reason, desk_id, n)"
-           " VALUES ('2026-09-20 10:00:05', 'hold', %s, 'free', 'held', 'hold_grant', %s, 2)", (hid, d))
+           " VALUES ('2026-09-20 10:10:00', 'hold', %s, 'free', 'held', 'hold_grant', %s, 2)", (hid, d))
     cn.commit()
     _apply(cn)
     assert _q(cn, "SELECT from_state, to_state, reason, n, desk_id FROM transition"
