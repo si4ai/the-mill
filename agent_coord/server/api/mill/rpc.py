@@ -2212,8 +2212,15 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         from agent_coord.server import todo_activity as ta
 
         did = int(ta.desk_id_for(c._cn, owner) or 0)
+        assignee = int(ta.desk_id_for(c._cn, desk) or 0)
         if rec["id"] > 0 and did > 0:
-            ta.emit_assign(c._cn, todo_id=int(rec["id"]), desk_id=did, fixture=ta.roster_excluded(project))
+            ta.emit_assign(
+                c._cn,
+                todo_id=int(rec["id"]),
+                desk_id=did,
+                assignee_id=assignee,
+                fixture=ta.roster_excluded(project),
+            )
     except Exception:
         pass
     _poke(c, "todo", rec["id"], "assign", owner=owner)
