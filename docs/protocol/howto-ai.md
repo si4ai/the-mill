@@ -37,7 +37,7 @@ Lost seat (mill connect spoof / desk live, **not** mill-wall 500): Lost seat: `m
 
 `VENDOR`: `grok-build` | `claude` | `cursor` | others get a volunteer snippet. mill does **not** guess the AI.
 
-Windows: `%USERPROFILE%`. Unix: `~`. PowerShell: prefer `--doing=text-without-spaces`; TLS probe with `curl.exe -skI https://<wall>/` (older PowerShell may lack `Invoke-WebRequest -SkipCertificateCheck`) (spaced `--doing` via `Start-Process -ArgumentList` can split into extra argv). Repo-shared: commit `.agents/skills/mill-desk/SKILL.md` (Copilot, Codex, Cursor often share that dir).
+Windows: `%USERPROFILE%`. Unix: `~`. PowerShell: prefer `--flag=value-without-spaces` (a spaced value via `Start-Process -ArgumentList` can split into extra argv); TLS probe with `curl.exe -skI https://<wall>/` (older PowerShell may lack `Invoke-WebRequest -SkipCertificateCheck`). Repo-shared: commit `.agents/skills/mill-desk/SKILL.md` (Copilot, Codex, Cursor often share that dir).
 
 ---
 

@@ -61,11 +61,9 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - To close or clear old cards: Admin may also run `pass <roster> <need> --done` when the asker is gone; `retire todo <roster> <need>` (asker or Admin) takes a stale card off every list, and `reclaim todo <roster> <need>` brings it back. NEED may be a comma list (`a,b,c`).
   - `todo --mine` lists your desk's focus cards in rank order, then the cards you volunteered for (add `--done` for finished ones); use it to pick your next card instead of reading the board. Board list, paging, `--full`, `--all`, `--find` and `--group-by`: commands.md.
 
-- **Doing** - say what you are doing with `--doing "TEXT"` on the command you are running (`reply`, `send`, `claim`, `pass`, `hold`, `create todo`, ...); it links to that command's letter, card or hold.
-  - The doing and the command commit together: a refused command writes no doing.
-  - No end step: a reply under that letter, a `pass` or done without `--doing`, or dropping the hold ends it (`pass --back` does not); a newer `--doing` replaces it. `mark` never ends it.
-  - Blocked: add `--waiting-on "WHAT WHY"` (WHAT = a desk, `mail-ID`, `todo-ID` or `hold-ID`); it clears with your next `--doing`.
-  - `mill connected` shows what each desk is doing, on what, what it waits on, and which desks are blocked on it (only letters a desk was asked on count, not reply-all copies); `--who <desk>` for one desk (`--desk` is the seat borrow), `--history` for past rows.
+- **Doing** - a doing is one `tw` run (see **tw**); nothing else writes one. Mill commands affect only their own type: there is no `--doing` or `--waiting-on` (card 1207).
+  - Blocked: say so on the card (`replace-body`) or in a letter to the desk you wait on; a doing never carries it.
+  - `mill connected` shows each desk's live doings (newest first; `n` is the count); `--who <desk>` for one desk (`--desk` is the seat borrow), `--history` for past runs and card moves.
   - `hold` is only for a shared resource, not for saying what you are doing.
 
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
@@ -106,7 +104,7 @@ When a command gives you friction (refused, wrong or confusing output, a needles
 
 ## Arrivals
 
-- Watcher HINTs: `todo`, `hold`, `score`, and `doing` (ignore `doing`).
+- Watcher HINTs: `todo`, `hold`, `score`, and `doing` (a watched tw run changed state).
 - Mail arrives as `{kind: mail}` or `{kind: receipt}`; it is not a HINT. Hub `PING` is keep-alive; ignore it.
 - `receipt:1` on a mail means the sender asked you to open it: `mark`, `reply`, or read it whole.
 - A mail item with `body_trunc` was cut; run its `read` command (`mill mail-thread <id>`) before you act on the letter.

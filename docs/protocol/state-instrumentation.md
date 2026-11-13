@@ -188,6 +188,8 @@ Liveness: stuck ages feed process health; pairs with **1018** (desk crash leaves
 
 ### Current (ce115f8)
 
+**Card 1207 (0.8.15) removed this layer:** no `seat.doing_id`, no `--doing` / `--waiting-on`, no focus, clear or finish rows; a doing is one tw run (see [activity-states.md](activity-states.md#doing)). The lines below record what ce115f8 shipped.
+
 Seat + **one** focus entry via `seat.doing_id`. Hand-set `--doing` / `--waiting-on` on any command. Sources: activity-states D1-D11, `doing.pml`, verify/doing-code (single pointer).
 
 **States (current):** seat `no_seat|seated|connected|reset`; entry `idle|active|waiting|finished|cleared`.

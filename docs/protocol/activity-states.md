@@ -125,63 +125,61 @@ Gaps:
 
 ## doing
 
-CLI words: the type is `doing`, but no command is named `doing`. A desk writes one with `--doing TEXT` on another command, reads them with `mill connected`, and its seat comes from `mill join` and `mill connect`. [activity.md](../requirements/activity.md) still calls this type `join`.
+CLI words: the type is `doing`, but no command is named `doing`. Card 1207: a doing is one `tw` run, written only by `tw` (`rpc.py` `_h_tw_event` -> `sp_doing.sql` `mill_doing_task`). No other command writes a doing row; there is no `--doing` or `--waiting-on`, and a body that still carries `doing` or `waiting_on` is refused with nothing changed. A desk reads its doings with `mill connected`; its seat comes from `mill join` and `mill connect`. [activity.md](../requirements/activity.md) still calls this type `join`.
 
-Two layers. The seat (table `seat`, one row per desk) is not an activity; it holds the token and the connect stamps. Doing rows are the activity: append-only, and the newest row is the desk's current doing. How an entry ended is worked out on read from later rows (`sp_doing.sql:24` `mill_doing_end`, `sp_doing.sql:57` `mill_doing_cleared`), never stored.
+Two layers. The seat (table `seat`, one row per desk) is not an activity; it holds the token and the connect stamps, and no longer points at a doing (`seat.doing_id` is gone). Doing rows are the activity: one row per tw run, many live at once. A run's state is the newest `transition` row on it; a doing is live until it reaches finished, failed, stale or cleared.
 
 ```mermaid
 stateDiagram-v2
   state "seat" as S {
     [*] --> Seated: join
-    Seated --> Seated: connect (bump, no new entry)
+    Seated --> Seated: connect (bump, no new row)
     Seated --> Reset: reset seat / retire desk
     Reset --> Seated: join again
   }
-  state "current doing entry" as D {
-    [*] --> Idle: first join or connect (empty entry)
-    Idle --> Active: command with --doing
-    Active --> Active: newer --doing
-    Active --> Waiting: --doing with --waiting-on
-    Waiting --> Active: newer --doing without --waiting-on
-    Active --> Finished: reply under the letter / pass or drop without --doing
-    Waiting --> Finished: reply under the letter / pass or drop without --doing
-    Active --> Cleared: reset seat / retire desk
-    Waiting --> Cleared: reset seat / retire desk
-    Finished --> Active: command with --doing
-    Cleared --> Active: command with --doing
+  state "one tw run" as D {
+    [*] --> Active: tw start
+    Active --> Waiting: tw stall
+    Waiting --> Active: tw resume
+    Active --> Finished: tw exit
+    Waiting --> Finished: tw exit
+    Active --> Failed: tw crash / non-zero exit
+    Waiting --> Failed: tw crash / non-zero exit
+    Active --> Stale: swept at the task cap
+    Waiting --> Stale: swept at the task cap
+    Active --> Cleared: reset seat / retire desk / clock-out
+    Waiting --> Cleared: reset seat / retire desk / clock-out
   }
 ```
 
 | # | From | To | Command | Code | Check |
 |---|------|----|---------|------|-------|
-| D1 | no seat | seated; empty entry when the desk has none | `mill join --link-file LINKFILE` | `rpc.py:255` `_issue_here` -> `sp_join.sql:90` `mill_join_upsert` (entry `sp_join.sql:144`) | `mill connected --who D` lists the desk, `"doing": ""` |
-| D2 | seated | connected: no new entry; on the first socket `seat.time_connect` stamped (`time_disconnect` cleared) and the doing activity row bumped | `mill connect D` | `agent_coord/server/asgi.py:587` -> `agent_coord/server/records/join.py:45` -> `sp_join.sql:284` `mill_join_connect`; first socket `asgi.py:608` `HUB.add` -> `agent_coord/server/push.py:150` -> `push.py:330` `_mark_join_socket` -> `records/join.py:61` `mark_socket` -> `sp_join.sql:326` `mill_join_socket` | stderr `mill connect:` line, then `"ready": true`; other desks get a DOING hint |
-| D3 | connected | disconnected: `seat.time_disconnect` stamped, doing activity row bumped | stop the connect process | when the last socket leaves: `asgi.py:671` `HUB.discard` -> `push.py:157` to `push.py:171` -> `push.py:330` `_mark_join_socket` -> `records/join.py:61` `mark_socket` -> `sp_join.sql:326` `mill_join_socket` | `mill connected --who D` still lists the desk; alive turns stale once the seat row is over 15 minutes old |
-| D4 | idle, finished or cleared | active on the item | any of `send`, `reply`, `mark`, `create todo`, `claim`, `unclaim`, `assign`, `pass`, `unpark`, `hold`, `drop`, `score` with `--doing TEXT` (e.g. `mill claim R NEED --doing TEXT`) | `rpc.py:951` `_doing_after` -> `sp_doing.sql:79` `mill_doing_put` | output `doing_entry` with `on`; `mill connected --who D` shows `doing` and `on` |
-| D5 | active | waiting | the same with `--waiting-on "WHAT WHY"` (WHAT is a desk, `mail-N`, `todo-N` or `hold-N`) | `sp_doing.sql:108` to `sp_doing.sql:122` | `mill connected --who D` shows `waiting_on`; the target desk's view lists D under `desks` |
-| D6 | active or waiting | active (newer entry) | another `--doing TEXT` | `sp_join.sql:27` `mill_doing_insert` | `mill connected --who D --history` shows the old row replaced by a newer one |
-| D7 | active on `mail-N` | finished | `mill reply N --body-file F` (any reply by D under N) | derived: `sp_doing.sql:36` | `mill connected --who D` shows `idle`, `last.ended_by` finished |
-| D8 | active on `todo-N` | finished | `mill pass R NEED` or `mill pass R NEED --done`, without `--doing` | `rpc.py:922` `_doing_finish` -> `sp_doing.sql:142` `mill_doing_finish` | same as D7 |
-| D9 | active on `hold-N` | finished | `mill drop NAME` without `--doing` | `rpc.py:935` -> `sp_doing.sql:142` | same as D7 |
-| D10 | any entry | cleared | `mill reset seat D --yes` (Admin) or `mill retire desk D --yes` (Admin) | `sp_join.sql:194` `mill_join_reset`, `sp_name.sql:41`; both call `sp_join.sql:71` `mill_doing_clear` | `mill connected --who D` shows `idle`, `last.ended_by` cleared |
-| D11 | seated | reset: token cleared, webhook off, holds freed | `mill reset seat D --yes` (Admin) | `rpc.py:1261` -> `sp_join.sql:194` | output `"op": "reset"` and `released` count; D's next command fails until it joins again |
+| D1 | no seat | seated | `mill join --link-file LINKFILE` | `rpc.py` `_issue_here` -> `sp_join.sql` `mill_join_upsert` | `mill connected --who D` lists the desk, `"n": 0`, `"doings": []` |
+| D2 | seated | connected: on the first socket `seat.time_connect` stamped (`time_disconnect` cleared) | `mill connect D` | `records/join.py` `note_connect` / `mark_socket` -> `sp_join.sql` `mill_join_connect`, `mill_join_socket` | stderr `mill connect:` line, then `"ready": true` |
+| D3 | connected | disconnected: `seat.time_disconnect` stamped | stop the connect process | `push.py` `_mark_join_socket` -> `records/join.py` `mark_socket` | alive turns stale once the seat row is over 15 minutes old |
+| Tsk1 | none | active | `tw CMD ...` (tw start) | `_h_tw_event` kind `start` -> `mill_doing_task` (`tw_start`) | `mill connected --who D` shows the run in `doings` with `state` active |
+| Tsk2 | active | waiting | tw stall | `tw_wait` | `state` waiting |
+| Tsk3 | waiting | active | tw resume | `tw_resume` | `state` active |
+| Tsk4 | active or waiting | finished | tw exit 0 | `tw_finished` | gone from `doings`; `--history` shows `ended_by` finished |
+| Tsk5 | active or waiting | failed | tw crash or non-zero exit | `tw_failed` | `ended_by` failed |
+| Tsk6 | active or waiting | stale | swept when a new start would pass the task cap | `records/doing.py` sweep, `tw_stale` | `ended_by` stale |
+| Tsk7 | any live run | cleared | `mill reset seat D --yes`, `mill retire desk D --yes` (Admin); clock-out (`mill_join_delete`, no caller yet) | `sp_join.sql` `mill_join_reset` / `mill_join_delete`, `sp_name.sql` retire | `ended_by` cleared |
+| D11 | seated | reset: token cleared, webhook off, holds freed | `mill reset seat D --yes` (Admin) | `rpc.py` -> `sp_join.sql` `mill_join_reset` | output `"op": "reset"` and `released` count; D's next command fails until it joins again |
 
 Alive or stale in `mill connected` comes from the seat row's age (15 minutes).
 
-Never ends an entry (`sp_doing.sql:11`): `mark`, a card edit (`replace-body`, `todo ROSTER NEED --eta`), another desk's pass, `pass --back`, taking a hold again. An entry on a score ends only as cleared or newer.
+The focus edges D4 to D10 (`doing_put`, `doing_newer`, `doing_wait`, `finish_*`, `wait_cycle`) stay in `transition_edge` but have no writer since card 1207. The connect pseudo row (`activity('doing', desk id)`, act focus, D2/D3) predates card 1207 and is left as it is.
 
-Refused, nothing changed (the command and its doing commit together, `rpc.py:998`):
+Refused, nothing changed:
 
-- `--doing` from a desk with no seat: `doing: desk has not joined` (`sp_doing.sql:101`).
-- `--doing` on an item that is gone: `doing: the item is gone` (`sp_doing.sql:105`); on a command that wrote no item, such as a refused hold: `no item was written` (`rpc.py:975`).
-- `--waiting-on` naming nothing, or the desk itself (`sp_doing.sql:111` to `sp_doing.sql:122`).
-- join with a different token for a seated desk: `desk live: token required (no steal)` (`sp_join.sql:127`).
-- connect for a desk with no seat: `mill connect: desk has not joined` (`sp_join.sql:296`).
+- `doing` or `waiting_on` on any command body: `COMMAND: --doing is gone (card 1207: doing is written only by tw); nothing was changed`.
+- join with a different token for a seated desk: `desk live: token required (no steal)`.
+- connect for a desk with no seat: `mill connect: desk has not joined`.
 
 Gaps:
 
-- Doing has no delete. Rows are append-only by design (`tables.sql:218`); reset and retire append an empty row.
-- Clock-out is not wired: `sp_join.sql:174` `mill_join_delete` is reached only from `records/join.py:105`, which has no caller.
+- Doing has no delete; ended runs stay for `--history`.
+- A tw run has no text yet (`doing.text` is `''`: tw's argv and title are dropped for privacy) and no card link on the read (`card` is null).
 
 ## hold
 
@@ -269,7 +267,7 @@ Gaps:
 | todo | unpark does not check the card is parked | `rpc.py:2425` |
 | todo | create files a second card for a retired need | `rpc.py:2396` |
 | todo | no delete command; the SP leaves an activity tombstone and the labels | `sp_todo.sql:192` |
-| doing | no delete (append-only) | `tables.sql:218` |
+| doing | no delete (ended runs stay) | `tables.sql` |
 | doing | clock-out not wired | `sp_join.sql:174`, `records/join.py:105` |
 | hold | no delete; release keeps the row and the labels | `sp_hold.sql:79` |
 | score | retire undone by the next point | `sp_score.sql:263` |

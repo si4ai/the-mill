@@ -30,7 +30,7 @@ Nobody (including Admin) overwrites an assignee - assignee must `unclaim` / reli
 
 ## 3. Any desk (either trust)
 
-- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, pass (each takes `--doing`)
+- day spine: send, inbox, todo, create todo, claim, unclaim, hold, drop, pass
 - label-add / label-remove, watcher, tree
 - score / score-add / kpi / dashboard
 - `mill trust` (show current office trust; set is Admin - sec 1)

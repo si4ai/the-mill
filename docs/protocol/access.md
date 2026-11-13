@@ -15,7 +15,7 @@ Teaching names below match skill.md day-one speech. Wall path may still say `/op
 | **send** | yes | `src` = Bearer. Dest may be another desk, a role mailbox, or `*`. |
 | **inbox** (list) | yes | Own desk only: the sitting connect. No project, desk, or role argument. |
 | **inbox** mark -> `mail_to.opened` | yes | First-person receipt only. |
-| **doing** (`--doing` on a command) | yes | Own doing rows only. |
+| **doing** (written only by `tw`) | yes | Own doing rows only. |
 | **watcher** / hint | yes | Own subscription only. |
 | **hold** | yes | Take as self. |
 | **drop** (hold) | holder; another desk's hold: trust-gated | Own hold always. Another desk's hold: rights in [admin.md](../requirements/admin.md) (trust matrix). Not unclaim. |
