@@ -1,12 +1,9 @@
-"""#818 PR B: doing entries written by `--doing` on an activity command, and
-the reads behind `mill connected` (what each desk is doing, and its history).
+"""Doing (card 1207, the owner 2026-11-13): a doing row is one tw.exe (TaskWrapper) run, written only by
+mill_doing_task through task_event. The row is the start; later states and the end are transition rows. A desk's
+current doings are its rows with no terminal transition (finished, failed, stale, cleared); a desk may run many.
+There is no --doing, no focus, clear or finish row, and no seat pointer.
 
-Writes: one entry per command, linked to the item that command wrote. The
-newest entry is the desk's current doing. It ends on a real event, derived on
-read (see sp_doing.sql): a reply by the desk under the letter, a pass or done
-of the card or the drop of the hold by the desk without --doing (finish
-appends an empty row on that item), clock-out or reset (an empty row with no
-item), or a newer entry.
+Reads: `mill connected` (now), its history, and the tw cap and sweep helpers.
 """
 
 from __future__ import annotations
@@ -17,35 +14,6 @@ from agent_coord.const import CONST_DESK
 
 from .db import call, rows_done
 
-TEXT_MAX = 512
-ON_TYPES = ("mail", "todo", "hold", "score")
-
-
-WHY_MAX = 200
-
-
-def put(cn, desk: str, text: str, on_type: str, on_id: int,
-        waiting: tuple[str, str, str] | None = None) -> dict[str, Any]:
-    """waiting (#822): (type, ref, why), type desk (ref the name) or mail, todo,
-    hold (ref the id). Stored as fields on this row; no edge or link table."""
-    from agent_coord.server.records.name import bare
-
-    w_type, w_ref, w_why = waiting or (None, None, None)
-    if w_type == "desk":
-        w_ref = bare(str(w_ref), CONST_DESK)
-    rows = call(cn, "mill_doing_put", [
-        bare(desk, CONST_DESK), text[:TEXT_MAX], on_type, int(on_id),
-        w_type, w_ref, (w_why or "")[:WHY_MAX] if w_type else None,
-    ])
-    return rows[0] if rows else {}
-
-
-def finish(cn, desk: str, on_type: str, on_id: int) -> None:
-    """A pass, done or drop by the desk without --doing: end its entry on this item."""
-    from agent_coord.server.records.name import bare
-
-    call(cn, "mill_doing_finish", [bare(desk, CONST_DESK), on_type, int(on_id)])
-
 
 def now(cn, desk: str = "", roster: str = "", all_desks: bool = False) -> list[dict[str, Any]]:
     from agent_coord.server.records.name import bare
@@ -55,7 +23,6 @@ def now(cn, desk: str = "", roster: str = "", all_desks: bool = False) -> list[d
         "mill_doing_now",
         [bare(desk, CONST_DESK) if desk else "", roster or "", 1 if all_desks else 0],
     ) or []
-    rows.extend(task_rows(cn, [r["desk"] for r in rows if r.get("part") == "desk"]))
     return rows
 
 
@@ -68,7 +35,7 @@ def history(
     on_type: str = "",
     on_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Past entries, newest first; on_type/on_id keep one item's entries (desk may be empty)."""
+    """Past doings (tw runs), newest first; on_type/on_id keep one item (a card's runs and its moves)."""
     from agent_coord.server.records.name import bare
 
     return call(
@@ -79,17 +46,17 @@ def history(
     ) or []
 
 
-# Card 970 step 4: live (non-terminal) act=task doing rows a desk may hold.
+# Card 970 step 4: live (non-terminal) doing rows a desk may hold.
 TASK_CAP = 8
 _TASK_TERMINAL = ("finished", "failed", "stale", "cleared")
 
 
 def live_tasks(cn, desk_id: int) -> int:
-    """Count the desk's act=task doing rows with no terminal transition."""
+    """Count the desk's doing rows with no terminal transition."""
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT COUNT(*) FROM doing g WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
+            "SELECT COUNT(*) FROM doing g WHERE g.desk_id=%s AND NOT EXISTS ("
             " SELECT 1 FROM transition t WHERE t.activity_type='doing' AND t.activity_id=g.id"
             " AND t.to_state IN (%s, %s, %s, %s)) FOR SHARE",
             (desk_id, *_TASK_TERMINAL),
@@ -114,14 +81,14 @@ _SEAT_OFFLINE_S = (
     " TIMESTAMPDIFF(SECOND, COALESCE(j.time_disconnect, j.created), MILL_NOW()))"
 )
 _TASK_LIVE = (
-    "g.act='task' AND NOT EXISTS ("
+    "NOT EXISTS ("
     "SELECT 1 FROM transition e WHERE e.activity_type='doing' AND e.activity_id=g.id"
     " AND e.to_state IN (" + ", ".join(f"'{x}'" for x in _TASK_TERMINAL) + "))"
 )
 
 
 def _live_task_ages(cn, desk_id: int) -> list[dict[str, Any]]:
-    """The desk's live act=task rows, oldest latest hop first, with that hop's
+    """The desk's live doing rows, oldest latest hop first, with that hop's
     effective state (card 1098 compress: even n means back at from_state) and
     offline_s: seconds the desk has been offline, None while it is connected."""
     cur = cn.cursor(dictionary=True)
@@ -135,7 +102,7 @@ def _live_task_ages(cn, desk_id: int) -> list[dict[str, Any]]:
             " JOIN transition t ON t.id = ("
             "  SELECT MAX(l.id) FROM transition l"
             "   WHERE l.activity_type='doing' AND l.activity_id=g.id)"
-            " WHERE g.desk_id=%s AND g.act='task' AND NOT EXISTS ("
+            " WHERE g.desk_id=%s AND NOT EXISTS ("
             "  SELECT 1 FROM transition e WHERE e.activity_type='doing' AND e.activity_id=g.id"
             "   AND e.to_state IN (%s, %s, %s, %s))"
             " ORDER BY t.at, g.id FOR SHARE",
@@ -213,7 +180,7 @@ RECONCILE_MAX = 256
 def reconcile_tasks(cn, desk: str, live_ids: list[str]) -> dict[str, Any]:
     """Card 1090: connect's start-up report of the watch ids it believes live.
 
-    Inside the caller's request tx. Closes every other live act=task row of
+    Inside the caller's request tx. Closes every other live doing row of
     this desk only, through the crash path (tw_failed, meta cause=reconcile).
     Listed ids that are live are kept; unknown ids are ignored, never created.
     An empty list closes all of the desk's live rows. A repeat closes nothing.
@@ -311,33 +278,65 @@ def offline_tasks(rows) -> list[dict[str, Any]]:
     return out
 
 
-def task_rows(cn, desks: list[str]) -> list[dict[str, Any]]:
-    """One bounded batch for the connected desks; no focus pointer or private payloads."""
+DOINGS_CAP = 20
+
+
+def _utc_iso(at: Any, off: int = 0) -> str | None:
+    """A DATETIME as ISO UTC with Z; off moves a book-clock value to UTC (transition.at is UTC already)."""
+    if at is None:
+        return None
+    from datetime import datetime, timedelta
+
+    if not isinstance(at, datetime):
+        at = datetime.fromisoformat(str(at))
+    return (at + timedelta(seconds=off)).isoformat(timespec="seconds") + "Z"
+
+
+def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
+    """Card 1207 (wall-ui shape, 2026-11-13): each desk's live doings (tw runs with no terminal transition),
+    newest created first, at most DOINGS_CAP, plus n, the true count. A row: id, created (ISO UTC), text,
+    state (its latest transition's to_state, or 'started' when it has none yet), state_at (ISO UTC of that
+    transition, else created), card (None: the tw-to-card link is not decided)."""
+    out: dict[str, dict[str, Any]] = {str(d): {"n": 0, "doings": []} for d in desks}
     if not desks:
-        return []
-    return rows_done(cn, """
-        SELECT 'task' AS part, d.name AS desk, x.state, x.join_key, x.cause, x.card_id
+        return out
+    live = ("NOT EXISTS (SELECT 1 FROM transition ended WHERE ended.activity_type='doing'"
+            " AND ended.activity_id=g.id AND ended.to_state IN (%s, %s, %s, %s))")
+    rows = rows_done(cn, """
+        SELECT d.name AS desk, x.id, x.created, x.text, x.state, x.state_at, x.n,
+               TIMESTAMPDIFF(SECOND, NOW(), UTC_TIMESTAMP()) AS off
           FROM name d
           JOIN LATERAL (
-            SELECT COALESCE(t.to_state, 'idle') AS state, t.join_key,
-                   CASE WHEN t.to_state='waiting'
-                        THEN JSON_UNQUOTE(JSON_EXTRACT(t.meta, '$.cause')) END AS cause,
-                   card.id AS card_id
+            SELECT g.id, g.created, g.text, t.to_state AS state, t.at AS state_at,
+                   COUNT(*) OVER () AS n
               FROM doing g
               LEFT JOIN transition t ON t.id=(
                 SELECT latest.id FROM transition latest
                  WHERE latest.activity_type='doing' AND latest.activity_id=g.id
                  ORDER BY latest.id DESC LIMIT 1)
-              LEFT JOIN todo card ON g.on_type='todo' AND card.id=g.on_id
-             WHERE g.desk_id=d.id AND g.act='task' AND NOT EXISTS (
-                SELECT 1 FROM transition ended
-                 WHERE ended.activity_type='doing' AND ended.activity_id=g.id
-                   AND ended.to_state IN (%s, %s, %s, %s))
-             ORDER BY g.created DESC, g.id DESC LIMIT %s
+             WHERE g.desk_id=d.id AND """ + live + """
+             ORDER BY g.created DESC, g.id DESC
           ) x ON TRUE
-         WHERE d.type='desk' AND d.name IN (""" + ",".join(["%s"] * len(desks)) + ")",
-        (*_TASK_TERMINAL, TASK_CAP, *desks),
+         WHERE d.type='desk' AND d.name IN (""" + ",".join(["%s"] * len(desks)) + """)
+         ORDER BY d.name, x.created DESC, x.id DESC""",
+        (*_TASK_TERMINAL, *desks),
     )
+    for r in rows:
+        slot = out.setdefault(str(r["desk"]), {"n": 0, "doings": []})
+        slot["n"] = int(r.get("n") or 0)
+        if len(slot["doings"]) >= DOINGS_CAP:
+            continue
+        off = int(r.get("off") or 0)
+        created = _utc_iso(r.get("created"), off)
+        slot["doings"].append({
+            "id": int(r["id"]),
+            "created": created,
+            "text": str(r.get("text") or ""),
+            "state": str(r.get("state") or "started"),
+            "state_at": _utc_iso(r.get("state_at")) if r.get("state_at") is not None else created,
+            "card": None,
+        })
+    return out
 
 
 def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str:

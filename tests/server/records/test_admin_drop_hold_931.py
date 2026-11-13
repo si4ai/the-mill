@@ -31,7 +31,7 @@ ADMIN = "d931-admin"
 def book(cn):
     seed_names(cn, (R, "roster"), (HOLDER, "desk"), (OTHER, "desk"), (ADMIN, "desk"))
     for d in (HOLDER, OTHER):
-        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     # admin_desk seats ADMIN with its own token; do not upsert it first (no-steal).
     admin_desk(cn, ADMIN)
     return cn
@@ -77,7 +77,6 @@ def _holder(cn, res: str) -> str | None:
 def _drop_row(cn, hid: int) -> dict | None:
     """Card 1207: the drop is the hold's newest hold_drop / hold_force transition row (as rpc's _h_drop writes
     it: desk_id the holder; a force names the acting desk in meta.by). doing keeps no move row."""
-    assert not rows_done(cn, "SELECT id FROM doing WHERE on_type = 'hold' AND on_id = %s AND act = 'drop'", (hid,))
     rows = rows_done(
         cn,
         "SELECT t.reason, hn.name AS holder, bn.name AS by_desk FROM transition t"

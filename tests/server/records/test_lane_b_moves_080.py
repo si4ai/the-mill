@@ -1,14 +1,13 @@
 """0.8.0 lane B, as card 1207 left it: card and hold moves are transition rows, not doing rows (the owner,
 2026-11-13; 0.8.0 had doing hold them, 2026-10-26).
 
-F174 focus rows and moves: a move writes no doing row and never moves seat.doing_id; a card move by
-another desk never ends an entry; the desk's own ship (its transition row) ends it as finished; a move
-with --doing writes the transition, then the focus row.
+F174 moves (card 1207: no focus rows, no seat.doing_id, no --doing): a card or hold move writes its
+transition row and no doing row.
 F175 the fold: reading an item's transition rows in id order rebuilds todo.status and todo.assigned_id.
 F182 (Validator check 3): concurrent card writes read the old state FOR UPDATE, so the chain of moves
 stays whole. Mutant: drop FOR UPDATE from mill_todo_write's read; the second writer reads the stale
 state and the fold no longer matches the card.
-F183 (Validator check 7): the deadlock pairs (retire vs hold take; card pass vs doing finish) take the
+F183 (Validator check 7): the deadlock pairs (retire vs hold take; card pass vs a tw start) take the
 seat first and never deadlock.
 F184 (Validator check 6): a re-open keeps the first opened time and pushes one receipt; opening a
 letter and the heartbeats (connect, touch, socket, LAN) leave activity and doing unchanged.
@@ -23,7 +22,6 @@ import mysql.connector
 import pytest
 
 from agent_coord.client.tokens import token_hash
-from agent_coord.server.records import doing as rec_doing
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import mail as rec_mail
@@ -50,7 +48,7 @@ BOB = "mv080-bob"
 
 def _seat(cn, desk: str) -> str:
     digest = token_hash("seat-" + desk)
-    rec_join.upsert(cn, ROSTER, desk, "", digest, None)
+    rec_join.upsert(cn, ROSTER, desk, "", digest)
     cn.commit()
     return digest
 
@@ -119,14 +117,11 @@ def _moves(cn, on_type: str, on_id: int) -> list[dict]:
     return [dict(r, act=_ACT.get(r["reason"], r["reason"]), peer_id=None) for r in got]
 
 
-def _doing_moves(cn, on_type: str, on_id: int) -> int:
+def _doing_moves(cn, *_item) -> int:
+    """Card 1207: doing has no item link; any doing row by this module's move desks would be a move row."""
     return int(scalar_done(
-        cn, "SELECT COUNT(*) FROM doing WHERE on_type = %s AND on_id = %s AND act NOT IN ('focus', 'clear', 'finish')",
-        (on_type, on_id)))
-
-
-def _seat_row(cn, desk: str):
-    return scalar_done(cn, "SELECT doing_id FROM seat WHERE desk_id = %s", (_id(cn, desk),))
+        cn, "SELECT COUNT(*) FROM doing g JOIN name n ON n.id = g.desk_id WHERE n.type = 'desk' AND n.name IN"
+        " (%s, %s, %s, 'mv080-hr')", (ADMIN, ANN, BOB)))
 
 
 def _fold_card(rows: list[dict]) -> tuple:
@@ -163,50 +158,12 @@ def _card_now(cn, card: int) -> tuple:
 
 # ---------- F174 focus rows and move rows ----------
 
-def test_a_move_never_moves_seat_doing_id(book):
+def test_a_move_writes_its_transition_and_no_doing_row(book):
     card = _card(book, "mv-seat")
-    rec_doing.put(book, BOB, "on it", "todo", card)
-    book.commit()
-    focus = _seat_row(book, BOB)
     _claim(book, BOB, card)
     _pass(book, BOB, card, "ship", "sha 1")
-    assert _seat_row(book, BOB) == focus
-    assert scalar_done(book, "SELECT act FROM doing WHERE id = %s", (focus,)) == "focus"
     assert _doing_moves(book, "todo", card) == 0
     assert [m["act"] for m in _moves(book, "todo", card)][-2:] == ["claim", "ship"]
-
-
-def test_another_desks_move_does_not_end_the_entry_and_my_ship_finishes_it(book):
-    card = _card(book, "mv-end")
-    _claim(book, BOB, card)
-    rec_doing.put(book, BOB, "fixing it", "todo", card)
-    book.commit()
-    # ANN's move on the card (an unclaim, then BOB claims back) does not end BOB's entry
-    rec_todo.update(book, card, ANN, "open", "-", None)
-    book.commit()
-    _claim(book, BOB, card)
-    rows = [r for r in rec_doing.now(book, BOB) if r.get("part") == "desk"]
-    assert rows[0]["ended_by"] is None and rows[0]["act"] == "focus"
-    _pass(book, BOB, card, "ship", "sha 2")
-    rows = [r for r in rec_doing.now(book, BOB) if r.get("part") == "desk"]
-    assert rows[0]["ended_by"] == "finished"
-    hist = call(book, "mill_doing_history", [BOB, None, 1, 50, "", None])
-    assert hist and all(h["act"] == "focus" for h in hist)
-
-
-def test_a_move_with_doing_writes_the_move_then_the_focus(book):
-    card = _card(book, "mv-two")
-    _claim(book, BOB, card)
-    _pass(book, BOB, card, "ship", "sha 3")
-    rec_doing.put(book, BOB, "watching CI", "todo", card)  # what rpc's _doing_after does after the command
-    book.commit()
-    rows = rows_done(
-        book, "SELECT id, act FROM doing WHERE desk_id = %s AND on_type = 'todo' AND on_id = %s ORDER BY id",
-        (_id(book, BOB), card),
-    )
-    assert [r["act"] for r in rows] == ["focus"]
-    assert _moves(book, "todo", card)[-1]["act"] == "ship"
-    assert _seat_row(book, BOB) == rows[-1]["id"]
 
 
 # ---------- F175 the fold ----------
@@ -461,23 +418,22 @@ def test_retire_and_hold_take_never_deadlock(book):
     assert _pair(book, retire, take) == []
 
 
-def test_card_pass_and_doing_finish_never_deadlock(book):
+def test_card_pass_and_a_tw_start_never_deadlock(book):
+    desk = "mv080-tw"
+    _seat(book, desk)
     cards = []
     for i in range(6):
         c = _card(book, f"mv-dl-{i}")
-        _claim(book, BOB, c)
-        rec_doing.put(book, BOB, "shipping", "todo", c)
-        book.commit()
+        _claim(book, desk, c)
         cards.append(c)
 
     def ship(cn, i):
-        call(cn, "cmd_pass", [_id(cn, BOB), cards[i], "ship", "sha dl"])
+        call(cn, "cmd_pass", [_id(cn, desk), cards[i], "ship", "sha dl"])
 
-    def finish(cn, i):
-        rec_doing.finish(cn, BOB, "todo", cards[i])
-        rec_doing.put(cn, BOB, "next", "todo", cards[i])
+    def start(cn, i):
+        call(cn, "mill_doing_task", [desk, f"task:{desk}:dl{i}", cards[i], 1])
 
-    assert _pair(book, ship, finish) == []
+    assert _pair(book, ship, start) == []
 
 
 # ---------- F186 spin guards ----------
@@ -515,7 +471,7 @@ def test_a_deleted_card_refuses_a_move(book):
     assert "deleted" in str(ei.value).lower() or "card:deleted" in str(ei.value)
 
 
-def test_retired_desk_cannot_take_a_hold_or_write_focus(book):
+def test_retired_desk_cannot_take_a_hold_or_start_a_tw_run(book):
     desk = "mv080-ret"
     digest = _seat(book, desk)
     rec_name.retire(book, desk, "desk", by=ADMIN)
@@ -524,8 +480,8 @@ def test_retired_desk_cannot_take_a_hold_or_write_focus(book):
         rec_hold.upsert(book, ROSTER, desk, "mv080-ret-res")
         book.commit()
     book.rollback()
-    with pytest.raises(mysql.connector.Error):
-        rec_doing.put(book, desk, "after retire", "todo", _card(book, "mv-ret-card"))
+    with pytest.raises(mysql.connector.Error, match="has not joined|name retired"):
+        call(book, "mill_doing_task", [desk, f"task:{desk}:after", None, 1])
         book.commit()
     book.rollback()
 

@@ -219,17 +219,20 @@ def _held(c, desk, res):
 
 
 def _retired_shape(c, desk, hid, actor):
-    seat = q(c, "SELECT token_hash, endpoint_url, endpoint_key, delivery_mode, doing_id FROM seat WHERE desk_id = %s",
+    seat = q(c, "SELECT token_hash, endpoint_url, endpoint_key, delivery_mode FROM seat WHERE desk_id = %s",
              (desk,))[0]
-    assert seat[:4] == (None, None, None, "websocket")
+    assert seat == (None, None, None, "websocket")
     assert q(c, "SELECT desk_id FROM hold WHERE id = %s", (hid,))[0][0] is None
     assert row(c, desk)[2] == 1
-    # The focus ends with a clear row on the desk, and seat.doing_id names it (decision 2).
-    assert q(c, "SELECT desk_id, act, text FROM doing WHERE id = %s", (seat[4],)) == [(desk, "clear", "")]
-    # C5: the drop row is by the acting desk (self or Admin), never NULL, on the hold; the holder is the peer when
-    # another desk acted.
-    assert q(c, "SELECT desk_id, act, peer_id FROM doing WHERE on_type = 'hold' AND on_id = %s", (hid,)) == [
-        (actor, "drop", None if actor == desk else desk)]
+    # Card 1207: no doing row at all (no focus, clear or move rows); the freed hold's history is a transition row
+    # on the holder, hold_drop on a self-retire, else hold_force naming the acting desk in meta.by.
+    assert q(c, "SELECT COUNT(*) FROM doing WHERE desk_id = %s", (desk,)) == [(0,)]
+    want = "hold_drop" if actor == desk else "hold_force"
+    got = q(c, "SELECT reason, desk_id, CAST(JSON_EXTRACT(meta, '$.by') AS UNSIGNED) FROM transition"
+               " WHERE activity_type = 'hold' AND activity_id = %s ORDER BY id DESC LIMIT 1", (hid,))
+    assert got[0][0] == want and got[0][1] == desk
+    if actor != desk:
+        assert got[0][2] == actor
     assert q(c, "SELECT desk_id, act FROM activity WHERE type = 'hold' AND id = %s", (hid,)) == [(actor, "drop")]
 
 

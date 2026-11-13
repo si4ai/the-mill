@@ -1,4 +1,4 @@
-"""0.8.0 schema cuts (card 868, the owner 2026-10-26; F173, F178, F179): no new table, one act list, seat.doing_id.
+"""0.8.0 schema cuts (card 868, the owner 2026-10-26; F173, F178, F179): no new table, one act list; card 1207: doing is six columns.
 
 beta_ddl.sql (and beta_sp.sql) on one throwaway schema, then information_schema, EXPLAIN and a few writes.
 The act list's one source is the table under "The act list" in docs/requirements/beta/BETA-CHANGES.md.
@@ -9,7 +9,6 @@ import json
 import re
 from pathlib import Path
 
-import mysql.connector
 import pytest
 
 # fresh_schema: applies beta DDL/SP pack, not the tip schema
@@ -66,13 +65,13 @@ def test_no_new_tables(book):
     assert not {t for t in trig if t.startswith("vote")}, trig
 
 
-def test_act_is_one_list_on_activity_and_doing(book):
+def test_act_is_one_list_on_activity_and_doing_has_none(book):
     cn, db = book
     acts = doc_acts()
     assert acts and len(acts) == len(set(acts)) and len(acts) < 256, acts  # one byte
     want = "enum(" + ",".join(f"'{a}'" for a in acts) + ")"
     assert col_type(cn, db, "activity", "act") == want
-    assert col_type(cn, db, "doing", "act") == want
+    assert col_type(cn, db, "doing", "act") is None  # card 1207
     for gone in ("open", "status", "pass", "cast", "close", "start"):
         assert gone not in acts, gone
 
@@ -84,35 +83,22 @@ def test_activity_has_no_weight_or_n_and_keeps_bytes(book):
     assert col_type(cn, db, "activity", "bytes") == "int unsigned"
 
 
-def test_seat_doing_id_is_the_desks_own_row(book):
+def test_doing_is_six_columns_and_seat_has_no_doing_pointer(book):
+    """Card 1207 (the owner GO, 2026-11-13): doing = type, id, created, desk_id, roster_id, text; seat.doing_id,
+    fk_seat_doing, fk_doing_peer and the item, blocked-on and act columns are gone."""
     cn, db = book
-    fk = q(cn, "SELECT GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION), k.REFERENCED_TABLE_NAME,"
-               " GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION), r.DELETE_RULE"
-               " FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r"
-               " ON r.CONSTRAINT_SCHEMA = k.TABLE_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME"
-               " WHERE k.TABLE_SCHEMA=%s AND k.TABLE_NAME='seat' AND k.CONSTRAINT_NAME='fk_seat_doing'"
-               " GROUP BY k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.DELETE_RULE", (db,))
-    assert fk == [("doing_id,desk_id", "doing", "id,desk_id", "RESTRICT")], fk
-    assert col_type(cn, db, "seat", "doing_id") == "bigint unsigned"
-    q(cn, "INSERT INTO name (type, name) VALUES ('desk','cut-a'),('desk','cut-b')")
-    a, b = (q(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (n,))[0][0] for n in ("cut-a", "cut-b"))
-    q(cn, "INSERT INTO seat (desk_id) VALUES (%s),(%s)", (a, b))
-    q(cn, "INSERT INTO doing (desk_id, text) VALUES (%s, 'b works')", (b,))
-    other = q(cn, "SELECT id FROM doing WHERE desk_id=%s", (b,))[0][0]
-    with pytest.raises(mysql.connector.Error) as ei:
-        q(cn, "UPDATE seat SET doing_id=%s WHERE desk_id=%s", (other, a))
-    assert ei.value.errno == 1452
-    q(cn, "UPDATE seat SET doing_id=%s WHERE desk_id=%s", (other, b))
-    with pytest.raises(mysql.connector.Error):
-        q(cn, "DELETE FROM doing WHERE id=%s", (other,))
-
-
-def test_doing_peer_is_a_seat(book):
-    cn, db = book
-    fk = q(cn, "SELECT REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE"
-               " WHERE TABLE_SCHEMA=%s AND TABLE_NAME='doing' AND COLUMN_NAME='peer_id' AND REFERENCED_TABLE_NAME"
-               " IS NOT NULL", (db,))
-    assert fk == [("seat", "desk_id")]
+    cols = [c for (c,) in q(cn, "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s"
+                               " AND TABLE_NAME='doing' ORDER BY ORDINAL_POSITION", (db,))]
+    assert cols == ["type", "id", "created", "desk_id", "roster_id", "text"], cols
+    idx = {i for (i,) in q(cn, "SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=%s"
+                              " AND TABLE_NAME='doing'", (db,))}
+    assert idx == {"PRIMARY", "idx_id", "idx_desk_created", "idx_roster"}, idx
+    fks = {f for (f,) in q(cn, "SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS"
+                              " WHERE CONSTRAINT_SCHEMA=%s AND TABLE_NAME='doing'", (db,))}
+    assert fks == {"fk_doing_desk", "fk_doing_roster"}, fks
+    assert col_type(cn, db, "seat", "doing_id") is None
+    assert not q(cn, "SELECT 1 FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=%s"
+                     " AND CONSTRAINT_NAME='fk_seat_doing'", (db,))
 
 
 def _plan(cn, sql):
@@ -134,15 +120,12 @@ def test_newest_list_is_a_reverse_idx_updated_read(book):
     assert "idx_updated (reverse)" in tree, tree
 
 
-def test_an_items_moves_read_in_id_order_with_no_filesort(book):
-    cn, db = book
-    keys = q(cn, "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
-                 " WHERE TABLE_SCHEMA=%s AND TABLE_NAME='doing' AND INDEX_NAME='idx_on'", (db,))
-    assert keys == [("on_type,on_id,id",)], keys
-    sql = ("SELECT id, act FROM doing WHERE on_type='todo' AND on_id=7 AND act NOT IN ('focus','clear')"
-           " ORDER BY id DESC LIMIT 1")
+def test_a_desks_runs_read_newest_first_with_no_filesort(book):
+    """Card 1207: live_doings reads a desk's runs by idx_desk_created (an item's moves are transition rows)."""
+    cn, _db = book
+    sql = "SELECT id, created FROM doing WHERE desk_id=7 ORDER BY created DESC LIMIT 20"
     plan = json.dumps(_plan(cn, sql))
-    assert '"key": "idx_on"' in plan and '"using_filesort": true' not in plan, plan
+    assert '"key": "idx_desk_created"' in plan and '"using_filesort": true' not in plan, plan
 
 
 def test_doing_has_no_evidence_and_card_evidence_is_uncapped_meta(book):

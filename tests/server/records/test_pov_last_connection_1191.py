@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from agent_coord.server.records.db import rows_done, scalar_done
 from tests.server.records.conftest import seed_names
-from tests.server.records.test_doing_flag_818 import World, _dispatch
+from tests.server.records.test_doing_only_tw_1207 import World, _dispatch
 
 pytestmark = pytest.mark.sql
 
@@ -68,7 +68,7 @@ def w(cn, tmp_path_factory):
 
     seed_names(cn, (R, "roster"), ("the-mill", "roster"), *[(d, "desk") for d in (LIVE, OLD, NEVER, GONE, PEER)])
     for d in (LIVE, OLD, NEVER, GONE, PEER):
-        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     mp = pytest.MonkeyPatch()
     world = World(cn, tmp_path_factory.mktemp("d1191"))
     mp.setenv("AGENT_COORD_MILL_HOME", str(tmp_path_factory.mktemp("d1191home")))
@@ -133,7 +133,7 @@ def test_every_station_comes_back_with_its_last_connection(w, wall):
     for d in (LIVE, OLD):
         assert rows[d]["last_connected"] != _utc(clock[d]["u"])
         assert ISO.fullmatch(rows[d]["last_connected"])
-    assert set(rows[LIVE]) == {"name", "connected", "lan_ip", "last_connected", "recent_activity"}
+    assert set(rows[LIVE]) == {"name", "connected", "lan_ip", "last_connected", "recent_activity", "n", "doings"}
 
 
 def test_a_disconnect_older_than_its_connect_reads_the_connect(w, wall):

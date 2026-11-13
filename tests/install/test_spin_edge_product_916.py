@@ -32,7 +32,7 @@ def test_product_edges_list_covers_card_916_ids() -> None:
     text = (ROOT / "verify" / "spin" / "product_edges.txt").read_text(encoding="utf-8")
     need = {
         "L01", "L02", "L05", "L06", "W07", "W23", "H11",
-        "D4", "D5", "D6", "N1", "N2", "N4", "JOIN_RETIRED",
+        "N1", "N2", "N4", "JOIN_RETIRED",  # card 1207: D4-D6 dropped (no --doing product path)
     }
     got = {ln.split("#", 1)[0].strip() for ln in text.splitlines() if ln.split("#", 1)[0].strip()}
     assert need <= got, need - got

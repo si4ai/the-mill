@@ -2,6 +2,7 @@
 -- name_fixed still refuses a type change. an id change is allowed only when
 -- @mill_allow_name_id_change is 1. fresh books already have this shape in tables.sql.
 -- running this file again drops and re-adds the same keys.
+-- card 1207: fk_doing_peer and fk_seat_doing are not here; apply_1207 drops them.
 
 ALTER TABLE `seat` DROP FOREIGN KEY `fk_seat_desk`;
 ALTER TABLE `seat` ADD CONSTRAINT `fk_seat_desk` FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -84,14 +85,8 @@ ALTER TABLE `activity_history` ADD CONSTRAINT `fk_history_replaced_by` FOREIGN K
 ALTER TABLE `doing` DROP FOREIGN KEY `fk_doing_desk`;
 ALTER TABLE `doing` ADD CONSTRAINT `fk_doing_desk` FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE `doing` DROP FOREIGN KEY `fk_doing_peer`;
-ALTER TABLE `doing` ADD CONSTRAINT `fk_doing_peer` FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
-
 ALTER TABLE `doing` DROP FOREIGN KEY `fk_doing_roster`;
 ALTER TABLE `doing` ADD CONSTRAINT `fk_doing_roster` FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE `seat` DROP FOREIGN KEY `fk_seat_doing`;
-ALTER TABLE `seat` ADD CONSTRAINT `fk_seat_doing` FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE `hold` DROP FOREIGN KEY `fk_hold_desk`;
 ALTER TABLE `hold` ADD CONSTRAINT `fk_hold_desk` FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;

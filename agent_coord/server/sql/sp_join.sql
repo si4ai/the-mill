@@ -20,97 +20,22 @@ DROP PROCEDURE IF EXISTS mill_doing_insert;
 -- when its seat has a token or was reset or retired: (token_hash IS NOT NULL OR time_disconnect IS NOT NULL).
 DELIMITER //
 
--- #818: the seat is per-desk state (not an activity). doing rows are the
--- activity: append-only. A focus row (act focus: the desk's own --doing text; act clear: its focus emptied).
--- card 1207: card and hold moves write transition rows, never doing rows. seat.doing_id names the desk's newest
--- focus row. A heartbeat (connect, touch, socket, lan) writes no doing row and leaves activity alone.
--- mill_doing_insert is the one writer of a focus row. It locks the desk's seat row first (FOR UPDATE), so a
--- desk's focus writes, finish and clear are serialized, and sets seat.doing_id in the same UPDATE
--- (p_seen also stamps seat.updated, the desk's last-seen clock; NULL keeps it). A row that is not newer than
--- the seat's (an older clock) leaves seat.doing_id as it is. A watcher on the desk's current entry follows it.
-CREATE PROCEDURE mill_doing_insert(
-  IN  p_desk   BIGINT UNSIGNED,
-  IN  p_roster BIGINT UNSIGNED,
-  IN  p_text   VARCHAR(512),
-  IN  p_ts     DATETIME(6),
-  OUT p_id     BIGINT UNSIGNED
-)
-BEGIN
-  DECLARE v_prev BIGINT UNSIGNED;
-  DECLARE v_prev_at DATETIME(6);
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_prev_at = NULL;
-  SET v_prev = NULL;
-  SET v_prev_at = NULL;
-  SELECT doing_id INTO v_prev FROM seat WHERE desk_id = p_desk FOR UPDATE;
-  IF v_prev IS NOT NULL THEN
-    SELECT created INTO v_prev_at FROM doing WHERE id = v_prev;
-  END IF;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), IFNULL(p_text, ''), IF(IFNULL(p_text, '') = '', 'clear', 'focus'));
-  SET p_id = LAST_INSERT_ID();
-  IF v_prev IS NULL OR p_ts > v_prev_at OR (p_ts = v_prev_at AND p_id > v_prev) THEN
-    UPDATE seat SET doing_id = p_id, updated = updated WHERE desk_id = p_desk;
-  END IF;
-  IF v_prev IS NOT NULL THEN
-    INSERT IGNORE INTO watcher (type, id, desk_id, hint)
-    SELECT 'doing', p_id, w.desk_id, w.hint FROM watcher w
-     WHERE w.type = 'doing' AND w.id = v_prev;
-  END IF;
-END //
-
-CREATE PROCEDURE mill_doing_anchor(
-  IN  p_desk BIGINT UNSIGNED,
-  IN  p_text VARCHAR(512),
-  OUT p_id   BIGINT UNSIGNED
-)
-BEGIN
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET p_id = NULL;
-  SET p_id = NULL;
-  -- 0.8.0: the desk's focus is seat.doing_id.
-  SELECT doing_id INTO p_id FROM seat WHERE desk_id = p_desk;
-  IF p_id IS NULL THEN
-    CALL mill_doing_insert(p_desk, 1, p_text, MILL_NOW(), p_id);
-  END IF;
-END //
-
-
--- Clock-out and reset end the current doing: an empty entry, unless the
--- current one is already empty. p_id is the entry that is current after;
--- p_roster is the roster on the ended entry's activity row (the new entry keeps it).
-CREATE PROCEDURE mill_doing_clear(
-  IN  p_desk   BIGINT UNSIGNED,
-  IN  p_ts     DATETIME(6),
-  OUT p_id     BIGINT UNSIGNED,
-  OUT p_roster BIGINT UNSIGNED
-)
-BEGIN
-  DECLARE v_text VARCHAR(512);
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET p_id = NULL;
-  SET p_id = NULL;
-  SET v_text = NULL;
-  SELECT g.id, g.text INTO p_id, v_text
-    FROM seat dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = p_desk;
-  SET p_roster = IFNULL((SELECT roster_id FROM activity WHERE type = 'doing' AND id = p_id), 1);
-  IF p_id IS NULL OR IFNULL(v_text, '') <> '' THEN
-    CALL mill_doing_insert(p_desk, p_roster, '', p_ts, p_id);
-  END IF;
-END //
-
+-- #818: the seat is per-desk state (not an activity). Card 1207 (the owner, 2026-11-13): a doing row is one
+-- tw.exe run (sp_doing.sql mill_doing_task); join, clock-out, reset and the heartbeats (connect, touch, socket,
+-- lan) write no doing row and there is no seat pointer. Clock-out and reset end the desk's live doings
+-- (mill_doing_clear_live). A heartbeat leaves activity alone.
 CREATE PROCEDURE mill_join_upsert(
   IN p_project    VARCHAR(64),
   IN p_desk       VARCHAR(64),
   IN p_role       VARCHAR(64),
-  IN p_token_hash CHAR(64),
-  IN p_doing      VARCHAR(512)
+  IN p_token_hash CHAR(64)
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_seat BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_have CHAR(64);
-  DECLARE v_text VARCHAR(512);
   DECLARE v_del DATETIME(6);
   DECLARE v_lock BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -155,14 +80,6 @@ BEGIN
            delivery_mode = IF(delivery_mode = 'polling', 'websocket', delivery_mode)
      WHERE id = v_seat;
   END IF;
-  -- #818: a doing text on join is a new entry unless it is already the current one.
-  SET v_id = NULL;
-  SET v_text = NULL;
-  SELECT g.id, g.text INTO v_id, v_text
-    FROM seat dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = v_desk;
-  IF v_id IS NULL OR (p_doing IS NOT NULL AND v_text <> LEFT(p_doing, 512)) THEN
-    CALL mill_doing_insert(v_desk, 1, p_doing, v_ts, v_id);
-  END IF;
   -- The member insert locks name(id). Hold that roster first, then count the new member.
   SELECT id INTO v_lock FROM name WHERE id = 1 FOR UPDATE;
   INSERT IGNORE INTO member (name_id, desk_id) VALUES (1, v_desk);
@@ -187,21 +104,17 @@ BEGIN
       UPDATE name SET n = n + 1 WHERE id = @v_role;
     END IF;
   END IF;
-  CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'focus', NULL);
-  CALL mill_watcher_put('doing', v_id, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_desk AS owner;
+  SELECT v_ts AS updated, v_desk AS desk_id, p_desk AS owner;
 END //
 
--- Clock-out: the current doing ends (an empty entry), the seat stays.
+-- Clock-out: the desk's live doings end as cleared (card 1207), the seat stays.
 CREATE PROCEDURE mill_join_delete(
   IN p_project VARCHAR(64),
   IN p_desk    VARCHAR(64)
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
-  DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
@@ -211,8 +124,7 @@ BEGIN
   -- reads shared, and the UPDATE below then wanted the row exclusive).
   SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
-    CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, 1, 'clear', NULL);
+    CALL mill_doing_clear_live(v_desk, v_desk, 'clockout');
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_desk AS owner, 'clocked-out' AS op;
@@ -224,8 +136,6 @@ CREATE PROCEDURE mill_join_reset(
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
-  DECLARE v_roster BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_released INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_desk = NULL;
@@ -240,9 +150,7 @@ BEGIN
          endpoint_url = NULL, endpoint_key = NULL
    WHERE desk_id = v_desk;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
-    CALL mill_doing_clear(v_desk, v_ts, v_id, v_roster);
-    -- Keep the ended entry's activity roster (not 1/Office).
-    CALL mill_activity_put('doing', v_id, v_ts, v_desk, v_roster, 'clear', NULL);
+    CALL mill_doing_clear_live(v_desk, v_desk, 'reset');
   END IF;
   -- Card 842: a reset desk owns no lock. Free its holds like a drop would. Reset takes no actor, so the
   -- drop rows name the reset desk itself.
@@ -253,7 +161,7 @@ BEGIN
   SELECT p_desk AS owner, 'reset' AS op, v_released AS released;
 END //
 
--- Seat plus the desk's current doing (newest entry). type/id name that entry.
+-- Seats. id is the desk id; doing_n is how many doings the desk is running (live tw runs, card 1207).
 CREATE PROCEDURE mill_join_select(IN p_project VARCHAR(64))
 BEGIN
   DECLARE v_proj BIGINT UNSIGNED;
@@ -261,8 +169,8 @@ BEGIN
   IF NOT (p_project IS NULL OR p_project = '') THEN
     SET v_proj = IFNULL(MILL_NAME_GET('roster', p_project), 0);
   END IF;
-  SELECT 'doing' AS type, cur.id, h.created, h.updated, h.desk_id, h.token_hash,
-         IFNULL(cur.text, '') AS doing,
+  SELECT 'seat' AS type, h.desk_id AS id, h.created, h.updated, h.desk_id, h.token_hash,
+         (SELECT COUNT(*) FROM doing g WHERE g.desk_id = h.desk_id AND MILL_DOING_LIVE(g.id)) AS doing_n,
          h.delivery_mode, h.endpoint_url, h.lan_ip, h.time_connect, h.time_disconnect,
          dsk.name AS desk, dsk.type AS desk_type,
          IF(ra.id IS NULL, NULL, JSON_OBJECT(
@@ -282,8 +190,6 @@ BEGIN
          )) AS recent_activity
   FROM seat h
   LEFT JOIN name dsk ON dsk.id = h.desk_id
-  -- 0.8.0: the desk's focus is seat.doing_id (no sort; never a move row).
-  LEFT JOIN doing cur ON cur.id = h.doing_id
   LEFT JOIN LATERAL (
     SELECT type, id, roster_id, updated
     FROM activity USE INDEX (idx_desk_updated)
@@ -311,7 +217,6 @@ CREATE PROCEDURE mill_join_connect(
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
@@ -325,11 +230,10 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mill connect: desk has not joined';
   END IF;
   -- 0.8.0 (the owner, 2026-10-26): a heartbeat writes no doing row and leaves activity alone; seat.updated is
-  -- the desk's last-seen clock. id is the desk's focus row (seat.doing_id; NULL before its first).
+  -- the desk's last-seen clock.
   UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
-  SELECT doing_id INTO v_id FROM seat WHERE desk_id = v_desk;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
+  SELECT v_ts AS updated, v_desk AS desk_id;
 END //
 
 -- A command that writes nothing else (#635): bump the seat (0.8.0: activity is left alone). No doing row.
@@ -338,22 +242,21 @@ CREATE PROCEDURE mill_join_touch(
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_joined TINYINT DEFAULT 0;
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_lock BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  SET v_id = NULL;
   -- Lock order (card 1113): the seat exclusive before the joined check (IF EXISTS in a routine
   -- reads shared, and the UPDATE below then wanted the row exclusive).
   SELECT id INTO v_lock FROM seat WHERE desk_id = v_desk FOR UPDATE;
   IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
     UPDATE seat SET updated = v_ts WHERE desk_id = v_desk;
-    SELECT doing_id INTO v_id FROM seat WHERE desk_id = v_desk;
+    SET v_joined = 1;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id;
+  SELECT v_ts AS updated, IF(v_joined = 1, v_desk, NULL) AS desk_id;
 END //
 
 CREATE PROCEDURE mill_join_socket(
@@ -362,22 +265,17 @@ CREATE PROCEDURE mill_join_socket(
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  SET v_id = NULL;
   IF p_up = 1 THEN
     UPDATE seat SET time_connect = v_ts, time_disconnect = NULL WHERE desk_id = v_desk;
   ELSE
     UPDATE seat SET time_disconnect = v_ts WHERE desk_id = v_desk;
   END IF;
-  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
-    SELECT doing_id INTO v_id FROM seat WHERE desk_id = v_desk;
-  END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_up AS up;
+  SELECT v_ts AS updated, v_desk AS desk_id, p_up AS up;
 END //
 
 CREATE PROCEDURE mill_join_lan(
@@ -386,18 +284,13 @@ CREATE PROCEDURE mill_join_lan(
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
-  DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_desk BIGINT UNSIGNED;
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_ts = MILL_NOW();
   SET v_desk = MILL_NAME_GET('desk', p_desk);
-  SET v_id = NULL;
   UPDATE seat SET lan_ip = LEFT(IFNULL(p_ip, ''), 45) WHERE desk_id = v_desk;
-  IF v_desk IS NOT NULL AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_desk AND (token_hash IS NOT NULL OR time_disconnect IS NOT NULL)) THEN
-    SELECT doing_id INTO v_id FROM seat WHERE desk_id = v_desk;
-  END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, p_ip AS lan_ip;
+  SELECT v_ts AS updated, v_desk AS desk_id, p_ip AS lan_ip;
 END //
 
 -- #618 webhook wake. The URL is checked by the wall before arm (https, host

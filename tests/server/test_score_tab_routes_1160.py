@@ -135,7 +135,7 @@ def _desk(cn) -> str:
     from agent_coord.server.records import join
 
     desk = "b1160-" + uuid4().hex[:8]
-    join.upsert(cn, "Office", desk, "", "a" * 64, "reviewing")
+    join.upsert(cn, "Office", desk, "", "a" * 64)
     cn.commit()
     return desk
 

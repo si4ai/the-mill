@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """0.7.5: every write path runs the store redactor before the row is stored.
 
-Covers reply, --doing (mark, drop, unpark, hold), join, claim, unclaim, pass, hold, assign and the score
+Covers reply, join, claim, unclaim, pass, hold, assign and the score
 value, target and note, plus Wall desk posts, Admin error mail and the error
 text a 500 returns. Fake values are built at runtime. Regression row S-7
 (redact-write-paths).
@@ -39,13 +39,9 @@ def _capture(store):
 
 CASES = [
     ("reply", {"mail_id": 5, "body": "see {t}"}, "body"),
-    ("mark", {"ids": [5], "doing": "using {t}"}, "doing"),
-    ("drop", {"resource": "r1", "doing": "after {t}"}, "doing"),
-    ("unpark", {"need": "n1", "doing": "on {t}"}, "doing"),
     ("claim", {"need": "n1", "msg": "key {t}"}, "msg"),
     ("unclaim", {"need": "n1", "msg": "key {t}"}, "msg"),
     ("pass", {"need": "n1", "note": "key {t}"}, "note"),
-    ("hold", {"resource": "r1", "doing": "with {t}"}, "doing"),
     ("score", {"name": "k", "value": "{t}", "target": "1"}, "value"),
     ("score", {"name": "k", "value": "1", "target": "{t}"}, "target"),
     ("score", {"name": "k", "value": "1", "note": "n {t}"}, "note"),
@@ -60,13 +56,24 @@ def test_ws_write_is_redacted_before_the_handler(monkeypatch, command, args, key
     monkeypatch.setitem(rpc.HANDLERS, command, _capture(store))
     body = {k: (v.format(t=tok) if isinstance(v, str) else v) for k, v in args.items()}
     c = MagicMock(spec=Book)
-    c._cn = MagicMock()  # a --doing command runs in a request transaction on it (#818)
-    try:
-        rpc.dispatch_ws(c, "desk-a", command, body, req_id=None)
-    except CoordError:
-        pass  # the fake handler wrote no item, so a --doing command is refused after it ran
+    c._cn = MagicMock()
+    rpc.dispatch_ws(c, "desk-a", command, body, req_id=None)
     assert tok not in store["body"][key]
     assert PH["token"] in store["body"][key]
+
+
+@pytest.mark.parametrize("command,args", [
+    ("mark", {"ids": [5]}), ("drop", {"resource": "r1"}), ("unpark", {"need": "n1"}), ("hold", {"resource": "r1"}),
+])
+def test_a_doing_key_is_refused_before_the_handler(monkeypatch, command, args):
+    """Card 1207: no command writes doing; a body with one is refused and the handler never runs."""
+    store: dict = {}
+    monkeypatch.setitem(rpc.HANDLERS, command, _capture(store))
+    c = MagicMock(spec=Book)
+    c._cn = MagicMock()
+    with pytest.raises(CoordError, match="--doing is gone"):
+        rpc.dispatch_ws(c, "desk-a", command, dict(args, doing="with " + fake_token()), req_id=None)
+    assert store == {}
 
 
 def test_http_join_doing_is_redacted(monkeypatch):

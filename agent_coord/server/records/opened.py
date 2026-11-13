@@ -61,9 +61,8 @@ def picked_up_ids(cn, mail_ids: list[int], desk: str) -> set[int]:
     try:
         cur.execute(
             "SELECT t.id FROM mail_to t WHERE t.type='mail' AND t.desk_id=%s"
-            " AND t.id IN (" + marks + ") AND (t.opened IS NOT NULL OR EXISTS"
-            " (SELECT 1 FROM doing g WHERE g.desk_id=t.desk_id"
-            " AND g.on_type='mail' AND g.on_id=t.id AND g.act='focus'))",
+            # Card 1207: opened only (a doing row is a tw run, never a desk's focus on a letter).
+            " AND t.id IN (" + marks + ") AND t.opened IS NOT NULL",
             (int(did), *ids),
         )
         return {int(row[0]) for row in cur.fetchall() if row and row[0]}

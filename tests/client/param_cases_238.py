@@ -52,7 +52,6 @@ BOOK = {
 
 KIND = {
     ("hold", "resource"): "newname",
-    ("hold", "doing"): "text",
     ("hold", "group_by"): "enum", ("inbox", "group_by"): "enum", ("todo", "group_by"): "enum",
     ("drop", "resource"): "name",
     ("send", "to_desk"): "name", ("send", "body_file"): "name",
@@ -68,11 +67,11 @@ KIND = {
     ("todo", "project"): "name", ("todo", "need"): "name", ("todo", "status"): "enum",
     ("todo", "find"): "text", ("todo", "page"): "int",
     ("create todo", "project"): "name", ("create todo", "need"): "newname",
-    ("create todo", "doing"): "text", ("create todo", "detail"): "text", ("create todo", "detail_file"): "name",
+    ("create todo", "detail"): "text", ("create todo", "detail_file"): "name",
     ("create todo", "status"): "enum", ("create todo", "parent_type"): "enum",
     ("create todo", "parent_id"): "id",
     # Card 1125: the card's own fields ride todo ROSTER NEED.
-    ("todo", "eta"): "eta", ("todo", "progress"): "text", ("todo", "done_when"): "text", ("todo", "doing"): "text",
+    ("todo", "eta"): "eta", ("todo", "progress"): "text", ("todo", "done_when"): "text",
     ("claim", "project"): "name", ("claim", "need"): "name",
     ("claim", "eta"): "eta", ("claim", "msg"): "text",
     ("unclaim", "project"): "name", ("unclaim", "need"): "name",
@@ -92,15 +91,6 @@ KIND = {
     ("score", "target"): "int", ("score", "note"): "text",
     ("score", "better"): "enum", ("score", "unit"): "text", ("score", "limit"): "int",
     ("score", "at"): "text",
-    # #818 PR B: --doing on every activity write; connected reads doing.
-    ("send", "doing"): "text", ("reply", "doing"): "text", ("mark", "doing"): "text",
-    ("claim", "doing"): "text", ("unclaim", "doing"): "text", ("assign", "doing"): "text",
-    ("pass", "doing"): "text", ("unpark", "doing"): "text",
-    ("drop", "doing"): "text", ("score", "doing"): "text",
-    # #822: --waiting-on "WHAT [WHY]" rides --doing on the same commands.
-    **{(c, "waiting_on"): "text" for c in (
-        "send", "reply", "mark", "create todo", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold",
-        "drop", "score")},
     ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
     ("delete", "kind"): "enum", ("delete", "slug"): "name",
     ("restore", "kind"): "enum", ("restore", "slug"): "name",

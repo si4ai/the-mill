@@ -377,18 +377,23 @@ def test_ids_rows_and_transforms(main_book):
     after = dump(main_book)
     cn = main_book
 
-    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue"}  # name: System id 0; push_queue folded (1022)
+    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue",
+                                     "label"}  # name: System id 0; push_queue folded (1022); label: card 1207 below
     for t in sorted(untouched):
         assert after[t] == before[t], t
+    # card 1207: a label on a doing row goes with that row's activity row (fk_label_activity CASCADE); the rest stay.
+    lcols, lrows = before["label"]
+    kept = [r for r in lrows if dict(zip(lcols, r))["type"] != "doing"]
+    assert after["label"] == (lcols, kept)
     assert "push_queue" not in after and "push_queue" in before  # fold into wake
     assert "wake" in {r[0] for r in _q(cn, "SHOW TABLES")}
 
     # seat: every desk has a seat; old rows unchanged; the unseated desks got a token-NULL row.
     old_seats = {r["desk_id"]: r for r in _rows_as_dicts(before, "seat")}
-    # updated = updated: seeding seat.doing_id is not a seat edit (ON UPDATE CURRENT_TIMESTAMP must not fire).
+    # updated = updated: seeding (080) and clearing (1207) seat.doing_id is not a seat edit; the column is gone.
     new_seats = {r["desk_id"]: r for r in _rows_as_dicts(after, "seat")}
     for d, row in old_seats.items():
-        assert new_seats[d] == row
+        assert new_seats[d] == {k: v for k, v in row.items() if k != "doing_id"}
     assert set(new_seats) - set(old_seats) == set(s["unseated"]) | {0}  # 0 = System seat (card 1022)
     for d in s["unseated"]:
         assert new_seats[d]["token_hash"] is None
@@ -425,6 +430,9 @@ def test_ids_rows_and_transforms(main_book):
             assert len(wake_after) == pq_n
             assert all(r["desk_id"] == 0 for r in wake_after)
             assert _one(cn, "SELECT COUNT(*) FROM activity WHERE type = 'wake' AND act <> 'ring'") == 0
+            # card 1207: a doing row's activity row goes with it unless a transition or tree node names it.
+            kept_doing = {r["id"] for r in a if r["type"] == "doing"}
+            b = [r for r in b if r["type"] != "doing" or r["id"] in kept_doing]
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -442,16 +450,9 @@ def test_ids_rows_and_transforms(main_book):
     for rb in b:
         assert {k: v for k, v in rb.items() if k != "evidence"} == a[rb["id"]]
 
-    # doing: main's rows are kept; act says what each was (text: focus; empty on an item: finish; else clear).
+    # doing: card 1207 keeps only tw runs (a main book has none), so main's rows are gone and doing is six columns.
     old_doing = {r["id"]: r for r in _rows_as_dicts(before, "doing")}
-    acts = dict(_q(cn, "SELECT id, act FROM doing WHERE id <= %s", (max(old_doing),)))
-    for i, r in old_doing.items():
-        assert acts[i] == ("focus" if r["text"] else "finish" if r["on_type"] else "clear"), r
-    new_doing = {
-        r["id"]: {k: v for k, v in r.items() if k != "evidence"}
-        for r in _rows_as_dicts(after, "doing") if r["id"] in old_doing
-    }
-    assert new_doing == old_doing
+    assert old_doing and after["doing"] == (["type", "id", "created", "desk_id", "roster_id", "text"], [])
 
     # Every card gets one move row (the owner, 2026-10-26): by updated_id at updated, act from the status, peer the
     # volunteer, evidence the card's evidence. Card 1207 then moves it to transition (one row per card, the mapped
@@ -472,15 +473,17 @@ def test_ids_rows_and_transforms(main_book):
         want = (rb["evidence"].encode("utf-8").hex().upper()
                 if act in ("ship", "done") and rb["evidence"] is not None else None)
         assert ev == want, rb
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish', 'task')") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == 0
+    assert _one(cn, "SELECT COUNT(*) FROM doing") == 0
 
-    # activity.act: the item's latest move (a card's from its status, a doing row's own act, a hold taken or free).
+    # activity.act: the item's latest move (a card's from its status, a hold taken or free). Card 1207: a deleted
+    # doing row's activity row goes too, unless a transition (the connect pseudo row) or a tree node names it.
     for t, i, act in _q(cn, "SELECT a.type, a.id, a.act FROM activity a"):
         if t == "todo":
             want = card_act[i]
         elif t == "doing":
-            want = acts[i]
+            assert _one(cn, "SELECT COUNT(*) FROM transition WHERE activity_type = 'doing' AND activity_id = %s", (i,))\
+                or _one(cn, "SELECT COUNT(*) FROM tree WHERE type = 'doing' AND id = %s", (i,)), (t, i)
+            continue
         elif t == "hold":
             want = "hold" if _one(cn, "SELECT desk_id FROM hold WHERE id = %s", (i,)) else "drop"
         elif t == "mail":
@@ -490,21 +493,6 @@ def test_ids_rows_and_transforms(main_book):
         else:
             want = "score"
         assert act == want, (t, i, act)
-
-    # seat.doing_id: the desk's newest focus row (focus or clear), created then id, as main's mill_doing_now orders
-    # rows. Where main's newest row is a finish row, the seat names the focus row it ended.
-    newest, focus = {}, {}
-    for r in _rows_as_dicts(before, "doing"):
-        k = (r["created"], r["id"])
-        if r["desk_id"] not in newest or k > newest[r["desk_id"]][0]:
-            newest[r["desk_id"]] = (k, r["id"])
-        if (r["text"] or not r["on_type"]) and (r["desk_id"] not in focus or k > focus[r["desk_id"]][0]):
-            focus[r["desk_id"]] = (k, r["id"])
-    seat_now = {d: v for d, v in _q(cn, "SELECT desk_id, doing_id FROM seat") if v is not None}
-    assert seat_now == {d: v[1] for d, v in focus.items()}
-    same = [d for d in newest if acts[newest[d][1]] != "finish"]
-    assert same and all(seat_now[d] == newest[d][1] for d in same)
-    assert any(acts[newest[d][1]] == "finish" for d in newest), "the seed has a desk whose newest row is a finish"
 
     for t in DROPPED_PLAN:
         assert _one(cn, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
@@ -568,9 +556,10 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
     for t in MAIN_TABLES:
         if t not in after or t not in before:
             continue  # push_queue folded away after 1022
-        # card 1207: the 0.8.0 move rows (one per card) moved on to transition; doing is back to main's rows.
-        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == 0
+        # card 1207: the 0.8.0 move rows (one per card) moved on to transition.
+        # card 1207: doing keeps only tw runs (none here) and a label on a doing row goes with it.
+        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher", "name", "activity", "doing", "label"), t
+    assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
     assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == len(
         before["todo"][1])
 
@@ -697,7 +686,7 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == 0
+    assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
     assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == n_cards
 
 

@@ -1921,7 +1921,7 @@ def apply_transition_1022(cn) -> list[str]:
 
 
 def task_970_needed(cn) -> bool:
-    """Both act enums share the task value (card 970)."""
+    """Both act enums share the task value (card 970); a missing act column (doing, card 1207) is skipped."""
     cur = cn.cursor()
     try:
         for table in ("activity", "doing"):
@@ -1931,7 +1931,9 @@ def task_970_needed(cn) -> bool:
                 (table,),
             )
             row = cur.fetchone()
-            ctype = row[0] if row else ""
+            if row is None:  # card 1207: doing.act is gone; nothing to widen
+                continue
+            ctype = row[0]
             if isinstance(ctype, (bytes, bytearray)):
                 ctype = ctype.decode("utf-8")
             if "'task'" not in str(ctype):
@@ -1981,7 +1983,9 @@ def history_1133_needed(cn) -> bool:
                 (table,),
             )
             row = cur.fetchone()
-            ctype = row[0] if row else ""
+            if row is None:  # card 1207: doing.act is gone; nothing to widen
+                continue
+            ctype = row[0]
             if isinstance(ctype, (bytes, bytearray)):
                 ctype = ctype.decode("utf-8")
             if "'replace'" not in str(ctype):
@@ -2296,9 +2300,11 @@ def _drop_kind_checks(cur, table: str, column: str) -> None:
             cur.execute(f"ALTER TABLE `{table}` DROP CHECK `{name}`")
 
 
-# Card 1207: doing keeps focus and tw task rows only. Card and hold moves and the rename and name trash,
-# restore and purge timeline rows leave doing for transition; ship/done evidence moves to todo.meta.evidence
-# (a JSON key, not capped); doing.evidence goes. Each step checks the book first.
+# Card 1207 (the owner, 2026-11-13): doing is only tw runs (act task). Card and hold moves leave doing for
+# transition; ship/done evidence moves to todo.meta.evidence (a JSON key, not capped); a tw run's card moves to
+# its tw_start transition meta.card; focus, clear, finish, rename and name trash/restore/purge rows go (a name is
+# not an activity, so its timeline has no anchor). Then seat.doing_id and the doing columns past the six go.
+# Each step checks the book first, so a rerun is a no-op.
 _MOVE_ACTS_1207 = ("create", "park", "unpark", "claim", "assign", "unclaim", "ship", "done", "back",
                    "hold", "drop", "rename", "delete", "restore", "purge")
 # act -> (activity_type, from_state, to_state, reason) for a move row with no transition row yet.
@@ -2316,12 +2322,34 @@ _MOVE_EDGE_1207 = {
     "hold": ("hold", "free", "held", "hold_grant"),
     "drop": ("hold", "held", "free", "hold_drop"),
 }
-_EDGES_1207 = (
-    ("doing", "any", "same", "name_delete"),
-    ("doing", "any", "same", "name_purge"),
-    ("doing", "any", "same", "name_restore"),
-    ("todo", "any", "same", "rename"),
+_EDGES_1207 = (("todo", "any", "same", "rename"),)
+_NAME_REASONS_1207 = ("name_delete", "name_purge", "name_restore")
+# FK before index (an index a foreign key uses can't go first), then the columns.
+SEAT_DOING_SQL_1207 = (
+    "ALTER TABLE seat DROP FOREIGN KEY fk_seat_doing, DROP INDEX idx_doing, DROP COLUMN doing_id"
 )
+DOING_COLS_SQL_1207 = (
+    "ALTER TABLE doing DROP FOREIGN KEY fk_doing_peer, DROP INDEX idx_peer, DROP INDEX idx_on,"
+    " DROP INDEX idx_id_desk, DROP COLUMN on_type, DROP COLUMN on_id, DROP COLUMN waiting_type,"
+    " DROP COLUMN waiting_id, DROP COLUMN waiting_why, DROP COLUMN act, DROP COLUMN peer_id"
+)
+
+
+def _alter_1207(cur, table: str, fks: list[str], idxs: list[str], cols: list[str]) -> str:
+    """One ALTER in FK, index, column order, with only the parts the book still has (the full statements are
+    SEAT_DOING_SQL_1207 and DOING_COLS_SQL_1207)."""
+    cur.execute(
+        "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE()"
+        " AND TABLE_NAME = %s AND CONSTRAINT_TYPE = 'FOREIGN KEY'", (table,))
+    have_fk = {r[0] for r in cur.fetchall()}
+    cur.execute(
+        "SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()"
+        " AND TABLE_NAME = %s", (table,))
+    have_ix = {r[0] for r in cur.fetchall()}
+    parts = [f"DROP FOREIGN KEY {f}" for f in fks if f in have_fk]
+    parts += [f"DROP INDEX {i}" for i in idxs if i in have_ix]
+    parts += [f"DROP COLUMN {c}" for c in cols if _column_exists(cur, table, c)]
+    return f"ALTER TABLE {table} " + ", ".join(parts)
 
 
 def _drain(cur) -> None:
@@ -2332,12 +2360,21 @@ def _drain(cur) -> None:
 
 def apply_1207(cn, report: dict | None = None) -> list[str]:
     """Card 1207 data and schema. report (tests) gets the counts: evidence backfilled, move rows covered by a
-    transition row, move rows backfilled to transition, move rows deleted, evidence rows with no card left."""
+    transition row, move rows backfilled to transition, move rows deleted, evidence rows with no card left,
+    name rows dropped, tw cards backfilled, non-task rows deleted and kept with a trail."""
     applied: list[str] = []
     rep = report if report is not None else {}
     cur = cn.cursor()
     try:
         if not _table_exists(cur, "doing") or not _table_exists(cur, "transition_edge"):
+            return applied
+        # Part 1 of this card anchored name events on focus rows; those edges and rows go.
+        names = ", ".join(f"'{r}'" for r in _NAME_REASONS_1207)
+        cur.execute(f"DELETE FROM transition WHERE activity_type = 'doing' AND reason IN ({names})")
+        rep["name_transitions_deleted"] = cur.rowcount
+        cur.execute(f"DELETE FROM transition_edge WHERE activity_type = 'doing' AND reason IN ({names})")
+        cn.commit()
+        if not _column_exists(cur, "doing", "act"):
             return applied
         cur.executemany(
             "INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES (%s,%s,%s,%s)",
@@ -2413,43 +2450,9 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
                 backfilled += cur.rowcount
             rep["moves_covered"] = covered
             rep["moves_backfilled"] = backfilled
-            # 3. A name's trash, restore or purge (text 'kind:name'): transition on the acting desk's focus row.
-            cur.execute(
-                "SELECT d.id, d.created, d.desk_id, d.act, d.text FROM doing d"
-                " WHERE d.act IN ('delete', 'restore', 'purge') ORDER BY d.created, d.id"
-            )
-            name_rows = cur.fetchall()
-            for _did, created, desk, act, text in name_rows:  # noqa: B007
-                kind, _, nm = str(text or "").partition(":")
-                cur.execute("SELECT id FROM name WHERE type = %s AND name = %s", (kind, nm))
-                hit = cur.fetchone()
-                meta = {"kind": kind} if hit is None else {"name": int(hit[0]), "kind": kind}
-                # The desk's focus row (seat.doing_id); a desk with none gets an empty one, as mill_doing_anchor.
-                cur.execute("SELECT doing_id FROM seat WHERE desk_id = %s", (int(desk),))
-                got = cur.fetchone()
-                focus = got[0] if got else None
-                if focus is None:
-                    cur.execute(
-                        "INSERT INTO doing (created, desk_id, roster_id, text, act) VALUES (%s, %s, 1, '', 'clear')",
-                        (created, int(desk)),
-                    )
-                    focus = cur.lastrowid
-                    cur.execute(
-                        "INSERT INTO activity (type, id, created, updated, desk_id, roster_id, act)"
-                        " VALUES ('doing', %s, %s, %s, %s, 1, 'clear')",
-                        (focus, created, created, int(desk)),
-                    )
-                    cur.execute("UPDATE seat SET doing_id = %s, updated = updated WHERE desk_id = %s",
-                                (focus, int(desk)))
-                cur.execute("SET @mill_1207_focus = %s", (int(focus),))
-                cur.execute(
-                    "INSERT INTO transition (at, activity_type, activity_id, from_state, to_state, reason,"
-                    " desk_id, role, join_key, meta) SELECT %s + INTERVAL %s SECOND, 'doing', @mill_1207_focus,"
-                    " 'any', 'same', %s, %s, 'actor', %s, %s",
-                    (created, off, "name_" + act, int(desk),
-                     ("name:%s" % int(hit[0])) if hit else None, json.dumps(meta)),
-                )
-            rep["name_rows"] = len(name_rows)
+            # 3. A name's trash, restore or purge (text 'kind:name'): dropped (no anchor; counted).
+            cur.execute("SELECT COUNT(*) FROM doing d WHERE d.act IN ('rename', 'delete', 'restore', 'purge')")
+            rep["name_rows"] = int(cur.fetchone()[0])
             # 4. Delete the move and timeline rows, their watchers and their activity rows (move rows have none;
             # the name rows do). A tree node on one refuses (RESTRICT): nothing is cut silently.
             # A row with its own transition trail is an activity, not a move record (a tw task row's act
@@ -2470,11 +2473,47 @@ def apply_1207(cn, report: dict | None = None) -> list[str]:
             rep["moves_deleted"] = cur.rowcount
             cn.commit()
             applied.append("migrate_1207:moves(%d)" % rep["moves_deleted"])
-        # 5. Schema: doing.evidence and its check (seat.doing_id stays: on hold, the owner 2026-11-13).
+        # 5. A tw run's card (on_type todo, on_id) rides in its tw_start meta.card; fill it where tw had not.
+        cur.execute(
+            "UPDATE transition t JOIN doing d ON d.id = t.activity_id"
+            " SET t.meta = JSON_SET(IFNULL(t.meta, JSON_OBJECT()), '$.card', d.on_id)"
+            " WHERE t.activity_type = 'doing' AND t.reason = 'tw_start' AND d.act = 'task'"
+            "   AND d.on_type = 'todo' AND d.on_id IS NOT NULL"
+            "   AND JSON_EXTRACT(IFNULL(t.meta, JSON_OBJECT()), '$.card') IS NULL"
+        )
+        rep["tw_cards_backfilled"] = cur.rowcount
+        # 6. Every row that is not a tw run (focus, clear, finish, and any move left): its watchers, its
+        # activity row when no transition names it (the connect pseudo-row activity('doing', desk_id) has
+        # its own connect transitions and stays, and so does one a tree node names: fk_tree_activity is
+        # RESTRICT), then the row. Labels on a deleted activity row go with it (fk_label_activity CASCADE).
+        if _column_exists(cur, "seat", "doing_id"):
+            cur.execute("UPDATE seat SET doing_id = NULL, updated = updated WHERE doing_id IS NOT NULL")
+        trail = ("EXISTS (SELECT 1 FROM transition t WHERE t.activity_type = 'doing' AND t.activity_id = d.id)")
+        cur.execute(f"SELECT COUNT(*) FROM doing d WHERE d.act <> 'task' AND {trail}")
+        rep["non_task_with_trail"] = int(cur.fetchone()[0])
+        cur.execute("DELETE w FROM watcher w JOIN doing d ON w.type = 'doing' AND w.id = d.id WHERE d.act <> 'task'")
+        free = (f"d.act <> 'task' AND NOT {trail}"
+                " AND NOT EXISTS (SELECT 1 FROM tree r WHERE r.type = 'doing' AND r.id = d.id)")
+        cur.execute(f"SELECT COUNT(*) FROM label l JOIN doing d ON l.type = 'doing' AND l.id = d.id WHERE {free}")
+        rep["non_task_labels_dropped"] = int(cur.fetchone()[0])
+        cur.execute(f"DELETE a FROM activity a JOIN doing d ON a.type = 'doing' AND a.id = d.id WHERE {free}")
+        cur.execute("DELETE FROM doing WHERE act <> 'task'")
+        rep["non_task_deleted"] = cur.rowcount
+        cn.commit()
+        applied.append("migrate_1207:non_task(%d)" % rep["non_task_deleted"])
+        # 7. Schema. doing.evidence and its check, then seat.doing_id, then the doing columns past the six.
         if _column_exists(cur, "doing", "evidence"):
             _drop_kind_checks(cur, "doing", "evidence")
             cur.execute("ALTER TABLE doing DROP COLUMN evidence")
             applied.append("migrate_1207:doing.evidence")
+        if _column_exists(cur, "seat", "doing_id"):
+            cur.execute(_alter_1207(cur, "seat", ["fk_seat_doing"], ["idx_doing"], ["doing_id"]))
+            applied.append("migrate_1207:seat.doing_id")
+        for col in ("on_type", "act", "waiting_type"):
+            _drop_kind_checks(cur, "doing", col)
+        cur.execute(_alter_1207(cur, "doing", ["fk_doing_peer"], ["idx_peer", "idx_on", "idx_id_desk"],
+                                ["on_type", "on_id", "waiting_type", "waiting_id", "waiting_why", "act", "peer_id"]))
+        applied.append("migrate_1207:doing.columns")
         cn.commit()
         return applied
     except Exception:

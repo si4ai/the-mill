@@ -48,13 +48,12 @@ BEGIN
   IF p_part = 'agents' THEN
     SELECT
       IFNULL(dsk.name, '') AS owner, IFNULL(dsk.type, '') AS owner_type,
-      -- 0.8.0: the desk's focus is seat.doing_id (a focus or clear row), never a move row.
-      IFNULL((SELECT g.text FROM doing g WHERE g.id = h.doing_id), '') AS doing,
+      -- Card 1207: how many doings (live tw runs) the desk is running; no focus text, no waiting_on.
+      (SELECT COUNT(*) FROM doing g WHERE g.desk_id = h.desk_id AND MILL_DOING_LIVE(g.id)) AS doing_n,
       IF(h.time_connect IS NOT NULL AND (h.time_disconnect IS NULL OR h.time_connect >= h.time_disconnect), 1, 0) AS alive,
       IFNULL(h.lan_ip, '') AS lan_ip,
       '' AS roster_id,
       '' AS role,
-      '' AS waiting_on,
       '' AS root,
       DATE_FORMAT(h.updated, '%Y-%m-%dT%H:%i:%s') AS heartbeat
     FROM seat h

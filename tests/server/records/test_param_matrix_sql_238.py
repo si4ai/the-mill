@@ -188,7 +188,7 @@ def world(cn, tmp_path_factory):
         ("c238-lbl", "label"),
     )
     for d in (ME, PEER):
-        here.upsert(cn, pc.P, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        here.upsert(cn, pc.P, d, "builder", token_hash=token_hash("tok-" + d))
     from agent_coord.server.records import score as rec_score
 
     # Card 1021: desks only read scores; seed the matrix base KPI for score reads.

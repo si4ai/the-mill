@@ -812,7 +812,7 @@ def _glance(agents: list[dict], mailbox: list[dict], needs: list[dict], window: 
                 "owner": owner,
                 "group_id": a.get("group_id") or a.get("project_id") or "",
                 "role": a.get("role") or "",
-                "doing": a.get("doing") or "",
+                "doing_n": int(a.get("doing_n") or 0),  # card 1207: live doings (tw runs)
                 "alive": alive,
                 "stale": stale,
                 "unread": 0,
@@ -1904,8 +1904,7 @@ def build_agents(
                 "alive": alive,
                 "stale": stale,
                 "heartbeat": iso6(hb),
-                "doing": r.get("doing") or "",
-                "waiting_on": "",
+                "doing_n": int(r.get("doing_n") or 0),  # card 1207: live doings, no focus text
                 "root": "",
             }
             lan = str(r.get("lan_ip") or "").strip()

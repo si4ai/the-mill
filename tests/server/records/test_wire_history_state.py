@@ -33,7 +33,7 @@ def seeded(cn):
     )
     rec_member.put(cn, "ws_proj", "ws_a")
     rec_member.put(cn, "ws_role", "ws_a", kind="roster")
-    rec_join.upsert(cn, "ws_proj", "ws_a", "", "9" * 64, "present")
+    rec_join.upsert(cn, "ws_proj", "ws_a", "", "9" * 64)
     rec_join.set_lan_ip(cn, "ws_a", LAN)
     live_mid = int(rec_mail.insert(cn, "ws_proj", "ws_a", "ws_b", "live letter")[0]["id"])
     gone_mid = int(rec_mail.insert(cn, "ws_proj", "ws_a", "ws_b", "gone letter")[0]["id"])

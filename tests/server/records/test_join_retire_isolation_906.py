@@ -166,7 +166,7 @@ def test_join_waiting_on_name_lock_sees_a_concurrent_retire(book):
         def do_join():
             try:
                 ready.set()
-                rec_join.upsert(joiner, ROSTER, DESK, "", digest, None)
+                rec_join.upsert(joiner, ROSTER, DESK, "", digest)
                 joiner.commit()
             except BaseException as e:  # noqa: BLE001
                 err.append(e)

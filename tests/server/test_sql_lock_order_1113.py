@@ -58,7 +58,7 @@ def test_fk_parents_come_from_the_schema() -> None:
     assert len(fks) == len(re.findall(r"FOREIGN\s+KEY", text, re.I))
     seat_children = {f.child for f in fks if f.parent == "seat"}
     assert {"todo", "doing", "activity", "mail", "mail_to", "watcher", "hold"} <= seat_children
-    assert {f.parent for f in fks} >= {"seat", "name", "activity", "mail", "doing", "score"}
+    assert {f.parent for f in fks} >= {"seat", "name", "activity", "mail", "score"}  # card 1207: no FK to doing
 
 
 def test_no_procedure_upgrades_a_shared_lock() -> None:

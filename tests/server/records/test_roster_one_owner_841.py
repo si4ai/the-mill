@@ -16,7 +16,7 @@ from agent_coord.install import migrate
 from agent_coord.server.records import todo as rec_todo
 from agent_coord.server.records.db import rows_done, scalar_done
 from tests.server.records.conftest import seed_names
-from tests.server.records.test_doing_flag_818 import World, _dispatch
+from tests.server.records.test_doing_only_tw_1207 import World, _dispatch
 
 pytestmark = pytest.mark.sql
 
@@ -33,7 +33,7 @@ def w(cn, tmp_path_factory):
 
     seed_names(cn, (R, "roster"), (OTHER, "roster"), ("the-mill", "roster"), (ME, "desk"), (PEER, "desk"))
     for d in (ME, PEER):
-        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     mp = pytest.MonkeyPatch()
     world = World(cn, tmp_path_factory.mktemp("d841"))
     mp.setenv("AGENT_COORD_MILL_HOME", str(tmp_path_factory.mktemp("d841home")))

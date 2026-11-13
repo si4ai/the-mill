@@ -388,7 +388,7 @@ def test_seeded_pov_rosters_list_member_desks(cn, monkeypatch) -> None:
     roster = "r1193-" + uuid4().hex[:6]
     desks = sorted("d1193-" + uuid4().hex[:6] for _ in range(2))
     for d in desks:
-        join.upsert(cn, roster, d, "", "b" * 64, "here")
+        join.upsert(cn, roster, d, "", "b" * 64)
     cn.commit()
     rows = _client(monkeypatch, cn).get("/api/pov?part=rosters").json()["rows"]
     mine = [r for r in rows if r["name"] == roster]
@@ -406,7 +406,7 @@ def test_seeded_room_scope_facts_name_senders_and_recipients(cn) -> None:
 
     a, b, c = ("d1193f-" + uuid4().hex[:6] for _ in range(3))
     for d in (a, b, c):
-        join.upsert(cn, "Office", d, "", "c" * 64, "here")
+        join.upsert(cn, "Office", d, "", "c" * 64)
     cn.commit()
     from agent_coord.server.records import mail as rec_mail
 

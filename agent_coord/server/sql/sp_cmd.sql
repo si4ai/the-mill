@@ -3,7 +3,7 @@
 -- where L1 has one; the rest are today-only and go away with the 0.8.0 schema.
 --
 -- Card guards run here, under the card's row lock, in the caller's transaction:
--- no START TRANSACTION / COMMIT (call() commits, request_tx owns a --doing run).
+-- no START TRANSACTION / COMMIT (call() commits, request_tx owns the run).
 -- A refusal SIGNALs 'card:<code>[:<arg>]' (MESSAGE_TEXT holds 128 characters);
 -- the server writes the desk's line for the code (rpc._card_refusal).
 -- Desk args are ids: the server passes MILL_DESK_ID(name) inside the same CALL.
@@ -290,12 +290,10 @@ BEGIN
           END IF;
         END IF;
       END IF;
+      -- Card 1207: the minutes of the live doings (tw runs) for this card (tw_start meta.card), not focus rows.
       SELECT IFNULL(SUM(TIMESTAMPDIFF(MINUTE, g.created, v_now)), 0) INTO v_doing
         FROM doing g
-       WHERE g.on_type = 'todo' AND g.on_id = p_card AND g.act = 'focus'
-         AND IFNULL(g.text, '') <> ''
-         AND mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) IS NULL
-         AND mill_doing_cleared(g.desk_id, g.id, g.created) IS NULL;
+       WHERE MILL_DOING_CARD(g.id) = p_card AND MILL_DOING_LIVE(g.id);
       IF IFNULL(v_doing, 0) = 0 THEN SET v_doing = NULL; END IF;
     ELSEIF p_step = 'done' THEN
       SET v_kind = 'shipped';

@@ -229,27 +229,25 @@ def test_join_desk_fk_restrict(cn) -> None:
 
 def test_join_reset_stamps_disconnect_keeps_row(cn) -> None:
     seed_names(cn, ("sj_proj", "roster"), ("sj_desk", "desk"))
-    jid = int(here.upsert(cn, "sj_proj", "sj_desk", "", "d" * 64, "busy")[0]["id"])
+    here.upsert(cn, "sj_proj", "sj_desk", "", "d" * 64)
     did = _desk_id(cn, "sj_desk")
     assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is None
     here.reset(cn, "sj_proj", "sj_desk")
     assert scalar(cn, "SELECT token_hash FROM seat WHERE desk_id=%s", (did,)) is None
     assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is not None
-    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
-    # --dead no longer prunes: the seat, its doing rows and their activity stay
+    # card 1207: neither the join nor the reset writes a doing row
+    assert scalar(cn, "SELECT COUNT(*) FROM doing WHERE desk_id=%s", (did,)) == 0
+    # --dead no longer prunes: the seat stays
     out = here.prune_dead(cn)
     assert out["pruned"] == 0 and out["dead"] >= 1
     assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
-    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
-    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
 
 def test_name_delete_with_seat_refused(cn) -> None:
     seed_names(cn, ("sjr_proj", "roster"), ("sjr_desk", "desk"))
-    jid = int(here.upsert(cn, "sjr_proj", "sjr_desk", "", "e" * 64, "")[0]["id"])
+    here.upsert(cn, "sjr_proj", "sjr_desk", "", "e" * 64)
     did = _desk_id(cn, "sjr_desk")
     with pytest.raises(Exception):
         _exec(cn, "DELETE FROM name WHERE id=%s", (did,))
-    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
     assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
 
 def test_name_hard_delete_refused_even_unreferenced(cn) -> None:

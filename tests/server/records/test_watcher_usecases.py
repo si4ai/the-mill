@@ -14,7 +14,7 @@ from tests.server.records.conftest import admin_desk
 def _sit(cn, who: str = "alice"):
     p = "unit"
     d = who
-    rec = here.upsert(cn, p, d, "builder", token_hash="a" * 64, doing="present")
+    rec = here.upsert(cn, p, d, "builder", token_hash="a" * 64)
     return p, d, rec
 
 def _watched(cn, typ: str, nid: int) -> list:
@@ -30,10 +30,18 @@ def test_w4_todo_watchers(cn) -> None:
     todo.update(cn, tid, alice, status="claimed", volunteer=alice)
     _watched(cn, "todo", tid)
 
-def test_w5_here_watchers(cn) -> None:
+def test_w5_join_writes_no_doing_or_doing_watcher(cn) -> None:
+    """Card 1207: a join writes no doing row (doings are tw runs), so nothing to watch."""
     p, alice, rec = _sit(cn)
-    hid = int(rec[0]["id"])
-    _watched(cn, "doing", hid)
+    did = int(rec[0]["desk_id"])
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM doing WHERE desk_id=%s", (did,))
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT COUNT(*) FROM watcher w JOIN doing d ON d.id = w.id WHERE w.type='doing' AND d.desk_id=%s", (did,))
+        assert cur.fetchone()[0] == 0
+    finally:
+        cur.close()
 
 def test_w7_hold_watchers(cn) -> None:
     p, alice, _ = _sit(cn)

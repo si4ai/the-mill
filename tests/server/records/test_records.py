@@ -93,20 +93,18 @@ def test_todo_kanban_status_select(cn) -> None:
     assert todo.get(cn, tid) == []
     assert _presence_row(cn, "todo", tid) is not None
 
-def test_doing_appends_a_row_per_entry(cn) -> None:
-    """#818: each doing is its own row; a pipe in the text is just text."""
+def test_join_writes_no_doing_row(cn) -> None:
+    """Card 1207: a join (or a re-join) writes no doing row; tw runs are the only doings."""
     from agent_coord.server.records.db import rows_done
 
-    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="present")
-    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="a | b")
+    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64)
+    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64)
     rows = rows_done(
         cn,
-        "SELECT g.text FROM doing g JOIN name n ON n.id = g.desk_id "
-        "WHERE n.type='desk' AND n.name=%s ORDER BY g.id",
+        "SELECT g.id FROM doing g JOIN name n ON n.id = g.desk_id WHERE n.type='desk' AND n.name=%s",
         ("stack",),
     )
-    # #818 PR B: the join placeholder writes no doing text.
-    assert [r["text"] for r in rows if r["text"]] == ["a | b"]
+    assert rows == []
 
 def test_hold_unique(cn) -> None:
     from agent_coord.server.records.db import scalar
@@ -287,7 +285,7 @@ def test_touch_bumps_the_seat_and_writes_no_entry(cn) -> None:
     """#635 / #818: a command that writes nothing else bumps the seat; no doing row."""
     from agent_coord.server.records.db import scalar
 
-    here.upsert(cn, "unit", "trail635", "", token_hash="c" * 64, doing="present")
+    here.upsert(cn, "unit", "trail635", "", token_hash="c" * 64)
     cn.cursor().execute(
         "UPDATE seat j JOIN name n ON n.id = j.desk_id SET "
         "j.updated = '2000-01-01' WHERE n.type='desk' AND n.name=%s",

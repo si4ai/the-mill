@@ -18,7 +18,7 @@ def _seat(cn, name: str) -> str:
     from agent_coord.client.tokens import token_hash
     from agent_coord.server.records import join as rec_join
 
-    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
+    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name))
     return name
 
 def _mk_card(cn, roster: str, asker: str, need: str, detail: str = "d") -> int:
@@ -81,7 +81,6 @@ def test_one_timeline_row_with_old_new_who_why(cn) -> None:
     assert "goal name" not in str(row["meta"] or "")
     desk_id = scalar_done(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", ("d926c",))
     assert int(row["desk_id"]) == int(desk_id)
-    assert not scalar_done(cn, "SELECT COUNT(*) FROM doing WHERE on_type='todo' AND on_id=%s AND act='rename'", (tid,))
     aliases = json.loads(scalar_done(cn, "SELECT JSON_EXTRACT(meta, '$.aliases') FROM todo WHERE id=%s", (tid,)) or "[]")
     assert "old-need-c" in json.dumps(aliases)
     act = scalar_done(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,))

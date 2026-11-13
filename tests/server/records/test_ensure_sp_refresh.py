@@ -104,7 +104,8 @@ def test_ensure_refreshes_name_watcher_callers(cn) -> None:
     for name in _STALE:
         assert not _name_watcher_calls(_body(cn, name)), name
     up = _body(cn, "mill_join_upsert").lower().replace(" ", "")
-    assert "mill_watcher_put('doing'" in up
+    # card 1207: the join writes no doing, so it puts no doing watcher; the tip body is in place.
+    assert "mill_watcher_put('doing'" not in up and "v_deskasdesk_id" in up
     for f in ("sp_name.sql", "sp_member.sql", "sp_join.sql"):
         assert f in out["applied"], out["applied"]
 

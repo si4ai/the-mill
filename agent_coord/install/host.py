@@ -4361,11 +4361,8 @@ def _wall_http(
         not_session = True
         try:
             with opener(u.rstrip("/") + "/api/v1/agents?project=Office", timeout=5, context=ctx) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            for rec in data.get("agents") or []:
-                if (rec.get("doing") or "") == "standup-wall":
-                    not_session = False
-                    break
+                json.loads(resp.read().decode("utf-8"))
+            # Card 1207: no desk reports a focus text any more, so a "standup-wall" session can't show here.
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, TypeError, ValueError) as e:
             return {
                 "ok": True,

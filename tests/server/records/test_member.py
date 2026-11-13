@@ -84,8 +84,8 @@ def test_list_rosters_counts_live_desks_and_skips_retired(cn) -> None:
     keep, drop = ("d1204a-" + tag, "d1204b-" + tag)
     extra = "d1204c-" + tag
     for d in (keep, drop):
-        join.upsert(cn, live_roster, d, "", "b" * 64, "here")
-    join.upsert(cn, retired_roster, extra, "", "b" * 64, "here")
+        join.upsert(cn, live_roster, d, "", "b" * 64)
+    join.upsert(cn, retired_roster, extra, "", "b" * 64)
     rec_name.host_put(cn, empty_roster, "roster")
     rec_name.retire(cn, drop, "desk", by=admin_desk(cn))
     rec_name.retire(cn, retired_roster, "roster", by=admin_desk(cn))

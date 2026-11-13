@@ -312,7 +312,6 @@ def test_mail_thread_help_names_branch_and_room(capsys):
     [
         ("create", {"project": "", "need": "n"}, "project required"),
         ("create", {"project": "p" * 65, "need": "n"}, "no such roster"),
-        ("create", {"project": "p", "need": "n", "doing": "d" * 513}, "--doing must be"),
         ("todo", {"project": "p" * 65}, "no such roster"),
     ],
 )
@@ -323,15 +322,9 @@ def test_todo_project_and_doing_guard_243(monkeypatch, tmp_path, cmd, extra, mat
         body_from_args(args)
 
 
-@pytest.mark.parametrize(
-    "cmd,extra,match",
-    [
-        ("hold", {"project": "p", "resource": "", "doing": "d"}, "--doing needs a resource"),
-        ("hold", {"project": "p", "resource": "", "peek": True, "doing": "d"}, "--doing needs a resource"),
-        ("hold", {"project": "p", "resource": "r", "doing": "d" * 513}, "--doing must be"),
-    ],
-)
-def test_hold_drop_status_guard_244(monkeypatch, tmp_path, cmd, extra, match):
+@pytest.mark.parametrize("extra", [{"resource": ""}, {"resource": "", "peek": True}, {"resource": "r"}])
+def test_hold_drop_status_guard_244(monkeypatch, tmp_path, extra):
+    # Card 1207: hold carries no doing; a stray doing attribute never reaches the body.
     _active(monkeypatch, tmp_path, "alice")
-    with pytest.raises(CoordError, match=match):
-        body_from_args(SimpleNamespace(cmd=cmd, **extra))
+    body = body_from_args(SimpleNamespace(cmd="hold", project="p", doing="d" * 513, **extra))
+    assert "doing" not in body
