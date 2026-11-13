@@ -12,7 +12,7 @@
   <script src="/shell-early.js?v=wow283" data-wall-early="all"></script>
   <link rel="stylesheet" href="/lib/theme.css?v=wow165">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
-  <link rel="stylesheet" href="/shell.css?v=wow270">
+  <link rel="stylesheet" href="/shell.css?v=wow345">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
   <link id="board-css" rel="stylesheet" href="/board.css?v=wow346" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
@@ -468,6 +468,12 @@
           </div>
           <div id="admin-mint-note" hidden></div>
           <div id="admin-keys-body" class="body"><div class="idle">Loading keys...</div></div>
+        </section>
+
+        <section class="admin-panel" id="admin-stations-panel" aria-label="Every station">
+          <h3>STATIONS</h3>
+          <p class="note">Every station, live first. The left rail shows only the last 7 days.</p>
+          <div id="admin-stations-body" class="body"><div class="idle">Loading stations...</div></div>
         </section>
 
         <section class="admin-panel admin-network" id="admin-network-panel" aria-label="Network options">

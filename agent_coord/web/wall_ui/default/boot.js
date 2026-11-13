@@ -6485,6 +6485,22 @@
       host.dataset.sig = html;
       host.innerHTML = html;
     }
+    /* Card 1191: Admin's full station list (every station, never-connected included). */
+    function paintAdminStations(rows, now, mine) {
+      const host = document.getElementById("admin-stations-body");
+      if (!host) return;
+      const all = wallStations(rows, now);
+      const html = all.length
+        ? `<table class="admin-stations" data-table="admin-stations"><thead><tr><th>Station</th><th>Last connected</th><th>Desks</th></tr></thead><tbody>` +
+          all.map(g => {
+            const at = g.last == null ? "" : new Date(g.last).toLocaleString();
+            const when = g.live ? "connected now" : (g.last == null ? "never" : g.ago);
+            const here = g.ip && g.ip === mine ? " (this screen)" : "";
+            return `<tr class="${g.live ? "live" : (g.last == null ? "never" : "")}"><td>${esc(g.ip || "-")}${esc(here)}</td><td title="${esc(at)}">${esc(when)}</td><td>${esc(g.desks.join(", "))}</td></tr>`;
+          }).join("") + `</tbody></table>`
+        : `<div class="idle">No stations yet.</div>`;
+      paintRailBook(host, html);
+    }
     /* Last rail read (ms). Rail counts change slowly; a read this fresh is reused. */
     let _railBookAt = 0;
     const WALL_RAIL_FRESH_MS = 5000;
@@ -6525,25 +6541,21 @@
       };
       function paintDesks(desks) {
         const mine = String((desks && desks.mine) || "").trim();
-        window.__railDeskRows = (desks && desks.rows) || [];
-        const groups = [];
-        ((desks && desks.rows) || []).forEach(row => {
-          const ip = String(row.lan_ip || "").trim();
-          let g = groups[groups.length - 1];
-          if (!g || g.ip !== ip) {
-            g = { ip: ip, n: 0, live: false };
-            groups.push(g);
-          }
-          g.n += 1;
-          if (row.connected) g.live = true;
-        });
+        const rows = (desks && desks.rows) || [];
+        window.__railDeskRows = rows;
+        /* Card 1191: the rail shows stations live or seen in the last 7 days, each with how
+         * long since its last connection; Admin lists every station. */
+        const now = Date.now();
+        const groups = wallRailStations(rows, now);
         paintRailBook(document.getElementById("rail-desks"), groups.length
           ? groups.map(g => {
               const mark = g.live ? `<span class="live" title="connected"></span>` : `<span class="off" title="away"></span>`;
               const my = g.ip && g.ip === mine ? `<span class="my" title="This screen"></span>` : "";
-              return `<button type="button" class="rail-row" data-kind="lan" data-ico="station" data-id="${esc(g.ip)}" title="${esc(g.ip || "station")}">${mark}<span class="nm">${esc(g.ip || "-")}</span>${my}<span class="n">${g.n}</span></button>`;
+              const when = g.live ? "connected now" : "last connected " + g.ago;
+              return `<button type="button" class="rail-row" data-kind="lan" data-ico="station" data-id="${esc(g.ip)}" title="${esc((g.ip || "station") + " \u00b7 " + when)}">${mark}<span class="nm">${esc(g.ip || "-")}</span>${my}<span class="ago">${esc(g.ago)}</span><span class="n">${g.n}</span></button>`;
             }).join("")
-          : `<div class="rail-empty">none</div>`);
+          : `<div class="rail-empty">none in ${WALL_STATION_RAIL_DAYS} days</div>`);
+        paintAdminStations(rows, now, mine);
         if (typeof wallPerfFirst === "function") wallPerfFirst("rail_desks");
       }
       const desksP = part("desks").then(function (desks) {

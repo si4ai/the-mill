@@ -285,7 +285,69 @@
     return "";
   }
 
+
+  /* Card 1191: stations from GET /api/pov?part=desks rows. A station is a lan_ip; its last
+   * connection is the latest rows[].last_connected (ISO UTC, null = never). The rail shows
+   * live stations and those seen inside windowDays; Admin lists every station. */
+  var STATION_RAIL_DAYS = 7;
+  function wallIsoMs(raw) {
+    if (raw == null || raw === "") return null;
+    var t = Date.parse(String(raw));
+    return Number.isFinite(t) ? t : null;
+  }
+  function wallAgoShort(ms) {
+    /* "now", "5m ago", "3h ago", "2d ago"; "" when unknown. */
+    if (ms == null || !Number.isFinite(ms)) return "";
+    var m = Math.floor(Math.max(0, ms) / 60000);
+    if (m < 1) return "now";
+    if (m < 60) return m + "m ago";
+    var h = Math.floor(m / 60);
+    if (h < 48) return h + "h ago";
+    return Math.floor(h / 24) + "d ago";
+  }
+  function wallStations(rows, nowMs) {
+    /* Every station, live first, then most recent connection, then never-seen by name. */
+    var by = {};
+    var order = [];
+    (rows || []).forEach(function (row) {
+      if (!row) return;
+      var ip = String(row.lan_ip || "").trim();
+      var st = by[ip];
+      if (!st) {
+        st = by[ip] = { ip: ip, n: 0, live: false, last: null, desks: [] };
+        order.push(st);
+      }
+      st.n += 1;
+      if (row.connected) st.live = true;
+      if (row.name) st.desks.push(String(row.name));
+      var t = wallIsoMs(row.last_connected);
+      if (t != null && (st.last == null || t > st.last)) st.last = t;
+    });
+    order.forEach(function (st) {
+      st.ago = st.live ? "live" : (st.last == null ? "never" : wallAgoShort(nowMs - st.last));
+      st.desks.sort(function (a, b) { return a.localeCompare(b); });
+    });
+    return order.sort(function (a, b) {
+      if (a.live !== b.live) return a.live ? -1 : 1;
+      var al = a.last == null ? -Infinity : a.last;
+      var bl = b.last == null ? -Infinity : b.last;
+      if (al !== bl) return bl - al;
+      return a.ip.localeCompare(b.ip);
+    });
+  }
+  function wallRailStations(rows, nowMs, days) {
+    /* The rail's stations: live, or last connected inside days (default 7). */
+    var win = (days == null ? STATION_RAIL_DAYS : days) * 86400000;
+    return wallStations(rows, nowMs).filter(function (st) {
+      return st.live || (st.last != null && nowMs - st.last <= win);
+    });
+  }
+
   global.wallPaintThrowSafe = paintThrowSafe;
+  global.wallAgoShort = wallAgoShort;
+  global.wallStations = wallStations;
+  global.wallRailStations = wallRailStations;
+  global.WALL_STATION_RAIL_DAYS = STATION_RAIL_DAYS;
   global.WALL_ACT_LABELS = WALL_ACT_LABELS;
   global.wallActLabel = wallActLabel;
   global.wallActIsFocus = wallActIsFocus;

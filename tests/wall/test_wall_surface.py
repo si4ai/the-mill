@@ -50,7 +50,7 @@ HTML_PINS = {
     "board.css": "wow346",
     "lazy.js": "wow346",
     "desks-rows.js": "wow346",
-    "shell.css": "wow270",
+    "shell.css": "wow345",
     "shell-early.js": "wow283",
     "theme.css": "wow165",
     "welcome.css": "wow282",

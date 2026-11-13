@@ -99,6 +99,13 @@
       margin-left: auto; color: var(--dim); font-size: 10px;
       border: 1px solid var(--edge); border-radius: 999px; padding: 0 .35rem;
     }
+    .rail-book .rail-row .ago { margin-left: auto; color: var(--dim); font-size: 10px; white-space: nowrap; }
+    .rail-book .rail-row .ago + .n { margin-left: 0; }
+    body.rail-narrow .rail-book .ago { display: none; }
+    .admin-stations { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .admin-stations th, .admin-stations td { text-align: left; padding: .2rem .4rem; border-bottom: 1px solid var(--edge); }
+    .admin-stations th { color: var(--dim); font-weight: 400; }
+    .admin-stations tr.never td { color: var(--dim); }
     .rail-book .live, .rail-book .off {
       width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px;
     }
@@ -508,13 +515,6 @@
       display: flex; flex-direction: column;
       border: 1px solid var(--edge); border-radius: 2px;
     }
-    .pane.on {
-      display: flex; flex-direction: column; gap: 8px; min-height: 0;
-      flex: 1 1 auto; overflow: hidden;
-      max-width: 800px; width: 100%;
-      margin-left: auto; margin-right: auto;
-    }
-    /* Nest shares Board/List centered 800px column (no wider override). */
     .pane-body > #sec-here,
     .pane-body > .session-wire,
     .pane-body > #sec-watch,
@@ -543,9 +543,6 @@
       border-radius: 2px;
     }
     /* SCORE: charts lead the middle pane. Filed rows follow in the same scroll. */
-    #pane-score.on {
-      max-width: none; width: 100%; margin-left: 0; margin-right: 0;
-    }
     #pane-score .pane-body {
       display: grid;
       grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
@@ -954,7 +951,7 @@
       padding: .12rem .35rem;
     }
     .issue-actions button:hover { color: var(--cyan); border-color: var(--cyan); }
-    #guide { max-width: 52rem; }
+    #guide { max-width: 48rem; }
     #cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     @media (max-width: 720px) {
       #pane-stations.on { grid-template-columns: 1fr !important; }
@@ -1061,7 +1058,7 @@
     }
     .wire-proto button.on { color: var(--amber); border-color: var(--amber); }
     .card .prog { color: var(--amber); font-weight: 600; }
-    .idle { color: var(--dim); padding: 1.2rem .2rem; }
+    .idle { color: var(--dim); padding: 1.2rem .2rem; max-width: 48rem; }
     .fading { opacity: 0.4; }
     .station { margin-bottom: 1rem; }
     .station h3 { margin: 0 0 .35rem; font-size: 12px; color: var(--cyan); letter-spacing: .08em; }
