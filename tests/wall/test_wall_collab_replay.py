@@ -1082,7 +1082,10 @@ const data = {{
   ]}},
   events: {{Office: [{{id: 9, kind: "wake", at: iso(t0), owner: "System", roster_id: "Office"}}]}},
   labels: {{Office: {{rows: [], checks: {{}}}}}}, trees: {{Office: []}}, rooms: {{Office: []}}, moves: {{}},
-  trail: {{builder: [{{id: 1, desk: "builder", at: iso(t0), doing: "leftover work", on: "todo-1", act: "focus"}}]}}
+  trail: {{builder: [
+    {{id: 1, desk: "builder", at: iso(t0), doing: "leftover work", on: "todo-1", act: "focus"}},
+    {{id: 2, desk: "builder", at: iso(now - 3600000), doing: "later work", on: "todo-2", act: "focus"}}
+  ]}}
 }};
 const b = R.base(data, {{rosters: ["Office"], range: "7d"}}, now);
 const rep = R.collabReplay(b, {{count: 300}});
@@ -1095,7 +1098,7 @@ const skip = (scale && scale.breaks || []).reduce((s, br) => s + (br.skip || 0),
 console.log(JSON.stringify({{
   since: rep.since, until: rep.until, t0: t0, tMail0: tMail0, tMail1: tMail1, seen: seen,
   grace: R.REPLAY_DOING_GRACE_MS,
-  ivEnd: iv[0] && iv[0].end, ivOpen: iv[0] && iv[0].open, ivHow: iv[0] && iv[0].how,
+  nIv: iv.length, ivEnd: iv[0] && iv[0].end, ivOpen: iv[0] && iv[0].open, ivHow: iv[0] && iv[0].how, laterStart: iv[1] && iv[1].start,
   breaks: (scale && scale.breaks || []).length, skip: skip,
   earlyId: early && early.id, lateId: late && late.id,
   earlyPos: early && early.pos, latePos: late && late.pos,

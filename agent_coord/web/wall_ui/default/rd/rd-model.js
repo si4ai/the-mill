@@ -1972,8 +1972,11 @@
   }
   function replayDoingSpanEnd(rep, row, nextAt, desk) {
     var ev = replayDoingEnd(row, nextAt, (rep.doingClose || {})[desk]);
-    if (ev.how === "stale" && ev.end != null) {
-      ev = { end: replayDoingLastRun(rep, desk, row.at, nextAt, ev.end), open: false, how: "stale" };
+    /* A later focus row would otherwise stretch the earlier doing all
+     * the way to that newer start, even across days of quiet time. */
+    if (ev.end != null && (ev.how === "stale" || ev.how === "newer") &&
+        Object.prototype.hasOwnProperty.call(rep.doingClose || {}, desk)) {
+      ev = { end: replayDoingLastRun(rep, desk, row.at, nextAt, ev.end), open: false, how: ev.how };
     }
     return ev;
   }
