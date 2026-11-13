@@ -83,6 +83,14 @@ console.log(JSON.stringify({
   trace: (() => { const t = R.replayTrace(rep, 40); return {n: t.n, sum: t.total.reduce((a, c) => a + c, 0), peak: t.peak,
     kinds: Object.fromEntries(Object.entries(t.kinds).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])),
     quiet: t.total.filter(c => c === 0).length}; })(),
+  lanes: rep.lanes.map(l => l.id),
+  flows: Object.fromEntries(rep.rows.filter(r => r.flows.length).map(r => [r.key, r.flows.map(f => [f.from, f.to, f.pickAt == null ? null : f.pickAt - r.at])])),
+  pendingNow: Object.fromEntries(Object.entries(R.replayPending(rep, now)).map(([k, v]) => [k, v.map(x => x.key)])),
+  locksNow: R.replayLocksAt(rep, now),
+  locksPast: R.replayLocksAt(rep, Date.parse('2026-11-13T04:29:00Z')),
+  layout: R.replayLayout(rep, now), layout2: R.replayLayout(rep, now),
+  laneTrace: (() => { const t = R.replayLaneTrace(rep, 30); return Object.fromEntries(Object.entries(t.by).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])); })(),
+  monitor: V.replay(rep, [], {speed: 1, view: 'activity'}),
   shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
 }));
 """
@@ -161,7 +169,7 @@ def test_desk_state_at_the_playhead_comes_from_its_recorded_changes():
 def test_collab_has_no_between_ring_view():
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert '{ key: "map", label: "Between" }' not in app
-    assert '{ key: "replay", label: "Replay" }' in app
+    assert '{ key: "desks", label: "Desks" }' in app
     css = (RD / "rd.css").read_text(encoding="utf-8")
     assert "prefers-reduced-motion" in css
 
@@ -203,3 +211,74 @@ def test_the_timeline_is_a_heart_monitor_trace_that_scrubs():
     assert re.search(r'<rect class="k-(mail|todo|hold|wake|doing|score)"', shell), "a lane coloured by kind"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert "pointerdown" in app and "[data-rp-trace]" in app and "ArrowLeft" in app
+
+
+def test_stage_lanes_follow_the_pick_with_the_cloud_pinned_last():
+    got = run()
+    assert got["lanes"][0] == "@office", "rows no desk sent (a wake) get the office lane"
+    assert got["lanes"][-1] == "@out", "outside sits at the end"
+    assert {"builder", "validator", "gardener"} <= set(got["lanes"])
+    shell = got["shell"]
+    for lane in got["lanes"]:
+        assert f'data-lane="{lane}"' in shell and f'data-rp-tray="{lane}"' in shell
+    rain = shell[shell.index('data-rp-rain="1">') + 17:shell.index('<ol class="rd-rp-list"')]
+    assert re.sub(r"<[^>]+>", "", rain).strip() == "", "nothing but the kind icons ever falls: the columns start empty"
+
+
+def test_pickup_is_read_from_the_records_per_kind():
+    fl = run()["flows"]
+    assert fl["mail-100"] == [["builder", "validator", 0]], "read with no later row: picked up on arrival"
+    assert fl["mail-101"] == [["builder", "@out", None]], "unread: waits in the receiver's column"
+    assert fl["move-3"] == [["builder", "validator", None]], "shipped for the creator: waits for its next move"
+    assert fl["focus-60"] == [["gardener", "validator", None]], "a contested promise waits until the waiter takes it"
+    got = run()
+    assert "mail-101~0" in got["pendingNow"]["@out"] and "move-3~0" in got["pendingNow"]["validator"]
+    assert any(x["wait"] and x["item"] == "hold-3" for x in got["locksNow"]["validator"])
+    assert any(not x["wait"] and x["text"] == "docs-lock" for x in got["locksNow"]["gardener"]), "at now the holds table says who holds"
+    assert any(x["wait"] for x in got["locksPast"]["validator"])
+
+
+def test_gravity_pulls_talking_desks_together_and_is_deterministic():
+    got = run()
+    lay = got["layout"]
+    assert lay == got["layout2"]
+    assert lay["@out"] == max(lay.values()), "the cloud stays pinned at the right end"
+    xs = sorted(lay.values())
+    n = len(xs)
+    assert all(b - a >= 0.5 / n - 1e-3 for a, b in zip(xs, xs[1:])), "pills never closer than the spacing floor"
+    assert abs(lay["builder"] - lay["validator"]) < abs(lay["builder"] - lay["@office"]), "the pair that talks sits closer"
+
+
+def test_activity_subtab_is_the_same_replay_one_trace_per_desk():
+    got = run()
+    mon = got["monitor"]
+    assert mon.count('data-rp-mlane="') == len(got["lanes"])
+    assert [m for m in re.findall(r'data-rp-mlane="([^"]+)"', mon)] == got["lanes"], "same order as the stage"
+    assert 'data-rp-lanes=' not in mon and 'data-rp-subtab="activity"' in mon, "Activity has no stage"
+    assert 'data-rp-subtab="desks"' in got["shell"] and 'data-rp-mlane=' not in got["shell"], "Desks has no per-desk lines"
+    assert mon.count('data-rp-trace="1"') == len(got["lanes"]) + 1, "every lane scrubs, plus the total in the bar"
+    assert got["laneTrace"]["builder"] >= 4 and got["laneTrace"]["validator"] >= 2
+    assert mon.count('data-rp-trace="1"') == got["shell"].count('data-rp-trace="1"') + len(got["lanes"]), "same controls row, one clock"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert '{ key: "desks", label: "Desks" }, { key: "activity", label: "Activity" }' in app, "two subtabs"
+    assert '"rd-collab-subtab"' in app, "the subtab is remembered"
+    assert "Replay" not in re.findall(r'label: "(\w+)"', app) and "Timeline" not in re.findall(r'label: "(\w+)"', app)
+
+
+def test_stage_motion_is_transform_and_opacity_only():
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    body = app[app.index("function dropRow"):app.index("window.addEventListener(\"resize\"")]
+    for frame in re.findall(r"\{ (?:transform|opacity)[^}]*\}", body):
+        keys = set(re.findall(r"(\w+):", frame))
+        assert keys <= {"transform", "opacity", "offset"}, frame
+    assert "RP_LIVE" in app and "moving()" in app
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "transition: transform 1.2s" in css
+
+
+def test_density_trace_sits_on_top_of_both_subtabs():
+    got = run()
+    for html, body in ((got["shell"], 'data-rp-lanes='), (got["monitor"], 'data-rp-mlane=')):
+        top = html.index('<div class="rd-rp-top">')
+        assert top < html.index(body) < html.index('class="rd-rp-bar"'), "density on top, the subtab under it, controls last"
+        assert html.index('data-rp-trace="1" role="slider" tabindex="0"') > top

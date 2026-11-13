@@ -1068,10 +1068,13 @@
     var want = REPLAY_WINDOWS[opts.window] ? opts.window : "auto";
     var win = replayWindow(all, b.now, want);
     var since = b.now - REPLAY_WINDOWS[win];
+    var pick = pickIndex(b);
     var rows = all.filter(function (e) { return e.at >= since && e.at <= b.now + MIN; }).map(function (e) {
       return { key: e.key, item: e.item, at: e.at, kind: e.kind, act: e.act, actor: e.actor, dir: e.dir || "out", parts: sentence(b, e),
-        outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null };
+        outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null,
+        lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "" };
     });
+    var lanes = replayLanes(b, rows);
     var known = !!(b.letters || b.data.events);
     var counts = {};
     REPLAY_ORDER.forEach(function (w) { var s0 = b.now - REPLAY_WINDOWS[w]; counts[w] = all.filter(function (e) { return e.at >= s0; }).length; });
@@ -1083,7 +1086,201 @@
         return { at: utc(r.at), state: w ? "waiting" : "working", by: str(r.ended_by), end: utc(r.ended_at) };
       }).filter(function (x) { return x.at != null; }).sort(function (x, y) { return x.at - y.at; });
     });
-    return { known: known, want: want, window: win, since: since, until: b.now, ms: REPLAY_WINDOWS[win], rows: rows, counts: counts, states: states };
+    var heldNow = {};
+    eachRoster(b.data.holds, b.scope.rosters, function (list) {
+      (list || []).forEach(function (l) { if (l && str(l.owner)) (heldNow[laneOf(b, l.owner)] = heldNow[laneOf(b, l.owner)] || []).push({ item: "hold-" + l.id, text: str(l.resource) }); });
+    });
+    return { known: known, want: want, window: win, since: since, until: b.now, ms: REPLAY_WINDOWS[win], rows: rows, counts: counts, states: states,
+      lanes: lanes, heldNow: heldNow };
+  }
+  /* ---- The stage: one column per desk, the activity drops from its desk ----
+   * A lane is a focused desk (its name), the person, the office (rows no desk sent, like a wake),
+   * or "outside" (every desk off the pick, one cloud). */
+  function laneOf(b, name) {
+    var x = party(b, name);
+    if (!x) return "@office";
+    return x.t === "desk" ? x.name : x.t === "human" ? "@human" : x.t === "cloud" ? "@out" : "@office";
+  }
+  function replayLanes(b, rows) {
+    var used = {}, outside = {};
+    rows.forEach(function (r) {
+      used[r.lane] = 1;
+      r.flows.forEach(function (f) { used[f.to] = 1; used[f.from] = 1; });
+    });
+    (b.data.trail ? Object.keys(b.data.trail) : []).forEach(function (n) { if (b.member(n)) used[n] = 1; });
+    b.desks.forEach(function (d) { if (b.member(d.name)) used[d.name] = 1; });
+    rows.forEach(function (r) { (r.parts || []).forEach(function (p) { if (p.t === "cloud") (p.names || [p.name]).forEach(function (n) { if (n) outside[n] = 1; }); }); });
+    var desks = Object.keys(used).filter(function (k) { return k.charAt(0) !== "@"; }).sort(function (x, y) { return x.toLowerCase() < y.toLowerCase() ? -1 : 1; });
+    var out = [];
+    if (used["@office"]) out.push({ id: "@office", t: "office", name: "office" });
+    if (used["@human"]) out.push({ id: "@human", t: "human", name: "you" });
+    desks.forEach(function (n) { var d = b.byName[n]; out.push({ id: n, t: "desk", name: n, state: d ? d.state : "disconnected" }); });
+    if (used["@out"]) out.push({ id: "@out", t: "cloud", name: "outside", names: Object.keys(outside).sort() });
+    return out;
+  }
+  /* What each pickup is read from: a desk's focus rows (on=ITEM), the move rows of a card or a
+   * promise, and the letters of each thread. */
+  function pickIndex(b) {
+    var focus = {}, moves = {}, replies = {};
+    Object.keys(b.data.trail || {}).forEach(function (desk) {
+      (b.data.trail[desk] || []).forEach(function (r) {
+        if (!r || !str(r.on)) return;
+        var k = (str(r.desk) || desk) + "|" + str(r.on);
+        (focus[k] = focus[k] || []).push(utc(r.at));
+      });
+    });
+    Object.keys(b.data.moves || {}).forEach(function (key) {
+      moves[key] = (b.data.moves[key] || []).filter(Boolean).map(function (r) { return { at: utc(r.at), desk: str(r.desk), act: str(r.act) }; })
+        .filter(function (r) { return r.at != null; }).sort(function (x, y) { return x.at - y.at; });
+    });
+    (b.letters || []).forEach(function (m) { (replies[m.root] = replies[m.root] || []).push({ at: m.at, from: m.from }); });
+    return { focus: focus, moves: moves, replies: replies };
+  }
+  function firstAfter(list, at, ok) {
+    var hit = null;
+    (list || []).forEach(function (x) { var t = x && x.at != null ? x.at : x; if (t != null && t >= at && (!ok || ok(x)) && (hit == null || t < hit)) hit = t; });
+    return hit;
+  }
+  /* The flows of one row: who it travels from and to, and when the receiver picked it up
+   * (null: not yet, so it waits in the receiver's column).
+   *   mail: the recipient's first focus row on the letter, or its first letter in the thread
+   *         after it; read with no such row: picked up on arrival.
+   *   todo: a claim is taken on the spot (from the desk that let it go); a hand-off (ship, done,
+   *         assign, back) waits for the receiver's next move on the card.
+   *   hold: a desk waiting on a promise another desk holds waits until it takes the hold. */
+  function flowsOf(b, e, ix) {
+    var from = laneOf(b, e.actor), out = [];
+    if (e.kind === "mail") {
+      var m = b.letters && b.letters.byId ? b.letters.byId[Number(String(e.item).replace(/^mail-/, ""))] : null;
+      e.peers.forEach(function (p) {
+        var to = laneOf(b, p);
+        if (to === from) return;
+        var at = firstAfter(ix.focus[p + "|" + e.item], e.at);
+        var rep = m ? firstAfter(ix.replies[m.root], e.at + 1, function (x) { return x.from === p; }) : null;
+        if (rep != null && (at == null || rep < at)) at = rep;
+        if (at == null && e.read && e.read.indexOf(p) >= 0) at = e.at;
+        out.push({ from: from, to: to, desk: p, pickAt: at });
+      });
+    } else if (e.kind === "todo" && e.peers.length) {
+      e.peers.forEach(function (p) {
+        var lp = laneOf(b, p);
+        if (lp === from) return;
+        if (e.dir === "in") { out.push({ from: lp, to: from, desk: e.actor, pickAt: e.at }); return; }
+        out.push({ from: from, to: lp, desk: p, pickAt: firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === p; }) });
+      });
+    } else if (e.kind === "hold" && e.act === "wait" && e.peers.length) {
+      var lh = laneOf(b, e.peers[0]);
+      if (lh !== from) out.push({ from: lh, to: from, desk: e.actor, pickAt: firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === e.actor && x.act === "hold"; }) });
+    }
+    return out;
+  }
+  /* What waits in each lane at t: flows that arrived and are not picked up yet. */
+  function replayPending(rep, t) {
+    var out = {};
+    rep.rows.forEach(function (r) {
+      if (r.at > t) return;
+      r.flows.forEach(function (f, i) {
+        if (f.pickAt != null && f.pickAt <= t) return;
+        (out[f.to] = out[f.to] || []).push({ key: r.key + "~" + i, kind: r.kind, row: r, flow: f });
+      });
+    });
+    return out;
+  }
+  /* The locks on each lane at t: promises held (from the move rows; at now, the holds table) and
+   * promises waited on (a faded lock) until the waiter takes it. */
+  function replayLocksAt(rep, t) {
+    if (t >= rep.until) {
+      var now = {};
+      Object.keys(rep.heldNow || {}).forEach(function (l) { now[l] = rep.heldNow[l].map(function (x) { return { item: x.item, text: x.text, wait: false }; }); });
+      replayPendingHolds(rep, t, now);
+      return now;
+    }
+    var held = {};
+    rep.rows.forEach(function (r) {
+      if (r.at > t || r.kind !== "hold") return;
+      if (r.act === "hold") { Object.keys(held).forEach(function (l) { delete held[l][r.item]; }); (held[r.lane] = held[r.lane] || {})[r.item] = r.text; }
+      if (r.act === "drop" && held[r.lane]) delete held[r.lane][r.item];
+    });
+    var out = {};
+    Object.keys(held).forEach(function (l) { out[l] = Object.keys(held[l]).map(function (k) { return { item: k, text: held[l][k], wait: false }; }); });
+    replayPendingHolds(rep, t, out);
+    return out;
+  }
+  function replayPendingHolds(rep, t, out) {
+    rep.rows.forEach(function (r) {
+      if (r.at > t || r.kind !== "hold" || r.act !== "wait") return;
+      var f = r.flows[0], until = f ? f.pickAt : null;
+      if (until != null && until <= t) return;
+      var l = out[r.lane] = out[r.lane] || [];
+      if (!l.some(function (x) { return x.item === r.item; })) l.push({ item: r.item, text: r.text, wait: true });
+    });
+  }
+  /* ---- Gravity: where each lane's pill sits on the stage at t, as a fraction of its width ----
+   * Every row between two lanes (a letter, a card handed off, a contested promise) pulls the pair
+   * together; the pull fades with a half-life of a sixth of the window, so desks that stop talking
+   * drift apart again. Two passes, both 1D: the order (each lane moves to the pull-weighted mean of
+   * its partners' places, then the lanes are re-ranked, a few rounds), then the gaps (a pair that
+   * pulls hard sits close, a pair that does not sits a full share apart, never closer than
+   * REPLAY_FLOOR of a share). Outside stays pinned at the right end. Same t, same layout. */
+  var REPLAY_FLOOR = 0.5, GRAVITY_ROUNDS = 12;
+  function replayLayout(rep, t) {
+    var lanes = rep.lanes, n = lanes.length, ix = {}, w = [], i, j;
+    if (!n) return {};
+    lanes.forEach(function (l, k) { ix[l.id] = k; w.push(lanes.map(function () { return 0; })); });
+    var half = Math.max(1, rep.ms / 6), maxw = 0;
+    rep.rows.forEach(function (r) {
+      if (r.at > t) return;
+      var k = Math.pow(0.5, (t - r.at) / half);
+      r.flows.forEach(function (f) {
+        var a = ix[f.from], z = ix[f.to];
+        if (a == null || z == null || a === z) return;
+        w[a][z] += k; w[z][a] += k;
+        if (w[a][z] > maxw) maxw = w[a][z];
+      });
+    });
+    var pin = ix["@out"], free = [];
+    for (i = 0; i < n; i++) if (i !== pin) free.push(i);
+    var rank = {};
+    free.forEach(function (k, r) { rank[k] = r; });
+    if (pin != null) rank[pin] = free.length;
+    for (var round = 0; round < GRAVITY_ROUNDS && maxw > 0; round++) {
+      var want = {};
+      free.forEach(function (k) {
+        var sw = 0, sp = 0;
+        for (j = 0; j < n; j++) if (w[k][j] > 0) { var q = w[k][j] / maxw; sw += q; sp += q * rank[j]; }
+        want[k] = sw ? (rank[k] + 2 * sp) / (1 + 2 * sw) : rank[k];
+      });
+      free.sort(function (a, z) { return want[a] - want[z] || rank[a] - rank[z] || a - z; });
+      free.forEach(function (k, r) { rank[k] = r; });
+    }
+    var ord = free.concat(pin != null ? [pin] : []);
+    var gaps = [];
+    for (i = 1; i < ord.length; i++) gaps.push(1 - 0.6 * (maxw ? w[ord[i - 1]][ord[i]] / maxw : 0));
+    var lo = 0.5 / n, span = 1 - 1 / n, floor = REPLAY_FLOOR / n;
+    for (var pass = 0; pass < 3; pass++) {
+      var sum = gaps.reduce(function (a, g) { return a + g; }, 0) || 1, scale = span / sum;
+      gaps = gaps.map(function (g) { return Math.max(g, floor / scale); });
+    }
+    var total = gaps.reduce(function (a, g) { return a + g; }, 0) || 1, x = lo, out = {};
+    ord.forEach(function (k, r) {
+      if (r) x += gaps[r - 1] * span / total;
+      out[lanes[k].id] = Math.round((n === 1 ? 0.5 : x) * 10000) / 10000;
+    });
+    return out;
+  }
+  /* ---- The monitor: one heart-monitor trace per lane, rows per slice (as actor or receiver) ---- */
+  function replayLaneTrace(rep, n) {
+    n = n || 120;
+    var span = Math.max(1, rep.until - rep.since), by = {}, peak = 0;
+    rep.lanes.forEach(function (l) { var z = []; for (var i = 0; i < n; i++) z.push(0); by[l.id] = z; });
+    rep.rows.forEach(function (r) {
+      if (r.at < rep.since || r.at > rep.until) return;
+      var i = Math.min(n - 1, Math.floor((r.at - rep.since) / span * n)), hit = {};
+      hit[r.lane] = 1;
+      r.flows.forEach(function (f) { hit[f.to] = 1; });
+      Object.keys(hit).forEach(function (l) { if (by[l]) { by[l][i]++; if (by[l][i] > peak) peak = by[l][i]; } });
+    });
+    return { n: n, by: by, peak: peak };
   }
   /* A desk's state at office time t, from its recorded state changes; "" when none is recorded
    * before t. A focus row holds until the next one, or until its end when the server sends one
@@ -1216,7 +1413,7 @@
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayItems: replayItems, replayStateAt: replayStateAt,
+    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayLayout: replayLayout, replayItems: replayItems, replayStateAt: replayStateAt,
     REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,

@@ -754,7 +754,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-replay { display: flex; flex-direction: column; min-height: 70vh; flex: 1 1 auto; }
 #rd .rd-rp-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 2px 0 4px; border-bottom: 1px solid var(--edge); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; }
 #rd .rd-rp-bar > * { flex: 0 0 auto; }
-#rd .rd-rp-bar .rd-rp-trace { flex: 1 1 220px; }
+#rd .rd-rp-top { flex: 0 0 auto; padding: 2px 0 4px; }
+#rd .rd-rp-top .rd-rp-trace { width: 100%; height: 34px; }
 #rd .rd-rp-bar .rd-time-range button { padding-top: 1px; padding-bottom: 1px; }
 #rd .rd-rp-blocking { flex: 0 0 auto; }
 #rd .rd-rp-blocking > summary { cursor: pointer; list-style: none; }
@@ -778,7 +779,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 @media (prefers-reduced-motion: reduce) { #rd .rd-rp-tr-lit { filter: none; } }
 #rd .rd-rp-clock { font-variant-numeric: tabular-nums; min-width: 9ch; color: var(--dim); font-size: 12px; }
 #rd .rd-rp-rate { font-size: 12px; color: var(--dim); }
-#rd .rd-rp-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1 1 auto; min-height: 0; contain: content; }
+#rd .rd-rp-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 0 0 auto; max-height: 8.2em; min-height: 0; contain: content; border-top: 1px solid var(--edge); }
 #rd .rd-rp-row { position: relative; display: grid; grid-template-columns: 6ch 14px 1fr; align-items: center; gap: 8px; height: 32px; padding: 0 6px; border-bottom: 1px solid color-mix(in srgb, var(--edge) 35%, transparent); font-size: 13px; overflow: hidden; }
 #rd .rd-rp-row time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; }
 #rd .rd-rp-row .rd-k { justify-self: start; font-size: 11px; padding: 0 5px; border: 1px solid var(--edge); border-radius: 4px; }
@@ -844,13 +845,53 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-pane.rd-rp-fs > .rd-pane-head, #rd .rd-pane.rd-rp-fs .rd-rp-blocking { display: none; }
 #rd .rd-pane.rd-rp-fs .rd-collab-body { flex: 1 1 auto; height: 100%; }
 #rd .rd-pane.rd-rp-fs .rd-replay { min-height: 0; flex: 1 1 auto; }
-#rd .rd-pane.rd-rp-fs .rd-rp-list { order: 1; }
+#rd .rd-pane.rd-rp-fs .rd-rp-list { order: 1; max-height: 6.5em; }
 #rd .rd-pane.rd-rp-fs .rd-rp-bar { order: 2; border-bottom: 0; border-top: 1px solid var(--edge); padding: 4px 0 6px; }
-#rd .rd-pane.rd-rp-fs .rd-rp-row { height: 52px; font-size: 20px; gap: 14px; grid-template-columns: 6ch 24px 1fr; }
+#rd .rd-pane.rd-rp-fs .rd-rp-row { height: 36px; font-size: 15px; gap: 10px; grid-template-columns: 6ch 18px 1fr; }
 #rd .rd-pane.rd-rp-fs .rd-rp-row time { font-size: 16px; }
-#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-pill, #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-cloud { height: 32px; font-size: 18px; padding: 0 12px; border-radius: 16px; }
-#rd .rd-pane.rd-rp-fs .rd-rp-list .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-ki svg { width: 22px; height: 22px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-heads .rd-pill, #rd .rd-pane.rd-rp-fs .rd-rp-heads .rd-cloud { height: 32px; font-size: 18px; padding: 0 12px; border-radius: 16px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-rain .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-rain .rd-ki svg, #rd .rd-pane.rd-rp-fs .rd-rp-locks .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-locks .rd-ki svg { width: 22px; height: 22px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-heads { height: 52px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-mlane { height: 34px; grid-template-columns: 14ch 1fr; }
+#rd .rd-pane.rd-rp-fs .rd-rp-mname { font-size: 14px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-sdot { width: 14px; height: 14px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-move { font-size: 15px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-past .rd-pill[data-st]::after { height: 3px; bottom: -4px; }
-#rd .rd-pane.rd-rp-fs .rd-rp-trace { height: 56px; }
+#rd .rd-pane.rd-rp-fs .rd-rp-top .rd-rp-trace { height: 56px; }
+
+/* ---- Stage: the lanes' pills across the top, gravity slides them; icons fall in the columns ---- */
+#rd .rd-replay > .rd-rp-stage, #rd .rd-replay > .rd-rp-monitor { min-height: 0; }
+#rd .rd-rp-stage { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; overflow: hidden; }
+#rd .rd-rp-heads { position: relative; flex: 0 0 auto; height: 34px; }
+#rd .rd-rp-lane { position: absolute; left: 0; top: 6px; display: flex; justify-content: center; max-width: calc(96% / var(--lanes, 1)); transition: transform 1.2s ease-in-out; will-change: transform; }
+#rd .rd-rp-lane > .rd-pill, #rd .rd-rp-lane > .rd-cloud { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; display: inline-block; line-height: 16px; }
+#rd .rd-pill.rd-office { border-color: color-mix(in srgb, var(--cyan) 50%, var(--edge)); cursor: default; color: var(--dim); }
+#rd .rd-rp-lane.rd-contest > .rd-pill { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 70%, transparent); }
+#rd .rd-rp-locks { position: absolute; top: -7px; right: -6px; display: flex; gap: 1px; pointer-events: auto; }
+#rd .rd-rp-lock { opacity: 1; transition: opacity .4s ease-in-out; background: var(--panel); border-radius: 3px; }
+#rd .rd-rp-lock.rd-lock-wait { opacity: .45; outline: 1px solid var(--amber); }
+#rd .rd-rp-lock.rd-in, #rd .rd-rp-lock.rd-out { opacity: 0; }
+#rd .rd-rp-rain { position: relative; flex: 1 1 auto; overflow: hidden; min-height: 120px; }
+#rd .rd-rp-col { position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% / var(--lanes, 1)); transition: transform 1.2s ease-in-out; will-change: transform;
+  background: linear-gradient(to right, transparent calc(50% - .5px), color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent calc(50% + .5px)); }
+#rd .rd-rp-snap .rd-rp-lane, #rd .rd-rp-snap .rd-rp-col { transition: none; }
+#rd .rd-rp-tray { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+#rd .rd-rp-wait { outline: 1px dashed var(--amber); outline-offset: 2px; border-radius: 3px; }
+#rd .rd-rp-more { font-size: 10px; color: var(--dim); }
+#rd .rd-rp-drop { position: absolute; top: 0; z-index: 3; pointer-events: none; will-change: transform, opacity; }
+#rd .rd-rp-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+#rd .rd-rp-links path { fill: none; stroke-width: 1.2; stroke: var(--dim); }
+#rd .rd-rp-links .k-mail { stroke: var(--cyan); } #rd .rd-rp-links .k-todo { stroke: var(--amber); } #rd .rd-rp-links .k-hold { stroke: var(--mag); }
+#rd .rd-rp-catch { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid var(--green); pointer-events: none; }
+#rd .rd-rp-many .rd-rp-lane > .rd-pill, #rd .rd-rp-many .rd-rp-lane > .rd-cloud { font-size: 10px; padding: 0 4px; }
+/* ---- Monitor: one heart-monitor trace per lane, in the stage's order, under the shared playhead ---- */
+#rd .rd-rp-monitor { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding: 4px 0; flex: 0 1 auto; }
+#rd .rv-activity .rd-rp-monitor { flex: 1 1 auto; }
+#rd .rd-rp-mlane { display: grid; grid-template-columns: 11ch 1fr; align-items: center; gap: 6px; height: 22px; flex: 0 0 auto; }
+#rd .rd-rp-many .rd-rp-mlane { height: 16px; }
+#rd .rd-rp-mname { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+#rd .rd-rp-mtrace { height: 100%; min-width: 0; background: transparent; }
+#rd .rd-rp-mlane.lt-cloud .rd-rp-tr-lit { stroke: var(--dim); filter: none; }
+@media (prefers-reduced-motion: reduce) {
+  #rd .rd-rp-lane, #rd .rd-rp-col, #rd .rd-rp-lock { transition: none; }
+}

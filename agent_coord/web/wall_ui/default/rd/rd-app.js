@@ -53,7 +53,7 @@
     todo: { pane: "pane-todo", legacy: "jobs", views: [{ key: "board", label: "Kanban" }, { key: "list", label: "List" }, { key: "nest", label: "Tree" }] },
     mail: { pane: "pane-mail", legacy: "mail", attr: "data-mail-view", views: [{ key: "rooms", label: "Rooms" }, { key: "letters", label: "Letters" }] },
     /* Replay is this shell's own; Timeline is the Wall's pane (the old Between ring is gone). */
-    collab: { pane: "pane-floor", legacy: "floor", attr: "data-floor-mode", own: "replay", views: [{ key: "replay", label: "Replay" }, { key: "timeline", label: "Timeline" }] },
+    collab: { pane: "pane-floor", legacy: "floor", attr: "data-floor-mode", own: "all", views: [{ key: "desks", label: "Desks" }, { key: "activity", label: "Activity" }] },
     priorities: { pane: "pane-priorities", legacy: "priorities", views: [] }
   };
   /* Wide enough for kanban, list and tree side by side. */
@@ -63,7 +63,7 @@
   var WINDOWED = { desks: ["agents"], score: ["scores"] };
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
-  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-view", RP_WIN_KEY = "rd-replay-window", RP_SPEED_KEY = "rd-replay-speed";
+  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_WIN_KEY = "rd-replay-window", RP_SPEED_KEY = "rd-replay-speed";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, moves: {}, trail: {}, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
@@ -267,9 +267,11 @@
     todoMode = mode;
     W.setJobsView(all ? "nest" : mode);
   }
-  function collabView() { return load(COLLAB_VIEW_KEY, "replay") === "timeline" ? "timeline" : "replay"; }
+  /* COLLAB's two subtabs, both drawn here on one replay clock: Desks (the stage) and Activity
+   * (one heart-monitor line per desk). */
+  function collabView() { return load(COLLAB_VIEW_KEY, "desks") === "activity" ? "activity" : "desks"; }
   /* The tab hosts its pane unless it is on a view this shell draws itself. */
-  function hosted(tab) { var cfg = HOSTED[tab]; return !!cfg && !(cfg.own && tab === "collab" && collabView() === cfg.own); }
+  function hosted(tab) { var cfg = HOSTED[tab]; return !!cfg && cfg.own !== "all"; }
   function viewOn(tab) {
     if (tab === "todo") return savedTodoView();
     if (tab === "collab") return collabView();
@@ -283,10 +285,6 @@
     var el = hostPane(t);
     syncLegacy();
     if (t === "todo") syncTodoMode(el);
-    if (t === "collab") {
-      var tl = document.querySelector('[data-floor-mode="timeline"]');
-      if (tl && !tl.classList.contains("on")) tl.click();
-    }
     var all = t === "todo" && isWide();
     setHtml(root.querySelector(".rd-host-head"), V.hostHead(t, b, cfg.views, viewOn(t), all), "host");
     root.setAttribute("data-rd-host", t);
@@ -332,7 +330,8 @@
         scrollWrap("desk", "rd-here-desk", V.deskDetail(dd, now), "aside") +
         scrollWrap("feed", "rd-office-feed", V.feed(R.feed(b)), "aside") + "</div></div>";
     } else if (t === "collab") {
-      html = V.paneHead("collab", b, V.viewSwitch(HOSTED.collab.views, "replay")) +
+      rp.view = collabView();
+      html = V.paneHead("collab", b, V.viewSwitch(HOSTED.collab.views, rp.view)) +
         '<div class="rd-pane-body rd-collab-body">' + V.replay(replayModel(b), m.collab ? m.collab.groups[0].rows : null, rp) + "</div>";
     } else {
       var model = m[t];
@@ -353,7 +352,8 @@
    * rewinds the window and walks the playhead forward in R.REPLAY_PLAY_MS / speed; each row it
    * passes slides in at the top. The rows come from the reads, nothing is made up. */
   var RP_CAP = 60;
-  var rp = { playing: false, t: null, t0: 0, wall0: 0, rep: null, raf: 0, drawn: null, speed: Number(load(RP_SPEED_KEY, "1")) || 1 };
+  var rp = { playing: false, t: null, t0: 0, wall0: 0, rep: null, raf: 0, drawn: null, speed: Number(load(RP_SPEED_KEY, "1")) || 1,
+    view: "desks", lastT: null, st: null, live: 0 };
   if (R.REPLAY_SPEEDS.indexOf(rp.speed) < 0) rp.speed = 1;
   function replayModel(b) {
     var rep = R.collabReplay(b, { window: load(RP_WIN_KEY, "auto") });
@@ -378,21 +378,21 @@
     var clockEl = root.querySelector("[data-rp-clock]"), play = root.querySelector("[data-rp-play]");
     /* The trace: lit up to the playhead, dim after it. */
     var frac = Math.max(0, Math.min(1, (t - rep.since) / Math.max(1, rep.until - rep.since))), x = (1000 * frac).toFixed(1);
-    var clip = root.querySelector("[data-rp-clip]"), head = root.querySelector("[data-rp-head]"), trace = root.querySelector("[data-rp-trace]");
-    if (clip) clip.setAttribute("width", x);
-    if (head) { head.setAttribute("x1", x); head.setAttribute("x2", x); }
-    if (trace) trace.setAttribute("aria-valuenow", String(Math.round(1000 * frac)));
+    root.querySelectorAll("[data-rp-clip]").forEach(function (c) { c.setAttribute("width", x); });
+    root.querySelectorAll("[data-rp-head]").forEach(function (l) { l.setAttribute("x1", x); l.setAttribute("x2", x); });
+    root.querySelectorAll("[data-rp-trace]").forEach(function (tr) { tr.setAttribute("aria-valuenow", String(Math.round(1000 * frac))); });
     if (clockEl) { var d = new Date(t); clockEl.textContent = (rp.t == null && !rp.playing ? "now " : "") + d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
     if (play) { play.textContent = rp.playing ? "\u23f8" : "\u25b6"; play.setAttribute("aria-label", rp.playing ? "Pause" : "Play"); }
     if (list && sig !== rp.drawn) drawRows(list, rows, keys, sig, animate);
     /* In the past, each pill takes its desk's state at the playhead from the recorded state
      * changes; at now it keeps the current state the row was drawn with. */
-    if (list) {
+    var sec = root.querySelector(".rd-replay");
+    if (sec) {
       var past = rp.playing || rp.t != null;
-      list.classList.toggle("rd-rp-past", past);
+      sec.classList.toggle("rd-rp-past", past);
       if (past) {
         var memo = {};
-        list.querySelectorAll(".rd-pill[data-rd-desk]").forEach(function (el) {
+        sec.querySelectorAll(".rd-pill[data-rd-desk]").forEach(function (el) {
           var n = el.getAttribute("data-rd-desk");
           if (!(n in memo)) memo[n] = R.replayStateAt(rep, n, t) || "unknown";
           if (el.getAttribute("data-st") !== memo[n]) { el.setAttribute("data-st", memo[n]); el.title = n + ", " + (memo[n] === "unknown" ? "no state recorded yet" : memo[n]) + " then"; }
@@ -402,6 +402,7 @@
         });
       }
     }
+    drawStage(rep, t, animate);
   }
   function drawRows(list, rows, keys, sig, animate) {
     var prev = rp.drawn == null ? null : rp.drawn.split("|");
@@ -411,78 +412,169 @@
       rows.slice(0, cut).forEach(function (r) { fresh[r.key] = 1; });
       list.insertAdjacentHTML("afterbegin", V.replayRows(rows.slice(0, cut), fresh));
       while (list.children.length > RP_CAP) list.removeChild(list.lastElementChild);
-      for (var i = 0; i < cut && i < 6 && i < list.children.length; i++) kindFx(list.children[i]);
     } else if (animate && prev && !prev[0] && rows.length) {
       var all = {};
       rows.forEach(function (r) { all[r.key] = 1; });
       list.innerHTML = V.replayRows(rows, all);
-      for (var j = 0; j < 6 && j < list.children.length; j++) kindFx(list.children[j]);
     } else {
       list.innerHTML = rows.length ? V.replayRows(rows, null) : '<li class="rd-rp-empty">' + (rp.playing || rp.t != null ? "Nothing yet at this point in the window." : "No activity for these desks in this window.") + "</li>";
     }
     rp.drawn = sig;
   }
-  /* Each kind's motion, on a row the playhead just reached, measured from where its desks sit:
-   * mail flies from the sender's pill to the recipient's, a card goes from its old column to
-   * its new one, a promise locks or lets go, a wake pulses, doing turns, a score dot fills. */
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
-  function kindFx(li) {
-    if (!li || !li.animate || (still && still.matches)) return;
-    var k = li.getAttribute("data-k"), act = li.getAttribute("data-act"), icon = li.querySelector(".rd-ki");
-    if (!icon) return;
-    var ease = { duration: 700, easing: "ease-out" };
-    function fly(a, z) {
-      if (!a || !z) return false;
-      var box = li.getBoundingClientRect(), ra = a.getBoundingClientRect(), rz = z.getBoundingClientRect();
-      var ghost = icon.cloneNode(true);
-      ghost.classList.add("rd-ghost");
-      ghost.style.left = (ra.left + ra.width / 2 - box.left - 6) + "px";
-      ghost.style.top = (ra.top + ra.height / 2 - box.top - 6) + "px";
-      li.appendChild(ghost);
-      var dx = (rz.left + rz.width / 2) - (ra.left + ra.width / 2), dy = (rz.top + rz.height / 2) - (ra.top + ra.height / 2);
-      var run = ghost.animate([{ transform: "translate(0,0) scale(1.3)", opacity: 1 }, { transform: "translate(" + dx + "px," + dy + "px) scale(1)", opacity: 0.2 }], { duration: 900, easing: "ease-in-out" });
-      run.onfinish = function () { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); };
-      return true;
+  function moving() { return !(still && still.matches); }
+  /* ---- Stage: the lanes, their locks and trays, and the icons the playhead drops ----
+   * The six kind icons are the only things that fall. A row with two desks (a letter, a card
+   * handed off, a contested promise) drops the same icon in both columns at once, joined by a
+   * thin arc that fades; the far end may be the outside cloud. When the receiver picks it up
+   * later its pill pulses; until then the icon waits in its tray. Motion is transform and
+   * opacity only, at most RP_LIVE icons fall at once. */
+  var RP_LIVE = 30, RP_TRAY = 5, rpText = {};
+  function stageEls() {
+    var st = root.querySelector(".rd-rp-stage[data-rp-lanes]");
+    if (!st) return null;
+    if (rp.st && rp.st.el === st) return rp.st;
+    var lanes = {};
+    st.querySelectorAll("[data-lane]").forEach(function (el) {
+      lanes[el.getAttribute("data-lane")] = { head: el, pill: el.firstElementChild, locks: el.querySelector("[data-rp-locks]"), tray: null };
+    });
+    st.querySelectorAll("[data-rp-tray]").forEach(function (el) { var l = lanes[el.getAttribute("data-rp-tray")]; if (l) { l.tray = el; l.col = el.parentNode; } });
+    st.style.setProperty("--lanes", st.getAttribute("data-rp-lanes") || "1");
+    rp.st = { el: st, rain: st.querySelector("[data-rp-rain]"), lanes: lanes, locks: "", trays: "", place: "" };
+    rp.lastT = null;
+    return rp.st;
+  }
+  function rowText(r) {
+    if (!rpText[r.key]) { var d = document.createElement("div"); d.innerHTML = V.replayRows([r]); rpText[r.key] = (d.textContent || "").replace(/\s+/g, " ").trim(); }
+    return rpText[r.key];
+  }
+  function icon(kind, cls, title) {
+    var w = document.createElement("span");
+    w.innerHTML = V.kindIcon(kind);
+    var el = w.firstChild;
+    el.className += " " + cls;
+    el.title = title || "";
+    return el;
+  }
+  /* Gravity: the pills and their columns slide (transform only, eased in CSS) to the layout the
+   * rows up to the playhead give; worked out again every 1/400 of the window or on a resize. */
+  function placeLanes(S, rep, t) {
+    var wpx = S.el.clientWidth, bucket = Math.floor((t - rep.since) / Math.max(1, rep.ms / 400)), key = bucket + "|" + wpx;
+    if (key === S.place) return;
+    var first = !S.place;
+    S.place = key;
+    var pos = R.replayLayout(rep, t);
+    S.el.classList.toggle("rd-rp-snap", first);
+    Object.keys(S.lanes).forEach(function (id) {
+      var l = S.lanes[id], x = (pos[id] == null ? 0.5 : pos[id]) * wpx;
+      var tf = "translateX(" + x.toFixed(1) + "px) translateX(-50%)";
+      l.head.style.transform = tf;
+      if (l.col) l.col.style.transform = tf;
+    });
+    if (first) (window.requestAnimationFrame || setTimeout)(function () { S.el.classList.remove("rd-rp-snap"); });
+  }
+  function drawStage(rep, t, animate) {
+    var S = stageEls();
+    if (!S) { rp.lastT = t; return; }
+    placeLanes(S, rep, t);
+    /* Locks: held promises (solid) and waited-on ones (faded, amber edge) fade in and out. */
+    var L = R.replayLocksAt(rep, t), ls = JSON.stringify(L);
+    if (ls !== S.locks) {
+      S.locks = ls;
+      Object.keys(S.lanes).forEach(function (id) {
+        var box = S.lanes[id].locks, want = {}, have = {};
+        if (!box) return;
+        (L[id] || []).forEach(function (x) { want[x.item + (x.wait ? "~w" : "")] = x; });
+        Array.prototype.slice.call(box.children).forEach(function (el) {
+          var k = el.getAttribute("data-k2");
+          if (want[k] && !el.classList.contains("rd-out")) { have[k] = 1; return; }
+          if (el.classList.contains("rd-out")) return;
+          el.classList.add("rd-out");
+          setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 450);
+        });
+        S.lanes[id].head.classList.toggle("rd-contest", (L[id] || []).some(function (x) { return x.wait; }));
+        Object.keys(want).forEach(function (k) {
+          if (have[k]) return;
+          var x = want[k], el = icon("hold", "rd-rp-lock rd-in" + (x.wait ? " rd-lock-wait" : ""), (x.wait ? "waiting for " : "holds ") + (x.text || x.item));
+          el.setAttribute("data-k2", k);
+          box.appendChild(el);
+          (window.requestAnimationFrame || setTimeout)(function () { el.classList.remove("rd-in"); });
+        });
+      });
     }
-    if (k === "mail") { fly(li.querySelector('[data-party="actor"]'), li.querySelector('[data-party="peer"]')); return; }
-    if (k === "todo") {
-      /* A handoff: the card goes from the desk that let it go to the desk that took it. */
-      var me = li.querySelector('[data-party="actor"]'), other = li.querySelector('[data-party="peer"]');
-      if (other && fly(li.getAttribute("data-dir") === "in" ? other : me, li.getAttribute("data-dir") === "in" ? me : other)) return;
-      var to = li.querySelector(".rd-st.to");
-      if (!fly(li.querySelector(".rd-st:not(.to)"), to) && to) to.animate([{ transform: "scale(.4)", opacity: 0 }, { transform: "none", opacity: 1 }], ease);
-      return;
+    /* Trays: what reached a desk and is not picked up yet. */
+    var P = R.replayPending(rep, t), ps = Object.keys(P).map(function (k) { return k + ":" + P[k].map(function (x) { return x.key; }).join(","); }).join("|");
+    if (ps !== S.trays) {
+      S.trays = ps;
+      Object.keys(S.lanes).forEach(function (id) {
+        var tray = S.lanes[id].tray, list = P[id] || [];
+        if (!tray) return;
+        tray.textContent = "";
+        list.slice(-RP_TRAY).forEach(function (x) { tray.appendChild(icon(x.kind, "rd-rp-wait", rowText(x.row) + " \u00b7 not picked up yet")); });
+        if (list.length > RP_TRAY) { var more = document.createElement("span"); more.className = "rd-rp-more"; more.textContent = "+" + (list.length - RP_TRAY); tray.appendChild(more); }
+      });
     }
-    if (k === "hold") {
-      /* A hold is a resource the desk takes and lets go: its lock fades in on the desk's pill, or out. */
-      var pill = li.querySelector('[data-party="actor"]');
-      if (!pill) return;
-      var box2 = li.getBoundingClientRect(), rp2 = pill.getBoundingClientRect(), lock = icon.cloneNode(true);
-      lock.classList.add("rd-ghost");
-      lock.style.left = (rp2.right - box2.left - 8) + "px";
-      lock.style.top = (rp2.top - box2.top - 6) + "px";
-      li.appendChild(lock);
-      if (act === "wait") {
-        /* Contested: a faded lock on the waiting desk, its edge amber, until it takes the hold. */
-        lock.classList.add("rd-lock-wait");
-        pill.classList.add("rd-contest");
-        lock.animate([{ opacity: 0 }, { opacity: 0.45 }], { duration: 600, fill: "forwards" });
-        return;
-      }
-      var fade = lock.animate(act === "drop" ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 1 }], { duration: 800, easing: "ease-in-out", fill: "forwards" });
-      if (act === "drop") fade.onfinish = function () { if (lock.parentNode) lock.parentNode.removeChild(lock); };
-      return;
+    var prev = rp.lastT;
+    rp.lastT = t;
+    if (!animate || prev == null || t <= prev || !moving() || !S.rain) return;
+    var fell = 0;
+    for (var i = 0; i < rep.rows.length; i++) {
+      var r = rep.rows[i];
+      if (r.at > prev && r.at <= t && fell < 8) { fell++; dropRow(S, r); }
+      r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); });
     }
-    if (k === "wake") {
-      var who = li.querySelector('[data-party="peer"]') || li.querySelector('[data-party="actor"]') || icon;
-      who.animate([{ boxShadow: "0 0 0 0 rgba(228,181,106,.8)" }, { boxShadow: "0 0 0 8px rgba(228,181,106,0)" }], { duration: 800, iterations: 2 });
-      return;
+  }
+  function laneX(S, id, box) {
+    var l = S.lanes[id];
+    if (!l) return null;
+    var r = l.head.getBoundingClientRect();
+    return r.left + r.width / 2 - box.left;
+  }
+  function dropRow(S, r) {
+    if (rp.live >= RP_LIVE) return;
+    var box = S.rain.getBoundingClientRect(), hgt = box.height || 200, ends = [r.lane];
+    r.flows.forEach(function (f) { var o = f.from === r.lane ? f.to : f.from; if (ends.indexOf(o) < 0) ends.push(o); if (ends.indexOf(f.to) < 0) ends.push(f.to); });
+    var xs = [];
+    ends.forEach(function (id) {
+      var x = laneX(S, id, box);
+      if (x == null || rp.live >= RP_LIVE) return;
+      xs.push(x);
+      var el = icon(r.kind, "rd-rp-drop", rowText(r));
+      el.style.left = (x - 7) + "px";
+      S.rain.appendChild(el);
+      rp.live++;
+      var run = el.animate([
+        { transform: "translate(0,-6px) scale(1.3)", opacity: 0 },
+        { transform: "translate(0,6px) scale(1.15)", opacity: 1, offset: 0.12 },
+        { transform: "translate(0," + Math.round(hgt * 0.72) + "px) scale(1)", opacity: 0 }
+      ], { duration: 2400, easing: "cubic-bezier(.3,0,.8,1)" });
+      run.onfinish = run.oncancel = function () { rp.live--; if (el.parentNode) el.parentNode.removeChild(el); };
+    });
+    if (xs.length < 2) return;
+    /* The pair's link: a thin arc between the two drops that fades as they fall. */
+    var svg = S.rain.querySelector("svg.rd-rp-links");
+    if (!svg) { svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "rd-rp-links"); svg.setAttribute("aria-hidden", "true"); S.rain.appendChild(svg); }
+    for (var i = 1; i < xs.length; i++) {
+      var a = xs[0], z = xs[i], path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M" + a.toFixed(1) + " 14 Q" + ((a + z) / 2).toFixed(1) + " " + (14 + Math.min(60, Math.abs(z - a) / 4)).toFixed(1) + " " + z.toFixed(1) + " 14");
+      path.setAttribute("class", "k-" + r.kind);
+      svg.appendChild(path);
+      var fade = path.animate([{ opacity: 0 }, { opacity: 0.9, offset: 0.2 }, { opacity: 0 }], { duration: 1600, easing: "ease-out" });
+      fade.onfinish = fade.oncancel = (function (pp) { return function () { if (pp.parentNode) pp.parentNode.removeChild(pp); }; })(path);
     }
-    if (k === "doing") { icon.animate([{ transform: "rotate(0)" }, { transform: "rotate(360deg)" }], { duration: 800, easing: "ease-in-out" }); return; }
-    if (k === "score") {
-      var dot = li.querySelector(".rd-sdot") || icon;
-      dot.animate([{ opacity: 0.2, transform: "scale(.5)" }, { opacity: 1, transform: "scale(1.3)" }, { transform: "none" }], ease);
-    }
+  }
+  /* A resize moves the columns: place them again (the gravity layout is in fractions). */
+  window.addEventListener("resize", function () { if (state.tab === "collab" && rp.rep) drawReplay(false); });
+  /* Picked up: the receiver's pill pulses once. */
+  function catchAt(S, id) {
+    var l = S.lanes[id];
+    if (!l || !l.pill || !l.pill.animate) return;
+    l.pill.animate([{ transform: "scale(1)" }, { transform: "scale(1.22)" }, { transform: "scale(1)" }], { duration: 520, easing: "ease-out" });
+    var ring = document.createElement("i");
+    ring.className = "rd-rp-catch";
+    l.head.appendChild(ring);
+    var run = ring.animate([{ transform: "scale(.6)", opacity: 0.9 }, { transform: "scale(1.6)", opacity: 0 }], { duration: 650, easing: "ease-out" });
+    run.onfinish = run.oncancel = function () { if (ring.parentNode) ring.parentNode.removeChild(ring); };
   }
   function rpTick() {
     rp.raf = 0;
@@ -659,7 +751,8 @@
     if ((el = closest(t, "[data-rd-view]"))) {
       var v = el.getAttribute("data-rd-view"), cfg = HOSTED[state.tab];
       if (state.tab === "todo") { save(TODO_VIEW_KEY, v); todoMode = ""; }
-      else if (state.tab === "collab") { save(COLLAB_VIEW_KEY, v); rpStop(); last.pane = null; if (v === "replay") unhostAll(); }
+      /* Switching subtabs keeps the playhead: same clock, other view. */
+      else if (state.tab === "collab") { save(COLLAB_VIEW_KEY, v); last.pane = null; rp.st = null; }
       else if (cfg && cfg.attr) {
         var btn = document.querySelector("[" + cfg.attr + '="' + v + '"]');
         if (btn && btn !== el) btn.click();

@@ -437,6 +437,55 @@
       '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + TRACE_W + '" y1="0" x2="' + TRACE_W + '" y2="' + TRACE_H + '"/>' +
       "</svg></div>";
   }
+  /* ---- Stage: the lanes' pills across the top, one column under each. rd-app drops the six kind
+   * icons from a pill into its column as the playhead reaches them, and parks the ones not yet
+   * picked up in the receiver's tray. ---- */
+  function laneHead(l) {
+    var pill = l.t === "desk" ? partHtml({ t: "desk", name: l.name, state: l.state })
+      : l.t === "human" ? partHtml({ t: "human", name: l.name })
+      : l.t === "cloud" ? partHtml({ t: "cloud", names: l.names && l.names.length ? l.names : ["desks off this pick"] })
+      : '<span class="rd-pill rd-office" title="rows no desk sent, like a wake">office</span>';
+    return '<div class="rd-rp-lane" data-lane="' + h(l.id) + '">' + pill + '<span class="rd-rp-locks" data-rp-locks="' + h(l.id) + '"></span></div>';
+  }
+  function stageHtml(rep) {
+    var n = rep.lanes.length;
+    if (!n) return '<div class="rd-rp-stage rd-rp-empty">No desks on this pick.</div>';
+    var cols = rep.lanes.map(function (l) { return '<div class="rd-rp-col" data-col="' + h(l.id) + '"><div class="rd-rp-tray" data-rp-tray="' + h(l.id) + '"></div></div>'; }).join("");
+    return '<div class="rd-rp-stage' + (n > 10 ? " rd-rp-many" : "") + '" data-rp-lanes="' + n + '">' +
+      '<div class="rd-rp-heads">' + rep.lanes.map(laneHead).join("") + "</div>" +
+      '<div class="rd-rp-rain" data-rp-rain="1">' + cols + "</div></div>";
+  }
+  /* ---- Monitor: the same replay as one heart-monitor trace per lane, in the stage's order,
+   * under the shared playhead. Each line rises with the rows the lane sent or received. ---- */
+  var MON_W = 1000, MON_H = 24, MON_BASE = 19;
+  function laneLine(counts, peak) {
+    var w = MON_W / counts.length, pts = [];
+    counts.forEach(function (c, i) {
+      var x0 = i * w;
+      if (!c) { pts.push(x0.toFixed(1) + "," + MON_BASE); return; }
+      var y = MON_BASE - 2 - 15 * Math.sqrt(c / Math.max(1, peak));
+      pts.push(x0.toFixed(1) + "," + MON_BASE, (x0 + w * 0.35).toFixed(1) + "," + y.toFixed(1), (x0 + w * 0.6).toFixed(1) + "," + (MON_BASE + 2), (x0 + w).toFixed(1) + "," + MON_BASE);
+    });
+    pts.push(MON_W + "," + MON_BASE);
+    return pts.join(" ");
+  }
+  function monitorHtml(rep) {
+    var tr = R.replayLaneTrace(rep, 120);
+    if (!rep.lanes.length) return "";
+    return '<div class="rd-rp-monitor' + (rep.lanes.length > 10 ? " rd-rp-many" : "") + '" data-rp-monitor="1">' + rep.lanes.map(function (l, i) {
+      var c = tr.by[l.id], line = laneLine(c, tr.peak), sum = c.reduce(function (a, x) { return a + x; }, 0), id = "rd-rp-mclip-" + i;
+      return '<div class="rd-rp-mlane lt-' + h(l.t) + '" data-rp-mlane="' + h(l.id) + '">' +
+        '<span class="rd-rp-mname" title="' + h(l.name + ": " + plural(sum, "row") + " sent or received") + '">' + h(l.name) + "</span>" +
+        '<div class="rd-rp-trace rd-rp-mtrace" data-rp-trace="1" role="slider" tabindex="-1" aria-label="' + h(l.name + " activity; replay position") + '" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000">' +
+        '<svg viewBox="0 0 ' + MON_W + " " + MON_H + '" preserveAspectRatio="none" aria-hidden="true">' +
+        '<defs><clipPath id="' + id + '"><rect data-rp-clip="1" x="0" y="0" width="' + MON_W + '" height="' + MON_H + '"/></clipPath></defs>' +
+        '<line class="rd-rp-tr-base" x1="0" y1="' + MON_BASE + '" x2="' + MON_W + '" y2="' + MON_BASE + '"/>' +
+        '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
+        '<polyline class="rd-rp-tr-lit" clip-path="url(#' + id + ')" points="' + line + '"/>' +
+        '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + MON_W + '" y1="0" x2="' + MON_W + '" y2="' + MON_H + '"/>' +
+        "</svg></div></div>";
+    }).join("") + "</div>";
+  }
   /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
   function replayHtml(rep, blocking, ui) {
     var wins = ["auto", "hour", "day", "week"].map(function (w) {
@@ -448,17 +497,22 @@
     var speeds = R.REPLAY_SPEEDS.map(function (x) {
       return '<button type="button" data-rp-speed="' + x + '"' + (x === ui.speed ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (x === 0.25 ? "\u00bc" : x === 0.5 ? "\u00bd" : x) + "x</button>";
     }).join("");
-    return '<section class="rd-replay" data-rp-stage="1"><div class="rd-rp-bar">' +
+    /* Desks: the stage, scrubbed by the density trace. Activity: one line per desk. One clock. */
+    var view = ui.view === "activity" ? "activity" : "desks";
+    var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' :
+      (view === "desks" ? stageHtml(rep) : monitorHtml(rep)) +
+      '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay" aria-label="What happened, newest first"></ol>';
+    /* The density trace sits on top, over both subtabs; click or drag it to scrub. */
+    return '<section class="rd-replay rv-' + view + '" data-rp-stage="1" data-rp-subtab="' + view + '">' +
+      '<div class="rd-rp-top">' + traceHtml(rep) + "</div>" + body + '<div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
-      traceHtml(rep) +
       '<span class="rd-rp-clock" data-rp-clock="1"></span>' +
       '<span class="rd-time-range" role="group" aria-label="Replay window">' + wins + "</span>" +
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
       '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep.window, ui.speed)) + "</span>" + legendHtml() +
       '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span>" +
-      '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div>" +
-      (rep.known ? '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay"></ol>' : '<div class="rd-loading">Loading COLLAB\u2026</div>') + "</section>" +
+      '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div></section>" +
       blockingHtml(blocking, ui.blockOpen);
   }
 
@@ -501,7 +555,7 @@
     h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
     desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead, viewSwitch: viewSwitch,
     todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml,
-    replay: replayHtml, replayRows: replayRows, speedText: speedText
+    replay: replayHtml, kindIcon: kindIcon, replayRows: replayRows, speedText: speedText
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";
 })(typeof window !== "undefined" ? window : globalThis);
