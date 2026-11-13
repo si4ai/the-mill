@@ -9,8 +9,8 @@
   <title>The Mill</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <!-- WALL_UI_LIB_THEME: default CSS vars (fonts/sizes/headings); Cut6 DB css_vars HOLD -->
-  <script src="/shell-early.js?v=wow283" data-wall-early="all"></script>
-  <link rel="stylesheet" href="/lib/theme.css?v=wow165">
+  <script src="/shell-early.js?v=wow377" data-wall-early="all"></script>
+  <link rel="stylesheet" href="/lib/theme.css?v=wow377">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
   <link rel="stylesheet" href="/shell.css?v=wow362">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
@@ -42,6 +42,14 @@
           <button type="button" data-theme-pref="auto">auto</button>
           <button type="button" data-theme-pref="dark">dark</button>
           <button type="button" data-theme-pref="light">light</button>
+        </div>
+        <div class="theme-pref" id="palette-pref" role="group" aria-label="Palette">
+          <span class="lbl">PALETTE</span>
+          <button type="button" data-palette="soft">soft</button>
+          <button type="button" data-palette="extreme">extreme</button>
+          <button type="button" data-palette="cooler">cooler</button>
+          <button type="button" data-palette="warmer">warmer</button>
+          <button type="button" data-palette="high-contrast">high-contrast</button>
         </div>
       </div>
     </div>
@@ -669,7 +677,7 @@
       <li><button type="button" class="jump" data-tab="score" data-hi="pane-score"><b>SCORE</b></button> - Last against target. Off target also sits in the ticker.</li>
       <li><button type="button" class="jump" data-tab="floor" data-hi="floor-map"><b>COLLAB</b></button> - the desks' activity replayed, as Desks and Activity.</li>
       <li>The left rail is a station or a roster. It changes who is here. Scores stay on the office.</li>
-      <li><button type="button" class="jump" data-tab="guide" data-hi="pane-guide"><b>GUIDE</b></button> and <button type="button" class="jump" data-tab="glossary" data-hi="pane-glossary"><b>GLOSSARY</b></button> are under More, with theme: auto, light, dark.</li>
+      <li><button type="button" class="jump" data-tab="guide" data-hi="pane-guide"><b>GUIDE</b></button> and <button type="button" class="jump" data-tab="glossary" data-hi="pane-glossary"><b>GLOSSARY</b></button> are under More, with theme: auto, light, dark, and a palette.</li>
       <li><button type="button" class="jump" data-tab="admin" data-hi="pane-admin"><b>ADMIN</b></button> and <button type="button" class="jump" data-tab="wire" data-hi="pane-wire"><b>WIRE</b></button> are operator tools.</li>
     </ul>
   </aside>
@@ -774,6 +782,6 @@
 <script defer src="/rd/rd-model.js?v=wow374"></script>
 <script defer src="/rd/rd-view.js?v=wow374"></script>
 <script defer src="/rd/rd-app.js?v=wow374"></script>
-<script defer src="/boot.js?v=wow375"></script>
+<script defer src="/boot.js?v=wow377"></script>
 </body>
 </html>

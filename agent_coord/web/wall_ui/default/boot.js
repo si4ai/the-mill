@@ -1498,6 +1498,13 @@
         document.querySelectorAll("#theme-pref button[data-theme-pref]").forEach(function (b) {
           b.classList.toggle("on", b.getAttribute("data-theme-pref") === p);
         });
+        let pal = "soft";
+        try { pal = localStorage.getItem("wall-palette") || "soft"; } catch (eP) { pal = "soft"; }
+        if (pal !== "extreme" && pal !== "cooler" && pal !== "warmer" && pal !== "high-contrast") pal = "soft";
+        root.setAttribute("data-palette", pal);
+        document.querySelectorAll("#palette-pref button[data-palette]").forEach(function (b) {
+          b.classList.toggle("on", b.getAttribute("data-palette") === pal);
+        });
       } catch (eTheme) {}
       try {
         const dens = localStorage.getItem("factory-density");
@@ -7710,6 +7717,29 @@
           else if (typeof mql.addListener === "function") mql.addListener(onOsTheme);
         }
       }
+    })();
+    (function wirePalettePref() {
+      const KEY = "wall-palette";
+      const ALLOW = { soft: 1, extreme: 1, cooler: 1, warmer: 1, "high-contrast": 1 };
+      function apply(which) {
+        let pal = String(which || "soft");
+        if (!ALLOW[pal]) pal = "soft";
+        document.documentElement.setAttribute("data-palette", pal);
+        document.querySelectorAll("#palette-pref button[data-palette]").forEach(function (b) {
+          b.classList.toggle("on", b.getAttribute("data-palette") === pal);
+        });
+        try { localStorage.setItem(KEY, pal); } catch (e) {}
+      }
+      const box = document.getElementById("palette-pref");
+      if (box) {
+        box.addEventListener("click", function (ev) {
+          const b = ev.target.closest("button[data-palette]");
+          if (b) apply(b.getAttribute("data-palette"));
+        });
+      }
+      let pal = "soft";
+      try { pal = localStorage.getItem(KEY) || "soft"; } catch (e) {}
+      apply(pal);
     })();
     (function wireRailToggle() {
       const KEY = "factory-rail";
