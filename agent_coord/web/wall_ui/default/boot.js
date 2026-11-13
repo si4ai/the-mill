@@ -1197,10 +1197,10 @@
       if (sub) sub.classList.toggle("is-later", !!hidden);
     }
     function showTab(name) {
-      /* The redesigned shell (rd/rd-app.js) owns the six tab hashes; leave them as they are. */
-      const rdKeepsHash = !!(window.WallRdApp && window.WallRdApp.keepsHash(name));
       /* The DESKS tab keeps its pane id (pane-session); #desks is its hash alias. */
       if (name === "desks") name = "session";
+      /* The redesigned shell (rd/rd-app.js) owns the six tab hashes; leave them as they are. */
+      const rdKeepsHash = !!(window.WallRdApp && window.WallRdApp.keepsHash(name));
       if (name === "stations" || name === "leases" || name === "watch") {
         try { wallBumpSwitchGen(); } catch (eGenS) {}
         paintStripTab("session");

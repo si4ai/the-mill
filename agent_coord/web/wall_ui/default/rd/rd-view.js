@@ -309,7 +309,7 @@
     return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + h(m.from) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
   }
   function split(cols, detail, n, cls) {
-    return '<div class="rd-tab-split"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" style="--groups:' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
+    return '<div class="rd-tab-split"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" data-groups="' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
       '<aside class="rd-tab-detail">' + detail + "</aside></div>";
   }
   function mailHtml(m) {

@@ -367,7 +367,7 @@
   }
   function rosterScores(b, roster) {
     if (!b.kpis) return null;
-    return b.kpis.filter(function (k) { return !str(k.owner) && (k.roster === roster || str(k.project_id) === roster) && str(k.value) !== ""; })
+    return b.kpis.filter(function (k) { return !str(k.owner) && k.roster === roster && str(k.value) !== ""; })
       .map(function (k) { return { kpi: str(k.kpi), label: kpiLabel(k.kpi), value: str(k.value), target: str(k.target), note: str(k.note), off: kpiMiss(k.value, k.target), id: k.id }; });
   }
   function prioList(b, desk) {

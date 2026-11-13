@@ -183,7 +183,7 @@
     }
     pane.setAttribute("data-rd-pane", t);
     setHtml(pane, html, "pane");
-    root.classList.toggle("desk-open", t === "desks" && state.phoneDesk);
+    root.classList.toggle("rd-desk-open", t === "desks" && state.phoneDesk);
   }
 
   /* ---- tabs + legacy panes ---- */
@@ -253,8 +253,8 @@
       scopeChanged();
       return;
     }
-    if ((el = closest(t, "[data-rd-filters]"))) { root.classList.add("filters-open"); return; }
-    if (closest(t, ".rd-filter-sheet-back")) { root.classList.remove("filters-open"); return; }
+    if ((el = closest(t, "[data-rd-filters]"))) { root.classList.add("rd-filters-open"); return; }
+    if (closest(t, ".rd-filter-sheet-back")) { root.classList.remove("rd-filters-open"); return; }
     if ((el = closest(t, "[data-rd-sort]"))) { state.sort = el.getAttribute("data-rd-sort"); save(SORT_KEY, state.sort); paint(); return; }
     if ((el = closest(t, "[data-rd-back]"))) { state.phoneDesk = false; paint(); return; }
     if ((el = closest(t, "[data-rd-go]"))) {
@@ -284,7 +284,7 @@
   root.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" && ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rd-pick")) ev.target.click();
   });
-  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") root.classList.remove("filters-open"); });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") root.classList.remove("rd-filters-open"); });
 
   /* ---- start ---- */
   function skeleton() {
