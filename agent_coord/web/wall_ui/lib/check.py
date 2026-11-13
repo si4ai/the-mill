@@ -104,7 +104,7 @@ def check_js_footguns(text: str, label: str) -> list[str]:
 
 
 def extract_board_inline_js(html: str) -> str:
-    parts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, flags=re.I | re.S)
+    parts = re.findall(r"<script\b[^>]*>(.*?)</script\b[^>]*>", html, flags=re.I | re.S)
     out = []
     for p in parts:
         if "src=" in p[:40].lower():
