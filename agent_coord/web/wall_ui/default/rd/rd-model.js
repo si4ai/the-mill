@@ -1182,7 +1182,7 @@
       (list || []).forEach(function (l) { if (l && str(l.owner)) (heldNow[laneOf(b, l.owner)] = heldNow[laneOf(b, l.owner)] || []).push({ item: "hold-" + l.id, text: str(l.resource) }); });
     });
     return { known: known, count: count, since: since, until: end, live: live, now: b.now, ms: span, rows: rows, pool: pool, states: states,
-      lanes: lanes, heldNow: heldNow, total: all.length, before: upto.length - win.length,
+      lanes: lanes, heldNow: heldNow, doingClose: replayDoingClose(b), total: all.length, before: upto.length - win.length,
       oldest: all.length ? all[0].at : null, ticks: all.map(function (e) { return { at: e.at, kind: e.kind }; }),
       /* The earliest end a dragged window may have: it still holds `count` rows. */
       floorEnd: all.length > count ? all[count - 1].at : null };
@@ -1920,19 +1920,38 @@
    *   2. Else the next focus/doing row on the same desk (a newer doing
    *      replaces; this is also how a "newer" end is timed).
    *   3. Else if the row is not ended (no ended flag, no ended_by): the
-   *      span is open and runs to the playhead.
+   *      span is open and runs to the playhead, unless that desk is no
+   *      longer working (stale, disconnected, or idle). Then the span
+   *      ends at the desk's last-seen time, so a leftover doing does
+   *      not cover the idle time after it and block a void.
    *   4. Else ended is true but no timestamp and no next row: the end
    *      time was not sent, so we do not invent one; the start tick
    *      stays and there is no span.
    * Wait-on-hold focus rows are kind "hold", not doing, and have no span. */
-  function replayDoingEnd(row, nextAt) {
+  function replayDoingClose(b) {
+    var close = {};
+    (b && b.all ? b.all : []).forEach(function (d) {
+      if (!d || (d.connected && d.doing)) return;
+      if (d.lastSeenAt != null) close[d.name] = d.lastSeenAt;
+      else close[d.name] = null;
+    });
+    return close;
+  }
+  function replayDoingEnd(row, nextAt, closeAt) {
     if (row.endedAt != null) return { end: row.endedAt, open: false, how: row.endedBy || "" };
     if (nextAt != null) return { end: nextAt, open: false, how: row.endedBy || "newer" };
-    if (!row.ended && !row.endedBy) return { end: null, open: true, how: "" };
+    if (!row.ended && !row.endedBy) {
+      if (closeAt !== undefined) {
+        if (closeAt != null && closeAt > row.at) return { end: closeAt, open: false, how: "stale" };
+        return { end: null, open: false, how: "stale" };
+      }
+      return { end: null, open: true, how: "" };
+    }
     return { end: null, open: false, how: row.endedBy || "ended" };
   }
   /* Doing intervals for the window scale: open spans run to hi, not the playhead,
-   * so the map stays fixed for a given window. */
+   * so the map stays fixed for a given window. A stale desk's leftover doing
+   * ends at last-seen instead, so it does not occupy the idle tail. */
   function replayDoingIntervals(rep, hi) {
     hi = hi != null ? hi : (rep && rep.until);
     var byDesk = {}, spans = [];
@@ -1944,7 +1963,7 @@
     Object.keys(byDesk).forEach(function (desk) {
       var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
       list.forEach(function (r, i) {
-        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null);
+        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null, (rep.doingClose || {})[desk]);
         if (!ev.open && ev.end == null) return;
         var end = ev.open || ev.end == null ? hi : ev.end;
         if (!(end > r.at)) return;
@@ -1970,7 +1989,7 @@
     Object.keys(byDesk).forEach(function (desk) {
       var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
       list.forEach(function (r, i) {
-        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null);
+        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null, (rep.doingClose || {})[desk]);
         if (!ev.open && ev.end == null) return;
         if (t < r.at) return;
         var endDraw = ev.open || ev.end == null || ev.end > t ? t : ev.end;

@@ -970,3 +970,70 @@ console.log(JSON.stringify({{
     assert "replayPlayhead" in app
     assert "#rd .rd-rp-ruler" in css and "#rd .rd-rp-void" in css and "#rd .rd-rp-rlabel" in css
     assert "#rd .rd-rp-links.is-hot" in css
+
+def test_stale_doing_does_not_cover_idle_tail_or_drop_lines():
+    """A leftover doing on a stale desk ends at last-seen, so the idle tail collapses.
+
+    A desk that is still working keeps its open span to now, and that gap
+    does not collapse. In-window mail lines stay at or above the fade floor
+    after the stale desk's window is scaled.
+    """
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+function iso(ms) {{ return new Date(ms).toISOString().replace("T", " ").replace("Z", "").slice(0, 19); }}
+const now = Date.parse("2026-11-13T08:00:00Z");
+const t0 = now - 8 * 3600000, tMail = t0 + 60000, seen = t0 + 30 * 60000;
+const stale = {{
+  agents: {{Office: [
+    {{owner: "builder", alive: false, stale: true, heartbeat: iso(seen)}},
+    {{owner: "validator", alive: true, stale: false, heartbeat: iso(now - 60000)}}
+  ]}},
+  doing: {{builder: {{owner: "builder", alive: false, stale: true, doing: "leftover work", on: "todo-1"}}}},
+  rosterList: [{{name: "Office", desks: 2}}],
+  todos: {{Office: {{needs: []}}}}, holds: {{Office: []}}, scores: {{Office: []}},
+  mail: {{Office: [{{id: 200, created: iso(tMail), from: "builder", body: "note",
+    mail_tos: [{{deskId: "validator", receipt: 1}}]}}]}},
+  events: {{Office: [{{id: 9, kind: "wake", at: iso(t0), owner: "System", roster_id: "Office"}}]}},
+  labels: {{Office: {{rows: [], checks: {{}}}}}}, trees: {{Office: []}}, rooms: {{Office: []}}, moves: {{}},
+  trail: {{builder: [{{id: 1, desk: "builder", at: iso(t0), doing: "leftover work", on: "todo-1", act: "focus"}}]}}
+}};
+const liveDoing = JSON.parse(JSON.stringify(stale));
+liveDoing.agents.Office[0] = {{owner: "builder", alive: true, stale: false, heartbeat: iso(now - 60000)}};
+liveDoing.doing.builder = {{owner: "builder", alive: true, stale: false, doing: "leftover work", on: "todo-1"}};
+const bStale = R.base(stale, {{rosters: ["Office"], range: "7d"}}, now);
+const bLive = R.base(liveDoing, {{rosters: ["Office"], range: "7d"}}, now);
+const staleRep = R.collabReplay(bStale, {{count: 300}});
+const liveRep = R.collabReplay(bLive, {{count: 300}});
+const staleScale = R.replayScale(staleRep);
+const liveScale = R.replayScale(liveRep);
+const iv = R.replayDoingIntervals(staleRep, staleRep.until);
+const liv = R.replayDoingIntervals(liveRep, liveRep.until);
+const at = R.replayItemsAt(staleRep, staleRep.until, 400, "desks");
+const mail = at.links.find(l => l.id === "mail-200>builder>validator");
+const fades = at.links.map(l => l.fade);
+console.log(JSON.stringify({{
+  staleBreaks: (staleScale && staleScale.breaks || []).length,
+  staleSkip: staleScale && staleScale.breaks[0] && staleScale.breaks[0].skip,
+  liveBreaks: (liveScale && liveScale.breaks || []).length,
+  staleIvEnd: iv[0] && iv[0].end, staleIvOpen: iv[0] && iv[0].open, seen: seen,
+  liveIvOpen: liv[0] && liv[0].open, liveIvEnd: liv[0] && liv[0].end, now: now,
+  close: staleRep.doingClose && staleRep.doingClose.builder,
+  mailId: mail && mail.id, mailFade: mail && mail.fade,
+  fadeMin: fades.length ? Math.min(...fades) : null, floor: R.REPLAY_LINK_FADE,
+  desk: bStale.byName && bStale.byName.builder && {{
+    connected: bStale.byName.builder.connected, doing: bStale.byName.builder.doing,
+    stale: bStale.byName.builder.stale, lastSeenAt: bStale.byName.builder.lastSeenAt
+  }}
+}}));
+"""
+    out = _node(script)
+    assert out["desk"]["stale"] and not out["desk"]["connected"] and not out["desk"]["doing"]
+    assert out["close"] == out["seen"]
+    assert out["staleIvEnd"] == out["seen"] and out["staleIvOpen"] is False
+    assert out["staleBreaks"] >= 1 and out["staleSkip"] > 6 * 3600000
+    assert out["liveBreaks"] == 0
+    assert out["liveIvOpen"] is True and out["liveIvEnd"] == out["now"]
+    assert out["mailId"] == "mail-200>builder>validator"
+    assert out["fadeMin"] >= out["floor"] and out["mailFade"] >= out["floor"]
