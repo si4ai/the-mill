@@ -225,6 +225,17 @@ def test_urgency_puts_old_letters_then_failed_runs_then_waiting_then_working_fir
     assert got["connected"] == ["builder", "gardener", "validator", "wall-ui", "scout"]
 
 
+def test_working_desks_lead_an_idle_desk_that_needs_attention():
+    # scout is idle but has 5 letters over a day and a failed last run: it still sits below every working desk.
+    doing = _ctx()["doing"]
+    doing["scout"] = dict(doing["scout"], waiting_on_it=_letters(9, 5, "2026-11-09 10:00:00"))
+    kpis = _ctx()["kpis"] + [{"kpi": "doing.task.last_run", "owner": "scout", "value": "failed"}]
+    got = _run(_ctx(doing=doing, kpis=kpis))
+    assert got["connected"] == ["builder", "gardener", "validator", "wall-ui", "scout"]
+    # Its old letters and failed run still show in the Needs attention block.
+    assert {a["kind"] for a in got["attention"] if a["desk"] == "scout"} == {"letter", "score"}
+
+
 def test_my_desk_leads_urgency():
     assert _run(_ctx(mine="scout"))["connected"][0] == "scout"
 

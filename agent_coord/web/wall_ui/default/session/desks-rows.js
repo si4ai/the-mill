@@ -171,6 +171,8 @@
   }
   function urgency(a, b) {
     if (a.mine !== b.mine) return a.mine ? -1 : 1;
+    var ra = STATE_RANK[a.state], rb = STATE_RANK[b.state];
+    if (ra !== rb) return (ra == null ? 9 : ra) - (rb == null ? 9 : rb);
     var wa = a.wait || {}, wb = b.wait || {};
     var oa = wa.overDay || 0, ob = wb.overDay || 0;
     if (oa !== ob) return ob - oa;
@@ -179,9 +181,7 @@
     if (fa !== fb) return fb - fa;
     var na = (wa.letters || 0) + (wa.cards || 0), nb = (wb.letters || 0) + (wb.cards || 0);
     if (na !== nb) return nb - na;
-    var ra = STATE_RANK[a.state] != null ? STATE_RANK[a.state] : 9;
-    var rb = STATE_RANK[b.state] != null ? STATE_RANK[b.state] : 9;
-    return (ra - rb) || byName(a, b);
+    return byName(a, b);
   }
   function sortRows(rows, sort, away) {
     var cmp;
