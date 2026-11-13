@@ -90,6 +90,17 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
             "('hold', 3, 'held', 'free', 'hold_drop', %s, NULL)",
             (refused, '{"holder": %d}' % int(desk), desk),
         )
+        cur.execute(
+            "INSERT INTO activity (type, id, desk_id, roster_id, act) VALUES ('todo', 4, %s, %s, 'claim')",
+            (desk, roster),
+        )
+        cur.execute(
+            "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id) VALUES "
+            "('todo', 4, 'open', 'claimed', 'claim', %s), "
+            "('todo', 4, 'claimed', 'shipped', 'pass_ship', %s), "
+            "('todo', 4, 'shipped', 'done', 'pass_done', %s)",
+            (desk, desk, other),
+        )
         # 6000 later rows on the same activity. The old letter stays reachable by id.
         cur.execute(
             "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id) "
@@ -117,7 +128,7 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
             "SELECT MIN(id) FROM transition WHERE activity_type = 'mail' AND activity_id = 1 AND id > "
             "(SELECT MIN(id) FROM transition WHERE activity_type = 'mail' AND activity_id = 1)",
         )[0][0]
-        early = v1_replay(cn, {"limit": ["10"], "before": [str(bulk)], "project": ["r1206"]})
+        early = v1_replay(cn, {"limit": ["20"], "before": [str(bulk)], "project": ["r1206"]})
         by_reason = {(r["type"], r["reason"]): r for r in early["rows"]}
         claim = by_reason[("todo", "claim")]
         takeover = by_reason[("todo", "take_over")]
@@ -131,6 +142,10 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
         dropped = by_reason[("hold", "hold_drop")]
         assert dropped["from_desk"] == "from-desk"
         assert "to-b" not in dropped["to_desks"]
+        refused_row = by_reason[("hold", "hold_refuse")]
+        assert refused_row["from_desk"] == "to-b" and refused_row["to_desks"] == ["from-desk"]
+        passed = by_reason[("todo", "pass_done")]
+        assert passed["from_desk"] == "from-desk" and passed["to_desks"] == ["to-a"]
 
         head = v1_replay(cn, {"limit": ["100"], "project": ["r1206"]})
         assert len(head["rows"]) == 100

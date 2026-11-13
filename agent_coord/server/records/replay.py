@@ -246,12 +246,24 @@ def _attach_moves(cn, rows: list[dict]) -> None:
             if got:
                 row["to_desks"] = got
             continue
-        if reason in ("hold_force", "hold_refuse") :
+        if reason == "hold_refuse":
+            # The actor is the refused desk. The holder stays on to_desks.
+            got = _named(row.get("meta"))
+            if got:
+                row["to_desks"] = got
+            continue
+        if reason == "hold_force":
             got = _named(row.get("meta"), desk)
             if got:
                 row["to_desks"] = got
             if prev and prev != desk:
                 row["from_desk"] = prev
+            continue
+        if reason in ("pass_ship", "pass_done", "pass_back"):
+            if prev:
+                row["from_desk"] = prev
+            if desk:
+                row["to_desks"] = [desk]
             continue
         if reason in _HOLDER_REASONS or reason in ("hold_drop", "hold_refresh"):
             if prev and prev != desk:
