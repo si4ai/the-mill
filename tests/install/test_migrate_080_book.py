@@ -277,13 +277,14 @@ CARD_1133_TABLES = ("activity_history",)
 FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema = 0.8.0 + card 1022 + card 970 + card 1133 + card 1153. Kill/resume tests run apply_080 only; finish with the rest."""
+    """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including card 1163."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
     migrate.apply_task_970(cn)
     migrate.apply_history_1133(cn)
     migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
+    migrate.apply_1163(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -291,7 +292,7 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 # Columns the migration adds (kind pins, desk_key, act, peer_id, doing_id) or drops (todo.evidence,
 # activity.weight, activity.n); left out of the row compare. doing.evidence is asserted on moves separately
 # (it is new; main's focus rows keep it NULL).
-ADDED = {"name_kind", "roster_kind", "tree_kind", "resource_kind", "desk_key", "act", "peer_id", "doing_id", "trashed",
+ADDED = {"desk_key", "act", "peer_id", "doing_id", "focus_label_id", "trashed",
          "meta", "body_updated", "body_updater_id"}  # card 1133 (a plain-text card body stays as it is)
 DROPPED = {"evidence", "weight", "n"}
 # Added on one table only, where the name is common elsewhere: label.updated (card 1153).
@@ -353,7 +354,7 @@ def test_fresh_tables_sql_is_the_080_schema(fresh_snapshot):
     for key in fresh_snapshot:
         assert fresh_snapshot[key] == doc[key], key
     kind_fks = [r for r in fresh_snapshot["fk_cols"] if r[3].endswith("_kind")]
-    assert len(kind_fks) == 11, kind_fks
+    assert kind_fks == [], kind_fks
 
 
 def test_migrated_main_book_equals_fresh_install(main_book, fresh_snapshot):

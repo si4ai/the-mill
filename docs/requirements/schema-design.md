@@ -53,22 +53,38 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 
 ## 5. One name table is the one place names are managed
 
-- **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (type, name). A name is
-  not a first-class object, just an isolated column managed in `name`. No other table stores a name string.
-  Rename, retire and reclaim go only through `sp_name_*`. There is no name history (no `name_event`).
-  Rules: admin.md sections 1, 2 and 4, rows F60, F65, F92, F135.
+- **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (`name`). The `type`
+  column stays. `name_fixed` refuses a change of `type` or `id`. A name is not a first-class object, just an
+  isolated column managed in `name`. No other table stores a name string. Rename, retire and reclaim go only
+  through `sp_name_*`. There is no name history (no `name_event`). Rules: admin.md sections 1, 2 and 4, rows
+  F60, F65, F92, F135.
+  - Card 1163 (office human, 2026-11-12). The unique key is the name string alone. Every foreign key that
+    points at `name` is a plain id, including `seat.desk_id`, which was already plain. A BEFORE INSERT and
+    BEFORE UPDATE trigger on each pointer reads `name.type` and refuses the wrong type: desk for
+    `seat.desk_id`, roster for the roster pointers, label for `label.name_id`, tree for the tree pointers,
+    res for `hold.resource_id`. A collision keeps the highest rank and gives each lower row the next free
+    `name-N`. The rank is res, then desk, then roster, then tree, then label. A taken suffix is skipped.
+    The migration is a new step. It does not rewrite `migrate_080.sql`, and it does not change `name.type`.
+    A retired or trashed row still holds its string. The collision step renames a retired loser.
+    `name_fixed` still refuses that rename unless the step sets `@mill_allow_retired_rename`.
+    A desk's focus list is `seat.focus_label_id`. The label string follows the rank, so it does not
+    stay equal to the desk name. `label todo`, `trail --label`, `todo --mine` and the connect focus
+    line still address that list by the desk name.
   - Delete is hard to do: Admin retires (soft, `name.deleted`; a trigger refuses DELETE), the name stays reserved
     while retired, and an Admin reclaim restores the same id.
   - Rename is a plain update; related records follow through the id. Admin renames; a desk may rename itself.
   - No hold on a renamed-away name, for any type: names belong to agents, not humans, so the old string is free
     for a new mint at once.
 - **Why.** Integrity, in the owner's words: the name table exists only so names cannot confuse or mislead agents
-  or humans. UNIQUE (type, name) stops duplicates, the id keeps records attached through a rename, and a hard
-  delete would orphan what the name meant. A history table adds nothing to that goal (owner decision 2026-10-24).
+  or humans. UNIQUE (`name`) stops the same string naming two things, the id keeps records attached through a
+  rename, and a hard delete would orphan what the name meant. A history table adds nothing to that goal
+  (owner decision 2026-10-24). Card 1163 replaces the earlier UNIQUE (`type`, `name`) so a bare name is one row.
 - **Cost.** None beyond main's table and the procedures.
 - **To change it.** The owner's OK; a performance claim also needs a lab result.
 
 ## 5a. Kind tables: only a kind with its own data gets a table
+
+Card 1163 replaced the pinned kind columns and the composite foreign keys. A pointer to `name` is a plain id, and a trigger requires the type. The paragraphs below are the 2026-10-25 shape that card replaced.
 
 - **Rule (the owner, 2026-10-25).** A name kind gets its own table only if the thing has its own data; otherwise
   references go to `name`, kind-checked (the owner's review, 2026-10-25).

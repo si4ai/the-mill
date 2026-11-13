@@ -16,7 +16,7 @@
 -- label and tree keep their FKs to activity: they point at a timeline row that already exists.
 -- Every mill FK to name is RESTRICT. name_no_delete refuses a hard DELETE unless sp_name_purge set @mill_allow_name_hard_delete for roster|label|tree (card 879). Retire stamps name.deleted; delete stamps name.trashed.
 -- name.n = desk count for a roster.
--- member is N-N only. name_id is a roster, pinned by name_kind (kind-checked FK). Not an activity type.
+-- member is N-N only. name_id is a roster. A trigger requires name.type = roster. Not an activity type.
 
 --
 -- 0.8.0. Three rules place every relation (owner rules; reads far outnumber writes). All three are main's:
@@ -26,13 +26,14 @@
 --   [label] label rank (as on main): ord 0 pinned, 65535 unplaced; a desk's focus list is a label.
 --
 -- 0.8.0. Names, for integrity (owner rule). name exists only so a name cannot confuse or mislead an agent or a human;
--- it is the ONE place names are managed: a name is an isolated column, not a first-class object. UNIQUE (type, name)
--- as on main (no duplicates). There is no name history (owner decision 2026-10-24).
+-- it is the ONE place names are managed: a name is an isolated column, not a first-class object. UNIQUE (name)
+-- (card 1163): one string, one row. type stays. name_fixed refuses a type or id change. There is no name history
+-- (owner decision 2026-10-24).
 -- 0.8.0. Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data.
 -- seat (desk_id, kind id = name.id) is the desk kind: it holds the desk's token, wake and connect data, so every desk
 -- column FKs to seat (desk_id) and a desk column cannot hold a roster id. A roster, label, tree or res has no data of
--- its own (a roster's detail is name.n, as on main), so it has no kind table; its columns carry a <x>_kind column
--- pinned by DEFAULT and CHECK and reference name (id, type), so they cannot hold a name of another kind.
+-- its own (a roster's detail is name.n, as on main), so it has no kind table. Each pointer to name is a plain id.
+-- A BEFORE INSERT and BEFORE UPDATE trigger reads name.type and refuses the wrong type, including seat.desk_id.
 -- Indexes (owner rule): PRIMARY and UNIQUE keys are indexed by definition; every other index is declared here and
 -- named idx_*, so MySQL creates no index for an FK. seat rows are written only by the minting procedure.
 -- Name lifecycle (docs/requirements/admin.md sections 1, 2, 4; rows F60, F65, F92, F135), in beta_sp.sql sp_name_*:
@@ -46,7 +47,7 @@
 --            spelling; Office may be renamed by Admin, everything follows id 1, and no other roster is renamed
 --            onto Office. Guards read ids 0, 1 and 2, never the strings.
 --   retire   deletion is hard to do (rights: admin.md section 1), soft (name.deleted); name_no_delete refuses DELETE (as on main).
---            UNIQUE (type, name) stays held while retired, so reuse is an Admin reclaim that restores the same id,
+--            UNIQUE (name) stays held while retired, so reuse is an Admin reclaim that restores the same id,
 --            refused while a live seat is that desk or a member of that name. Retiring a desk clears its seat token
 --            and webhook and frees its holds in the same call (F65, F135).
 --
@@ -72,8 +73,7 @@ CREATE TABLE IF NOT EXISTS name (
   trashed     DATETIME(6)       NULL,  -- card 879: mill delete soft-trash; purge hard-deletes when set
   n           INT UNSIGNED      NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  UNIQUE KEY idx_type (type, name),
-  UNIQUE KEY idx_id_type (id, type)   -- 0.8.0: target of the kind-checked name FKs; UNIQUE only because MySQL 8.4 requires it (id is already the PK)
+  UNIQUE KEY idx_name (name)   -- card 1163: one name string; type stays; name_fixed refuses a type or id change
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci AUTO_INCREMENT=100;
 
 -- card 1022: ids 0-99 reserved for built-ins (System 0, Office 1, Admin 2, ...).
@@ -110,13 +110,18 @@ CREATE TABLE IF NOT EXISTS seat (
   -- 0.8.0 (the owner, 2026-10-26): the desk's focus, its newest focus row (act focus or clear; never a move row).
   -- NULL until the desk's first doing row. fk_seat_doing is added after doing (the two tables reference each other).
   doing_id        BIGINT UNSIGNED NULL,
+  -- card 1163: the label that is this desk's focus list. The label string cannot equal the desk name.
+  -- Commands and card labels still address that list by the desk name. NULL until the list exists.
+  focus_label_id  BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY idx_desk (desk_id),
+  UNIQUE KEY idx_focus_label (focus_label_id),
   KEY idx_doing (doing_id, desk_id),
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
-  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_seat_focus_label FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1022: System seat (no token, never connects) so desk FKs hold for desk_id 0.
@@ -127,12 +132,11 @@ INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on)
 -- Office: never leave. Admin: the host desk is on it.
 CREATE TABLE IF NOT EXISTS member (
   name_id     BIGINT UNSIGNED NOT NULL,
-  name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (name_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_member_name
   desk_id     BIGINT UNSIGNED NOT NULL,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (name_id, name_kind, desk_id),
+  PRIMARY KEY (name_id, desk_id),
   KEY idx_desk (desk_id, name_id),
-  CONSTRAINT fk_member_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
+  CONSTRAINT fk_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT,
   CONSTRAINT fk_member_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -145,7 +149,6 @@ CREATE TABLE IF NOT EXISTS activity (
   deleted     DATETIME(6)       NULL,
   desk_id          BIGINT UNSIGNED       NULL,   -- 0.8.0: NULL = the office itself (main wrote roster id 2, Admin, here)
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_activity_roster
   -- 0.8.0 (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
   act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
@@ -154,11 +157,11 @@ CREATE TABLE IF NOT EXISTS activity (
   KEY idx_updated (updated),   -- 0.8.0 (the owner, 2026-10-26): the newest list office-wide, a reverse index read
   KEY idx_desk (desk_id, type, updated),
   KEY idx_desk_updated (desk_id, updated),
-  KEY idx_roster (roster_id, roster_kind, type, updated),
+  KEY idx_roster (roster_id, type, updated),
   -- roster_id is required. 1 = Office. A missing roster is Office, so every row is counted.
   -- A name row is not deleted. Retire stamps name.deleted, and this id keeps pointing at it.
   CONSTRAINT fk_activity_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_activity_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
+  CONSTRAINT fk_activity_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Tags on any activity. name_id is a label. Not member (desk <-> roster).
@@ -169,14 +172,13 @@ CREATE TABLE IF NOT EXISTS label (
   type        ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   id          BIGINT UNSIGNED NOT NULL,
   name_id     BIGINT UNSIGNED NOT NULL,
-  name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'label' CHECK (name_kind = 'label'),   -- 0.8.0: pins the name kind for fk_label_name
   ord         SMALLINT UNSIGNED NOT NULL DEFAULT 65535,
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),   -- card 1153: when ord was last set (attach or re-rank)
   PRIMARY KEY (type, id, name_id),
-  KEY idx_label_ord (name_id, name_kind, ord, created),
+  KEY idx_label_ord (name_id, ord, created),
   CONSTRAINT fk_label_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE CASCADE,
-  CONSTRAINT fk_label_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE RESTRICT
+  CONSTRAINT fk_label_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Nested set (Celko). Structure. name_id is the plan (name.type = tree).
@@ -184,17 +186,16 @@ CREATE TABLE IF NOT EXISTS label (
 -- The same payload may sit in many plans. The first card is lft 1.
 CREATE TABLE IF NOT EXISTS tree (
   name_id  BIGINT UNSIGNED NOT NULL,
-  name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'tree' CHECK (name_kind = 'tree'),   -- 0.8.0: pins the name kind for fk_tree_name
   type     ENUM('mail','todo','doing','hold','score','wake') NOT NULL,
   id       BIGINT UNSIGNED NOT NULL,
   lft      INT UNSIGNED NOT NULL,
   rgt      INT UNSIGNED NOT NULL,
-  PRIMARY KEY (name_id, name_kind, type, id),
+  PRIMARY KEY (name_id, type, id),
   UNIQUE KEY idx_lft (name_id, lft),
   UNIQUE KEY idx_rgt (name_id, rgt),
   KEY idx_type_lft (type, lft),
   KEY idx_activity (type, id),
-  CONSTRAINT fk_tree_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
+  CONSTRAINT fk_tree_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT,
   CONSTRAINT fk_tree_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
@@ -220,7 +221,6 @@ CREATE TABLE IF NOT EXISTS mail (
   desk_id         BIGINT UNSIGNED NOT NULL,
   -- Card roster required. No DEFAULT: a missed insert must fail.
   roster_id  BIGINT UNSIGNED NOT NULL,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_mail_roster
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   -- card 1133: when and by whom the body was last replaced (mill_body_replace). NULL = never edited (created stands).
   body_updated    DATETIME(6) NULL,
@@ -228,11 +228,11 @@ CREATE TABLE IF NOT EXISTS mail (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, created),
-  KEY idx_mail_roster (roster_id, roster_kind),
+  KEY idx_mail_roster (roster_id),
   KEY idx_body_updater (body_updater_id),
   CONSTRAINT fk_mail_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_mail_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT
+  CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Who has the letter. Desk, opened, receipt. Roster lives on the letter.
@@ -260,13 +260,12 @@ CREATE TABLE IF NOT EXISTS mail_to (
 CREATE TABLE IF NOT EXISTS tree_read (
   desk_id  BIGINT UNSIGNED NOT NULL,
   tree_id  BIGINT UNSIGNED NOT NULL,
-  tree_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'tree' CHECK (tree_kind = 'tree'),   -- 0.8.0: pins the name kind for fk_tree_read_tree
   last_id  BIGINT UNSIGNED NOT NULL,
   updated  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (desk_id, tree_id),
-  KEY idx_tree (tree_id, tree_kind),
+  KEY idx_tree (tree_id),
   CONSTRAINT fk_tree_read_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id, tree_kind) REFERENCES name (id, type) ON DELETE RESTRICT
+  CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS todo (
@@ -277,7 +276,6 @@ CREATE TABLE IF NOT EXISTS todo (
   updated_id      BIGINT UNSIGNED        NOT NULL,
   -- Card roster required. No DEFAULT: a missed insert must fail.
   roster_id  BIGINT UNSIGNED        NOT NULL,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_todo_roster
   creator_id      BIGINT UNSIGNED        NOT NULL,
   status          ENUM('parked','open','claimed','shipped','done') NOT NULL DEFAULT 'open',
   assigned_id     BIGINT UNSIGNED        NULL,
@@ -297,12 +295,12 @@ CREATE TABLE IF NOT EXISTS todo (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_status (status, updated),
-  KEY idx_roster (roster_id, roster_kind, status, updated),
+  KEY idx_roster (roster_id, status, updated),
   KEY idx_updated (updated_id),
   KEY idx_creator (creator_id),
   KEY idx_assigned (assigned_id),
   KEY idx_body_updater (body_updater_id),
-  CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
+  CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_updated FOREIGN KEY (updated_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_creator FOREIGN KEY (creator_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
@@ -347,7 +345,6 @@ CREATE TABLE IF NOT EXISTS doing (
   created       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   desk_id       BIGINT UNSIGNED NOT NULL,
   roster_id     BIGINT UNSIGNED NOT NULL DEFAULT 1,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_doing_roster
   text          VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
   on_type       ENUM('mail','todo','hold','score') NULL,
   on_id         BIGINT UNSIGNED NULL,
@@ -361,12 +358,12 @@ CREATE TABLE IF NOT EXISTS doing (
   UNIQUE KEY idx_id (id),
   KEY idx_desk_created (desk_id, created),
   KEY idx_on (on_type, on_id, id),   -- 0.8.0: an item's moves in id order, no filesort
-  KEY idx_roster (roster_id, roster_kind),
+  KEY idx_roster (roster_id),
   KEY idx_peer (peer_id),
   UNIQUE KEY idx_id_desk (id, desk_id),   -- 0.8.0: target of seat.fk_seat_doing (the desk's own row)
   CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
   CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
+  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
   CONSTRAINT chk_doing_evidence CHECK (evidence IS NULL OR act NOT IN ('focus', 'clear', 'finish'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -381,13 +378,12 @@ CREATE TABLE IF NOT EXISTS hold (
   updated     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   desk_id          BIGINT UNSIGNED          NULL,
   resource_id      BIGINT UNSIGNED          NOT NULL,
-  resource_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'res' CHECK (resource_kind = 'res'),   -- 0.8.0: pins the name kind for fk_hold_res
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
-  UNIQUE KEY idx_hold (resource_id, resource_kind),
+  UNIQUE KEY idx_hold (resource_id),
   KEY idx_desk (desk_id),
   CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id, resource_kind) REFERENCES name (id, type) ON DELETE RESTRICT
+  CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS score (
@@ -398,7 +394,6 @@ CREATE TABLE IF NOT EXISTS score (
   desk_id          BIGINT UNSIGNED        NULL,   -- 0.8.0: NULL = an office-wide score (main wrote roster id 2, Admin, here)
   -- Card roster required. No DEFAULT: a missed insert must fail.
   roster_id   BIGINT UNSIGNED        NOT NULL,
-  roster_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (roster_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_score_roster
   kpi              VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
   value            VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
   target           VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
@@ -409,9 +404,9 @@ CREATE TABLE IF NOT EXISTS score (
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   desk_key    BIGINT UNSIGNED AS (IFNULL(desk_id, 0)) STORED,   -- 0.8.0: one office-wide row per kpi (NULL is not unique)
-  UNIQUE KEY idx_score_who (roster_id, roster_kind, desk_key, kpi),
+  UNIQUE KEY idx_score_who (roster_id, desk_key, kpi),
   KEY idx_desk (desk_id),
-  CONSTRAINT fk_score_roster FOREIGN KEY (roster_id, roster_kind) REFERENCES name (id, type) ON DELETE RESTRICT,
+  CONSTRAINT fk_score_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
   CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -674,12 +669,11 @@ CREATE TABLE IF NOT EXISTS human_desk (
 CREATE TABLE IF NOT EXISTS human_member (
   human_id  BIGINT UNSIGNED NOT NULL,
   name_id   BIGINT UNSIGNED NOT NULL,
-  name_kind ENUM('desk','roster','label','tree','res') NOT NULL DEFAULT 'roster' CHECK (name_kind = 'roster'),   -- 0.8.0: pins the name kind for fk_human_member_name
   created   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (human_id, name_id),
-  KEY idx_role (name_id, name_kind, human_id),
+  KEY idx_role (name_id, human_id),
   CONSTRAINT fk_human_member_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE,
-  CONSTRAINT fk_human_member_name FOREIGN KEY (name_id, name_kind) REFERENCES name (id, type) ON DELETE CASCADE
+  CONSTRAINT fk_human_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS mill_invite (
@@ -716,6 +710,32 @@ DROP TRIGGER IF EXISTS doing_no_delete_in_tree;
 DROP TRIGGER IF EXISTS score_no_delete_in_tree;
 DROP TRIGGER IF EXISTS name_no_delete;
 DROP TRIGGER IF EXISTS name_fixed;
+DROP TRIGGER IF EXISTS seat_desk_type_ins;
+DROP TRIGGER IF EXISTS seat_desk_type_upd;
+DROP TRIGGER IF EXISTS seat_focus_type_ins;
+DROP TRIGGER IF EXISTS seat_focus_type_upd;
+DROP TRIGGER IF EXISTS member_roster_type_ins;
+DROP TRIGGER IF EXISTS member_roster_type_upd;
+DROP TRIGGER IF EXISTS human_member_roster_type_ins;
+DROP TRIGGER IF EXISTS human_member_roster_type_upd;
+DROP TRIGGER IF EXISTS activity_roster_type_ins;
+DROP TRIGGER IF EXISTS activity_roster_type_upd;
+DROP TRIGGER IF EXISTS mail_roster_type_ins;
+DROP TRIGGER IF EXISTS mail_roster_type_upd;
+DROP TRIGGER IF EXISTS todo_roster_type_ins;
+DROP TRIGGER IF EXISTS todo_roster_type_upd;
+DROP TRIGGER IF EXISTS doing_roster_type_ins;
+DROP TRIGGER IF EXISTS doing_roster_type_upd;
+DROP TRIGGER IF EXISTS score_roster_type_ins;
+DROP TRIGGER IF EXISTS score_roster_type_upd;
+DROP TRIGGER IF EXISTS label_name_type_ins;
+DROP TRIGGER IF EXISTS label_name_type_upd;
+DROP TRIGGER IF EXISTS tree_name_type_ins;
+DROP TRIGGER IF EXISTS tree_name_type_upd;
+DROP TRIGGER IF EXISTS tree_read_type_ins;
+DROP TRIGGER IF EXISTS tree_read_type_upd;
+DROP TRIGGER IF EXISTS hold_res_type_ins;
+DROP TRIGGER IF EXISTS hold_res_type_upd;
 
 DELIMITER //
 
@@ -730,7 +750,10 @@ END //
 CREATE TRIGGER todo_no_delete_in_tree BEFORE DELETE ON todo
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'todo' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'todo' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'todo: still in tree (mill_tree_remove first)';
   END IF;
@@ -739,7 +762,10 @@ END //
 CREATE TRIGGER mail_no_delete_in_tree BEFORE DELETE ON mail
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'mail' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'mail' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'mail: still in tree (mill_tree_remove first)';
   END IF;
@@ -757,7 +783,10 @@ END //
 CREATE TRIGGER doing_no_delete_in_tree BEFORE DELETE ON doing
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'doing' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'doing' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'doing: still in tree (mill_tree_remove first)';
   END IF;
@@ -766,7 +795,10 @@ END //
 CREATE TRIGGER score_no_delete_in_tree BEFORE DELETE ON score
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM tree WHERE type = 'score' AND id = OLD.id LIMIT 1) THEN
+  DECLARE v_n INT DEFAULT 0;
+  -- A plain count, so a miss does not shared-lock idx_activity (card 1113, card 1163).
+  SELECT COUNT(*) INTO v_n FROM tree WHERE type = 'score' AND id = OLD.id;
+  IF v_n > 0 THEN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'score: still in tree (mill_tree_remove first)';
   END IF;
@@ -774,6 +806,294 @@ END //
 
 -- Hard DELETE only via sp_name_purge: session flag + roster|label|tree (card 879). Desks always refused.
 -- Retire stamps name.deleted; mill delete stamps name.trashed (soft, restorable).
+-- card 1163 name-type triggers BEGIN
+CREATE TRIGGER seat_desk_type_ins BEFORE INSERT ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.desk_id;
+  IF v_type IS NOT NULL AND v_type <> 'desk' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.desk_id must name a desk';
+  END IF;
+END //
+
+CREATE TRIGGER seat_desk_type_upd BEFORE UPDATE ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.desk_id;
+  IF v_type IS NOT NULL AND v_type <> 'desk' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.desk_id must name a desk';
+  END IF;
+END //
+
+CREATE TRIGGER seat_focus_type_ins BEFORE INSERT ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.focus_label_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.focus_label_id must name a label';
+  END IF;
+END //
+
+CREATE TRIGGER seat_focus_type_upd BEFORE UPDATE ON seat
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.focus_label_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'seat.focus_label_id must name a label';
+  END IF;
+END //
+
+CREATE TRIGGER member_roster_type_ins BEFORE INSERT ON member
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'member.name_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER member_roster_type_upd BEFORE UPDATE ON member
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'member.name_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER human_member_roster_type_ins BEFORE INSERT ON human_member
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'human_member.name_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER human_member_roster_type_upd BEFORE UPDATE ON human_member
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'human_member.name_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER activity_roster_type_ins BEFORE INSERT ON activity
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'activity.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER activity_roster_type_upd BEFORE UPDATE ON activity
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'activity.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER mail_roster_type_ins BEFORE INSERT ON mail
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mail.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER mail_roster_type_upd BEFORE UPDATE ON mail
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'mail.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER todo_roster_type_ins BEFORE INSERT ON todo
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER todo_roster_type_upd BEFORE UPDATE ON todo
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'todo.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER doing_roster_type_ins BEFORE INSERT ON doing
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER doing_roster_type_upd BEFORE UPDATE ON doing
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER score_roster_type_ins BEFORE INSERT ON score
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER score_roster_type_upd BEFORE UPDATE ON score
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
+  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score.roster_id must name a roster';
+  END IF;
+END //
+
+CREATE TRIGGER label_name_type_ins BEFORE INSERT ON label
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'label.name_id must name a label';
+  END IF;
+END //
+
+CREATE TRIGGER label_name_type_upd BEFORE UPDATE ON label
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'label' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'label.name_id must name a label';
+  END IF;
+END //
+
+CREATE TRIGGER tree_name_type_ins BEFORE INSERT ON tree
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'tree' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree.name_id must name a tree';
+  END IF;
+END //
+
+CREATE TRIGGER tree_name_type_upd BEFORE UPDATE ON tree
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.name_id;
+  IF v_type IS NOT NULL AND v_type <> 'tree' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree.name_id must name a tree';
+  END IF;
+END //
+
+CREATE TRIGGER tree_read_type_ins BEFORE INSERT ON tree_read
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.tree_id;
+  IF v_type IS NOT NULL AND v_type <> 'tree' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree_read.tree_id must name a tree';
+  END IF;
+END //
+
+CREATE TRIGGER tree_read_type_upd BEFORE UPDATE ON tree_read
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.tree_id;
+  IF v_type IS NOT NULL AND v_type <> 'tree' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'tree_read.tree_id must name a tree';
+  END IF;
+END //
+
+CREATE TRIGGER hold_res_type_ins BEFORE INSERT ON hold
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.resource_id;
+  IF v_type IS NOT NULL AND v_type <> 'res' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold.resource_id must name a res';
+  END IF;
+END //
+
+CREATE TRIGGER hold_res_type_upd BEFORE UPDATE ON hold
+FOR EACH ROW
+BEGIN
+  DECLARE v_type VARCHAR(16);
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
+  SELECT type INTO v_type FROM name WHERE id = NEW.resource_id;
+  IF v_type IS NOT NULL AND v_type <> 'res' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'hold.resource_id must name a res';
+  END IF;
+END //
+
+-- card 1163 name-type triggers END
 CREATE TRIGGER name_no_delete BEFORE DELETE ON name
 FOR EACH ROW
 BEGIN
@@ -784,7 +1104,8 @@ BEGIN
   END IF;
 END //
 
--- 0.8.0 (name restore): a name keeps its type and id, and a retired name is not renamed (reclaim first).
+-- 0.8.0 (name restore): a name keeps its type and id. A retired name is not renamed
+-- unless the card 1163 collision step sets @mill_allow_retired_rename. Reclaim stays the normal path.
 -- Clearing deleted is sp_name_reclaim's (Admin); the app user cannot UPDATE (EXECUTE-only).
 CREATE TRIGGER name_fixed BEFORE UPDATE ON name
 FOR EACH ROW
@@ -792,7 +1113,8 @@ BEGIN
   IF NEW.type <> OLD.type OR NEW.id <> OLD.id THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: type and id are fixed';
   END IF;
-  IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name THEN
+  IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name
+     AND IFNULL(@mill_allow_retired_rename, 0) <> 1 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: mill reclaim first';
   END IF;
 END //

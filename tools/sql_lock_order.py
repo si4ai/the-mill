@@ -457,11 +457,22 @@ class Analyzer:
         self._memo[k] = out
         return out
 
+    def _meets(self, s: Lock, x: Lock) -> bool:
+        """The shared lock and the later exclusive lock are one index record."""
+        if s.idx in ("PRIMARY", x.idx):
+            return True
+        if x.idx != "PRIMARY" or not s.idx.startswith("u:"):
+            return False
+        col = s.idx[2:]
+        return "," not in col and col in self.pks.get(s.table, ())
+
     def upgrades(self, name: str) -> list[tuple[Lock, Lock]]:
         """(S, later X) pairs on the same index record with no X held on that row before the S.
 
         X locks the record by the index it searches plus the primary key, so it meets an
         FK S lock when the S is on the primary key or on the index the X searched by.
+        An exclusive primary-key lock also meets a shared lock on one column of that
+        primary key: the read locked the primary record it found.
         """
         found = []
         held_x: set[tuple[str, str]] = set()
@@ -470,7 +481,7 @@ class Analyzer:
             rk = (lk.table, lk.key)
             if lk.mode == "X":
                 if lk.key != UNKNOWN and rk not in held_x:
-                    hit = [s for s in s_held.get(rk, []) if s.idx in ("PRIMARY", lk.idx)]
+                    hit = [s for s in s_held.get(rk, []) if self._meets(s, lk)]
                     if hit:
                         found.append((hit[0], lk))
                 held_x.add(rk)

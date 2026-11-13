@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_coord.const import CONST_LABEL
+from agent_coord.const import CONST_DESK, CONST_LABEL
 from agent_coord.helpers.errors import CoordError
 from agent_coord.helpers.label_ord import missing_label, parse_label_ord
 from .db import call
@@ -34,7 +34,8 @@ def put(cn, type: str, id: int, tag: str, ord: int | None = None) -> list[dict]:
     from agent_coord.server.records.name import bare
 
     tag_b = bare(tag, CONST_LABEL)
-    if rec_name.get(cn, tag_b, CONST_LABEL) is None:
+    # A desk name is that desk's focus list. The procedure mints the stored label.
+    if rec_name.get(cn, tag_b, CONST_LABEL) is None and rec_name.get(cn, tag_b, CONST_DESK) is None:
         raise CoordError(missing_label(tag_b))
     if not _activity_live(cn, type, int(id)):
         raise CoordError(_no_activity(type, id))
@@ -57,7 +58,7 @@ def delete(cn, type: str, id: int, tag: str) -> list[dict]:
         raise CoordError("label-remove: no label %s" % tag_b[:64])
     from . import name as rec_name
 
-    if rec_name.get(cn, tag_b, CONST_LABEL) is None:
+    if rec_name.get(cn, tag_b, CONST_LABEL) is None and focus_label_id(cn, tag_b) is None:
         from agent_coord.helpers.next_cmd import with_next
 
         raise CoordError(with_next("label: no such name %s" % tag_b, "mill trail --label %s" % tag_b))
@@ -70,11 +71,35 @@ def select(cn, type: str = "", id: int = 0) -> list[dict]:
     return call(cn, "mill_label_select", [type, int(id or 0)])
 
 
+def focus_label_id(cn, desk_name: str) -> int | None:
+    """The live label id of this live desk's focus list, or None when it has none."""
+    from .db import scalar
+
+    rec = scalar(
+        cn,
+        "SELECT s.focus_label_id FROM seat s"
+        " JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.name = %s"
+        "  AND d.deleted IS NULL AND d.trashed IS NULL"
+        " JOIN name ln ON ln.id = s.focus_label_id AND ln.type = 'label'"
+        "  AND ln.deleted IS NULL AND ln.trashed IS NULL",
+        (desk_name,),
+    )
+    return int(rec) if rec is not None else None
+
+
 def rows_for(cn, tag: str) -> list[dict[str, Any]]:
-    """Mail and todo wearing this label, ord then created. Deleted activity is out (#199)."""
+    """Mail and todo wearing this label, ord then created. Deleted activity is out (#199).
+
+    A desk name reads that desk's focus list.
+    """
     from agent_coord.server.records.name import bare
 
     tag_b = bare(tag, CONST_LABEL)
+    fid = focus_label_id(cn, tag_b)
+    if fid is not None:
+        pred, arg = "l.name_id = %s", fid
+    else:
+        pred, arg = "n.name = %s", tag_b
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
@@ -82,18 +107,18 @@ def rows_for(cn, tag: str) -> list[dict[str, Any]]:
             " FROM label l"
             " JOIN name n ON n.id = l.name_id"
             " JOIN activity a ON a.type = l.type AND a.id = l.id"
-            " WHERE n.type = 'label' AND n.name = %s AND n.deleted IS NULL"
+            " WHERE n.type = 'label' AND n.deleted IS NULL AND " + pred +
             " AND a.deleted IS NULL"
             " AND l.type IN ('mail', 'todo')"
             " ORDER BY l.ord, l.created, l.type, l.id",
-            (tag_b,),
+            (arg,),
         )
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()
 
 
-# Card 1153: the Wall PRIORITIES tab. A desk's list is the label named after the desk;
+# Card 1153: the wall priorities tab. A desk's list is the label on its seat.
 # human-priorities is the shared human list.
 HUMAN_LIST = "human-priorities"
 # The card's latest move (activity.act) as the tab's activity kind; other acts are not served.
@@ -102,7 +127,7 @@ _KIND = {"claim": "claim", "assign": "claim", "unclaim": "claim", "note": "note"
 
 
 def wall_rows(cn, names: list[str] | None = None) -> list[dict[str, Any]]:
-    """Mail and todo wearing a desk-named label or human-priorities (or the given names).
+    """Mail and todo on a desk focus list or human-priorities (or the given names).
 
     Office-wide: labels are not roster-scoped. Deleted activity is out, done cards stay
     in. Each row: label, type, id, ord, updated (when ord was last set) and, for a todo,
@@ -115,13 +140,15 @@ def wall_rows(cn, names: list[str] | None = None) -> list[dict[str, Any]]:
     from agent_coord.helpers.ident import iso6
 
     if names:
-        pick, args = "n.name IN (" + ",".join(["%s"] * len(names)) + ")", tuple(names)
+        marks = ",".join(["%s"] * len(names))
+        pick = f"(n.name IN ({marks}) OR dn.name IN ({marks}))"
+        args = tuple(names) + tuple(names)
     else:
         pick, args = "(dn.id IS NOT NULL OR n.name = %s)", (HUMAN_LIST,)
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
-            "SELECT n.name AS label, l.type, l.id, l.ord, l.updated,"
+            "SELECT COALESCE(dn.name, n.name) AS label, l.type, l.id, l.ord, l.updated,"
             " t.status, t.meta, t.roster_id, rn.name AS roster, vn.name AS volunteer,"
             " a.act AS card_act, a.updated AS card_at,"
             " (SELECT MAX(da.updated) FROM doing d"
@@ -132,7 +159,8 @@ def wall_rows(cn, names: list[str] | None = None) -> list[dict[str, Any]]:
             " FROM label l"
             " JOIN name n ON n.id = l.name_id AND n.type = 'label' AND n.deleted IS NULL"
             " JOIN activity a ON a.type = l.type AND a.id = l.id AND a.deleted IS NULL"
-            " LEFT JOIN name dn ON dn.type = 'desk' AND dn.name = n.name AND dn.deleted IS NULL"
+            " LEFT JOIN seat fs ON fs.focus_label_id = n.id"
+            " LEFT JOIN name dn ON dn.id = fs.desk_id AND dn.deleted IS NULL"
             " LEFT JOIN todo t ON l.type = 'todo' AND t.id = l.id"
             " LEFT JOIN name rn ON rn.id = t.roster_id"
             " LEFT JOIN name vn ON vn.id = t.assigned_id"
