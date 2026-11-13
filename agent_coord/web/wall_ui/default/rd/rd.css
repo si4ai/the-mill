@@ -6,7 +6,7 @@ body.rd-legacy #rd { display: none !important; }
 body:not(.rd-legacy) #shell, body:not(.rd-legacy) #kpi-banner { display: none !important; }
 #rd button { font: inherit; }
 /* board.css has bare section, .idle and .card rules; undo them inside #rd. */
-#rd section { display: block; overflow: visible; min-height: 0; position: static; border-radius: 0; background: transparent; border: 0; }
+#rd section { display: block; overflow: visible; min-height: auto; position: static; border-radius: 0; background: transparent; border: 0; }
 #rd .idle { padding: 0; max-width: none; }
 #rd .card, #rd .card:hover { transition: none; transform: none; box-shadow: none; }
 #rd h2, #rd h3, #rd h4, #rd h5 { text-transform: none; }
@@ -893,3 +893,4 @@ body:not(.rd-legacy) #shell, body:not(.rd-legacy) #kpi-banner { display: none !i
   #rd .rd-tab-groups:not(.prios)[data-groups="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   #rd .rd-tab-groups:not(.prios)[data-groups="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
+#rd .rd-tab-groups { grid-auto-rows: max-content; align-content: start; }

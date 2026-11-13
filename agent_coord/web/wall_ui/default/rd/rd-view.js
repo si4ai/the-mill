@@ -177,7 +177,8 @@
     var nowLine = r.state === "working"
       ? (r.on ? "on " + item(r.on) + " \u00b7 " : "") + "running " + h(r.age) + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "")
       : (r.connected ? h(r.state) + (r.idle ? " " + h(r.idle) : "") : "disconnected") + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "");
-    var leaf = function (k, fmt) { var x = D[k]; return srow(R.kpiLabel(k), x ? fmt(x.value) : "", { off: x && x.off, title: k }); };
+    /* A doing score the desk never sent has no row. */
+    var leaf = function (k, fmt) { var x = D[k]; return x && String(x.value) !== "" ? srow(R.kpiLabel(k), fmt(x.value), { off: x.off, title: k }) : ""; };
     var ms = function (v) { return R.msText(v); };
     var word = function (v) { return String(v).replace(/^tw_/, "").replace(/_/g, " "); };
     var rows = leaf("doing.task.dwell_active_ms", ms) + leaf("doing.task.dwell_idle_ms", ms);
