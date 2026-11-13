@@ -99,6 +99,13 @@
       margin-left: auto; color: var(--dim); font-size: 10px;
       border: 1px solid var(--edge); border-radius: 999px; padding: 0 .35rem;
     }
+    .rail-book .rail-row .ago { margin-left: auto; color: var(--dim); font-size: 10px; white-space: nowrap; }
+    .rail-book .rail-row .ago + .n { margin-left: 0; }
+    body.rail-narrow .rail-book .ago { display: none; }
+    .admin-stations { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .admin-stations th, .admin-stations td { text-align: left; padding: .2rem .4rem; border-bottom: 1px solid var(--edge); }
+    .admin-stations th { color: var(--dim); font-weight: 400; }
+    .admin-stations tr.never td { color: var(--dim); }
     .rail-book .live, .rail-book .off {
       width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px;
     }
