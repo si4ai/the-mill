@@ -18,6 +18,8 @@ import json
 import os
 import subprocess
 
+import pytest
+
 from ._wall_src import BOOT, ROOT
 
 ROWS = ROOT / "default" / "session" / "desks-rows.js"
@@ -70,6 +72,18 @@ def test_connected_seat_with_a_stale_view_is_idle_with_its_last():
     assert "last: auditing run 41, 17h ago" in html
     assert 'class="here-state">working<' not in html
     assert '<span class="desk-text">auditing run 41' not in html
+
+
+@pytest.mark.parametrize("flags", [{"alive": False, "stale": False}, {"alive": True, "stale": True}],
+                         ids=["alive-false-only", "stale-true-only"])
+def test_either_flag_alone_makes_the_view_a_leftover(flags):
+    # Either server flag alone is enough; a fresh 47m age does not make it working.
+    view = dict(FRESH, **flags)
+    got = _rows([{"owner": "builder", "state": "working", "seat": "", "seatAlive": True}], {"builder": view})
+    row = got["model"]["connected"][0]
+    assert row["state"] == "idle"
+    assert row["doing"] == ""
+    assert row["lastDoing"] == "filing the stations route, 47m ago"
 
 
 def test_seat_not_alive_with_a_stale_view_is_away_with_last_seen():
