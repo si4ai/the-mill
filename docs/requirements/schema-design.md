@@ -54,7 +54,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
 ## 5. One name table is the one place names are managed
 
 - **Decision.** Every name (desk, roster, label, tree, res) is one row of `name`, UNIQUE (`name`). The `type`
-  column stays. `name_fixed` refuses a change of `type` or `id`. A name is not a first-class object, just an
+  column stays. `name_fixed` refuses a change of `type`. An id change is refused unless `@mill_allow_name_id_change` is 1 (card 1200). A name is not a first-class object, just an
   isolated column managed in `name`. No other table stores a name string. Rename, retire and reclaim go only
   through `sp_name_*`. There is no name history (no `name_event`). Rules: admin.md sections 1, 2 and 4, rows
   F60, F65, F92, F135.

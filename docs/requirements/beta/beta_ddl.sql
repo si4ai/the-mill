@@ -28,7 +28,7 @@
 --
 -- BETA. Names, for integrity (owner rule). name exists only so a name cannot confuse or mislead an agent or a human;
 -- it is the ONE place names are managed: a name is an isolated column, not a first-class object. UNIQUE (name)
--- (card 1163): one string, one row. type stays. name_fixed refuses a type or id change. There is no name history
+-- (card 1163): one string, one row. type stays. name_fixed refuses a type change. an id change is allowed only when @mill_allow_name_id_change is 1 (card 1200). There is no name history
 -- (owner decision 2026-10-24).
 -- BETA. Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data.
 -- seat (desk_id, kind id = name.id) is the desk kind: it holds the desk's token, wake and connect data, so every desk
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS name (
   trashed     DATETIME(6)       NULL,  -- card 879: mill delete soft-trash; purge hard-deletes when set
   n           INT UNSIGNED      NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  UNIQUE KEY idx_name (name)   -- card 1163: one name string; type stays; name_fixed refuses a type or id change
+  UNIQUE KEY idx_name (name)   -- card 1163: one name string; type stays; an id change needs @mill_allow_name_id_change (card 1200)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci AUTO_INCREMENT=100;
 
 INSERT IGNORE INTO name (id, type, name) VALUES
@@ -120,8 +120,8 @@ CREATE TABLE IF NOT EXISTS seat (
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
-  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_seat_focus_label FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_seat_desk FOREIGN KEY (desk_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_seat_focus_label FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1022: System seat
@@ -136,8 +136,8 @@ CREATE TABLE IF NOT EXISTS member (
   created     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (name_id, desk_id),
   KEY idx_desk (desk_id, name_id),
-  CONSTRAINT fk_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_member_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_member_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Activity, then the rows that share its (type, id).
@@ -160,8 +160,8 @@ CREATE TABLE IF NOT EXISTS activity (
   KEY idx_roster (roster_id, type, updated),
   -- roster_id is required. 1 = Office. A missing roster is Office, so every row is counted.
   -- A name row is not deleted. Retire stamps name.deleted, and this id keeps pointing at it.
-  CONSTRAINT fk_activity_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_activity_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_activity_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_activity_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Tags on any activity. name_id is a label. Not member (desk <-> roster).
@@ -177,8 +177,8 @@ CREATE TABLE IF NOT EXISTS label (
   updated     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),   -- card 1153: when ord was last set (attach or re-rank)
   PRIMARY KEY (type, id, name_id),
   KEY idx_label_ord (name_id, ord, created),
-  CONSTRAINT fk_label_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE CASCADE,
-  CONSTRAINT fk_label_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_label_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_label_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Nested set (Celko). Structure. name_id is the plan (name.type = tree).
@@ -195,8 +195,8 @@ CREATE TABLE IF NOT EXISTS tree (
   UNIQUE KEY idx_rgt (name_id, rgt),
   KEY idx_type_lft (type, lft),
   KEY idx_activity (type, id),
-  CONSTRAINT fk_tree_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_tree_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT
+  CONSTRAINT fk_tree_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_tree_activity FOREIGN KEY (type, id) REFERENCES activity (type, id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
 -- Who to poke (desk_id = subscriber name.id). Mail is not a watcher type.
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS watcher (
   updated     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (type, id, desk_id),
   KEY idx_desk (desk_id),
-  CONSTRAINT fk_watcher_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_watcher_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
@@ -230,9 +230,9 @@ CREATE TABLE IF NOT EXISTS mail (
   KEY idx_desk (desk_id, created),
   KEY idx_mail_roster (roster_id),
   KEY idx_body_updater (body_updater_id),
-  CONSTRAINT fk_mail_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_mail_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_mail_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_mail_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Who has the letter. Desk, opened, receipt. Roster lives on the letter.
@@ -250,8 +250,8 @@ CREATE TABLE IF NOT EXISTS mail_to (
   KEY idx_desk (desk_id, created),
   -- Unread page for one desk, newest first (mill_mail_inbox).
   KEY idx_desk_unread (desk_id, opened, id),
-  CONSTRAINT fk_mail_to_mail FOREIGN KEY (type, id) REFERENCES mail (type, id) ON DELETE CASCADE,
-  CONSTRAINT fk_mail_to_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_mail_to_mail FOREIGN KEY (type, id) REFERENCES mail (type, id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_mail_to_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Per-desk read cursor on one tree (#155). tree_id is tree.name_id (the tree's
@@ -264,8 +264,8 @@ CREATE TABLE IF NOT EXISTS tree_read (
   updated  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (desk_id, tree_id),
   KEY idx_tree (tree_id),
-  CONSTRAINT fk_tree_read_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_tree_read_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS todo (
@@ -300,11 +300,11 @@ CREATE TABLE IF NOT EXISTS todo (
   KEY idx_creator (creator_id),
   KEY idx_assigned (assigned_id),
   KEY idx_body_updater (body_updater_id),
-  CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_updated FOREIGN KEY (updated_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_creator FOREIGN KEY (creator_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_todo_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_todo_updated FOREIGN KEY (updated_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_todo_creator FOREIGN KEY (creator_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_todo_assigned FOREIGN KEY (assigned_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_todo_body_updater FOREIGN KEY (body_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1133: the old text of a mail or card body, one row per replace (mill_body_replace). Full text, never a diff.
@@ -326,9 +326,9 @@ CREATE TABLE IF NOT EXISTS activity_history (
   UNIQUE KEY idx_item_version (type, activity_id, old_updated),
   KEY idx_old_updater (old_updater_id),
   KEY idx_replaced_by (replaced_by),
-  CONSTRAINT fk_history_activity FOREIGN KEY (type, activity_id) REFERENCES activity (type, id) ON DELETE CASCADE,
-  CONSTRAINT fk_history_old_updater FOREIGN KEY (old_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_history_replaced_by FOREIGN KEY (replaced_by) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_history_activity FOREIGN KEY (type, activity_id) REFERENCES activity (type, id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_history_old_updater FOREIGN KEY (old_updater_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_history_replaced_by FOREIGN KEY (replaced_by) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- #818: what a desk is doing. Append-only: one row per entry, never overwritten.
@@ -363,14 +363,14 @@ CREATE TABLE IF NOT EXISTS doing (
   KEY idx_roster (roster_id),
   KEY idx_peer (peer_id),
   UNIQUE KEY idx_id_desk (id, desk_id),   -- BETA: target of seat.fk_seat_doing (the desk's own row)
-  CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT chk_doing_evidence CHECK (evidence IS NULL OR act NOT IN ('focus', 'clear', 'finish'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- BETA (the owner, 2026-10-26): seat.doing_id names the desk's own focus row; the composite FK keeps it on that desk.
-ALTER TABLE seat ADD CONSTRAINT fk_seat_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT;
+ALTER TABLE seat ADD CONSTRAINT fk_seat_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- One lock per resource. desk_id NULL means free. Release nulls desk_id; the row stays.
 CREATE TABLE IF NOT EXISTS hold (
@@ -384,8 +384,8 @@ CREATE TABLE IF NOT EXISTS hold (
   UNIQUE KEY idx_id (id),
   UNIQUE KEY idx_hold (resource_id),
   KEY idx_desk (desk_id),
-  CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT
+  CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS score (
@@ -408,7 +408,8 @@ CREATE TABLE IF NOT EXISTS score (
   desk_key    BIGINT UNSIGNED AS (IFNULL(desk_id, 0)) STORED,   -- BETA: one office-wide row per kpi (NULL is not unique)
   UNIQUE KEY idx_score_who (roster_id, desk_key, kpi),
   KEY idx_desk (desk_id),
-  CONSTRAINT fk_score_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_score_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  -- card 1200: no ON UPDATE CASCADE. desk_id feeds stored desk_key, and MySQL refuses the cascade.
   CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -426,8 +427,8 @@ CREATE TABLE IF NOT EXISTS score_point (
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id),
   KEY idx_score_at (score_id, created, id),
-  CONSTRAINT fk_score_point_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT,
-  CONSTRAINT fk_score_point_desk  FOREIGN KEY (desk_id) REFERENCES seat (desk_id)  ON DELETE RESTRICT
+  CONSTRAINT fk_score_point_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_score_point_desk  FOREIGN KEY (desk_id) REFERENCES seat (desk_id)  ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- History of one score. Hour rows reuse 1970-01-01 00:00 through 23:00; taken is the real day.
@@ -442,7 +443,7 @@ CREATE TABLE IF NOT EXISTS score_evidence (
   value      JSON            NOT NULL,
   taken      DATE            NULL,
   PRIMARY KEY (score_id, timestamp),
-  CONSTRAINT fk_score_evidence_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT
+  CONSTRAINT fk_score_evidence_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Waste readings filled from the debug logs. kpi is the label string, not a name row. Target 0.
@@ -490,7 +491,7 @@ CREATE TABLE IF NOT EXISTS wake (
   KEY idx_desk (desk_id, id),
   KEY idx_desk_state (desk_id, state),
   KEY idx_cause_id (cause, cause_id, state),
-  CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_wake_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- card 1022: one row per state change of one activity. desk_id DEFAULT 0 = System (the default desk).
@@ -514,8 +515,8 @@ CREATE TABLE IF NOT EXISTS transition (
   KEY idx_desk_type_at (desk_id, activity_type, at),
   KEY idx_join (join_key, at),
   KEY idx_type_to_at (activity_type, to_state, at),
-  CONSTRAINT fk_transition_activity FOREIGN KEY (activity_type, activity_id) REFERENCES activity (type, id) ON DELETE RESTRICT,
-  CONSTRAINT fk_transition_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  CONSTRAINT fk_transition_activity FOREIGN KEY (activity_type, activity_id) REFERENCES activity (type, id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_transition_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Allowed edges. Seeded to match transition_enums.ALLOWED_TRANSITIONS (text values = enum .value).
@@ -658,8 +659,8 @@ CREATE TABLE IF NOT EXISTS human_desk (
   created   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (human_id, desk_id),
   UNIQUE KEY idx_desk (desk_id),
-  CONSTRAINT fk_human_desk_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE,
-  CONSTRAINT fk_human_desk_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE CASCADE
+  CONSTRAINT fk_human_desk_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_human_desk_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Directory groups mapped onto a mill roster: one roster per human (mill_human_roles replaces it). No row means viewer.
@@ -669,8 +670,8 @@ CREATE TABLE IF NOT EXISTS human_member (
   created   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (human_id, name_id),
   KEY idx_role (name_id, human_id),
-  CONSTRAINT fk_human_member_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE,
-  CONSTRAINT fk_human_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE CASCADE
+  CONSTRAINT fk_human_member_human FOREIGN KEY (human_id) REFERENCES human (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_human_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS mill_invite (
@@ -693,7 +694,7 @@ CREATE TABLE IF NOT EXISTS mill_invite_join (
   party_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   created  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (key_id, party, party_id),
-  CONSTRAINT fk_invite_join_key FOREIGN KEY (key_id) REFERENCES mill_invite (key_id) ON DELETE CASCADE
+  CONSTRAINT fk_invite_join_key FOREIGN KEY (key_id) REFERENCES mill_invite (key_id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
@@ -1101,14 +1102,17 @@ BEGIN
   END IF;
 END //
 
--- BETA (name restore): a name keeps its type and id. A retired name is not renamed
+-- BETA (name restore): a name keeps its type. an id change needs @mill_allow_name_id_change (card 1200). A retired name is not renamed
 -- unless the card 1163 collision step sets @mill_allow_retired_rename. Reclaim stays the normal path.
 -- Clearing deleted is sp_name_reclaim's (Admin); the app user cannot UPDATE (EXECUTE-only).
 CREATE TRIGGER name_fixed BEFORE UPDATE ON name
 FOR EACH ROW
 BEGIN
-  IF NEW.type <> OLD.type OR NEW.id <> OLD.id THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: type and id are fixed';
+  IF NEW.type <> OLD.type THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: type is fixed';
+  END IF;
+  IF NEW.id <> OLD.id AND IFNULL(@mill_allow_name_id_change, 0) <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: id is fixed';
   END IF;
   IF OLD.deleted IS NOT NULL AND NEW.name <> OLD.name
      AND IFNULL(@mill_allow_retired_rename, 0) <> 1 THEN

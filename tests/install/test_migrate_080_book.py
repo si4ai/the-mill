@@ -277,7 +277,7 @@ CARD_1133_TABLES = ("activity_history",)
 FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including card 1163."""
+    """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including cards 1163 and 1200."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
@@ -285,6 +285,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_history_1133(cn)
     migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
     migrate.apply_1163(cn)
+    migrate.apply_1200(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
