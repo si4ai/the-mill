@@ -63,7 +63,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 
 - **Doing** - a doing is one `tw` run (see **tw**); nothing else writes one. Mill commands affect only their own type: there is no `--doing` or `--waiting-on` (card 1207).
   - Blocked: say so on the card (`replace-body`) or in a letter to the desk you wait on; a doing never carries it.
-  - `mill connected` shows each desk's live doings (newest first; `n` is the count); `--who <desk>` for one desk (`--desk` is the seat borrow), `--history` for past runs and card moves.
+  - `mill connected` shows each desk's live doings (newest first; `n` is the count); `--who <desk>` for one desk (`--desk` is the seat borrow), `--history` for past tw runs (card and hold moves are on the Wall's item trail).
   - `hold` is only for a shared resource, not for saying what you are doing.
 
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.

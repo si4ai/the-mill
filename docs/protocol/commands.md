@@ -365,7 +365,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 
 | command | intent | CALL |
 |---|---|---|
-| **`connected`** | Each desk's live doings (its running tw runs, newest first, at most 20) and `n`, their count; roster optional (none = desks active in the last day, `--all` every desk, `--who D` one desk; `--desk` is the seat borrow, as on every desk command); `--history [--since DATE] [--page N]` lists past tw runs (`ended_by`: finished, failed, stale, cleared) and card and hold moves. A desk is alive while `seat.updated` is at most 15 minutes old. A missing time is stale. CLI word for the `session` RPC. | `mill_doing_now`, `mill_doing_history` |
+| **`connected`** | Each desk's live doings (its running tw runs, newest first, at most 20) and `n`, their count; roster optional (none = desks active in the last day, `--all` every desk, `--who D` one desk; `--desk` is the seat borrow, as on every desk command); `--history [--since DATE] [--page N]` lists past tw runs (`ended_by`: finished, failed, stale, cleared); card and hold moves show only on the Wall's item trail (`/api/v1/doing/history?on=`). A desk is alive while `seat.updated` is at most 15 minutes old. A missing time is stale. CLI word for the `session` RPC. | `mill_doing_now`, `mill_doing_history` |
 | **`--doing` / `--waiting-on`** | Gone (card 1207). A doing is written only by `tw` (one row per run); every other command affects only its own type. A request body that still carries `doing` or `waiting_on` is refused: `COMMAND: --doing is gone (card 1207: doing is written only by tw); nothing was changed`. | `mill_doing_task` (tw only) |
 
 ### label / score / watcher

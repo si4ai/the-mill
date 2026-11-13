@@ -162,7 +162,7 @@ stateDiagram-v2
 | Tsk3 | waiting | active | tw resume | `tw_resume` | `state` active |
 | Tsk4 | active or waiting | finished | tw exit 0 | `tw_finished` | gone from `doings`; `--history` shows `ended_by` finished |
 | Tsk5 | active or waiting | failed | tw crash or non-zero exit | `tw_failed` | `ended_by` failed |
-| Tsk6 | active or waiting | stale | swept when a new start would pass the task cap | `records/doing.py` sweep, `tw_stale` | `ended_by` stale |
+| Tsk6 | active or waiting | stale | only once the desk has been offline 24h+ (a connected desk's runs are never stale): swept when a new start would pass the task cap, and by the score-tick sweep | `records/doing.py` `sweep_stale_tasks` / `sweep_offline_desks` (`score_tick.sweep_offline_tw`), `tw_stale` | `ended_by` stale |
 | Tsk7 | any live run | cleared | `mill reset seat D --yes`, `mill retire desk D --yes` (Admin); clock-out (`mill_join_delete`, no caller yet) | `sp_join.sql` `mill_join_reset` / `mill_join_delete`, `sp_name.sql` retire | `ended_by` cleared |
 | D11 | seated | reset: token cleared, webhook off, holds freed | `mill reset seat D --yes` (Admin) | `rpc.py` -> `sp_join.sql` `mill_join_reset` | output `"op": "reset"` and `released` count; D's next command fails until it joins again |
 
