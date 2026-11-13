@@ -8,6 +8,8 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 
 Card 1163 (office human, 2026-11-12): `name` is UNIQUE on `name` alone (`idx_name`), retired and trashed rows included. `idx_type` and `idx_id_type` are gone. The eleven `*_kind` columns are gone. Each foreign key to `name` is a plain id, and a BEFORE INSERT / BEFORE UPDATE trigger requires the type, including `seat.desk_id` (desk) and `seat.focus_label_id` (label). `name_fixed` refuses a type change, and refuses an id change unless `@mill_allow_name_id_change` is 1 (card 1200). It also refuses a retired rename unless the collision step sets `@mill_allow_retired_rename`. `seat.focus_label_id` is the desk's focus list; commands still address it by the desk name. Rows below that describe the 0.8.0 kind columns are the shape this card replaced.
 
+Card 1212 (office human, 2026-11-13): `score_view` is one row per score per viewer desk, a count and a last-seen time. A wall read does not write it. A desk read increments it and does not wake.
+
 Card 1200 (office human, 2026-11-13): every foreign key keeps its ON DELETE rule and gains ON UPDATE CASCADE, including `fk_seat_doing`. `fk_score_desk` does not: `score.desk_id` feeds the stored `desk_key`, and MySQL refuses ON UPDATE CASCADE on that column. `migrations.sql` is the step for a book that already exists. `mill_import_bearer_salts` copies this book's desk `token_hash` values onto an uploaded book, matched by unique desk name.
 
 Header note (card 906 / F195): the tables.sql and beta_ddl.sql headers no longer claim a read-committed isolation level. Join reads `name.deleted` under `FOR UPDATE` (see schema-design.md section 10); nothing sets a session level.

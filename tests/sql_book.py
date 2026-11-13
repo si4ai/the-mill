@@ -36,6 +36,7 @@ DATA_TABLES = (
     "hold",
     "score_point",
     "score_evidence",
+    "score_view",
     "score",
     "human_member",
     "human_desk",

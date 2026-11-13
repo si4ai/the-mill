@@ -1696,11 +1696,24 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
             if path == "/api/pov":
                 qs = parse_qs(urlparse(self.path).query)
                 part = ((qs.get("part") or [""])[0] or "").strip().lower()
+                if part == "scores":
+                    window = ((qs.get("window") or ["7d"])[0] or "7d").strip()
+                    viewer = ((qs.get("viewer") or [""])[0] or "").strip()
+
+                    def produce_scores() -> bytes:
+                        with _office() as c:
+                            from agent_coord.server.records.score_part1 import read_scores
+
+                            payload = read_scores(c._cn, window, viewer or None)
+                        return _json(payload)
+
+                    self._send(200, produce_scores(), "application/json; charset=utf-8")
+                    return
                 pov_type = {"desks": "desk", "rosters": "roster"}.get(part)
                 if not pov_type:
                     self._send(
                         400,
-                        _json({"error": "GET /api/pov requires ?part=desks|rosters"}),
+                        _json({"error": "GET /api/pov requires ?part=desks|rosters|scores"}),
                         "application/json; charset=utf-8",
                     )
                     return

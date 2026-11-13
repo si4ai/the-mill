@@ -1,5 +1,5 @@
--- 25 tables. Wipe then apply.
--- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 25 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history).
+-- 26 tables. Wipe then apply.
+-- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 26 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history; card 1212 adds score_view).
 -- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). card 1207: doing is only tw runs (six columns);
 -- moves are transition rows; seat has no doing pointer. activity.act uses the act list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.
@@ -363,6 +363,16 @@ CREATE TABLE IF NOT EXISTS hold (
   KEY idx_desk (desk_id),
   CONSTRAINT fk_hold_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- card 1212: one row per score per viewer desk. A wall read does not write this.
+CREATE TABLE IF NOT EXISTS score_view (
+  kpi        VARCHAR(64) NOT NULL,
+  viewer_id  BIGINT UNSIGNED NOT NULL,
+  n          INT UNSIGNED NOT NULL DEFAULT 0,
+  last_seen  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (kpi, viewer_id),
+  KEY idx_viewer (viewer_id, last_seen)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS score (

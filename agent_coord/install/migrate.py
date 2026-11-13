@@ -2408,6 +2408,31 @@ def _reanchor_connect_1207(cur) -> int:
     return moved
 
 
+def apply_1212(cn) -> list[str]:
+    """Card 1212: score_view on a book that already exists. Fresh books get it from tables.sql."""
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "score_view"):
+            return []
+        cur.execute(
+            "CREATE TABLE score_view ("
+            " kpi VARCHAR(64) NOT NULL,"
+            " viewer_id BIGINT UNSIGNED NOT NULL,"
+            " n INT UNSIGNED NOT NULL DEFAULT 0,"
+            " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
+            " PRIMARY KEY (kpi, viewer_id),"
+            " KEY idx_viewer (viewer_id, last_seen)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+        )
+        cn.commit()
+        return ["migrate_1212:score_view"]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
 def apply_1207(cn, report: dict | None = None) -> list[str]:
     """Card 1207 data and schema. report (tests) gets the counts: evidence backfilled, move rows covered by a
     transition row, move rows backfilled to transition, move rows deleted, evidence rows with no card left,
@@ -2789,6 +2814,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(apply_1200(cn))
             # card 1207: after the routine reload (mill_doing_anchor, MILL_FX_META) and the 1022 edges.
             applied.extend(apply_1207(cn))
+            applied.extend(apply_1212(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])
