@@ -66,3 +66,40 @@ def test_m4_retire_keeps_member_rows_reclaim_warns(cn) -> None:
     out = rec_name.reclaim(cn, "keep-roster", "roster", by=admin_desk(cn))
     hit = out[0] if out else {}
     assert int(hit.get("members") or 0) >= 1
+
+
+def test_list_rosters_counts_live_desks_and_skips_retired(cn) -> None:
+    """Card 1204: one read lists every live roster with live-desk membership."""
+    from uuid import uuid4
+
+    from agent_coord.const import CONST_OFFICE
+    from agent_coord.server.records import join
+    from agent_coord.server.records import name as rec_name
+    from tests.server.records.conftest import admin_desk
+
+    tag = uuid4().hex[:6]
+    live_roster = "r1204-" + tag
+    empty_roster = "r1204-empty-" + tag
+    retired_roster = "r1204-gone-" + tag
+    keep, drop = ("d1204a-" + tag, "d1204b-" + tag)
+    extra = "d1204c-" + tag
+    for d in (keep, drop):
+        join.upsert(cn, live_roster, d, "", "b" * 64, "here")
+    join.upsert(cn, retired_roster, extra, "", "b" * 64, "here")
+    rec_name.host_put(cn, empty_roster, "roster")
+    rec_name.retire(cn, drop, "desk", by=admin_desk(cn))
+    rec_name.retire(cn, retired_roster, "roster", by=admin_desk(cn))
+    cn.commit()
+
+    rows = rec_member.list_rosters(cn)
+    by_name = {r["name"]: r for r in rows}
+    assert by_name[live_roster] == {"name": live_roster, "desks": 1, "members": [keep]}
+    assert by_name[empty_roster] == {"name": empty_roster, "desks": 0, "members": []}
+    assert retired_roster not in by_name
+    assert drop not in by_name[live_roster]["members"]
+    assert rows[0]["name"] == CONST_OFFICE
+    assert all(isinstance(r["members"], list) and len(r["members"]) == r["desks"] for r in rows)
+    # Office stays first even when later names sort before it alphabetically.
+    names = [r["name"] for r in rows]
+    assert names == sorted(names, key=lambda n: (n != CONST_OFFICE, n.lower()))
+

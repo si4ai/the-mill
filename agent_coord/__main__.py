@@ -1228,7 +1228,21 @@ def _build_parser() -> MillArgumentParser:
     )
     rtr.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
-    memb = sub.add_parser("member", help="list this desk's rosters (Office first)")
+    memb = sub.add_parser(
+        "member",
+        help="list this desk's rosters (Office first); --all lists every roster with its member count",
+    )
+    memb.add_argument(
+        "--all",
+        action="store_true",
+        help="every live roster with its member count (membership, not live seats)",
+    )
+    memb.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="print the JSON result (with --all)",
+    )
     for _command, _what in (("add", "put desks on"), ("remove", "take desks off")):
         _ap = sub.add_parser(
             _command,

@@ -865,6 +865,16 @@ def mill_http_from_args(args: Any) -> int:
         shaped = dict(row["result"], rooms=rooms_rows.short(part))
         row = dict(row, result=shaped, page=rooms_block)
         rooms_block = None
+    from agent_coord.client import member_rows
+
+    if (
+        member_rows.applies(args)
+        and isinstance(row, dict)
+        and row.get("ok") is True
+        and isinstance(row.get("result"), list)
+    ):
+        print(member_rows.render(row["result"]), end="", flush=True)
+        return 0
     if (
         str(getattr(args, "cmd", "") or "") == "trail"
         and not bool(getattr(args, "as_json", False))
