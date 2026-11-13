@@ -74,10 +74,21 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
             "('hold', 3, 'free', 'held', 'hold_grant', %s)",
             (desk, other, desk),
         )
+        cur.execute("SELECT id FROM name WHERE name = 'to-c'")
+        third = cur.fetchone()[0]
+        cur.execute("SELECT id FROM name WHERE name = 'to-b'")
+        refused = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, meta) "
-            "VALUES ('hold', 3, 'held', 'free', 'hold_force', %s, %s)",
-            (desk, '{"by": %d}' % int(other)),
+            "VALUES ('hold', 3, 'held', 'free', 'hold_force', %s, %s), "
+            "('todo', 2, 'open', 'claimed', 'assign', %s, %s)",
+            (desk, '{"by": %d}' % int(other), desk, '{"to": %d}' % int(third)),
+        )
+        cur.execute(
+            "INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, meta) "
+            "VALUES ('hold', 3, 'any', 'refused', 'hold_refuse', %s, %s), "
+            "('hold', 3, 'held', 'free', 'hold_drop', %s, NULL)",
+            (refused, '{"holder": %d}' % int(desk), desk),
         )
         # 6000 later rows on the same activity. The old letter stays reachable by id.
         cur.execute(
@@ -115,6 +126,11 @@ def test_replay_keyset_is_flat_and_mail_edges_pass_the_500_cap():
         assert claim["to_desks"] != takeover["to_desks"]
         assert by_reason[("hold", "hold_grant")]["to_desks"] == ["from-desk"]
         assert by_reason[("hold", "hold_force")]["to_desks"] == ["to-a"]
+        assigned = by_reason[("todo", "assign")]
+        assert assigned["from_desk"] == "to-a" and assigned["to_desks"] == ["to-c"]
+        dropped = by_reason[("hold", "hold_drop")]
+        assert dropped["from_desk"] == "from-desk"
+        assert "to-b" not in dropped["to_desks"]
 
         head = v1_replay(cn, {"limit": ["100"], "project": ["r1206"]})
         assert len(head["rows"]) == 100
