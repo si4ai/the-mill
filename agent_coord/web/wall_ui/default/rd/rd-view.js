@@ -336,10 +336,11 @@
   }
   function prioritiesHtml(m) {
     var cols = m.cols.map(function (c) {
-      var rows = c.rows.length ? c.rows.map(function (r) {
+      var top = c.rows.slice(0, 8);
+      var rows = top.length ? top.map(function (r) {
         return itemRow(c.desk + "|" + r.id, m.selected, rank(r.pos, r.ord) + ' <span class="rd-item-id">todo-' + h(r.id) + '</span><span class="rd-item-title">' + h(r.title) + "</span>",
           (r.stuck ? flag("no activity", "older") : "") + "<span>" + h(r.note) + "</span>" + when(r.when));
-      }).join("") : empty("no priorities set");
+      }).join("") + (c.rows.length > top.length ? '<p class="rd-more-line">' + h(plural(c.rows.length - top.length, "more card")) + " on this list</p>" : "") : empty("no priorities set");
       return groupCol(c.desk, c.sub, rows, c.away ? "away" : "");
     }).join("");
     var d = m.detail, det = "";
