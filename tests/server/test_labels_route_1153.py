@@ -45,7 +45,7 @@ def _client(monkeypatch, cn=None) -> TestClient:
 
 @pytest.mark.parametrize("url,word", [
     ("/api/v1/labels", "project=Office"),
-    ("/api/v1/labels?project=the-mill", "project=Office"),
+    ("/api/v1/labels?project=a%20b", "project="),  # card 1193: a roster list is allowed, a bad name is not
     ("/api/v1/labels?project=Office&role=x", "project=Office"),
     ("/api/v1/labels?project=Office&names=a,b%20c", "names"),
 ])
