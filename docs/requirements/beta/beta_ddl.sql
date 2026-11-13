@@ -365,6 +365,16 @@ CREATE TABLE IF NOT EXISTS hold (
   CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- card 1212: one row per score per viewer desk. A wall read does not write this.
+CREATE TABLE IF NOT EXISTS score_view (
+  kpi        VARCHAR(64) NOT NULL,
+  viewer_id  BIGINT UNSIGNED NOT NULL,
+  n          INT UNSIGNED NOT NULL DEFAULT 0,
+  last_seen  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (kpi, viewer_id),
+  KEY idx_viewer (viewer_id, last_seen)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS score (
   type        ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'score',
   id          BIGINT UNSIGNED        NOT NULL AUTO_INCREMENT,
