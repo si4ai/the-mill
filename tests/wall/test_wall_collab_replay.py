@@ -108,6 +108,8 @@ console.log(JSON.stringify({
     return {now: R.replayPan(r, null, 60000), back: R.replayPan(r, null, -10 * 60000), far: R.replayPan(r, null, -365 * 86400000),
       fwd: R.replayPan(r, now - 25 * 60000, 24 * 60000)}; })(),
   nowMs: now,
+  dirs: Object.fromEntries(['desks', 'activity'].flatMap(v => ['lr', 'tb', null].map(d => [v + '-' + d, V.replay(rep, [], {speed: 1, view: v, dirs: d ? {[v]: d} : {}})]))),
+  axis: {lr: R.replayAxis('lr'), tb: R.replayAxis('tb'), dflt: R.REPLAY_DIR_DEFAULT},
   laneTrace: (() => { const t = R.replayLaneTrace(rep, 30); return Object.fromEntries(Object.entries(t.by).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])); })(),
   monitor: V.replay(rep, [], {speed: 1, view: 'activity'}),
   shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
@@ -418,3 +420,27 @@ def test_state_desks_per_kind():
     assert wake2 == {"holders": ["builder"], "from": ["validator"], "waiting": []}, "ready for a row that names them"
     assert doing == {"holders": ["builder"], "from": [], "waiting": []}, "doing is who is doing it; a wait is not a transfer"
     assert score == {"holders": ["builder"], "from": [], "waiting": []}
+
+
+def test_direction_toggles_per_subtab_and_both_start_left_to_right():
+    got = run()
+    ax, d = got["axis"], got["dirs"]
+    assert ax["dflt"] == {"desks": "lr", "activity": "lr"}
+    assert ax["lr"]["main"] == "x" and ax["lr"]["cross"] == "y" and ax["tb"]["main"] == "y" and ax["tb"]["cross"] == "x"
+    for v in ("desks", "activity"):
+        assert "rd-dir-lr" in d[v + "-null"] and 'data-rp-dir="tb"' in d[v + "-null"], v + " starts left to right; the toggle offers top to bottom"
+        assert "rd-dir-tb" in d[v + "-tb"] and 'data-rp-dir="lr"' in d[v + "-tb"]
+    # Activity, left to right: one row per lane, time along x.
+    lr = d["activity-lr"]
+    assert 'viewBox="0 0 1000 24"' in lr and 'data-rp-axis="y"' not in lr
+    # Activity, top to bottom: lanes as columns, the same trace with x and y swapped, time along y.
+    tb = d["activity-tb"]
+    assert 'viewBox="0 0 24 1000"' in tb and 'data-rp-axis="y"' in tb and 'data-rp-clip="y"' in tb and 'data-rp-head="y"' in tb
+    # Desks renders the same stage in either direction: the CSS turns it.
+    assert 'data-rp-rain="1"' in d["desks-lr"] and 'data-rp-rain="1"' in d["desks-tb"]
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "#rd .rd-dir-lr .rd-rp-stage { flex-direction: row; }" in css, "desks left to right: pills in a column on the left"
+    assert "#rd .rd-dir-tb .rd-rp-monitor { flex-direction: row;" in css, "activity top to bottom: lanes as columns"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert 'RP_DIR_KEY = "rd-replay-dir-"' in app and "save(RP_DIR_KEY + rp.view" in app, "each subtab keeps its own choice"
+    assert "el.style[ax.crossStart]" in app and 'getAttribute("data-rp-axis") === "y"' in app, "drops, scrubbing and panning follow the axis"

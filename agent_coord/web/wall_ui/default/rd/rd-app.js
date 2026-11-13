@@ -63,7 +63,7 @@
   var WINDOWED = { desks: ["agents"], score: ["scores"] };
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
-  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_WIN_KEY = "rd-replay-window", RP_SPEED_KEY = "rd-replay-speed";
+  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_WIN_KEY = "rd-replay-window", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, moves: {}, trail: {}, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
@@ -356,7 +356,10 @@
    * passes slides in at the top. The rows come from the reads, nothing is made up. */
   var RP_CAP = 60;
   var rp = { playing: false, t: null, t0: 0, wall0: 0, rep: null, raf: 0, drawn: null, speed: Number(load(RP_SPEED_KEY, "1")) || 1,
-    view: "desks", lastT: null, st: null, live: 0 };
+    view: "desks", lastT: null, st: null, live: 0, dirs: { desks: dirOf("desks"), activity: dirOf("activity") } };
+  /* Each subtab keeps its own direction; both start left to right. */
+  function dirOf(view) { var v = load(RP_DIR_KEY + view, R.REPLAY_DIR_DEFAULT[view]); return v === "tb" ? "tb" : "lr"; }
+  function rpAxis() { return R.replayAxis(rp.dirs[rp.view]); }
   if (R.REPLAY_SPEEDS.indexOf(rp.speed) < 0) rp.speed = 1;
   function replayModel(b) {
     var rep = R.collabReplay(b, { window: load(RP_WIN_KEY, "auto"), end: rp.end });
@@ -381,8 +384,8 @@
     var clockEl = root.querySelector("[data-rp-clock]"), play = root.querySelector("[data-rp-play]");
     /* The trace: lit up to the playhead, dim after it. */
     var frac = Math.max(0, Math.min(1, (t - rep.since) / Math.max(1, rep.until - rep.since))), x = (1000 * frac).toFixed(1);
-    root.querySelectorAll("[data-rp-clip]").forEach(function (c) { c.setAttribute("width", x); });
-    root.querySelectorAll("[data-rp-head]").forEach(function (l) { l.setAttribute("x1", x); l.setAttribute("x2", x); });
+    root.querySelectorAll("[data-rp-clip]").forEach(function (c) { c.setAttribute(c.getAttribute("data-rp-clip") === "y" ? "height" : "width", x); });
+    root.querySelectorAll("[data-rp-head]").forEach(function (l) { var y = l.getAttribute("data-rp-head") === "y"; l.setAttribute(y ? "y1" : "x1", x); l.setAttribute(y ? "y2" : "x2", x); });
     root.querySelectorAll("[data-rp-trace]").forEach(function (tr) { tr.setAttribute("aria-valuenow", String(Math.round(1000 * frac))); });
     var span = root.querySelector("[data-rp-span]");
     if (span) span.textContent = spanText(rep);
@@ -513,17 +516,18 @@
       r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); });
     }
   }
+  /* Where a lane sits across the flow: its pill's centre on the cross axis. */
   function laneX(S, id, box) {
-    var l = S.lanes[id];
+    var l = S.lanes[id], ax = rpAxis();
     if (!l) return null;
     var r = l.head.getBoundingClientRect();
-    return r.left + r.width / 2 - box.left;
+    return ax.cross === "x" ? r.left + r.width / 2 - box.left : r.top + r.height / 2 - box.top;
   }
   function dropRow(S, r) {
     if (rp.live >= RP_LIVE) return;
     /* The drop lands on every desk in the activity's state (and the actor's own column); the
      * links join only the desks a transition moved the state between. */
-    var box = S.rain.getBoundingClientRect(), hgt = box.height || 200, ends = [r.lane];
+    var ax = rpAxis(), box = S.rain.getBoundingClientRect(), hgt = (ax.main === "y" ? box.height : box.width) || 200, ends = [r.lane];
     function add(id) { if (id && ends.indexOf(id) < 0) ends.push(id); }
     (r.stateLanes || []).forEach(add);
     r.flows.forEach(function (f) { add(f.from); add(f.to); });
@@ -533,13 +537,15 @@
       if (x == null || rp.live >= RP_LIVE) return;
       xs.push(x);
       var el = icon(r.kind, "rd-rp-drop", rowText(r), r.tags);
-      el.style.left = (x - 7) + "px";
+      el.style[ax.crossStart] = (x - 7) + "px";
+      el.style[ax.start] = "0";
       S.rain.appendChild(el);
       rp.live++;
+      function at(v) { return ax.main === "y" ? "translate(0," + v + "px)" : "translate(" + v + "px,0)"; }
       var run = el.animate([
-        { transform: "translate(0,-6px) scale(1.3)", opacity: 0 },
-        { transform: "translate(0,6px) scale(1.15)", opacity: 1, offset: 0.12 },
-        { transform: "translate(0," + Math.round(hgt * 0.72) + "px) scale(1)", opacity: 0 }
+        { transform: at(-6) + " scale(1.3)", opacity: 0 },
+        { transform: at(6) + " scale(1.15)", opacity: 1, offset: 0.12 },
+        { transform: at(Math.round(hgt * 0.72)) + " scale(1)", opacity: 0 }
       ], { duration: 2400, easing: "cubic-bezier(.3,0,.8,1)" });
       run.onfinish = run.oncancel = function () { rp.live--; if (el.parentNode) el.parentNode.removeChild(el); };
     });
@@ -551,7 +557,9 @@
       var a = laneX(S, r.flows[i].from, box), z = laneX(S, r.flows[i].to, box);
       if (a == null || z == null) continue;
       var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", "M" + a.toFixed(1) + " 14 Q" + ((a + z) / 2).toFixed(1) + " " + (14 + Math.min(60, Math.abs(z - a) / 4)).toFixed(1) + " " + z.toFixed(1) + " 14");
+      var bend = (14 + Math.min(60, Math.abs(z - a) / 4)).toFixed(1), mid = ((a + z) / 2).toFixed(1);
+      path.setAttribute("d", ax.main === "y" ? "M" + a.toFixed(1) + " 14 Q" + mid + " " + bend + " " + z.toFixed(1) + " 14"
+        : "M14 " + a.toFixed(1) + " Q" + bend + " " + mid + " 14 " + z.toFixed(1));
       path.setAttribute("class", "k-" + r.kind);
       svg.appendChild(path);
       var fade = path.animate([{ opacity: 0 }, { opacity: 0.9, offset: 0.2 }, { opacity: 0 }], { duration: 1600, easing: "ease-out" });
@@ -637,7 +645,11 @@
     rp.t = frac >= 0.999 ? null : rep.since + (rep.until - rep.since) * frac;
     drawReplay(false);
   }
-  function traceFrac(el, ev) { var r = el.getBoundingClientRect(); return r.width ? (ev.clientX - r.left) / r.width : 1; }
+  function traceFrac(el, ev) {
+    var r = el.getBoundingClientRect();
+    if (el.getAttribute("data-rp-axis") === "y") return r.height ? (ev.clientY - r.top) / r.height : 1;
+    return r.width ? (ev.clientX - r.left) / r.width : 1;
+  }
   /* On a trace: a click seeks the playhead; a grab-hand drag slides the window itself through the
    * recorded history (never past now), and the replay re-scopes to it: two minutes, anywhere. */
   var dragTrace = null, PAN_PX = 4;
@@ -653,14 +665,15 @@
   root.addEventListener("pointerdown", function (ev) {
     var el = closest(ev.target, "[data-rp-trace]"), rep = rpRep();
     if (!el || !rep) return;
-    dragTrace = { el: el, x0: ev.clientX, w: el.getBoundingClientRect().width || 1, end0: rp.end, ms: rep.ms, moved: false };
+    var vy = el.getAttribute("data-rp-axis") === "y", bx = el.getBoundingClientRect();
+    dragTrace = { el: el, vy: vy, x0: vy ? ev.clientY : ev.clientX, w: (vy ? bx.height : bx.width) || 1, end0: rp.end, ms: rep.ms, moved: false };
     if (el.setPointerCapture) try { el.setPointerCapture(ev.pointerId); } catch (e) { /* capture is optional */ }
     ev.preventDefault();
   });
   root.addEventListener("pointermove", function (ev) {
     var d = dragTrace, rep = rpRep();
     if (!d || !rep) return;
-    var dx = ev.clientX - d.x0;
+    var dx = (d.vy ? ev.clientY : ev.clientX) - d.x0;
     if (!d.moved && Math.abs(dx) < PAN_PX) return;
     if (!d.moved) { d.moved = true; root.classList.add("rd-rp-panning"); }
     /* Drag right shows earlier time, as a map does: the window's end moves back. */
@@ -889,6 +902,12 @@
     if ((el = closest(t, "[data-rp-play]"))) { if (rp.playing) rpPause(); else rpPlay(); return; }
     if ((el = closest(t, "[data-rp-step]"))) { rpStep(); return; }
     if ((el = closest(t, "[data-rp-full]"))) { rpFull(!rp.full); return; }
+    if ((el = closest(t, "[data-rp-dir]"))) {
+      rp.dirs[rp.view] = el.getAttribute("data-rp-dir") === "tb" ? "tb" : "lr";
+      save(RP_DIR_KEY + rp.view, rp.dirs[rp.view]);
+      rp.st = null; rp.drawn = null; last.pane = null; paint();
+      return;
+    }
     if ((el = closest(t, "[data-rp-win]"))) { save(RP_WIN_KEY, el.getAttribute("data-rp-win")); rpStop(); paint(); return; }
     if ((el = closest(t, "[data-rp-speed]"))) {
       var sp = Number(el.getAttribute("data-rp-speed")) || 1;

@@ -1136,6 +1136,15 @@
     var o = { labels: t ? t.labels : [], trees: t ? t.trees : [], watchers: t ? t.watchers : [], roster: (t && t.roster) || str(roster) };
     return o.labels.length || o.trees.length || o.watchers.length || o.roster ? o : null;
   }
+  /* ---- Direction: the one axis config both subtabs read ----
+   * "lr": time and motion run left to right (desk pills in a column on the left, items fly
+   * right; activity lanes as rows). "tb": top to bottom (pills in a row on top, items fall;
+   * lanes as columns). Both subtabs start left to right; each keeps its own choice. */
+  var REPLAY_DIR_DEFAULT = { desks: "lr", activity: "lr" };
+  function replayAxis(dir) {
+    return dir === "tb" ? { dir: "tb", main: "y", cross: "x", size: "height", crossSize: "width", start: "top", crossStart: "left", client: "clientY", crossClient: "clientX" }
+      : { dir: "lr", main: "x", cross: "y", size: "width", crossSize: "height", start: "left", crossStart: "top", client: "clientX", crossClient: "clientY" };
+  }
   function collabReplay(b, opts) {
     opts = opts || {};
     var all = replayEvents(b);
@@ -1493,7 +1502,7 @@
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayPan: replayPan, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

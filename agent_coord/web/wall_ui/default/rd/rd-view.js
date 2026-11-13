@@ -508,22 +508,28 @@
       (keys.length > 3 ? '<span class="rd-tag rd-tag-more" title="' + h(keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ")) + '">+' + (keys.length - 3) + "</span>" : ""),
       text: keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ") };
   }
-  function monitorHtml(rep) {
-    var tr = R.replayLaneTrace(rep, 120);
+  /* Top to bottom: the same trace with x and y swapped, so time runs down the column. */
+  function swapPts(line) { return line.split(" ").map(function (p) { var q = p.split(","); return q[1] + "," + q[0]; }).join(" "); }
+  function monitorHtml(rep, dir) {
+    var tr = R.replayLaneTrace(rep, 120), tb = dir === "tb";
     if (!rep.lanes.length) return "";
+    var vb = tb ? MON_H + " " + MON_W : MON_W + " " + MON_H;
     return '<div class="rd-rp-monitor' + (rep.lanes.length > 10 ? " rd-rp-many" : "") + '" data-rp-monitor="1">' + rep.lanes.map(function (l, i) {
-      var c = tr.by[l.id], line = laneLine(c, tr.peak), sum = c.reduce(function (a, x) { return a + x; }, 0), id = "rd-rp-mclip-" + i;
+      var c = tr.by[l.id], line = tb ? swapPts(laneLine(c, tr.peak)) : laneLine(c, tr.peak), sum = c.reduce(function (a, x) { return a + x; }, 0), id = "rd-rp-mclip-" + i;
       var tg = laneTags(rep, l.id);
       return '<div class="rd-rp-mlane lt-' + h(l.t) + '" data-rp-mlane="' + h(l.id) + '">' +
         '<span class="rd-rp-mname" title="' + h(l.name + ": " + plural(sum, "row") + " sent or received" + (tg.text ? "\n" + tg.text : "")) + '">' + h(l.name) + "</span>" +
-        '<div class="rd-rp-trace rd-rp-mtrace" data-rp-trace="1" role="slider" tabindex="-1" aria-label="' + h(l.name + " activity; replay position") + '" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000">' +
-        '<svg viewBox="0 0 ' + MON_W + " " + MON_H + '" preserveAspectRatio="none" aria-hidden="true">' +
-        '<defs><clipPath id="' + id + '"><rect data-rp-clip="1" x="0" y="0" width="' + MON_W + '" height="' + MON_H + '"/></clipPath></defs>' +
-        '<line class="rd-rp-tr-base" x1="0" y1="' + MON_BASE + '" x2="' + MON_W + '" y2="' + MON_BASE + '"/>' +
+        '<div class="rd-rp-trace rd-rp-mtrace" data-rp-trace="1"' + (tb ? ' data-rp-axis="y" aria-orientation="vertical"' : "") + ' role="slider" tabindex="-1" aria-label="' + h(l.name + " activity; replay position") + '" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000">' +
+        '<svg viewBox="0 0 ' + vb + '" preserveAspectRatio="none" aria-hidden="true">' +
+        (tb ? '<defs><clipPath id="' + id + '"><rect data-rp-clip="y" x="0" y="0" width="' + MON_H + '" height="' + MON_W + '"/></clipPath></defs>' +
+          '<line class="rd-rp-tr-base" x1="' + MON_BASE + '" y1="0" x2="' + MON_BASE + '" y2="' + MON_W + '"/>'
+        : '<defs><clipPath id="' + id + '"><rect data-rp-clip="1" x="0" y="0" width="' + MON_W + '" height="' + MON_H + '"/></clipPath></defs>' +
+          '<line class="rd-rp-tr-base" x1="0" y1="' + MON_BASE + '" x2="' + MON_W + '" y2="' + MON_BASE + '"/>') +
         '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
         '<polyline class="rd-rp-tr-lit" clip-path="url(#' + id + ')" points="' + line + '"/>' +
-        '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + MON_W + '" y1="0" x2="' + MON_W + '" y2="' + MON_H + '"/>' +
-        "</svg></div>" + tg.html + "</div>";
+        (tb ? '<line class="rd-rp-tr-head" data-rp-head="y" x1="0" y1="' + MON_W + '" x2="' + MON_H + '" y2="' + MON_W + '"/>'
+          : '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + MON_W + '" y1="0" x2="' + MON_W + '" y2="' + MON_H + '"/>') +
+        "</svg></div>" + '<span class="rd-rp-mtags">' + tg.html + "</span></div>";
     }).join("") + "</div>";
   }
   /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
@@ -539,11 +545,13 @@
     }).join("");
     /* Desks: the stage, scrubbed by the density trace. Activity: one line per desk. One clock. */
     var view = ui.view === "activity" ? "activity" : "desks";
+    var dir = (ui.dirs && ui.dirs[view]) === "tb" ? "tb" : R.REPLAY_DIR_DEFAULT[view];
+    var dirBtn = '<button type="button" class="rd-rp-play rd-rp-dir" data-rp-dir="' + (dir === "tb" ? "lr" : "tb") + '" aria-pressed="' + (dir === "tb" ? "true" : "false") + '" aria-label="Direction: ' + (dir === "tb" ? "top to bottom" : "left to right") + '" title="' + (dir === "tb" ? "Top to bottom; switch to left to right" : "Left to right; switch to top to bottom") + '">' + (dir === "tb" ? "\u2193" : "\u2192") + "</button>";
     var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' :
-      (view === "desks" ? stageHtml(rep) : monitorHtml(rep)) +
+      (view === "desks" ? stageHtml(rep) : monitorHtml(rep, dir)) +
       '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay" aria-label="What happened, newest first"></ol>';
     /* The density trace sits on top, over both subtabs; click or drag it to scrub. */
-    return '<section class="rd-replay rv-' + view + '" data-rp-stage="1" data-rp-subtab="' + view + '">' +
+    return '<section class="rd-replay rv-' + view + " rd-dir-" + dir + '" data-rp-stage="1" data-rp-subtab="' + view + '" data-rp-dirnow="' + dir + '">' +
       '<div class="rd-rp-top">' + traceHtml(rep) + '<span class="rd-rp-span" data-rp-span="1" aria-live="polite"></span></div>' + body + '<div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
@@ -552,7 +560,7 @@
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
       '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep.window, ui.speed)) + "</span>" + legendHtml() +
       '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span>" +
-      '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div></section>" +
+      dirBtn + '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div></section>" +
       blockingHtml(blocking, ui.blockOpen);
   }
 

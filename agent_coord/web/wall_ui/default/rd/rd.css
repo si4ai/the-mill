@@ -910,8 +910,25 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-tag-w { border-color: color-mix(in srgb, var(--amber) 50%, var(--edge)); }
 #rd .rd-tag-r { border-radius: 3px; text-transform: none; }
 #rd .rd-tag-more { color: var(--dim); }
-#rd .rd-rp-mlane > .rd-tags { margin-left: 0; }
+#rd .rd-rp-mtags { display: inline-flex; gap: 3px; min-width: 0; overflow: hidden; }
+#rd .rd-rp-mtags > .rd-tags { margin-left: 0; }
 #rd .rd-ki.rd-rp-wait { position: relative; }
 #rd .rd-tags-mini { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin: 1px 0 0; pointer-events: none; }
 #rd .rd-tags-mini .rd-tag { max-width: 9ch; height: 12px; line-height: 12px; font-size: 9px; padding: 0 3px; }
 #rd .rd-rp-tray .rd-ki.rd-rp-wait { margin-bottom: 12px; }
+
+/* ---- Direction: left to right (the default) or top to bottom, per subtab ---- */
+#rd .rd-dir-lr .rd-rp-stage { flex-direction: row; }
+#rd .rd-dir-lr .rd-rp-heads { grid-template-columns: none; grid-template-rows: repeat(var(--lanes, 1), minmax(0, 1fr)); height: auto; width: 18ch; flex: 0 0 auto; padding-right: 4px; }
+#rd .rd-pane.rd-rp-fs .rd-dir-lr .rd-rp-heads { height: auto; width: 22ch; }
+#rd .rd-dir-lr .rd-rp-lane { justify-self: end; align-self: center; max-width: 100%; }
+#rd .rd-dir-lr .rd-rp-rain { grid-template-columns: none; grid-template-rows: repeat(var(--lanes, 1), minmax(0, 1fr)); flex: 1 1 auto; min-height: 0; }
+#rd .rd-dir-lr .rd-rp-col { background: linear-gradient(to bottom, transparent calc(50% - .5px), color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent calc(50% + .5px)); }
+#rd .rd-dir-lr .rd-rp-tray { flex-direction: row; height: 100%; padding: 0 0 0 8px; }
+#rd .rd-dir-lr .rd-rp-tray .rd-ki.rd-rp-wait { margin: 0 4px 12px 0; }
+#rd .rd-dir-tb .rd-rp-monitor { flex-direction: row; gap: 4px; overflow: auto; flex: 1 1 0; min-height: 0; }
+#rd .rd-dir-tb .rd-rp-mlane, #rd .rd-dir-tb.rd-rp-many .rd-rp-mlane, #rd .rd-dir-tb .rd-rp-many .rd-rp-mlane, #rd .rd-pane.rd-rp-fs .rd-dir-tb .rd-rp-mlane {
+  grid-template-columns: none; grid-template-rows: auto minmax(120px, 1fr) 3.4em; height: auto; flex: 1 1 0; min-width: 40px; max-width: 140px; justify-items: center; }
+#rd .rd-dir-tb .rd-rp-mname { text-align: center; max-width: 100%; }
+#rd .rd-dir-tb .rd-rp-mtrace { width: 100%; height: auto; min-width: 0; align-self: stretch; }
+#rd .rd-dir-tb .rd-rp-mtags, #rd .rd-dir-tb .rd-rp-mtags > .rd-tags { flex-direction: column; align-items: center; margin: 0; max-width: 100%; height: 3.4em; max-height: 3.4em; overflow: hidden; align-self: start; flex-wrap: nowrap; }
