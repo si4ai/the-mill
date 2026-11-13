@@ -52,6 +52,38 @@ def test_pan_amex_4_6_5_is_redacted(sep: str) -> None:
     assert PH["pan"] in out and amex not in out
 
 
+def _with_check(body: str) -> str:
+    digits = [int(ch) for ch in body]
+    total = 0
+    for i, digit in enumerate(reversed(digits)):
+        if i % 2 == 0:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return body + str((10 - (total % 10)) % 10)
+
+
+def _grouped(digits: str, widths: tuple[int, ...], sep: str) -> str:
+    parts = []
+    at = 0
+    for width in widths:
+        parts.append(digits[at:at + width])
+        at += width
+    return sep.join(parts)
+
+
+@pytest.mark.parametrize("sep", [" ", "-"])
+@pytest.mark.parametrize(
+    ("widths", "length"),
+    [((4, 6, 4), 14), ((4, 4, 5), 13), ((4, 4, 4, 4, 3), 19)],
+)
+def test_pan_other_groupings_are_redacted(sep: str, widths: tuple[int, ...], length: int) -> None:
+    number = _grouped(_with_check("4" * (length - 1)), widths, sep)
+    out = redact_text("card " + number)[0]
+    assert PH["pan"] in out and number not in out
+
+
 @pytest.mark.parametrize("sep", [" ", "-", ""])
 def test_pan_visa_4_4_4_4_is_still_redacted(sep: str) -> None:
     visa = sep.join(("4111", "1111", "1111", "1111"))

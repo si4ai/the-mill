@@ -143,9 +143,11 @@ _B64_RUN = re.compile(r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/]{16,}={0,2}(?![A-Za-z0
 _B64_MAX_RUNS = 32
 
 _SSN = re.compile(r"(?<!\d)(\d{3}-\d{2}-\d{4})(?!\d)")
-# 13 to 19 digits, groups of four, Amex 4-6-5, or one separator between each digit.
+# 13 to 19 digits. A space or hyphen may sit between any two digits, so 4-4-4-4,
+# 4-6-5, 4-6-4, 4-4-5, and 4-4-4-4-3 are one shape. The optional separator is
+# a single class, so the match stays linear on Python 3.10.
 _PAN = re.compile(
-    r"(?<![\d-])(\d{13,19}|\d{4}(?:[ -]\d{4}){3}|\d{4}[ -]\d{6}[ -]\d{5}|\d(?:[ -]\d){12,18})(?![\d-])"
+    r"(?<![\d-])(\d(?:[ -]?\d){12,18})(?![\d-])"
 )
 _PAN_WORD = re.compile(r"(?i)\b(?:card|visa|mastercard|amex|discover|pan|cc|credit|debit)\b")
 _IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{11,30})\b")
