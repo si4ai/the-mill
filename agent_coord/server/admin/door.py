@@ -88,7 +88,8 @@ PROVIDERS = {
 
 
 
-_TTL_RE = re.compile(r"^\s*(\d+)\s*([smhdw]?)\s*$", re.I)
+# the unit, when present, owns the spaces after the digits so those runs do not overlap.
+_TTL_RE = re.compile(r"^\s*(\d+)\s*(?:([smhdw])\s*)?$", re.I)
 
 
 # Host: door invite keys always expire; unset mint TTL -> 24h.

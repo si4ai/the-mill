@@ -7,7 +7,7 @@ mill install glance-tap --generate
 Prompts for the ordered tap values, then always prompts for a passphrase.
 Enter at the passphrase prompt leaves it empty.
 --generate picks the keys, prints the symbols once, then prompts.
-Writes glance_tap = "<sha256>" into the office config. The file gets the
+Writes glance_tap = "<digest>" into the office config. The file gets the
 digest only.
 """
 from __future__ import annotations

@@ -351,51 +351,117 @@ def _static_etag(body: bytes) -> str:
 
 
 
+class _StaticIndex:
+    """Files the static route may serve. Keys are url paths. Values are real files."""
+
+    __slots__ = ("lib", "nested", "flat", "usecases")
+
+    def __init__(self) -> None:
+        self.lib: dict[str, Path] = {}
+        self.nested: dict[str, Path] = {}
+        self.flat: dict[str, Path] = {}
+        self.usecases: Path | None = None
+
+
+def _files_under(folder: Path) -> dict[str, Path]:
+    """Relative posix path to each file under a constant root."""
+    root = folder.resolve()
+    found: dict[str, Path] = {}
+    if not root.is_dir():
+        return found
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if not rel or any(part in ("", ".", "..") for part in rel.split("/")):
+            continue
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        found.setdefault(rel, resolved)
+    return found
+
+
+def _flat_files(folder: Path) -> dict[str, Path]:
+    """File name to each file that sits directly in a constant root."""
+    root = folder.resolve()
+    found: dict[str, Path] = {}
+    if not root.is_dir():
+        return found
+    for path in root.iterdir():
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        found.setdefault(path.name, resolved)
+    return found
+
+
+def _build_static_index() -> _StaticIndex:
+    index = _StaticIndex()
+    index.lib = _files_under(WALL_UI_LIB)
+    for folder in (WALL_UI_DEFAULT, WALL_UI_COMPONENTS, WALL_UI_LIB, STATIC_DIR):
+        for rel, path in _files_under(folder).items():
+            index.nested.setdefault(rel, path)
+    for folder in (STATIC_DIR, WALL_UI_DEFAULT, WALL_UI_COMPONENTS, WALL_UI_LIB):
+        for name, path in _flat_files(folder).items():
+            index.flat.setdefault(name, path)
+    protocol = (_PKG.parent / "docs" / "protocol").resolve()
+    usecases = (protocol / "usecases.md").resolve()
+    try:
+        usecases.relative_to(protocol)
+    except ValueError:
+        index.usecases = None
+    else:
+        index.usecases = usecases if usecases.is_file() else None
+    return index
+
+
+_static_index_lock = threading.Lock()
+_static_index: _StaticIndex | None = None
+
+
+def _cached_static_index() -> _StaticIndex:
+    global _static_index
+    cached = _static_index
+    if cached is not None:
+        return cached
+    with _static_index_lock:
+        cached = _static_index
+        if cached is None:
+            cached = _build_static_index()
+            _static_index = cached
+        return cached
+
+
 def _safe_static(name: str) -> Path | None:
     """Serve static/, wall_ui/default/, wall_ui/components/, or wall_ui/lib/.
 
     Basename lookup (legacy) plus nested paths under wall_ui/default/ for pack
     domain modules (cut 5: mail/mail.js, score/score.js, floor/floor.js).
+    The name is only a key. The file list was read from those roots.
     """
     rel = str(name or "").replace("\\", "/").lstrip("/")
     if not rel or any(part in ("", ".", "..") for part in rel.split("/")):
         return None
-    # Nested pack path under default (and components) - cut 5 domain folders
+    index = _cached_static_index()
+    # board.html href="lib/data.js" -> wall_ui/lib/data.js (not .../lib/lib/data.js)
     if "/" in rel:
-        # board.html href="lib/data.js" -> wall_ui/lib/data.js (not .../lib/lib/data.js)
         if rel.startswith("lib/"):
-            under = rel[len("lib/") :]
-            if under and ".." not in under.split("/"):
-                cand = (WALL_UI_LIB / under).resolve()
-                try:
-                    if cand.is_file() and cand.relative_to(WALL_UI_LIB.resolve()):
-                        return cand
-                except ValueError:
-                    pass
-        for folder in (WALL_UI_DEFAULT, WALL_UI_COMPONENTS, WALL_UI_LIB, STATIC_DIR):
-            cand = (folder / rel).resolve()
-            try:
-                cand.relative_to(folder.resolve())
-            except ValueError:
-                continue
-            if cand.is_file():
-                return cand
-        return None
-    base = Path(rel).name
-    if not base or base in (".", ".."):
-        return None
-    for folder in (STATIC_DIR, WALL_UI_DEFAULT, WALL_UI_COMPONENTS, WALL_UI_LIB):
-        cand = (folder / base).resolve()
-        try:
-            cand.relative_to(folder.resolve())
-        except ValueError:
-            continue
-        if cand.is_file():
-            return cand
-    if base.lower() == "usecases.md":
-        cand = (_PKG.parent / "docs" / "protocol" / "usecases.md").resolve()
-        if cand.is_file():
-            return cand
+            hit = index.lib.get(rel[len("lib/") :])
+            if hit is not None:
+                return hit
+        return index.nested.get(rel)
+    hit = index.flat.get(rel)
+    if hit is not None:
+        return hit
+    if rel.lower() == "usecases.md":
+        return index.usecases
     return None
 
 

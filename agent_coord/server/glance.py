@@ -820,7 +820,10 @@ def serial(taps: list[str], passphrase: str = "") -> str:
 
 
 def digest_for(taps: list[str], passphrase: str = "") -> str:
-    return hashlib.sha256(serial(taps, passphrase).encode("utf-8")).hexdigest()
+    """Slow check of the ordered taps and passphrase. The salt is the tap serial alone."""
+    password = str(passphrase or "").encode("utf-8")
+    salt = serial(taps).encode("utf-8")
+    return hashlib.pbkdf2_hmac("sha256", password, salt, 100000).hex()
 
 
 def stored_digest() -> str:
