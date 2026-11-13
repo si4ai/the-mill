@@ -36,6 +36,10 @@ def posted(monkeypatch):
 
 def test_ring_names_the_newest_waiting_letter(monkeypatch, posted) -> None:
     monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": True, "host": "", "wake_on": "addressed"},
+    )
+    monkeypatch.setattr(
         rec_push, "waiting", lambda cn, d: {"id": 4, "kind": "mail", "payload": {"kind": "mail", "id": 77}}
     )
     assert push.ring_waiting(object(), "DESK_away", "leave") == "sent"
@@ -45,6 +49,10 @@ def test_ring_names_the_newest_waiting_letter(monkeypatch, posted) -> None:
 
 
 def test_a_room_row_rings_as_room(monkeypatch, posted) -> None:
+    monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": True, "host": "", "wake_on": "addressed"},
+    )
     row = {"kind": "hint", "type": "todo", "id": 5, "hint": "TODO", rec_push.WAKE_REASON: "room"}
     monkeypatch.setattr(rec_push, "waiting", lambda cn, d: {"id": 4, "kind": "hint", "payload": row})
     push.ring_waiting(object(), "DESK_away", "unsent")

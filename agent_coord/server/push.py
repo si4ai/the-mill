@@ -284,7 +284,18 @@ def ring_waiting(cn, desk: str, why: str) -> str:
     if sitting and not webhook:
         return "sitting"
     if not webhook:
-        return "queued"
+        # No POST. An empty queue is still none; a waiting row stays queued for connect.
+        try:
+            pending = rec_push.waiting(cn, desk)
+        except Exception:
+            pending = None
+        if pending:
+            return "queued"
+        try:
+            unread = unread_mail_frames(cn, desk, limit=1)
+        except Exception:
+            unread = None
+        return "queued" if unread else "none"
     row = rec_push.waiting(cn, desk)
     if not row:
         # #949 / #826: push may be empty after a short connect marked rows sent
@@ -718,7 +729,8 @@ def emit(cn, desk: str, kind: str, payload: dict, *, reason: str = "addressed", 
         except Exception as e:
             _bc_log(f"push mark err desk={desk} kind={kind} err={type(e).__name__}")
         outcome = "missed"
-    if webhook and kind in ("mail", "receipt", "hint"):
+    # Room copies stay queued. A webhook POST is only for an addressed item.
+    if webhook and reason != "room" and kind in ("mail", "receipt", "hint"):
         # The join said webhook. POST even when a socket is up.
         try:
             from agent_coord.server.wake import post_desk
