@@ -1238,6 +1238,8 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
 
     command = canonical_command(str(body.get("verb") or ""))
     if command == "member":
+        if body.get("all"):
+            return rec_member.list_rosters(c._cn)
         return rec_member.select(c._cn, "", owner or "")
     group = str(body.get("group") or "")
     if not group:

@@ -52,3 +52,50 @@ def put_office(cn, desk: str) -> list[dict]:
     from agent_coord.server.admin.guard import office_name
 
     return put(cn, office_name(cn), desk)
+
+
+def list_rosters(cn) -> list[dict]:
+    """Every live roster with its live-desk count and member names.
+
+    Same rows as GET /api/pov?part=rosters (card 1193): Office first, then
+    name. Each row is {name, desks, members} where desks is the count and
+    members is the sorted live desk names. Retired desks and retired
+    rosters are omitted (card 1204).
+    """
+    from agent_coord.const import CONST_OFFICE, CONST_ROSTER
+
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT ANY_VALUE(n.name), COUNT(d.id) AS desks FROM name n"
+            " LEFT JOIN member m ON m.name_id=n.id"
+            " LEFT JOIN name d ON d.id=m.desk_id"
+            "  AND d.deleted IS NULL AND d.type = 'desk'"
+            " WHERE n.deleted IS NULL AND n.type = %s"
+            " GROUP BY n.id, n.name"
+            " ORDER BY n.name",
+            (CONST_ROSTER,),
+        )
+        rows = [
+            {"name": str(r[0] or "").strip(), "desks": int(r[1] or 0), "members": []}
+            for r in cur.fetchall() if r and r[0]
+        ]
+        cur.execute(
+            "SELECT n.name, d.name FROM name n"
+            " JOIN member m ON m.name_id=n.id"
+            " JOIN name d ON d.id=m.desk_id"
+            "  AND d.deleted IS NULL AND d.type = 'desk'"
+            " WHERE n.deleted IS NULL AND n.type = %s"
+            " ORDER BY n.name, d.name",
+            (CONST_ROSTER,),
+        )
+        by_roster = {rec["name"]: rec for rec in rows}
+        for r in cur.fetchall():
+            rec = by_roster.get(str((r or ("", ""))[0] or "").strip())
+            if rec is not None and r[1]:
+                rec["members"].append(str(r[1]).strip())
+        rows.sort(key=lambda rec: (rec["name"] != CONST_OFFICE, rec["name"].lower()))
+        return rows
+    finally:
+        cur.close()
+

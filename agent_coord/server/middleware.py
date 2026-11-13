@@ -30,7 +30,6 @@ from urllib.parse import parse_qs, urlparse
 from agent_coord.const import (
     CONST_DESK,
     CONST_MAIL,
-    CONST_OFFICE,
     CONST_TODO,
 )
 from agent_coord.helpers.errors import CoordError
@@ -1743,40 +1742,12 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                         "recent_activity": _recent(r[4]),
                                     })
                             else:
-                                cur.execute(
-                                    "SELECT ANY_VALUE(n.name), COUNT(d.id) AS desks FROM name n"
-                                    " LEFT JOIN member m ON m.name_id=n.id"
-                                    " LEFT JOIN name d ON d.id=m.desk_id"
-                                    "  AND d.deleted IS NULL AND d.type = 'desk'"
-                                    " WHERE n.deleted IS NULL AND n.type = %s"
-                                    " GROUP BY n.id, n.name"
-                                    " ORDER BY n.name",
-                                    (pov_type,),
-                                )
-                                rows = [
-                                    {"name": _stored(str(r[0] or "")), "desks": int(r[1] or 0), "members": []}
-                                    for r in cur.fetchall() if r and r[0]
-                                ]
-                                # card 1193: the live member desk names on each roster, sorted,
-                                # so the filter pane can list the desks of the selected rosters.
-                                cur.execute(
-                                    "SELECT n.name, d.name FROM name n"
-                                    " JOIN member m ON m.name_id=n.id"
-                                    " JOIN name d ON d.id=m.desk_id"
-                                    "  AND d.deleted IS NULL AND d.type = 'desk'"
-                                    " WHERE n.deleted IS NULL AND n.type = %s"
-                                    " ORDER BY n.name, d.name",
-                                    (pov_type,),
-                                )
-                                by_roster = {rec["name"]: rec for rec in rows}
-                                for r in cur.fetchall():
-                                    rec = by_roster.get(_stored(str((r or ("", ""))[0] or "")))
-                                    if rec is not None and r[1]:
-                                        rec["members"].append(_stored(str(r[1])))
+                                # card 1204: same rows as mill member --all
+                                from agent_coord.server.records import member as rec_member
+
+                                rows = rec_member.list_rosters(c._cn)
                         finally:
                             cur.close()
-                        if part == "rosters":
-                            rows.sort(key=lambda rec: (rec["name"] != CONST_OFFICE, rec["name"].lower()))
                         if part == "desks":
                             from agent_coord.server.allow import workstation_ip
 

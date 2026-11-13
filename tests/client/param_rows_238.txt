@@ -281,6 +281,8 @@ retire yes
 retire office
 retire sender_desk
 member (command)
+member all
+member as_json
 member office
 member yes
 member sender_desk
