@@ -21,12 +21,11 @@ DROP PROCEDURE IF EXISTS mill_doing_insert;
 DELIMITER //
 
 -- #818: the seat is per-desk state (not an activity). doing rows are the
--- activity: append-only. 0.8.0 (the owner, 2026-10-26): a focus row (act focus: the desk's own --doing
--- text; act clear: its focus emptied) or a move row (any other act: a card or hold move by the desk, on
--- (on_type, on_id)). seat.doing_id names the desk's newest focus row, never a move row. A heartbeat
--- (connect, touch, socket, lan) writes no doing row and leaves activity alone.
+-- activity: append-only. A focus row (act focus: the desk's own --doing text; act clear: its focus emptied).
+-- card 1207: card and hold moves write transition rows, never doing rows. seat.doing_id names the desk's newest
+-- focus row. A heartbeat (connect, touch, socket, lan) writes no doing row and leaves activity alone.
 -- mill_doing_insert is the one writer of a focus row. It locks the desk's seat row first (FOR UPDATE), so a
--- desk's focus writes, finish, clear and its moves are serialized, and sets seat.doing_id in the same UPDATE
+-- desk's focus writes, finish and clear are serialized, and sets seat.doing_id in the same UPDATE
 -- (p_seen also stamps seat.updated, the desk's last-seen clock; NULL keeps it). A row that is not newer than
 -- the seat's (an older clock) leaves seat.doing_id as it is. A watcher on the desk's current entry follows it.
 CREATE PROCEDURE mill_doing_insert(
@@ -57,36 +56,6 @@ BEGIN
     SELECT 'doing', p_id, w.desk_id, w.hint FROM watcher w
      WHERE w.type = 'doing' AND w.id = v_prev;
   END IF;
-END //
-
--- 0.8.0: the one writer of a move row (the owner, 2026-10-26): a card status or volunteer change, or a hold take
--- or drop, by the acting desk p_desk on (p_on_type, p_on_id), with the act, the second desk (p_peer) and the
--- evidence (p_evidence). It locks the acting desk's seat row first, as mill_doing_insert does, and never touches
--- seat.doing_id: a move is not a focus. The item's own activity row carries the act (the caller's put).
--- Evidence over EVIDENCE_MAX (2000) is refused, never cut (the owner, 2026-10-26: doing.evidence).
-CREATE PROCEDURE mill_doing_move(
-  IN  p_desk     BIGINT UNSIGNED,
-  IN  p_roster   BIGINT UNSIGNED,
-  IN  p_on_type  VARCHAR(8),
-  IN  p_on_id    BIGINT UNSIGNED,
-  IN  p_act      VARCHAR(16),
-  IN  p_peer     BIGINT UNSIGNED,
-  IN  p_evidence VARCHAR(4096),
-  IN  p_ts       DATETIME(6),
-  OUT p_id       BIGINT UNSIGNED
-)
-BEGIN
-  DECLARE v_seat BIGINT UNSIGNED;
-  IF CHAR_LENGTH(IFNULL(p_evidence, '')) > 2000 THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'evidence: over 2000 characters (EVIDENCE_MAX); refused, nothing changed';
-  END IF;
-  SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
-  -- text stays empty on move rows; ship/done evidence lives in evidence (NULL when none).
-  INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id, evidence)
-  VALUES (p_ts, p_desk, IFNULL(p_roster, 1), '', p_on_type, p_on_id, p_act, NULLIF(p_peer, p_desk),
-          NULLIF(p_evidence, ''));
-  SET p_id = LAST_INSERT_ID();
 END //
 
 CREATE PROCEDURE mill_doing_anchor(

@@ -1,19 +1,19 @@
-"""0.8.0 lane B: doing is the history of card and hold moves (the owner, 2026-10-26).
+"""0.8.0 lane B, as card 1207 left it: card and hold moves are transition rows, not doing rows (the owner,
+2026-11-13; 0.8.0 had doing hold them, 2026-10-26).
 
-F174 focus rows and move rows: seat.doing_id names the desk's newest focus row, never a move row; a
-card move by another desk never ends an entry; the desk's own ship, done or drop on its focus item ends
-it as finished; a move with --doing writes the move row, then the focus row.
-F175 the fold: reading an item's move rows in id order rebuilds todo.status, todo.assigned_id and
-hold.desk_id.
+F174 focus rows and moves: a move writes no doing row and never moves seat.doing_id; a card move by
+another desk never ends an entry; the desk's own ship (its transition row) ends it as finished; a move
+with --doing writes the transition, then the focus row.
+F175 the fold: reading an item's transition rows in id order rebuilds todo.status and todo.assigned_id.
 F182 (Validator check 3): concurrent card writes read the old state FOR UPDATE, so the chain of moves
 stays whole. Mutant: drop FOR UPDATE from mill_todo_write's read; the second writer reads the stale
-state, writes no move and the fold no longer matches the card.
+state and the fold no longer matches the card.
 F183 (Validator check 7): the deadlock pairs (retire vs hold take; card pass vs doing finish) take the
 seat first and never deadlock.
 F184 (Validator check 6): a re-open keeps the first opened time and pushes one receipt; opening a
 letter and the heartbeats (connect, touch, socket, LAN) leave activity and doing unchanged.
-F185: hold take and drop write move rows, a refresh writes none, reset's drop rows name the acting
-desk; evidence over 2000 characters (EVIDENCE_MAX) is refused.
+F185: hold moves write no doing row; a reset frees the desk's holds with a hold_drop transition by the
+desk; evidence (todo.meta.evidence) is not capped.
 """
 from __future__ import annotations
 
@@ -78,23 +78,51 @@ def _card(cn, slug: str, status: str = "open") -> int:
 
 
 def _claim(cn, desk: str, card: int, take_over: int = 0, prior: str = "") -> None:
+    from agent_coord.server import todo_activity as ta
+
     call(cn, "cmd_claim", [_id(cn, desk), card, take_over, prior, None])
     cn.commit()
+    ta.emit_claim(cn, todo_id=card, desk_id=_id(cn, desk), take_over=bool(take_over))  # as rpc does
 
 
 def _pass(cn, desk: str, card: int, step: str, ev=None):
+    from agent_coord.server import todo_activity as ta
+    from agent_coord.server.transition_enums import State
+
+    was = _card_now(cn, card)[0]
     rows = call(cn, "cmd_pass", [_id(cn, desk), card, step, ev])
     cn.commit()
+    now = _card_now(cn, card)[0]
+    did = _id(cn, desk)
+    if step == "ship":
+        ta.emit_ship(cn, todo_id=card, desk_id=did)
+    elif step == "done":
+        ta.emit_done(cn, todo_id=card, desk_id=did)
+    else:
+        ta.emit_pass_back(cn, todo_id=card, desk_id=did, from_state=State(was), to_state=State(now))
     return rows[-1]
 
 
+_ACT = {"create": "create", "create_parked": "park", "claim": "claim", "take_over": "claim", "assign": "assign",
+        "unclaim": "unclaim", "unpark": "unpark", "pass_ship": "ship", "pass_done": "done", "pass_back": "back",
+        "hold_grant": "hold", "hold_drop": "drop", "hold_force": "drop"}
+
+
 def _moves(cn, on_type: str, on_id: int) -> list[dict]:
-    return rows_done(
+    """Card 1207: an item's moves are its transition rows (act mapped from the reason)."""
+    got = rows_done(
         cn,
-        "SELECT id, act, desk_id, peer_id, text FROM doing"
-        " WHERE on_type = %s AND on_id = %s AND act NOT IN ('focus', 'clear', 'finish') ORDER BY id",
+        "SELECT id, reason, desk_id, to_state FROM transition"
+        " WHERE activity_type = %s AND activity_id = %s ORDER BY id",
         (on_type, on_id),
     )
+    return [dict(r, act=_ACT.get(r["reason"], r["reason"]), peer_id=None) for r in got]
+
+
+def _doing_moves(cn, on_type: str, on_id: int) -> int:
+    return int(scalar_done(
+        cn, "SELECT COUNT(*) FROM doing WHERE on_type = %s AND on_id = %s AND act NOT IN ('focus', 'clear', 'finish')",
+        (on_type, on_id)))
 
 
 def _seat_row(cn, desk: str):
@@ -102,7 +130,8 @@ def _seat_row(cn, desk: str):
 
 
 def _fold_card(rows: list[dict]) -> tuple:
-    """The documented fold (BETA-CHANGES.md, the act list; C4): status and volunteer from the moves."""
+    """The documented fold (BETA-CHANGES.md, the act list; C4): status and volunteer from the moves. A pass_back
+    row carries its to_state, so the fold reads it rather than guessing."""
     status, vol = None, None
     for r in rows:
         act, desk, peer = r["act"], r["desk_id"], r["peer_id"]
@@ -123,7 +152,7 @@ def _fold_card(rows: list[dict]) -> tuple:
         elif act == "done":
             status = "done"
         elif act == "back":
-            status = "shipped" if status == "done" else ("claimed" if vol is not None else "open")
+            status = r.get("to_state") or ("shipped" if status == "done" else ("claimed" if vol is not None else "open"))
     return status, vol
 
 
@@ -143,6 +172,8 @@ def test_a_move_never_moves_seat_doing_id(book):
     _pass(book, BOB, card, "ship", "sha 1")
     assert _seat_row(book, BOB) == focus
     assert scalar_done(book, "SELECT act FROM doing WHERE id = %s", (focus,)) == "focus"
+    assert _doing_moves(book, "todo", card) == 0
+    assert [m["act"] for m in _moves(book, "todo", card)][-2:] == ["claim", "ship"]
 
 
 def test_another_desks_move_does_not_end_the_entry_and_my_ship_finishes_it(book):
@@ -173,7 +204,8 @@ def test_a_move_with_doing_writes_the_move_then_the_focus(book):
         book, "SELECT id, act FROM doing WHERE desk_id = %s AND on_type = 'todo' AND on_id = %s ORDER BY id",
         (_id(book, BOB), card),
     )
-    assert [r["act"] for r in rows][-2:] == ["ship", "focus"]
+    assert [r["act"] for r in rows] == ["focus"]
+    assert _moves(book, "todo", card)[-1]["act"] == "ship"
     assert _seat_row(book, BOB) == rows[-1]["id"]
 
 
@@ -188,50 +220,44 @@ def test_folding_moves_rebuilds_status_volunteer_and_hold(book):
     _pass(book, ANN, a, "ship", "sha f2")
     _pass(book, ANN, a, "done")
     _pass(book, ANN, a, "back")
-    assert _fold_card(_moves(book, "todo", a)) == _card_now(book, a)
-    take = [r for r in _moves(book, "todo", a) if r["act"] == "claim"][1]
-    assert (take["desk_id"], take["peer_id"]) == (_id(book, ANN), _id(book, BOB))
-    p = _card(book, "mv-fold-p", "parked")
-    assert _fold_card(_moves(book, "todo", p)) == _card_now(book, p) == ("parked", None)
+    # create is written by rpc's emit_create (not called here); the fold starts from the card's open state.
+    assert _fold_card([{"act": "create", "desk_id": None, "peer_id": None}] + _moves(book, "todo", a)) == _card_now(book, a)
+    take = [r for r in _moves(book, "todo", a) if r["reason"] == "take_over"][0]
+    assert take["desk_id"] == _id(book, ANN)
+    assert _doing_moves(book, "todo", a) == 0
     h = int(rec_hold.upsert(book, ROSTER, BOB, "mv080-res")[-1]["id"])
     book.commit()
     rec_hold.delete(book, h, BOB)
     book.commit()
     rec_hold.upsert(book, ROSTER, ANN, "mv080-res")
     book.commit()
-    held = None
-    for r in _moves(book, "hold", h):
-        held = r["desk_id"] if r["act"] == "hold" else None
-    assert held == scalar_done(book, "SELECT desk_id FROM hold WHERE id = %s", (h,)) == _id(book, ANN)
+    assert _doing_moves(book, "hold", h) == 0
 
 
-# ---------- F185 hold rows, reset actor, evidence cap ----------
+# ---------- F185 hold moves, reset actor, evidence ----------
 
-def test_hold_refresh_writes_no_row_and_reset_drops_by_the_acting_desk(book):
+def test_hold_moves_write_no_doing_row_and_reset_drops_by_the_desk(book):
     desk = "mv080-hr"
     _seat(book, desk)
     h = int(rec_hold.upsert(book, ROSTER, desk, "mv080-hr-res")[-1]["id"])
     book.commit()
     rec_hold.upsert(book, ROSTER, desk, "mv080-hr-res")  # refresh
     book.commit()
-    assert [r["act"] for r in _moves(book, "hold", h)] == ["hold"]
+    assert _doing_moves(book, "hold", h) == 0
     rec_join.reset(book, ROSTER, desk)
     book.commit()
     last = _moves(book, "hold", h)[-1]
-    assert (last["act"], last["desk_id"], last["peer_id"]) == ("drop", _id(book, desk), None)
+    assert (last["reason"], last["desk_id"]) == ("hold_drop", _id(book, desk))
+    assert _doing_moves(book, "hold", h) == 0
 
 
-def test_evidence_over_2000_is_refused(book):
+def test_long_evidence_is_kept_whole_in_card_meta(book):
+    """Card 1207 (the owner, 2026-11-13): no cap on todo.meta.evidence; stored and read back byte for byte."""
     card = _card(book, "mv-long")
     _claim(book, BOB, card)
-    with pytest.raises(mysql.connector.Error) as ei:
-        _pass(book, BOB, card, "ship", "x" * 2001)
-    book.rollback()
-    msg = str(ei.value)
-    assert ("2000" in msg or "EVIDENCE_MAX" in msg or "Data too long" in msg), msg
-    assert _card_now(book, card)[0] == "claimed"
-    # EVIDENCE_MAX fits; focus rows keep evidence NULL (checked via schema / F187).
-    assert _pass(book, BOB, card, "ship", "\u00e9" * 2000)["evidence"] == "\u00e9" * 2000
+    ev = "\u00e9" * 3000 + "x" * 9000
+    assert _pass(book, BOB, card, "ship", ev)["evidence"] == ev
+    assert _card_now(book, card)[0] == "shipped"
 
 
 def test_a_desk_cannot_retire_another_desk_with_its_own_seat(book):
@@ -377,8 +403,11 @@ def test_concurrent_card_writes_keep_the_chain(book):
         t.join(20)
         assert not err, err
         book.commit()
-        assert [r["act"] for r in _moves(book, "todo", card)] == ["create", "assign", "unclaim"]
-        assert _fold_card(_moves(book, "todo", card)) == _card_now(book, card) == ("open", None)
+        # Card 1207: the chain is no longer stored by SQL (moves are the rpc's transition rows), so the second
+        # writer's view is checked by its act: it read the claimed state under the lock, so it is an unclaim.
+        assert _card_now(book, card) == ("open", None)
+        assert scalar_done(book, "SELECT act FROM activity WHERE type = 'todo' AND id = %s", (card,)) == "unclaim"
+        assert _doing_moves(book, "todo", card) == 0
     finally:
         try:
             a.rollback()
@@ -508,7 +537,7 @@ def test_open_to_shipped_with_volunteer_is_act_ship(book):
     # Leave it claimed (open+volunteer path in cmd_pass allows open with volunteer too)
     _pass(book, BOB, card, "ship", "sha os")
     acts = [r["act"] for r in _moves(book, "todo", card)]
-    assert acts == ["create", "claim", "ship"]
+    assert acts == ["claim", "ship"]  # create is rpc's emit_create, not called by rec_todo.insert
 
 
 def test_noop_reclaim_writes_no_row(book):
@@ -521,7 +550,7 @@ def test_noop_reclaim_writes_no_row(book):
     assert _moves(book, "todo", card) == before
 
 
-# ---------- F188 history on=ITEM includes move rows ----------
+# ---------- F188 history on=ITEM includes the item's moves (card 1207: its transition rows) ----------
 
 def test_history_on_card_includes_move_rows_with_evidence(book):
     """Wall letter 3227 / F188: GET history?on=todo-N returns move rows with act and evidence."""
@@ -532,7 +561,8 @@ def test_history_on_card_includes_move_rows_with_evidence(book):
     _pass(book, BOB, card, "ship", "shipped the patch")
     rows = call(book, "mill_doing_history", ["", None, 1, 50, "todo", card])
     acts = [r["act"] for r in rows]
-    assert "create" in acts and "claim" in acts and "ship" in acts, acts
+    assert "claim" in acts and "ship" in acts, acts
+    assert all(r["src"] == "transition" for r in rows), rows
     ship = [r for r in rows if r["act"] == "ship"][0]
     assert ship.get("evidence") == "shipped the patch"
     # RPC shape the Wall reads

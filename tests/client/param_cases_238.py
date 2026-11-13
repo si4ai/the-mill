@@ -79,7 +79,7 @@ KIND = {
     ("unpark", "project"): "name", ("unpark", "need"): "name",
     ("unpark", "parent_type"): "enum", ("unpark", "parent_id"): "id",
     ("assign", "project"): "name", ("assign", "need"): "name", ("assign", "desk"): "name",
-    ("pass", "project"): "name", ("pass", "need"): "name", ("pass", "evidence"): "text",
+    ("pass", "project"): "name", ("pass", "need"): "name", ("pass", "evidence"): "uncapped",
     ("create todo", "done_when"): "text",
     ("label", "type"): "enum", ("label", "id"): "cardref", ("label", "label"): "newname",  # high trust creates on first use
     ("label", "ord"): "int",
@@ -117,6 +117,8 @@ CASES = {
     "int": ("missing", "empty", "bad_format"),
     "enum": ("missing", "empty", "bad_enum"),
     "text": ("missing", "over_length"),
+    # card 1207: pass evidence is todo.meta.evidence, a JSON key with no length cap (the owner, 2026-11-13).
+    "uncapped": ("missing",),
     "json": ("missing", "bad_format", "over_length"),
     "eta": ("missing", "bad_format", "over_length"),
 }

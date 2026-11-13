@@ -100,6 +100,10 @@ class Reason(str, Enum):
     pass_back = "pass_back"
     retire = "retire"
     reclaim = "reclaim"
+    rename = "rename"
+    name_delete = "name_delete"
+    name_restore = "name_restore"
+    name_purge = "name_purge"
     note = "note"
     join = "join"
     connect = "connect"
@@ -253,6 +257,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.todo, State.retired, State.prior, Reason.reclaim),  # T13
         (ActivityType.todo, State.any, State.same, Reason.note),  # T14
         (ActivityType.todo, State.live, State.deleted, Reason.delete_probe),  # T15
+        (ActivityType.todo, State.any, State.same, Reason.rename),  # T16
         (ActivityType.doing, State.no_seat, State.seated, Reason.join),  # D1
         (ActivityType.doing, State.seated, State.connected, Reason.connect),  # D2
         (ActivityType.doing, State.connected, State.seated, Reason.disconnect),  # D3
@@ -275,6 +280,10 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.doing, State.waiting, State.stale, Reason.tw_stale),  # Tsk6b
         (ActivityType.doing, State.any, State.cleared, Reason.clear),  # Tsk7
         (ActivityType.doing, State.waiting, State.waiting, Reason.wait_cycle),  # Tsk8
+        # Card 1207: a name's trash, restore or purge, on the acting desk's focus row (a name is not an activity).
+        (ActivityType.doing, State.any, State.same, Reason.name_delete),  # N1
+        (ActivityType.doing, State.any, State.same, Reason.name_restore),  # N2
+        (ActivityType.doing, State.any, State.same, Reason.name_purge),  # N3
         (ActivityType.hold, State.no_row, State.held, Reason.hold_grant),  # H1
         (ActivityType.hold, State.free, State.held, Reason.hold_grant),  # H2
         (ActivityType.hold, State.held, State.held, Reason.hold_refresh),  # H3

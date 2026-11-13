@@ -286,6 +286,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
     migrate.apply_1163(cn)
     migrate.apply_1200(cn)
+    migrate.apply_1207(cn)  # card 1207: moves to transition, evidence to todo.meta, doing.evidence dropped
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -453,24 +454,31 @@ def test_ids_rows_and_transforms(main_book):
     assert new_doing == old_doing
 
     # Every card gets one move row (the owner, 2026-10-26): by updated_id at updated, act from the status, peer the
-    # volunteer, evidence the card's evidence byte for byte (or NULL), text empty. Focus rows keep evidence NULL.
-    moves = {r[0]: r[1:] for r in _q(cn, "SELECT on_id, desk_id, created, act, peer_id, HEX(IFNULL(evidence, '')),"
-                                         " text, roster_id"
-                                         " FROM doing WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')")}
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(b) == len(moves)
+    # volunteer, evidence the card's evidence. Card 1207 then moves it to transition (one row per card, the mapped
+    # reason, by the same desk at the same time) and the evidence of a ship or done to todo.meta.evidence, byte for
+    # byte; doing keeps no move row.
+    reason = {"create": "create", "park": "create_parked", "claim": "claim", "assign": "assign",
+              "ship": "pass_ship", "done": "pass_done"}
+    card_act = {}
     for rb in b:
         act = SEED_ACT[rb["status"]]
         if act == "claim" and rb["assigned_id"] != rb["updated_id"]:
             act = "assign"
-        ev = (rb["evidence"] or "").encode("utf-8").hex().upper()
-        assert moves[rb["id"]] == (rb["updated_id"], rb["updated"], act, rb["assigned_id"], ev, "", rb["roster_id"]), rb
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act IN ('focus', 'clear', 'finish') AND evidence IS NOT NULL") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == len(b)
+        card_act[rb["id"]] = act
+        got = _q(cn, "SELECT desk_id, at, reason FROM transition WHERE activity_type = 'todo' AND activity_id = %s",
+                 (rb["id"],))
+        assert got == [(rb["updated_id"], rb["updated"], reason[act])], rb
+        ev = _one(cn, "SELECT HEX(JSON_UNQUOTE(JSON_EXTRACT(meta, '$.evidence'))) FROM todo WHERE id = %s", (rb["id"],))
+        want = (rb["evidence"].encode("utf-8").hex().upper()
+                if act in ("ship", "done") and rb["evidence"] is not None else None)
+        assert ev == want, rb
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish', 'task')") == 0
+    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == 0
 
     # activity.act: the item's latest move (a card's from its status, a doing row's own act, a hold taken or free).
     for t, i, act in _q(cn, "SELECT a.type, a.id, a.act FROM activity a"):
         if t == "todo":
-            want = moves[i][2]
+            want = card_act[i]
         elif t == "doing":
             want = acts[i]
         elif t == "hold":
@@ -560,9 +568,10 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
     for t in MAIN_TABLES:
         if t not in after or t not in before:
             continue  # push_queue folded away after 1022
-        grow = len(before["todo"][1]) if t == "doing" else 0  # one move row per card
-        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(
+        # card 1207: the 0.8.0 move rows (one per card) moved on to transition; doing is back to main's rows.
+        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
+    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == 0
+    assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == len(
         before["todo"][1])
 
 
@@ -688,7 +697,8 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == n_cards
+    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == 0
+    assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == n_cards
 
 
 def _declared_keys_080() -> set[tuple[str, str]]:

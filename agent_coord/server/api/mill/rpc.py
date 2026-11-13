@@ -912,7 +912,10 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
             **({"waiting_on": w} if (w := _waiting_view(r.get("waiting_type"), r.get("waiting_id"),
                                                         r.get("waiting_name"), r.get("waiting_why"))) else {}),
         }
-        # 0.8.0 Wall (letter 3227): move rows carry doing.evidence on the card trail.
+        # Card 1207: a move on the card trail is a transition row (src), not a doing row; the card's
+        # evidence (todo.meta.evidence) rides on its newest ship or done move.
+        if r.get("src") == "transition":
+            entry["src"] = "transition"
         if r.get("evidence"):
             entry["evidence"] = str(r["evidence"])
         entries.append(entry)
@@ -2487,13 +2490,22 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         c._cn, int(hit["id"]), _stored(owner or ""), status="claimed", volunteer=_stored(desk)
     )
     rec = {"ok": True, "need_id": need, "id": int(hit["id"]), "status": "claimed", "volunteer": desk}
+    # Card 1207: the assign is transition T5 (the doing move row is gone).
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        if rec["id"] > 0 and did > 0:
+            ta.emit_assign(c._cn, todo_id=int(rec["id"]), desk_id=did, fixture=ta.roster_excluded(project))
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "assign", owner=owner)
     return rec
 
 
 # Card 867: a card guard runs in its SP, in the transaction that moves the card,
 # under the card's row lock. The SP's 45000 text is the refusal the desk reads.
-EVIDENCE_MAX = 2000
+# Card 1207 (the owner, 2026-11-13): evidence is todo.meta.evidence, a JSON key, and is not capped.
 DONE_WHEN_MAX = 1000
 
 
@@ -2925,10 +2937,6 @@ def _h_pass(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     if step not in ("ship", "done", "back"):
         raise CoordError("pass: step is ship, done or back")
     evidence = str(body.get("evidence") or "").strip()
-    if len(evidence) > EVIDENCE_MAX:
-        raise CoordError(
-            "pass: evidence would be %s chars (max %s); refused, nothing changed" % (len(evidence), EVIDENCE_MAX)
-        )
     return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner, evidence))
 
 
@@ -3189,27 +3197,28 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     key = resource_name(str(body.get("resource") or ""))
     out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
     if out.get("released"):
-        try:
-            from agent_coord.server import hold_activity as ha
-
-            hid = int(out.get("id") or 0)
-            actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
-            was = str(out.get("was_owner") or "").strip()
-            holder_id = int(ha.desk_id_for(c._cn, was) or 0)
-            if hid > 0 and holder_id > 0:
-                if was and owner and was == str(owner).strip():
-                    ha.emit_drop(c._cn, hold_id=hid, desk_id=holder_id)
-                else:
-                    ha.emit_force(
-                        c._cn,
-                        hold_id=hid,
-                        desk_id=holder_id,
-                        by_desk_id=actor_id or None,
-                    )
-        except Exception:
-            pass
+        emit_hold_release(c._cn, out, owner)
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
     return out
+
+
+def emit_hold_release(cn, out: dict[str, Any], owner: str | None) -> None:
+    """H4 (the holder drops) or H5 (another desk forces; meta.by) after a released drop. Card 1207: the
+    transition row is the hold's only move record (no doing row). Soft-fail, as every emitter."""
+    try:
+        from agent_coord.server import hold_activity as ha
+
+        hid = int(out.get("id") or 0)
+        actor_id = int(ha.desk_id_for(cn, owner) or 0)
+        was = str(out.get("was_owner") or "").strip()
+        holder_id = int(ha.desk_id_for(cn, was) or 0)
+        if hid > 0 and holder_id > 0:
+            if was and owner and was == str(owner).strip():
+                ha.emit_drop(cn, hold_id=hid, desk_id=holder_id)
+            else:
+                ha.emit_force(cn, hold_id=hid, desk_id=holder_id, by_desk_id=actor_id or None)
+    except Exception:
+        pass
 
 
 def _hold_list(c: Book, project: str) -> Any:

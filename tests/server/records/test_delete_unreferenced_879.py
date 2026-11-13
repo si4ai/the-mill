@@ -148,21 +148,27 @@ def test_human_member_blocks_purge(cn) -> None:
 
 def test_delete_restore_purge_write_timeline_acts(cn) -> None:
     admin = admin_desk(cn)
-    rec_name.get_or_insert(cn, "l879-act", "label")
+    lid = rec_name.get_or_insert(cn, "l879-act", "label")
     rec_name.trash(cn, "l879-act", "label", by=admin)
     rec_name.restore_trashed(cn, "l879-act", "label", by=admin)
     rec_name.trash(cn, "l879-act", "label", by=admin)
     rec_name.purge_trashed(cn, "l879-act", "label", by=admin)
     acts = []
     cur = cn.cursor()
+    # Card 1207: each event is a transition row on the admin's focus row (meta: name id and kind), not a doing row.
     cur.execute(
-        "SELECT act FROM doing WHERE act IN ('delete','restore','purge') ORDER BY id"
+        "SELECT reason, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.kind')) FROM transition"
+        " WHERE activity_type = 'doing' AND join_key = %s ORDER BY id",
+        (f"name:{int(lid)}",),
     )
-    acts = [r[0] for r in cur.fetchall()]
+    got = cur.fetchall()
+    cur.execute("SELECT COUNT(*) FROM doing WHERE act IN ('delete','restore','purge')")
+    n_doing = int(cur.fetchone()[0])
     cur.close()
-    assert acts.count("delete") >= 2
-    assert "restore" in acts
-    assert "purge" in acts
+    acts = [r[0] for r in got]
+    assert n_doing == 0
+    assert acts == ["name_delete", "name_restore", "name_delete", "name_purge"], got
+    assert {r[1] for r in got} == {"label"}
 
 def test_purge_label_refuses_non_admin(cn) -> None:
     """Card 931 follow-up: purge of label/tree is Admin only (cli-desk.md)."""

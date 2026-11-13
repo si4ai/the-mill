@@ -8,6 +8,7 @@ DROP PROCEDURE IF EXISTS mill_hold_delete;
 DROP PROCEDURE IF EXISTS mill_hold_select;
 DROP PROCEDURE IF EXISTS mill_hold_release_desk;
 DROP PROCEDURE IF EXISTS mill_hold_release_other;
+DROP PROCEDURE IF EXISTS mill_hold_free_transition;
 
 DELIMITER //
 
@@ -63,7 +64,6 @@ BEGIN
     SET v_id = LAST_INSERT_ID();
     SET v_held = v_desk;
     CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
-    CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
     CALL mill_watcher_put('hold', v_id, v_desk);
     SET v_ok = 1;
     SET v_since = v_ts;
@@ -76,7 +76,6 @@ BEGIN
     IF v_n = 1 THEN
       SET v_held = v_desk;
       CALL mill_activity_put('hold', v_id, v_ts, v_desk, 1, 'hold', NULL);
-      CALL mill_doing_move(v_desk, 1, 'hold', v_id, 'hold', NULL, '', v_ts, v_move);
       CALL mill_watcher_put('hold', v_id, v_desk);
       SET v_ok = 1;
       SET v_since = v_ts;
@@ -86,7 +85,7 @@ BEGIN
       SELECT desk_id INTO v_held FROM hold WHERE id = v_id;
     END IF;
   ELSEIF v_held = v_desk THEN
-    -- Same holder again refreshes the row (#194). It does not stack a second lock and writes no move row.
+    -- Same holder again refreshes the row (#194). It does not stack a second lock.
     -- Card 853: bump updated for #194, but report since as the take time (activity.updated),
     -- so a second hold keeps since and sets refreshed true.
     SELECT a.updated INTO v_since FROM activity a WHERE a.type = 'hold' AND a.id = v_id;
@@ -140,15 +139,34 @@ BEGIN
     -- NULL roster: keep the hold's activity roster (not 1/Office).
     CALL mill_activity_put('hold', p_id, v_ts, v_desk, NULL, 'drop', NULL);
     SET v_roster = (SELECT roster_id FROM activity WHERE type = 'hold' AND id = p_id);
-    CALL mill_doing_move(v_desk, v_roster, 'hold', p_id, 'drop', NULL, '', v_ts, v_move);
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, IF(v_gone = 1, 'released', 'kept') AS op, IF(v_gone = 1, 1, 0) AS ok;
 END //
 
 -- Card 842: free every hold one desk owns (reset). The caller owns the transaction and has locked the
--- seat. Each freed hold gets a drop move row by the acting desk p_by (C5; peer = the holder when another
--- desk acts) and its activity row is stamped the way a drop stamps it (roster kept). p_n = holds freed.
+-- seat. Each freed hold gets its transition row in the same transaction (card 1207: transition is the hold's
+-- history, no doing row; mill_hold_free_transition). Its activity row is stamped the way a drop stamps it
+-- (roster kept). p_n = holds freed.
+-- Card 1207: one transition row per hold p_desk holds now, for a release the book does itself (reset, desk
+-- retire); the caller frees the holds right after, in its transaction. Python writes the transitions of a hold
+-- or drop command (hold_activity.py); these releases have no command around them, so they are written here,
+-- the way emit_drop / emit_force write them (desk_id = the holder; hold_force carries meta.by, the acting desk).
+-- Edges H4 held->free hold_drop and H5 held->free hold_force (transition_edge).
+CREATE PROCEDURE mill_hold_free_transition(
+  IN p_desk BIGINT UNSIGNED,
+  IN p_by   BIGINT UNSIGNED
+)
+BEGIN
+  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role, join_key, meta)
+  SELECT 'hold', h.id, 'held', 'free', IF(p_by <=> p_desk OR p_by IS NULL, 'hold_drop', 'hold_force'), p_desk,
+         'holder', CONCAT('hold:', h.id, ':', p_desk),
+         IF(p_by <=> p_desk OR p_by IS NULL, NULL, JSON_OBJECT('by', p_by))
+    FROM hold h
+   WHERE h.desk_id = p_desk
+   ORDER BY h.id;
+END //
+
 CREATE PROCEDURE mill_hold_release_desk(
   IN p_desk BIGINT UNSIGNED,
   IN p_by   BIGINT UNSIGNED,
@@ -162,11 +180,7 @@ BEGIN
   -- because the only caller (mill_join_reset) holds the desk's seat exclusive first, so two
   -- releases of one desk queue on the seat.
   SELECT COUNT(*) INTO v_n FROM hold WHERE desk_id = p_desk FOR UPDATE;
-  INSERT INTO doing (created, desk_id, roster_id, text, on_type, on_id, act, peer_id)
-  SELECT p_ts, p_by, IFNULL(a.roster_id, 1), '', 'hold', h.id, 'drop', NULLIF(p_desk, p_by)
-    FROM hold h LEFT JOIN activity a ON a.type = 'hold' AND a.id = h.id
-   WHERE h.desk_id = p_desk
-   ORDER BY h.id;
+  CALL mill_hold_free_transition(p_desk, p_by);
   UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
      SET a.updated = p_ts, a.desk_id = p_by, a.act = 'drop'
    WHERE h.desk_id = p_desk;
@@ -176,8 +190,8 @@ END //
 
 
 -- Card 931 / F223: release one hold owned by another desk. Auth (Admin, or high-trust stale)
--- is checked in Python before this call. The drop move row is by p_by with peer_id = the holder;
--- the holder's seat token is untouched. p_expect is the holder Python approved against; release
+-- is checked in Python before this call. The caller writes the hold_force transition (meta.by = p_by;
+-- card 1207: no doing row); the holder's seat token is untouched. p_expect is the holder Python approved against; release
 -- only when the row's desk_id still matches (check-then-act race guard). The age gate runs in
 -- Python (hold_stale_days config).
 CREATE PROCEDURE mill_hold_release_other(
@@ -237,7 +251,6 @@ BEGIN
     IF v_gone = 1 THEN
       CALL mill_activity_put('hold', p_id, v_ts, v_by, NULL, 'drop', NULL);
       SET v_roster = (SELECT roster_id FROM activity WHERE type = 'hold' AND id = p_id);
-      CALL mill_doing_move(v_by, v_roster, 'hold', p_id, 'drop', v_holder, '', v_ts, v_move);
       SET v_reason = '';
     ELSE
       SET v_reason = 'kept';

@@ -3,8 +3,8 @@
 The book is the 0.8.0 schema (doing move rows, seat.doing_id, seat as the desk kind table,
 the kind-checked name FKs). Each test names one ported behavior:
 
-- card moves: every status or volunteer change is one doing move row by the acting desk
-  (act, peer_id, evidence on ship and done); the card's `evidence` is read from them.
+- card moves: card 1207 moved them out of doing. The procedures set activity.act and todo.meta.evidence
+  (ship and done set it, back removes it); the move's record is the rpc's transition row (test_lane_b_moves_080).
 - seat.doing_id: after every focus write path it names the desk's newest focus row
   (act focus or clear, ORDER BY created DESC, id DESC), never a move row.
 - name commands: retire, rename, reclaim and mint go through sp_name_*; main's
@@ -54,17 +54,26 @@ def book(cn):
 
 
 def _events(cn, card: int) -> list[tuple]:
-    """The card's move rows in id order: (act, peer, evidence, acting desk)."""
+    """The card's doing move rows: card 1207, always none (focus and finish rows are not moves)."""
     rows = rows_done(
         cn,
-        "SELECT g.act, pn.name AS peer, IFNULL(g.evidence, '') AS evidence, dn.name AS desk"
-        " FROM doing g JOIN name dn ON dn.id = g.desk_id"
-        " LEFT JOIN name pn ON pn.id = g.peer_id"
+        "SELECT g.act, dn.name AS desk FROM doing g JOIN name dn ON dn.id = g.desk_id"
         " WHERE g.on_type = 'todo' AND g.on_id = %s AND g.act NOT IN ('focus', 'clear', 'finish')"
         " ORDER BY g.id",
         (card,),
     )
-    return [(r["act"], r["peer"], r["evidence"], r["desk"]) for r in rows]
+    return [(r["act"], r["desk"]) for r in rows]
+
+
+def _act(cn, card: int) -> tuple:
+    """activity.act and its desk: the card's latest move."""
+    row = rows_done(cn, "SELECT a.act, n.name AS desk FROM activity a JOIN name n ON n.id = a.desk_id"
+                        " WHERE a.type = 'todo' AND a.id = %s", (card,))[0]
+    return (row["act"], row["desk"])
+
+
+def _meta_evidence(cn, card: int):
+    return scalar_done(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.evidence')) FROM todo WHERE id = %s", (card,))
 
 
 def _card(cn, body: str) -> int:
@@ -86,33 +95,34 @@ def _pass(cn, desk: str, card: int, step: str, ev=None) -> dict:
 
 def test_new_card_writes_its_first_event(book):
     card = _card(book, "lb-ev-new")
-    assert _events(book, card) == [("create", None, "", ANN)]
+    assert _events(book, card) == []
+    assert _act(book, card) == ("create", ANN)
 
 
 def test_parked_card_first_event_is_parked(book):
     rows = rec_todo.insert(book, ROSTER, ANN, "parked", '{"slug": "lb-ev-park"}')
     book.commit()
-    assert _events(book, int(rows[-1]["id"])) == [("park", None, "", ANN)]
+    card = int(rows[-1]["id"])
+    assert _events(book, card) == []
+    assert _act(book, card) == ("park", ANN)
 
 
 def test_claim_ship_done_back_write_events_with_evidence(book):
     card = _card(book, "lb-ev-flow")
     bob = _desk_id(book, BOB)
     call(book, "cmd_claim", [bob, card, 0, "", None])
+    assert _act(book, card) == ("claim", BOB)
     got = _pass(book, BOB, card, "ship", "sha abc123")
     assert got["evidence"] == "sha abc123"
+    assert (_act(book, card), _meta_evidence(book, card)) == (("ship", BOB), "sha abc123")
     got = _pass(book, ANN, card, "done", None)
     # a done with no evidence keeps the ship's (main's todo.evidence rule)
     assert got["evidence"] == "sha abc123"
+    assert (_act(book, card), _meta_evidence(book, card)) == (("done", ANN), "sha abc123")
     got = _pass(book, ANN, card, "back", None)
     assert got["evidence"] is None
-    assert _events(book, card) == [
-        ("create", None, "", ANN),
-        ("claim", None, "", BOB),
-        ("ship", None, "sha abc123", BOB),
-        ("done", None, "sha abc123", ANN),
-        ("back", None, "", ANN),
-    ]
+    assert (_act(book, card), _meta_evidence(book, card)) == (("back", ANN), None)
+    assert _events(book, card) == []
 
 
 def test_card_reads_show_the_newest_events_evidence(book):
@@ -135,7 +145,8 @@ def test_a_body_only_update_writes_no_event(book):
     card = _card(book, "lb-ev-note")
     rec_todo.update(book, card, ANN, "", "", '{"slug": "lb-ev-note", "detail": "x"}')
     book.commit()
-    assert len(_events(book, card)) == 1
+    assert _events(book, card) == []
+    assert _act(book, card) == ("note", ANN)  # a body edit is a note, not a move
 
 
 def test_todo_has_no_evidence_column(book):
@@ -153,8 +164,8 @@ def test_deleting_a_card_with_history_works(book):
     rec_todo.delete(book, card, ANN)
     book.commit()
     assert scalar_done(book, "SELECT COUNT(*) FROM todo WHERE id = %s", (card,)) == 0
-    # doing is append-only history with no FK to todo: the move rows stay
-    assert [e[0] for e in _events(book, card)] == ["create", "claim"]
+    # card 1207: no doing move rows were written, so none are left behind
+    assert _events(book, card) == []
 
 
 def test_attached_card_touch_keeps_the_parents_latest_move(book):
@@ -162,7 +173,8 @@ def test_attached_card_touch_keeps_the_parents_latest_move(book):
     rows = rec_todo.insert_attached(book, ROSTER, ANN, "open", '{"slug": "lb-att-child"}', "todo", parent)
     book.commit()
     child = int(rows[-1]["id"])
-    assert _events(book, child) == [("create", None, "", ANN)]
+    assert _events(book, child) == []
+    assert _act(book, child) == ("create", ANN)
     # main wrote roster id 1 into the parent's activity desk. 0.8.0: activity.act is the latest move and
     # desk_id who made it; a tree touch is not a move, so the parent keeps its filer's create.
     row = rows_done(book, "SELECT desk_id, act FROM activity WHERE type='todo' AND id=%s", (parent,))[0]
@@ -205,7 +217,7 @@ def test_seat_doing_id_follows_every_write_path(book):
     rec_doing.put(book, desk, "working on it", "todo", card)
     book.commit()
     _same(book, desk)
-    call(book, "cmd_claim", [_desk_id(book, desk), card, 0, "", None])  # a move row: seat.doing_id stays
+    call(book, "cmd_claim", [_desk_id(book, desk), card, 0, "", None])  # a move: seat.doing_id stays
     book.commit()
     _same(book, desk)
     rec_doing.finish(book, desk, "todo", card)

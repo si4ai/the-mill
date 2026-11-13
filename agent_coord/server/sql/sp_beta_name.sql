@@ -179,8 +179,8 @@ BEGIN
   UPDATE name SET deleted = v_now WHERE id = v_id;
   IF v_type = 'desk' THEN
     SELECT COUNT(*) INTO v_released FROM hold WHERE desk_id = v_id FOR UPDATE;
-    INSERT INTO doing (created, desk_id, roster_id, act, on_type, on_id, peer_id)
-      SELECT v_now, v_by, 1, 'drop', 'hold', h.id, NULLIF(v_id, v_by) FROM hold h WHERE h.desk_id = v_id ORDER BY h.id;
+    -- Card 1207: the freed holds' transition rows (hold_drop on a self-retire, else hold_force), no doing row.
+    CALL mill_hold_free_transition(v_id, v_by);
     UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
        SET a.updated = v_now, a.desk_id = v_by, a.act = 'drop' WHERE h.desk_id = v_id;
     UPDATE hold SET desk_id = NULL WHERE desk_id = v_id;
@@ -311,11 +311,24 @@ BEGIN
     END IF;
   END IF;
   UPDATE name SET trashed = v_now WHERE id = v_id;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'delete');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'delete', NULL);
+  -- Card 1207 (the owner, 2026-11-13): no doing row. The delete is transition N (any -> same, name_delete) on the
+  -- acting desk's focus row (mill_doing_anchor writes an empty one when it has none), meta = the name id and kind.
+  CALL mill_name_transition(v_by, 'name_delete', v_id, v_type);
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op;
+END //
+
+-- Card 1207: a name's trash, restore or purge as a transition row. A name is not an activity, so the row sits on
+-- the acting desk's focus row (doing, seat.doing_id; mill_doing_anchor writes an empty focus first when the desk has
+-- none). meta carries the name id and its kind (roster, label or tree), never the name text: transition meta holds
+-- no names (tables.sql). Edges N1-N3 in transition_edge.
+DROP PROCEDURE IF EXISTS mill_name_transition //
+CREATE PROCEDURE mill_name_transition(IN p_by BIGINT UNSIGNED, IN p_reason VARCHAR(32), IN p_name BIGINT UNSIGNED,
+                                      IN p_kind VARCHAR(8))
+BEGIN
+  DECLARE v_focus BIGINT UNSIGNED;
+  CALL mill_doing_anchor(p_by, '', v_focus);
+  CALL mill_transition_put('doing', v_focus, 'any', 'same', p_reason, p_by, 'actor', CONCAT('name:', p_name),
+                           JSON_OBJECT('name', p_name, 'kind', p_kind));
 END //
 
 DROP PROCEDURE IF EXISTS sp_name_restore //
@@ -352,10 +365,9 @@ BEGIN
     END IF;
   END IF;
   UPDATE name SET trashed = NULL WHERE id = v_id;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'restore');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'restore', NULL);
+  -- Card 1207 (the owner, 2026-11-13): no doing row. The restore is transition N (any -> same, name_restore) on the
+  -- acting desk's focus row (mill_doing_anchor writes an empty one when it has none), meta = the name id and kind.
+  CALL mill_name_transition(v_by, 'name_restore', v_id, v_type);
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'restored' AS op;
 END //
 
@@ -434,10 +446,9 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM tree_read WHERE tree_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has read cursors; clear them, or mill retire soft-deletes'; END IF;
   END IF;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'purge');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'purge', NULL);
+  -- Card 1207 (the owner, 2026-11-13): no doing row. The purge is transition N (any -> same, name_purge) on the
+  -- acting desk's focus row (mill_doing_anchor writes an empty one when it has none), meta = the name id and kind.
+  CALL mill_name_transition(v_by, 'name_purge', v_id, v_type);
   SET @mill_allow_name_hard_delete = 1;
   IF v_type = 'roster' THEN
     DELETE FROM member WHERE name_id = v_id;

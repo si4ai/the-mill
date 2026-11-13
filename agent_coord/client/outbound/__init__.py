@@ -433,10 +433,6 @@ def body_from_args(args: Any) -> dict[str, Any]:
         # --back still sends it; the server stores none.
         ev = str(getattr(args, "evidence", "") or "").strip()
         if ev:
-            if len(ev) > 2000:
-                raise CoordError(
-                    "pass: evidence would be %s chars (max 2000); refused, nothing changed" % len(ev)
-                )
             body["evidence"] = ev
     if command == "open":
         raw_dw = getattr(args, "done_when", None)

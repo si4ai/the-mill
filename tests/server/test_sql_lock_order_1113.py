@@ -111,15 +111,9 @@ def _planted(tmp_path: Path, file: str, old: str, new: str) -> Analyzer:
 SEAT_LOCK = "  SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;\n  SET v_move = NULL;\n"
 
 
-def test_check_flags_the_todo_insert_before_its_seat_lock(tmp_path: Path) -> None:
-    # The planted error is mill_todo_insert as it was before card 1113: no seat lock first.
-    an = _planted(tmp_path, "sp_todo.sql", SEAT_LOCK, "")
-    for name in ("mill_todo_insert", "mill_todo_insert_attached"):
-        ups = an.upgrades(name)
-        assert ups, name
-        s, x = ups[0]
-        assert s.table == "seat" and s.why.startswith("fk todo."), (name, s)
-        assert "mill_doing_move" in x.where, (name, x)
+# Card 1207: the planted check for mill_todo_insert without its seat lock is gone. The upgrade it caught was the
+# seat FK read under the insert, then mill_doing_move's write; with the move as a transition row there is no
+# later seat X, so the insert's seat lock only keeps the card writes' common order.
 
 
 def test_check_flags_rename_without_its_seat_lock(tmp_path: Path) -> None:
@@ -127,9 +121,8 @@ def test_check_flags_rename_without_its_seat_lock(tmp_path: Path) -> None:
     card = "  SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;\n  IF v_proj IS NULL THEN\n" \
            "    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such card';"
     an = _planted(tmp_path, "sp_todo.sql", SEAT_LOCK + card, card)
-    ups = an.upgrades("mill_todo_rename")
-    assert ups and ups[0][0].table == "seat" and "todo.updated_id" in ups[0][0].why, ups
     assert not _seat_before_card(an, "mill_todo_rename")
+    assert _seat_before_card(Analyzer(), "mill_todo_rename")
 
 
 @pytest.mark.parametrize("proc,old", [

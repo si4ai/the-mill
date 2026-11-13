@@ -53,40 +53,38 @@ def test_create_refuses_old_need(cn) -> None:
     assert int(rec_todo.find(cn, "r926b", "old-need-b")["id"]) == tid
 
 def test_one_timeline_row_with_old_new_who_why(cn) -> None:
+    """Card 1207: the rename's trail row is transition T16 (any -> same, rename), not a doing row. The old slug
+    stays in meta.aliases; the why text is not kept (transition meta holds no text)."""
     asker = _seat(cn, "d926c")
     tid = _mk_card(cn, "r926c", asker, "old-need-c")
     before = scalar_done(
         cn,
-        "SELECT COUNT(*) FROM doing WHERE on_type='todo' AND on_id=%s AND act='rename'",
+        "SELECT COUNT(*) FROM transition WHERE activity_type='todo' AND activity_id=%s AND reason='rename'",
         (tid,),
     )
     rec_todo.rename(cn, tid, asker, "old-need-c", "new-need-c", why="goal name")
-    after = call(
-        cn,
-        "mill_todo_get",  # may not return moves; query doing directly below
-        [tid],
-    )
+    after = call(cn, "mill_todo_get", [tid])
     assert after and int(after[0]["id"]) == tid
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
-            "SELECT act, desk_id, evidence FROM doing "
-            "WHERE on_type='todo' AND on_id=%s AND act='rename' ORDER BY id",
+            "SELECT from_state, to_state, desk_id, role, join_key, meta FROM transition"
+            " WHERE activity_type='todo' AND activity_id=%s AND reason='rename' ORDER BY id",
             (tid,),
         )
         rows = list(cur.fetchall())
     finally:
         cur.close()
     assert len(rows) == int(before or 0) + 1
-    ev = json.loads(rows[-1]["evidence"] or "{}")
-    assert ev["old"] == "old-need-c"
-    assert ev["new"] == "new-need-c"
-    assert ev["why"] == "goal name"
+    row = rows[-1]
+    assert (row["from_state"], row["to_state"], row["role"], row["join_key"]) == ("any", "same", "actor", f"card:{tid}")
+    assert "goal name" not in str(row["meta"] or "")
     desk_id = scalar_done(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", ("d926c",))
-    assert int(rows[-1]["desk_id"]) == int(desk_id)
-    act = scalar_done(
-        cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,)
-    )
+    assert int(row["desk_id"]) == int(desk_id)
+    assert not scalar_done(cn, "SELECT COUNT(*) FROM doing WHERE on_type='todo' AND on_id=%s AND act='rename'", (tid,))
+    aliases = json.loads(scalar_done(cn, "SELECT JSON_EXTRACT(meta, '$.aliases') FROM todo WHERE id=%s", (tid,)) or "[]")
+    assert "old-need-c" in json.dumps(aliases)
+    act = scalar_done(cn, "SELECT act FROM activity WHERE type='todo' AND id=%s", (tid,))
     assert act == "rename"
 
 def test_second_rename_keeps_prior_aliases(cn) -> None:

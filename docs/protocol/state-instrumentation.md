@@ -159,7 +159,7 @@ States: `parked | open | claimed | shipped | done` + flag `retired` (`activity.d
 |---|------|----|---------|-------------|-------------|
 | T1 | none | open | create | `todo.created` `tables.sql:256`; `activity` act create `sp_todo.sql:49` | **982** open |
 | T2 | none | parked | create --status parked | same + act park | **982** |
-| T3 | parked | open | unpark | `todo.updated` + move row `mill_doing_move` `sp_todo.sql:265` | **982** |
+| T3 | parked | open | unpark | `todo.updated` + transition row (card 1207; `mill_doing_move` removed) | **982** |
 | T4 | open | claimed | claim | `todo.claimed_at` `sp_todo.sql:214-219`; act claim | **982** |
 | T5 | open | claimed | assign | `claimed_at` + move peer | **982** |
 | T6 | claimed | claimed (other) | claim --take-over | `claimed_at` refresh | **982** |
@@ -172,6 +172,7 @@ States: `parked | open | claimed | shipped | done` + flag `retired` (`activity.d
 | T13 | retired | prior status | reclaim | `activity.deleted` cleared `:423` | **982** |
 | T14 | any | same | note / done-when | `todo.updated` / body; often no status move | diary; optional **982** |
 | T15 | live | deleted | probe only | tombstone | n/a CLI |
+| T16 | any | same | rename | `meta.aliases` + act rename; transition (card 1207) | transition |
 
 ### 982 coverage vs gaps
 

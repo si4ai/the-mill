@@ -47,11 +47,21 @@ BEGIN
   ELSEIF p_on_type IN ('todo', 'hold') THEN
     -- The pass, done or drop itself, not the item's live state: a later note,
     -- a step back or a re-take changes the card or hold, never this row.
-    SELECT MIN(f.created) INTO v_at
-      FROM doing f
-     WHERE f.desk_id = p_desk AND f.act IN ('ship', 'done', 'drop', 'finish')
-       AND f.on_type = p_on_type AND f.on_id = p_on_id
-       AND (f.created > p_created OR (f.created = p_created AND f.id > p_id));
+    -- Card 1207: the pass, done and drop are this desk's transition rows (doing keeps no move rows);
+    -- a 'finish' row is still a doing row. A compressed hold row (card 1098, n > 1) carries its newest at.
+    SELECT MIN(x.at) INTO v_at FROM (
+      SELECT f.created AS at
+        FROM doing f
+       WHERE f.desk_id = p_desk AND f.act = 'finish'
+         AND f.on_type = p_on_type AND f.on_id = p_on_id
+         AND (f.created > p_created OR (f.created = p_created AND f.id > p_id))
+      UNION ALL
+      SELECT t.at
+        FROM transition t
+       WHERE t.activity_type = p_on_type AND t.activity_id = p_on_id AND t.desk_id = p_desk
+         AND t.reason IN ('pass_ship', 'pass_done', 'hold_drop')
+         AND t.at >= p_created
+    ) x;
   END IF;
   RETURN v_at;
 END //
@@ -238,9 +248,9 @@ BEGIN
   SET v_desk = MILL_NAME_GET('desk', p_desk);
   IF @mill_req_tx IS NULL THEN START TRANSACTION; END IF;
   SET v_cur = NULL;
-  -- 0.8.0 (the owner, 2026-10-26): finish writes no row. The desk's own ship, done or drop move on its focus
-  -- item (written by the card or hold write, mill_doing_move) ends the entry. The seat row lock serializes this
-  -- read with the desk's other writes; the rule reads the row seat.doing_id names, not the desk's newest row.
+  -- 0.8.0 (the owner, 2026-10-26): finish writes no row. The desk's own ship, done or drop on its focus
+  -- item (card 1207: its transition row) ends the entry. The seat row lock serializes this read with the
+  -- desk's other writes; the rule reads the row seat.doing_id names, not the desk's newest row.
   SELECT g.id, g.text, g.on_type, g.on_id, g.roster_id INTO v_cur, v_text, v_type, v_on, v_roster
     FROM seat dn JOIN doing g ON g.id = dn.doing_id WHERE dn.desk_id = v_desk FOR UPDATE;
   SET v_id = NULL, v_ts = NULL;
@@ -451,30 +461,60 @@ BEGIN
     SET v_one = IFNULL(MILL_NAME_GET('desk', p_desk), 0);
   END IF;
   SET v_off = (GREATEST(IFNULL(p_page, 1), 1) - 1) * GREATEST(IFNULL(p_size, 50), 1);
-  -- 0.8.0 Wall (letter 3227): desk history stays focus entries; on=ITEM also
-  -- returns that item's move rows (act + evidence) so the card trail is whole.
-  SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id, g.act, g.evidence,
-         g.waiting_type, g.waiting_id, g.waiting_why, ro.name AS roster,
-         (SELECT wn.name FROM name wn WHERE g.waiting_type = 'desk' AND wn.id = g.waiting_id) AS waiting_name,
-         mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) AS ended_at,
-         mill_doing_cleared(g.desk_id, g.id, g.created) AS cleared_at,
-         (SELECT MIN(nx.created) FROM doing nx
-           WHERE nx.desk_id = g.desk_id AND nx.act = 'focus' AND nx.on_type IS NOT NULL AND nx.text <> ''
-             AND (nx.created > g.created OR (nx.created = g.created AND nx.id > g.id))) AS replaced_at,
+  -- 0.8.0 Wall (letter 3227): desk history stays focus entries; on=ITEM also returns that item's moves so
+  -- the card trail is whole. Card 1207: the moves are the item's transition rows (doing keeps no move rows);
+  -- act is mapped from the reason, src = 'transition', and the card's evidence (todo.meta.evidence) rides
+  -- on its newest ship or done row (a step back removes it from meta, so it shows nowhere then).
+  SELECT x.id, x.desk, x.created, x.text, x.on_type, x.on_id, x.act, x.evidence,
+         x.waiting_type, x.waiting_id, x.waiting_why, x.roster, x.waiting_name,
+         x.ended_at, x.cleared_at, x.replaced_at, x.src,
          COUNT(*) OVER () AS total
-    FROM doing g
-    JOIN name d ON d.id = g.desk_id
-    JOIN name ro ON ro.id = g.roster_id
-   WHERE g.on_type IS NOT NULL
-     AND (
-       (IFNULL(p_on_type, '') = '' AND g.act = 'focus' AND g.text <> '')
-       OR (IFNULL(p_on_type, '') <> '' AND g.on_type = p_on_type AND g.on_id = p_on_id
-           AND ((g.act = 'focus' AND g.text <> '')
-                OR g.act NOT IN ('focus', 'clear')))
-     )
-     AND (v_one IS NULL OR g.desk_id = v_one)
-     AND (p_since IS NULL OR g.created >= p_since)
-   ORDER BY g.created DESC, g.id DESC
+    FROM (
+      SELECT g.id, d.name AS desk, g.created, g.text, g.on_type, g.on_id, g.act, CAST(NULL AS CHAR) AS evidence,
+             g.waiting_type, g.waiting_id, g.waiting_why, ro.name AS roster,
+             (SELECT wn.name FROM name wn WHERE g.waiting_type = 'desk' AND wn.id = g.waiting_id) AS waiting_name,
+             mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) AS ended_at,
+             mill_doing_cleared(g.desk_id, g.id, g.created) AS cleared_at,
+             (SELECT MIN(nx.created) FROM doing nx
+               WHERE nx.desk_id = g.desk_id AND nx.act = 'focus' AND nx.on_type IS NOT NULL AND nx.text <> ''
+                 AND (nx.created > g.created OR (nx.created = g.created AND nx.id > g.id))) AS replaced_at,
+             'doing' AS src
+        FROM doing g
+        JOIN name d ON d.id = g.desk_id
+        JOIN name ro ON ro.id = g.roster_id
+       WHERE g.on_type IS NOT NULL AND g.act = 'focus' AND g.text <> ''
+         AND (IFNULL(p_on_type, '') = '' OR (g.on_type = p_on_type AND g.on_id = p_on_id))
+         AND (v_one IS NULL OR g.desk_id = v_one)
+         AND (p_since IS NULL OR g.created >= p_since)
+      UNION ALL
+      SELECT t.id, d.name AS desk, t.at AS created, '' AS text, t.activity_type AS on_type, t.activity_id AS on_id,
+             CASE t.reason
+               WHEN 'create' THEN 'create' WHEN 'create_parked' THEN 'park' WHEN 'unpark' THEN 'unpark'
+               WHEN 'claim' THEN 'claim' WHEN 'take_over' THEN 'claim' WHEN 'assign' THEN 'assign'
+               WHEN 'unclaim' THEN 'unclaim' WHEN 'pass_ship' THEN 'ship' WHEN 'pass_done' THEN 'done'
+               WHEN 'pass_back' THEN 'back' WHEN 'retire' THEN 'retire' WHEN 'reclaim' THEN 'reclaim'
+               WHEN 'rename' THEN 'rename' WHEN 'hold_grant' THEN 'hold' ELSE 'drop' END AS act,
+             IF(t.activity_type = 'todo' AND t.reason IN ('pass_ship', 'pass_done')
+                AND t.id = (SELECT MAX(l.id) FROM transition l
+                             WHERE l.activity_type = 'todo' AND l.activity_id = t.activity_id
+                               AND l.reason IN ('pass_ship', 'pass_done')),
+                (SELECT MILL_TODO_EVIDENCE(c.meta) FROM todo c WHERE c.id = t.activity_id), NULL) AS evidence,
+             NULL, NULL, NULL,
+             IFNULL((SELECT r.name FROM todo c JOIN name r ON r.id = c.roster_id
+                      WHERE t.activity_type = 'todo' AND c.id = t.activity_id), 'Office') AS roster,
+             NULL, NULL, NULL, NULL,
+             'transition' AS src
+        FROM transition t
+        JOIN name d ON d.id = t.desk_id
+       WHERE IFNULL(p_on_type, '') <> ''
+         AND t.activity_type = p_on_type AND t.activity_id = p_on_id
+         AND t.reason IN ('create', 'create_parked', 'unpark', 'claim', 'take_over', 'assign', 'unclaim',
+                          'pass_ship', 'pass_done', 'pass_back', 'retire', 'reclaim', 'rename',
+                          'hold_grant', 'hold_drop', 'hold_force')
+         AND (v_one IS NULL OR t.desk_id = v_one)
+         AND (p_since IS NULL OR t.at >= p_since)
+    ) x
+   ORDER BY x.created DESC, x.src, x.id DESC
    LIMIT v_off, p_size;
 END //
 

@@ -1,6 +1,6 @@
 -- 25 tables. Wipe then apply.
 -- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 25 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history).
--- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). doing is the history of card and hold moves, and seat.doing_id names a
+-- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). card 1207: card and hold moves are transition rows, not doing rows; seat.doing_id names a
 -- desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.
 -- name, member, activity, label, tree, watcher,
@@ -339,8 +339,8 @@ CREATE TABLE IF NOT EXISTS activity_history (
 -- BETA (the owner, 2026-10-26): doing is also the history of card and hold moves. act names the row: focus or clear
 -- is the desk's own focus (seat.doing_id names the newest); any other act is a move of the on_* item by desk_id,
 -- with peer_id the second desk of the move (the new volunteer of an assign, the previous one of a take-over).
--- A move's from-state is the previous move row on the same item (idx_on, in id order). Card evidence is doing.evidence
--- (VARCHAR(2000), move rows only; focus/clear/finish keep it NULL; the owner, 2026-10-26 ~2:33 AM PDT).
+-- Card 1207 (the owner, 2026-11-13): moves, a card rename and a name's trash, restore or purge are transition rows,
+-- not doing rows; ship/done evidence is todo.meta.evidence (not capped). doing.evidence is dropped.
 CREATE TABLE IF NOT EXISTS doing (
   type          ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'doing',
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -355,7 +355,6 @@ CREATE TABLE IF NOT EXISTS doing (
   waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
   act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'focus',
   peer_id       BIGINT UNSIGNED NULL,   -- BETA: the second desk of a move; not waiting_* (that is what a focus is blocked on)
-  evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- BETA: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk_created (desk_id, created),
@@ -365,8 +364,7 @@ CREATE TABLE IF NOT EXISTS doing (
   UNIQUE KEY idx_id_desk (id, desk_id),   -- BETA: target of seat.fk_seat_doing (the desk's own row)
   CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT chk_doing_evidence CHECK (evidence IS NULL OR act NOT IN ('focus', 'clear', 'finish'))
+  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- BETA (the owner, 2026-10-26): seat.doing_id names the desk's own focus row; the composite FK keeps it on that desk.
