@@ -240,10 +240,10 @@ def _label_rows():
         {"label": "builder", "type": "todo", "id": 1, "ord": 1, "updated": str(FRESH),
          "card": {"roster": "the-mill", "volunteer": "builder"}},
         {"label": "human-priorities", "type": "todo", "id": 2, "ord": 1, "updated": str(OLD),
-         "card": {"roster": "fluid", "volunteer": "wall-ui", "last_activity_at": str(FRESH)}},
+         "card": {"roster": "r-one", "volunteer": "wall-ui", "last_activity_at": str(FRESH)}},
         {"label": "the-mill", "type": "mail", "id": 3, "ord": 1, "updated": str(OLD)},
         {"label": "gardener", "type": "todo", "id": 4, "ord": 2, "updated": str(OLD),
-         "card": {"roster": "omen", "volunteer": "gardener"}},
+         "card": {"roster": "r-two", "volunteer": "gardener"}},
     ]
 
 
@@ -256,8 +256,8 @@ def test_labels_project_list_desks_and_window(monkeypatch) -> None:
         return [r["id"] for r in body["rows"]], body["project"]
 
     assert ids("/api/v1/labels?project=Office") == ([1, 2, 3, 4], "Office")
-    assert ids("/api/v1/labels?project=the-mill,fluid") == ([1, 2, 3], "the-mill,fluid")
-    assert ids("/api/v1/labels?project=Office,omen") == ([4], "omen")
+    assert ids("/api/v1/labels?project=the-mill,r-one") == ([1, 2, 3], "the-mill,r-one")
+    assert ids("/api/v1/labels?project=Office,r-two") == ([4], "r-two")
     assert ids("/api/v1/labels?project=Office&desks=wall-ui,gardener") == ([2, 4], "Office")
     assert ids("/api/v1/labels?project=Office&window=1d") == ([1, 2], "Office")
 
@@ -274,8 +274,8 @@ def test_doing_desks_and_project_list(monkeypatch) -> None:
              {"owner": "gardener", "heartbeat": WEEK}],
         "the-mill": [{"owner": "builder", "heartbeat": FRESH, "project_id": "the-mill"},
                      {"owner": "wall-ui", "heartbeat": OLD, "project_id": "the-mill"}],
-        "omen": [{"owner": "builder", "heartbeat": FRESH, "project_id": "omen"},
-                 {"owner": "gardener", "heartbeat": WEEK, "project_id": "omen"}],
+        "r-two": [{"owner": "builder", "heartbeat": FRESH, "project_id": "r-two"},
+                 {"owner": "gardener", "heartbeat": WEEK, "project_id": "r-two"}],
     }
 
     def fake(c, body, project, owner):
@@ -295,13 +295,13 @@ def test_doing_desks_and_project_list(monkeypatch) -> None:
     assert owners("/api/v1/doing?all=1") == ["builder", "wall-ui", "gardener"]
     assert owners("/api/v1/doing?desks=wall-ui,gardener") == ["wall-ui", "gardener"]
     assert calls[-1] == ("", "", True)
-    assert owners("/api/v1/doing?project=the-mill,omen") == ["builder", "wall-ui", "gardener"]  # one row per desk
-    assert calls[-2:] == [("", "the-mill", False), ("", "omen", False)]
-    assert owners("/api/v1/doing?project=the-mill,omen&desks=gardener") == ["gardener"]
+    assert owners("/api/v1/doing?project=the-mill,r-two") == ["builder", "wall-ui", "gardener"]  # one row per desk
+    assert calls[-2:] == [("", "the-mill", False), ("", "r-two", False)]
+    assert owners("/api/v1/doing?project=the-mill,r-two&desks=gardener") == ["gardener"]
     assert owners("/api/v1/doing?all=1&window=7d") == ["builder", "gardener"]
     assert owners("/api/v1/doing?desk=builder&window=1d") == ["builder"]  # the old single forms stay
-    r = client.get("/api/v1/doing?project=the-mill,omen")
-    assert [v["project_id"] for v in r.json()["result"]] == ["the-mill", "the-mill", "omen"]
+    r = client.get("/api/v1/doing?project=the-mill,r-two")
+    assert [v["project_id"] for v in r.json()["result"]] == ["the-mill", "the-mill", "r-two"]
 
 
 # --- activity-buckets and score-runs --------------------------------------
