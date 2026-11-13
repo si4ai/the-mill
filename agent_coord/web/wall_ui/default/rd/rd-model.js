@@ -923,15 +923,20 @@
           var peers = [], sent = str(r.peer || r.peer_desk);
           if (sent && sent !== desk) peers.push(sent);
           else if (f.peer) peers.push(f.peer);
-          if (act === "assign" && card && card.desk && card.desk !== desk) peers.push(card.desk);
-          if ((act === "ship" || act === "done") && card && card.creator && card.creator !== desk) peers.push(card.creator);
-          push({ key: "move-" + r.id, item: key, at: at, kind: "todo", act: act, actor: desk, peers: peers, dir: act === "claim" ? "in" : "out",
+          /* Links come only from the transition rows: the row's own second desk, or the
+           * volunteer the earlier rows of this card leave behind. Not from the card's current
+           * creator or assignee, which may not be who it was then. */
+          push({ key: "move-" + r.id, item: key, at: at, kind: "todo", act: act, actor: desk, peers: peers, roster: str(r.roster),
+            vol: f.vol || "", prevVol: vol || "", rowPeer: sent && sent !== desk ? sent : "", dir: act === "claim" ? "in" : "out",
             text: card ? card.title : "", from: s !== f.s ? CARD_WORD[s] : "", to: s !== f.s ? CARD_WORD[f.s] : "" });
           s = f.s; vol = f.vol;
         } else if (it.kind === "hold") {
           var contest = act === "wait" || act === "refuse" || act === "contest";
           var holder = (holders[key] || []).filter(function (x) { return x.at <= at; }).pop();
-          push({ key: "move-" + r.id, item: key, at: at, kind: "hold", act: contest ? "wait" : act, actor: desk,
+          var before = (holders[key] || []).filter(function (x) { return x.at < at; });
+          var lastTaker = before.filter(function (x) { return x.desk; }).pop();
+          push({ key: "move-" + r.id, item: key, at: at, kind: "hold", act: contest ? "wait" : act, actor: desk, roster: str(r.roster),
+            prevHolder: act === "hold" && lastTaker && lastTaker.desk !== desk ? lastTaker.desk : "",
             peers: contest && holder && holder.desk && holder.desk !== desk ? [holder.desk] : [], text: holdName[it.id] || "" });
           if (act === "hold") (holders[key] = holders[key] || []).push({ at: at, desk: desk });
           if (act === "drop") (holders[key] = holders[key] || []).push({ at: at, desk: "" });
@@ -949,12 +954,15 @@
         var wh = itemOf(w);
         if (wh && wh.kind === "hold") {
           var at0 = utc(r.at), held = (holders[wh.key] || []).filter(function (x) { return x.at <= at0; }).pop();
-          var by = held ? held.desk : holderNow[wh.key];
-          push({ key: "focus-" + r.id, item: wh.key, at: at0, kind: "hold", act: "wait", actor: str(r.desk) || desk,
+          /* The holder from the promise's own take rows; the holds table of now only while
+           * this wait row is still open, so it is the holder being waited on. */
+          var open = !r.ended && !str(r.ended_at);
+          var by = held ? held.desk : open ? holderNow[wh.key] : "";
+          push({ key: "focus-" + r.id, item: wh.key, at: at0, kind: "hold", act: "wait", actor: str(r.desk) || desk, roster: str(r.roster),
             peers: by && by !== (str(r.desk) || desk) ? [by] : [], text: holdName[wh.id] || "" });
           return;
         }
-        push({ key: "focus-" + r.id, item: str(r.on), at: utc(r.at), kind: "doing", act: wd ? "wait" : "focus", actor: str(r.desk) || desk,
+        push({ key: "focus-" + r.id, item: str(r.on), at: utc(r.at), kind: "doing", act: wd ? "wait" : "focus", actor: str(r.desk) || desk, roster: str(r.roster),
           peers: wd ? [wd] : [], text: wd ? (str(r.waiting_on.why) || firstLine(r.doing, 120)) : firstLine(r.doing, 120) });
       });
     });
@@ -973,7 +981,7 @@
         /* A wake row names no desk (the office sends it); it belongs to its roster. */
         var office = kind === "wake" || !str(e.owner) || str(e.owner) === "System";
         if (office && b.scope.rosters.indexOf(str(e.roster_id)) < 0 && str(e.roster_id)) return;
-        push({ key: "act-" + key, item: kind === "doing" || kind === "wake" || kind === "score" ? "" : key, at: utc(e.at), kind: kind, act: str(e.act) || "touch",
+        push({ key: "act-" + key, item: kind === "doing" || kind === "wake" || kind === "score" ? "" : key, at: utc(e.at), kind: kind, act: str(e.act) || "touch", roster: str(e.roster_id),
           actor: office ? "" : str(e.owner), office: office, peers: [], n: num(e.items),
           kpi: kpi ? { label: kpiLabel(kpi.kpi), value: scoreText(str(kpi.kpi), str(kpi.value)), target: str(kpi.target), off: kpiMiss(kpi.value, kpi.target) } : null,
           text: kind === "todo" ? (card ? card.title : "") : kind === "hold" ? (holdName[e.id] || "") : "", deleted: str(e.state) === "deleted",
@@ -1062,6 +1070,72 @@
     if (e.deleted) p.push({ t: "flag", v: "deleted" });
     return p;
   }
+  /* ---- Tags: each activity's labels, trees, watchers and roster ----
+   * Joined client-side: the activity and transition rows carry none of the first three, so an
+   * item key (todo-N, mail-N) is looked up in the labels rows (type + id -> label), in the card
+   * trees and mail rooms (a node of that type and id -> its tree, depth and root title), and in
+   * the watchers lists the doing feed carries for cards. Roster: the item's own roster (card,
+   * letter, promise), else the activity or transition row's. Nothing is guessed: an item the
+   * data does not tag shows no chip for it. */
+  function itemTags(b) {
+    if (b._tags) return b._tags;
+    var out = {}, roots = {};
+    function at(key) { return out[key] || (out[key] = { labels: [], trees: [], watchers: [], roster: "" }); }
+    function each(map, fn) { Object.keys(map || {}).forEach(function (r) { if (map[r] != null) fn(map[r], r); }); }
+    each(b.data.labels, function (doc) {
+      ((doc && doc.rows) || []).forEach(function (r) {
+        var t = str(r.type), name = str(r.label);
+        if (!name || (t !== "todo" && t !== "mail") || r.id == null) return;
+        var L = at(t + "-" + r.id).labels;
+        if (L.every(function (x) { return x.name !== name; })) L.push({ name: name, ord: r.ord != null ? Number(r.ord) : null });
+      });
+    });
+    function trees(map, kind) {
+      each(map, function (list) {
+        (list || []).forEach(function (tr) {
+          if (!tr || !str(tr.name)) return;
+          var nodes = tr.nodes || [], root = nodes.filter(function (n) { return n && Number(n.depth) === 0; })[0] || nodes[0] || {};
+          roots[str(tr.name)] = { title: str(root.title), key: root.type && root.id != null ? str(root.type) + "-" + root.id : "", hidden: !!tr.hidden };
+          nodes.forEach(function (n) {
+            var t = str(n && n.type);
+            if (!n || n.id == null || (t !== "todo" && t !== "mail")) return;
+            var T = at(t + "-" + n.id).trees;
+            if (T.some(function (x) { return x.name === tr.name; })) return;
+            T.push({ name: str(tr.name), kind: kind, depth: n.depth != null ? Number(n.depth) : null, root: str(root.title), rootKey: root.type && root.id != null ? str(root.type) + "-" + root.id : "", hidden: !!tr.hidden });
+          });
+        });
+      });
+    }
+    trees(b.data.trees, "tree");
+    trees(b.data.rooms, "room");
+    /* A letter names its own room (the rooms list carries only each room's root node). */
+    (b.letters || []).forEach(function (m) {
+      if (!m.tree) return;
+      var T = at("mail-" + m.id).trees, r = roots[m.tree] || {};
+      if (T.every(function (x) { return x.name !== m.tree; })) T.push({ name: m.tree, kind: "room", depth: m.root === m.id ? 0 : null, root: r.title || "", rootKey: r.key || "mail-" + m.root, hidden: !!r.hidden });
+    });
+    each(b.data.todos, function (doc, r) { ((doc && doc.needs) || []).forEach(function (n) { if (n && n.id != null) at("todo-" + n.id).roster = str(n.roster_id) || r; }); });
+    each(b.data.holds, function (list, r) { (list || []).forEach(function (l) { if (l && l.id != null) at("hold-" + l.id).roster = str(l.roster_id) || r; }); });
+    (b.letters || []).forEach(function (m) { if (m.roster) at("mail-" + m.id).roster = m.roster; });
+    /* Watchers: the doing feed lists them on the cards it carries ({ id: "todo-N", watchers }). */
+    (function walk(x, depth) {
+      if (!x || typeof x !== "object" || depth > 6) return;
+      if (Array.isArray(x)) { x.forEach(function (y) { walk(y, depth + 1); }); return; }
+      if (Array.isArray(x.watchers) && itemOf(x.id)) {
+        var W = at(itemOf(x.id).key).watchers;
+        x.watchers.forEach(function (w) { w = str(w); if (w && W.indexOf(w) < 0) W.push(w); });
+        if (x.roster && !at(itemOf(x.id).key).roster) at(itemOf(x.id).key).roster = str(x.roster);
+      }
+      Object.keys(x).forEach(function (k) { if (x[k] && typeof x[k] === "object") walk(x[k], depth + 1); });
+    })(b.data.doing, 0);
+    b._tags = out;
+    return out;
+  }
+  function tagsOf(b, item, roster) {
+    var t = itemTags(b)[str(item)];
+    var o = { labels: t ? t.labels : [], trees: t ? t.trees : [], watchers: t ? t.watchers : [], roster: (t && t.roster) || str(roster) };
+    return o.labels.length || o.trees.length || o.watchers.length || o.roster ? o : null;
+  }
   function collabReplay(b, opts) {
     opts = opts || {};
     var all = replayEvents(b);
@@ -1074,7 +1148,13 @@
     var rows = all.filter(function (e) { return e.at >= since && e.at <= (live ? end + MIN : end); }).map(function (e) {
       return { key: e.key, item: e.item, at: e.at, kind: e.kind, act: e.act, actor: e.actor, dir: e.dir || "out", parts: sentence(b, e),
         outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null,
-        lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "" };
+        lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "",
+        tags: tagsOf(b, e.item, e.roster), state: stateDesks(e) };
+    }).map(function (r) {
+      var st = r.state, ls = [];
+      st.holders.concat(st.from, st.waiting).forEach(function (d) { var l = laneOf(b, d); if (ls.indexOf(l) < 0) ls.push(l); });
+      r.stateLanes = ls;
+      return r;
     });
     var lanes = replayLanes(b, rows);
     var known = !!(b.letters || b.data.events);
@@ -1166,29 +1246,63 @@
    *   todo: a claim is taken on the spot (from the desk that let it go); a hand-off (ship, done,
    *         assign, back) waits for the receiver's next move on the card.
    *   hold: a desk waiting on a promise another desk holds waits until it takes the hold. */
+  /* ---- State: the desk(s) an activity is attached to ----
+   * Each kind's state is a set of desks, read from its transition row:
+   *   todo  - who has claimed it (the fold of its move rows); a row's own second desk (peer)
+   *           when the server sends one
+   *   mail  - who sent it (from) and who it went to (holders)
+   *   wake  - who was woken, and by whom: the activity row names neither today (owner System,
+   *           desk 0), so a wake has no desks and no link
+   *   doing - the desk doing it
+   *   hold  - who holds it; a wait row adds the desk waiting for it
+   *   score - whose score it is
+   * A drop lands on every desk in the state at the transition; a link is drawn only when the
+   * transition moves the state from one desk to another (from -> holders), or, for a contested
+   * hold, between the holder and the desk waiting for it. */
+  function stateDesks(e) {
+    var a = str(e.actor), none = { holders: [], from: [], waiting: [] };
+    function uniq(xs) { return xs.filter(function (x, i) { return x && xs.indexOf(x) === i; }); }
+    switch (e.kind) {
+      case "mail": return { holders: uniq(e.peers.filter(function (p) { return p !== a; })), from: [a], waiting: [] };
+      case "todo":
+        if (e.rowPeer) return e.dir === "in" ? { holders: [a], from: [e.rowPeer], waiting: [] } : { holders: [e.rowPeer], from: [a], waiting: [] };
+        if (e.act === "claim") return { holders: [a], from: e.prevVol && e.prevVol !== a ? [e.prevVol] : [], waiting: [] };
+        if (e.act === "unclaim") return { holders: [], from: uniq([e.prevVol || a]), waiting: [] };
+        return { holders: e.vol ? [e.vol] : [], from: [], waiting: [] };
+      case "hold":
+        if (e.act === "wait") return { holders: uniq(e.peers.filter(function (p) { return p !== a; })), from: [], waiting: [a] };
+        if (e.act === "drop") return { holders: [], from: [a], waiting: [] };
+        return { holders: a ? [a] : [], from: e.prevHolder ? [e.prevHolder] : [], waiting: [] };
+      case "wake": return e.woken ? { holders: [e.woken], from: e.waker ? [e.waker] : [], waiting: [] } : none;
+      case "doing": case "score": return { holders: a ? [a] : [], from: [], waiting: [] };
+    }
+    return none;
+  }
   function flowsOf(b, e, ix) {
-    var from = laneOf(b, e.actor), out = [];
+    var st = stateDesks(e), out = [];
+    function link(f, t, desk, pickAt) {
+      var lf = laneOf(b, f), lt = laneOf(b, t);
+      if (lf !== lt && out.every(function (x) { return x.from !== lf || x.to !== lt; })) out.push({ from: lf, to: lt, desk: desk, pickAt: pickAt });
+    }
     if (e.kind === "mail") {
       var m = b.letters && b.letters.byId ? b.letters.byId[Number(String(e.item).replace(/^mail-/, ""))] : null;
-      e.peers.forEach(function (p) {
-        var to = laneOf(b, p);
-        if (to === from) return;
+      st.holders.forEach(function (p) {
         var at = firstAfter(ix.focus[p + "|" + e.item], e.at);
         var rep = m ? firstAfter(ix.replies[m.root], e.at + 1, function (x) { return x.from === p; }) : null;
         if (rep != null && (at == null || rep < at)) at = rep;
         if (at == null && e.read && e.read.indexOf(p) >= 0) at = e.at;
-        out.push({ from: from, to: to, desk: p, pickAt: at });
+        link(st.from[0], p, p, at);
       });
-    } else if (e.kind === "todo" && e.peers.length) {
-      e.peers.forEach(function (p) {
-        var lp = laneOf(b, p);
-        if (lp === from) return;
-        if (e.dir === "in") { out.push({ from: lp, to: from, desk: e.actor, pickAt: e.at }); return; }
-        out.push({ from: from, to: lp, desk: p, pickAt: firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === p; }) });
+    } else if (e.kind === "hold" && e.act === "wait") {
+      st.holders.forEach(function (h) { link(h, e.actor, e.actor, firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === e.actor && x.act === "hold"; })); });
+    } else {
+      /* The state moved: from each earlier desk to each desk that has it now. */
+      st.from.forEach(function (f) {
+        st.holders.forEach(function (t) {
+          var taken = t === e.actor ? e.at : firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === t; });
+          link(f, t, t, taken);
+        });
       });
-    } else if (e.kind === "hold" && e.act === "wait" && e.peers.length) {
-      var lh = laneOf(b, e.peers[0]);
-      if (lh !== from) out.push({ from: lh, to: from, desk: e.actor, pickAt: firstAfter(ix.moves[e.item], e.at + 1, function (x) { return x.desk === e.actor && x.act === "hold"; }) });
     }
     return out;
   }
@@ -1378,7 +1492,7 @@
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayPan: replayPan, replayItems: replayItems, replayStateAt: replayStateAt,
+    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayPan: replayPan, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
     REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,

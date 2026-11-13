@@ -25,7 +25,7 @@
     todo: [], mail: [], priorities: [],
     score: ["scores", "runs"],
     /* COLLAB Replay: letters, cards, promises and the activity table; the move rows come after. */
-    collab: ["events", "mail", "todos", "holds", "scores"]
+    collab: ["events", "mail", "todos", "holds", "scores", "labels", "trees", "rooms"]
   };
   var ROUTE = {
     agents: "/api/v1/agents?project=%R&limit=500",
@@ -453,12 +453,14 @@
     if (!rpText[r.key]) { var d = document.createElement("div"); d.innerHTML = V.replayRows([r]); rpText[r.key] = (d.textContent || "").replace(/\s+/g, " ").trim(); }
     return rpText[r.key];
   }
-  function icon(kind, cls, title) {
+  function icon(kind, cls, title, tags) {
     var w = document.createElement("span");
     w.innerHTML = V.kindIcon(kind);
     var el = w.firstChild;
     el.className += " " + cls;
     el.title = title || "";
+    /* Its labels and trees ride along as one tiny chip; the rest is in the hover text. */
+    if (tags) { w.innerHTML = V.tagsHtml(tags, 1); var chip = w.firstChild; chip.className += " rd-tags-mini"; el.appendChild(chip); }
     return el;
   }
   function drawStage(rep, t, animate) {
@@ -497,7 +499,7 @@
         var tray = S.lanes[id].tray, list = P[id] || [];
         if (!tray) return;
         tray.textContent = "";
-        list.slice(-RP_TRAY).forEach(function (x) { tray.appendChild(icon(x.kind, "rd-rp-wait", rowText(x.row) + " \u00b7 not picked up yet")); });
+        list.slice(-RP_TRAY).forEach(function (x) { tray.appendChild(icon(x.kind, "rd-rp-wait", rowText(x.row) + " \u00b7 not picked up yet", x.row.tags)); });
         if (list.length > RP_TRAY) { var more = document.createElement("span"); more.className = "rd-rp-more"; more.textContent = "+" + (list.length - RP_TRAY); tray.appendChild(more); }
       });
     }
@@ -519,14 +521,18 @@
   }
   function dropRow(S, r) {
     if (rp.live >= RP_LIVE) return;
+    /* The drop lands on every desk in the activity's state (and the actor's own column); the
+     * links join only the desks a transition moved the state between. */
     var box = S.rain.getBoundingClientRect(), hgt = box.height || 200, ends = [r.lane];
-    r.flows.forEach(function (f) { var o = f.from === r.lane ? f.to : f.from; if (ends.indexOf(o) < 0) ends.push(o); if (ends.indexOf(f.to) < 0) ends.push(f.to); });
+    function add(id) { if (id && ends.indexOf(id) < 0) ends.push(id); }
+    (r.stateLanes || []).forEach(add);
+    r.flows.forEach(function (f) { add(f.from); add(f.to); });
     var xs = [];
     ends.forEach(function (id) {
       var x = laneX(S, id, box);
       if (x == null || rp.live >= RP_LIVE) return;
       xs.push(x);
-      var el = icon(r.kind, "rd-rp-drop", rowText(r));
+      var el = icon(r.kind, "rd-rp-drop", rowText(r), r.tags);
       el.style.left = (x - 7) + "px";
       S.rain.appendChild(el);
       rp.live++;
@@ -537,12 +543,14 @@
       ], { duration: 2400, easing: "cubic-bezier(.3,0,.8,1)" });
       run.onfinish = run.oncancel = function () { rp.live--; if (el.parentNode) el.parentNode.removeChild(el); };
     });
-    if (xs.length < 2) return;
+    if (!r.flows.length || xs.length < 2) return;
     /* The pair's link: a thin arc between the two drops that fades as they fall. */
     var svg = S.rain.querySelector("svg.rd-rp-links");
     if (!svg) { svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "rd-rp-links"); svg.setAttribute("aria-hidden", "true"); S.rain.appendChild(svg); }
-    for (var i = 1; i < xs.length; i++) {
-      var a = xs[0], z = xs[i], path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    for (var i = 0; i < r.flows.length; i++) {
+      var a = laneX(S, r.flows[i].from, box), z = laneX(S, r.flows[i].to, box);
+      if (a == null || z == null) continue;
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", "M" + a.toFixed(1) + " 14 Q" + ((a + z) / 2).toFixed(1) + " " + (14 + Math.min(60, Math.abs(z - a) / 4)).toFixed(1) + " " + z.toFixed(1) + " 14");
       path.setAttribute("class", "k-" + r.kind);
       svg.appendChild(path);

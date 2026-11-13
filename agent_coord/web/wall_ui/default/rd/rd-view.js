@@ -386,11 +386,32 @@
     if (p.t === "flag") return flag(p.v, "older");
     return "<span>" + h(p.v) + "</span>";
   }
+  /* Tags: an activity's mill labels and its tree attachments, as small chips (full text on hover). */
+  function tagWord(t) {
+    return t.kind === "room" ? (t.root || "thread " + t.name) : (t.root || t.name);
+  }
+  function tagTitle(t) {
+    return (t.kind === "room" ? "mail thread " : "card tree ") + t.name + (t.depth != null ? (t.depth === 0 ? ", the root" : ", " + t.depth + " deep") : "") + (t.root ? ": " + t.root : "");
+  }
+  function tagsHtml(tags, max) {
+    if (!tags) return "";
+    var L = tags.labels.map(function (l) { return '<span class="rd-tag rd-tag-l" title="' + h("label " + l.name + (l.ord != null ? ", position " + (l.ord + 1) : "")) + '">' + h(l.name) + "</span>"; });
+    var T = tags.trees.map(function (t) { return '<span class="rd-tag rd-tag-t" title="' + h(tagTitle(t)) + '"><i aria-hidden="true">\u2442</i>' + h(tagWord(t)) + "</span>"; });
+    var W = (tags.watchers || []).map(function (w) { return '<span class="rd-tag rd-tag-w" title="' + h("watched by " + w) + '"><i aria-hidden="true">\u25c9</i>' + h(w) + "</span>"; });
+    var Rr = tags.roster ? ['<span class="rd-tag rd-tag-r" title="' + h("roster " + tags.roster) + '">' + h(tags.roster) + "</span>"] : [];
+    var all = L.concat(T, W, Rr), n = max || all.length, more = all.length - n;
+    return '<span class="rd-tags">' + all.slice(0, n).join("") + (more > 0 ? '<span class="rd-tag rd-tag-more" title="' + h(tagsText(tags)) + '">+' + more + "</span>" : "") + "</span>";
+  }
+  function tagsText(tags) {
+    if (!tags) return "";
+    return tags.labels.map(function (l) { return "label " + l.name; }).concat(tags.trees.map(tagTitle),
+      (tags.watchers || []).map(function (w) { return "watched by " + w; }), tags.roster ? ["roster " + tags.roster] : []).join("; ");
+  }
   function replayRow(r, fresh) {
     var read = r.read && r.read.length ? '<span class="rd-dim" title="' + h("opened by " + r.read.join(", ")) + '">opened</span>' : "";
     return '<li class="rd-rp-row k-' + h(r.kind) + (r.outside ? " cross" : "") + (fresh ? " rd-fx-in" : "") + '" data-rp="' + h(r.key) + '" data-k="' + h(r.kind) + '" data-act="' + h(r.act) + '" data-dir="' + h(r.dir || "out") + '">' +
       '<time>' + h(clock(r.at)) + "</time>" + kindIcon(r.kind) +
-      '<span class="rd-rp-s">' + r.parts.map(partHtml).join(" ") + read + "</span></li>";
+      '<span class="rd-rp-s">' + r.parts.map(partHtml).join(" ") + read + tagsHtml(r.tags, 6) + "</span></li>";
   }
   function replayRows(rows, fresh) {
     return rows.map(function (r) { return replayRow(r, fresh && fresh[r.key]); }).join("");
@@ -469,13 +490,32 @@
     pts.push(MON_W + "," + MON_BASE);
     return pts.join(" ");
   }
+  /* A lane's labels and trees across the window, busiest first: chips beside its trace. */
+  function laneTags(rep, id) {
+    var n = {}, by = {};
+    rep.rows.forEach(function (r) {
+      if (!r.tags || (r.lane !== id && !r.flows.some(function (f) { return f.from === id || f.to === id; }))) return;
+      r.tags.labels.forEach(function (l) { var k = "l|" + l.name; n[k] = (n[k] || 0) + 1; by[k] = { labels: [l], trees: [] }; });
+      r.tags.trees.forEach(function (t) { var k = "t|" + t.name; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [t] }; });
+      (r.tags.watchers || []).forEach(function (w) { var k = "w|" + w; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [], watchers: [w] }; });
+      if (r.tags.roster) { var k = "r|" + r.tags.roster; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [], roster: r.tags.roster }; }
+    });
+    var keys = Object.keys(n).sort(function (a, c) { return n[c] - n[a] || (a < c ? -1 : 1); });
+    if (!keys.length) return { html: '<span class="rd-tags"></span>', text: "" };
+    var top = keys.slice(0, 3), pick = function (c) { return top.filter(function (k) { return k.charAt(0) === c; }); };
+    return { html: tagsHtml({ labels: pick("l").map(function (k) { return by[k].labels[0]; }), trees: pick("t").map(function (k) { return by[k].trees[0]; }),
+      watchers: pick("w").map(function (k) { return by[k].watchers[0]; }), roster: pick("r").map(function (k) { return by[k].roster; })[0] || "" }) +
+      (keys.length > 3 ? '<span class="rd-tag rd-tag-more" title="' + h(keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ")) + '">+' + (keys.length - 3) + "</span>" : ""),
+      text: keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ") };
+  }
   function monitorHtml(rep) {
     var tr = R.replayLaneTrace(rep, 120);
     if (!rep.lanes.length) return "";
     return '<div class="rd-rp-monitor' + (rep.lanes.length > 10 ? " rd-rp-many" : "") + '" data-rp-monitor="1">' + rep.lanes.map(function (l, i) {
       var c = tr.by[l.id], line = laneLine(c, tr.peak), sum = c.reduce(function (a, x) { return a + x; }, 0), id = "rd-rp-mclip-" + i;
+      var tg = laneTags(rep, l.id);
       return '<div class="rd-rp-mlane lt-' + h(l.t) + '" data-rp-mlane="' + h(l.id) + '">' +
-        '<span class="rd-rp-mname" title="' + h(l.name + ": " + plural(sum, "row") + " sent or received") + '">' + h(l.name) + "</span>" +
+        '<span class="rd-rp-mname" title="' + h(l.name + ": " + plural(sum, "row") + " sent or received" + (tg.text ? "\n" + tg.text : "")) + '">' + h(l.name) + "</span>" +
         '<div class="rd-rp-trace rd-rp-mtrace" data-rp-trace="1" role="slider" tabindex="-1" aria-label="' + h(l.name + " activity; replay position") + '" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000">' +
         '<svg viewBox="0 0 ' + MON_W + " " + MON_H + '" preserveAspectRatio="none" aria-hidden="true">' +
         '<defs><clipPath id="' + id + '"><rect data-rp-clip="1" x="0" y="0" width="' + MON_W + '" height="' + MON_H + '"/></clipPath></defs>' +
@@ -483,7 +523,7 @@
         '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
         '<polyline class="rd-rp-tr-lit" clip-path="url(#' + id + ')" points="' + line + '"/>' +
         '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + MON_W + '" y1="0" x2="' + MON_W + '" y2="' + MON_H + '"/>' +
-        "</svg></div></div>";
+        "</svg></div>" + tg.html + "</div>";
     }).join("") + "</div>";
   }
   /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
@@ -555,7 +595,7 @@
     h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
     desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead, viewSwitch: viewSwitch,
     todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml,
-    replay: replayHtml, kindIcon: kindIcon, replayRows: replayRows, speedText: speedText
+    replay: replayHtml, kindIcon: kindIcon, replayRows: replayRows, speedText: speedText, tagsHtml: tagsHtml, tagsText: tagsText
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";
 })(typeof window !== "undefined" ? window : globalThis);

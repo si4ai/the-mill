@@ -27,15 +27,17 @@ OFFICE = {
         {"owner": "validator", "alive": True, "stale": False, "heartbeat": "2026-11-13 04:39:00"},
         {"owner": "gardener", "alive": True, "stale": False, "heartbeat": "2026-11-13 04:39:00"},
     ]},
-    "doing": {"builder": {"owner": "builder", "alive": True, "stale": False, "doing": "wiring", "on": "todo-7"}},
+    "doing": {"builder": {"owner": "builder", "alive": True, "stale": False, "doing": "wiring", "on": "todo-7",
+                        "waiting_on_it": {"cards": {"newest": [{"id": "todo-7", "watchers": ["validator", "gardener"], "roster": "Office"}]}}}},
     "rosterList": [{"name": "Office", "desks": 3}],
     "todos": {"Office": {"needs": [{"id": 7, "status": "shipped", "detail": "Stations route", "assigned": "builder", "creator": "validator"}]}},
     "holds": {"Office": [{"id": 3, "resource": "docs-lock", "owner": "gardener"}]},
     "scores": {"Office": [{"id": 40, "kpi": "mill-desk.hint_drop", "owner": "builder", "value": "2", "target": "0"}]},
     "mail": {"Office": [
         {"id": 100, "created": "2026-11-13 04:30:00", "from": "builder", "body": "re-measure #450\nmore",
-         "mail_tos": [{"deskId": "validator", "receipt": 1}]},
-        {"id": 101, "created": "2026-11-13 04:31:00", "from": "builder", "body": "ping", "mail_tos": [{"deskId": "scout", "receipt": 0}]},
+         "mail_tos": [{"deskId": "validator", "receipt": 1}], "tree": "r-450"},
+        {"id": 101, "created": "2026-11-13 04:31:00", "from": "builder", "body": "ping", "mail_tos": [{"deskId": "scout", "receipt": 0}],
+         "tree": "r-ping", "root_id": 90},
         {"id": 102, "created": "2026-11-13 04:32:00", "from": "scout", "body": "outside only", "mail_tos": [{"deskId": "auditor", "receipt": 0}]},
     ]},
     "events": {"Office": [
@@ -44,10 +46,20 @@ OFFICE = {
         {"id": 9, "kind": "wake", "at": "2026-11-13 04:26:00", "owner": "System", "roster_id": "Office"},
         {"id": 40, "kind": "score", "at": "2026-11-13 04:27:00", "owner": "builder", "roster_id": "Office"},
     ]},
+    "labels": {"Office": {"rows": [
+        {"label": "validator", "type": "todo", "id": 7, "ord": 0},
+        {"label": "builder", "type": "mail", "id": 100, "ord": 2},
+        {"label": "gardener", "type": "todo", "id": 999, "ord": 0},
+    ], "checks": {}}},
+    "trees": {"Office": [{"name": "stations", "nodes": [
+        {"type": "todo", "id": 5, "depth": 0, "title": "Stations epic"},
+        {"type": "todo", "id": 7, "depth": 1, "title": "Stations route"},
+    ]}]},
+    "rooms": {"Office": [{"name": "r-450", "hidden": False, "nodes": [{"type": "mail", "id": 100, "depth": 0, "title": "re-measure #450"}]}]},
     "moves": {"todo-7": [
         {"id": 1, "desk": "validator", "at": "2026-11-13 04:00:00", "on": "todo-7", "act": "create"},
         {"id": 2, "desk": "builder", "at": "2026-11-13 04:10:00", "on": "todo-7", "act": "claim"},
-        {"id": 3, "desk": "builder", "at": "2026-11-13 04:20:00", "on": "todo-7", "act": "ship"},
+        {"id": 3, "desk": "builder", "at": "2026-11-13 04:20:00", "on": "todo-7", "act": "ship", "peer": "validator"},
     ]},
     "trail": {"builder": [
         {"id": 50, "desk": "builder", "at": "2026-11-13 04:05:00", "doing": "wiring the route", "on": "todo-7", "act": "focus"},
@@ -72,7 +84,7 @@ const rep = R.collabReplay(b, {window: win});
 const txt = h => h.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/g, ' ').replace(/\s+/g, ' ').trim();
 console.log(JSON.stringify({
   window: rep.window, want: rep.want, counts: rep.counts,
-  rows: rep.rows.map(r => ({key: r.key, kind: r.kind, act: r.act, text: txt(V.replayRows([r])), html: V.replayRows([r])})),
+  rows: rep.rows.map(r => ({key: r.key, kind: r.kind, act: r.act, text: txt(V.replayRows([r])), html: V.replayRows([r]), tags: r.tags})),
   at: R.replayAt(rep, now, 3).map(r => r.key),
   playMs: R.REPLAY_PLAY_MS, speeds: R.REPLAY_SPEEDS,
   rate: V.speedText(rep.window, 1), rateSlow: V.speedText('week', 0.25),
@@ -115,7 +127,7 @@ def by_key(got: dict) -> dict:
 
 def test_each_kind_reads_as_a_plain_sentence():
     rows = by_key(run())
-    assert rows["mail-100"]["text"].endswith("builder mailed validator re-measure #450 opened")
+    assert "builder mailed validator re-measure #450 opened" in rows["mail-100"]["text"]
     assert "builder claimed card 7" in rows["move-2"]["text"]
     assert "builder shipped card 7 for validator CLAIMED" in rows["move-3"]["text"] and "SHIPPED" in rows["move-3"]["text"]
     assert "validator filed card 7" in rows["move-1"]["text"]
@@ -236,7 +248,7 @@ def test_pickup_is_read_from_the_records_per_kind():
     fl = run()["flows"]
     assert fl["mail-100"] == [["builder", "validator", 0]], "read with no later row: picked up on arrival"
     assert fl["mail-101"] == [["builder", "@out", None]], "unread: waits in the receiver's column"
-    assert fl["move-3"] == [["builder", "validator", None]], "shipped for the creator: waits for its next move"
+    assert fl["move-3"] == [["builder", "validator", None]], "shipped for the desk the row names: waits for its next move"
     assert fl["focus-60"] == [["gardener", "validator", None]], "a contested promise waits until the waiter takes it"
     got = run()
     assert "mail-101~0" in got["pendingNow"]["@out"] and "move-3~0" in got["pendingNow"]["validator"]
@@ -314,3 +326,95 @@ def test_the_record_is_cached_and_only_gaps_are_read():
     assert "&page=1" in app and '"&page=" + page' in app, "the tail is page 1; older pages only on a pan"
     assert "sessionStorage" in app and "TRAIL_KEEP" in app and "TRAIL_LRU" in app, "kept across reloads, capped, least recent desk dropped"
     assert "c.byId[r.id]" in app, "rows merge by id, so shifting pages never duplicate"
+
+
+def test_every_activity_carries_its_labels_and_trees():
+    got = run()
+    rows = {r["key"]: r for r in got["rows"]}
+    card = rows["move-2"]["tags"]
+    assert [l["name"] for l in card["labels"]] == ["validator"], "joined from the labels rows by type and id"
+    assert card["trees"] == [{"name": "stations", "kind": "tree", "depth": 1, "root": "Stations epic", "rootKey": "todo-5", "hidden": False}]
+    assert card["watchers"] == ["validator", "gardener"], "watchers from the doing feed's card lists"
+    assert card["roster"] == "Office"
+    assert rows["focus-50"]["tags"] == card, "a focus on the card carries the card's tags"
+    mail = rows["mail-100"]["tags"]
+    assert [l["name"] for l in mail["labels"]] == ["builder"]
+    assert [(t["name"], t["root"]) for t in mail["trees"]] == [("r-450", "re-measure #450")]
+    ping = rows["mail-101"]["tags"]
+    assert ping["labels"] == [] and ping["trees"][0]["name"] == "r-ping" and ping["trees"][0]["rootKey"] == "mail-90", "the letter's own room"
+    for key, r in rows.items():
+        if r["kind"] in ("hold", "wake", "score"):
+            t = r["tags"]
+            assert t is None or (t["labels"] == [] and t["trees"] == [] and t["watchers"] == []), key + ": no labels, trees or watchers in the data, so none are drawn"
+    assert rows["move-2"]["html"].count("rd-tag-r") == 1 and 'title="roster Office"' in rows["move-2"]["html"]
+    assert 'title="watched by gardener"' in rows["move-2"]["html"]
+    html = rows["move-2"]["html"]
+    assert 'class="rd-tag rd-tag-l" title="label validator, position 1">validator<' in html
+    assert 'class="rd-tag rd-tag-t" title="card tree stations, 1 deep: Stations epic"' in html
+    assert "label gardener" not in html, "a label on another card is not this card's"
+    mon = got["monitor"]
+    lane = mon[mon.index('data-rp-mlane="validator"'):]
+    lane = lane[:lane.index('data-rp-mlane="', 20)] if 'data-rp-mlane="' in lane[20:] else lane
+    assert "rd-tag-l" in lane and "stations" in lane, "the Activity lanes show their desk's labels and trees"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert 'icon(r.kind, "rd-rp-drop", rowText(r), r.tags)' in app, "the falling icons carry a chip too"
+    assert '"labels", "trees", "rooms"' in app
+
+
+def test_links_come_only_from_two_desk_transition_rows():
+    got = run()
+    flows = got["flows"]
+    assert flows["move-3"][0][:2] == ["builder", "validator"], "the ship row names its second desk: that is the link"
+    assert "move-2" not in flows, "a claim row with no second desk draws no link"
+    assert flows.get("mail-100") and flows["mail-100"][0][:2] == ["builder", "validator"], "a letter links sender and recipient"
+    model = (RD / "rd-model.js").read_text(encoding="utf-8")
+    assert "card.creator !== desk) peers.push" not in model and "card.desk !== desk) peers.push" not in model
+
+
+STATE_SCRIPT = r"""
+require(process.argv[1] + '/rd-model.js');
+const R = WallRd, cases = JSON.parse(process.argv[2]);
+console.log(JSON.stringify(cases.map(e => R.stateDesks(Object.assign({peers: []}, e)))));
+"""
+
+
+def state_of(*events):
+    out = subprocess.run([NODE, "-e", STATE_SCRIPT, str(RD), json.dumps(list(events))], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
+
+
+def test_state_desks_per_kind():
+    todo = state_of(
+        {"kind": "todo", "act": "claim", "actor": "builder", "vol": "builder", "prevVol": ""},
+        {"kind": "todo", "act": "claim", "actor": "builder", "vol": "builder", "prevVol": "gardener"},
+        {"kind": "todo", "act": "unclaim", "actor": "builder", "vol": "", "prevVol": "builder"},
+        {"kind": "todo", "act": "ship", "actor": "builder", "vol": "builder", "prevVol": "builder"},
+        {"kind": "todo", "act": "assign", "actor": "builder", "vol": "", "prevVol": "", "rowPeer": "validator", "dir": "out"},
+    )
+    assert todo[0] == {"holders": ["builder"], "from": [], "waiting": []}, "a claim: the claimer has it"
+    assert todo[1]["from"] == ["gardener"], "a claim handoff moves it from the earlier claimer"
+    assert todo[2] == {"holders": [], "from": ["builder"], "waiting": []}
+    assert todo[3] == {"holders": ["builder"], "from": [], "waiting": []}, "a ship keeps it on its claimer: no link"
+    assert todo[4] == {"holders": ["validator"], "from": ["builder"], "waiting": []}, "the row's own second desk"
+    mail = state_of({"kind": "mail", "actor": "builder", "peers": ["validator", "auditor", "builder"]})[0]
+    assert mail == {"holders": ["validator", "auditor"], "from": ["builder"], "waiting": []}
+    hold = state_of(
+        {"kind": "hold", "act": "hold", "actor": "gardener", "prevHolder": "builder"},
+        {"kind": "hold", "act": "hold", "actor": "gardener", "prevHolder": ""},
+        {"kind": "hold", "act": "drop", "actor": "gardener"},
+        {"kind": "hold", "act": "wait", "actor": "validator", "peers": ["gardener"]},
+    )
+    assert hold[0]["from"] == ["builder"] and hold[0]["holders"] == ["gardener"], "release then take by another desk"
+    assert hold[1]["from"] == []
+    assert hold[2] == {"holders": [], "from": ["gardener"], "waiting": []}
+    assert hold[3] == {"holders": ["gardener"], "from": [], "waiting": ["validator"]}, "contention: holder and waiter"
+    wake, wake2, doing, score = state_of(
+        {"kind": "wake", "actor": "", "office": True},
+        {"kind": "wake", "woken": "builder", "waker": "validator"},
+        {"kind": "doing", "act": "wait", "actor": "builder", "peers": ["validator"]},
+        {"kind": "score", "actor": "builder"},
+    )
+    assert wake == {"holders": [], "from": [], "waiting": []}, "the activity row names no woken desk today"
+    assert wake2 == {"holders": ["builder"], "from": ["validator"], "waiting": []}, "ready for a row that names them"
+    assert doing == {"holders": ["builder"], "from": [], "waiting": []}, "doing is who is doing it; a wait is not a transfer"
+    assert score == {"holders": ["builder"], "from": [], "waiting": []}

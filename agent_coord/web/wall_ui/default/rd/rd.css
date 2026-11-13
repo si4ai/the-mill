@@ -856,7 +856,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-pane.rd-rp-fs .rd-rp-heads .rd-pill, #rd .rd-pane.rd-rp-fs .rd-rp-heads .rd-cloud { height: 32px; font-size: 18px; padding: 0 12px; border-radius: 16px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-rain .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-rain .rd-ki svg, #rd .rd-pane.rd-rp-fs .rd-rp-locks .rd-ki, #rd .rd-pane.rd-rp-fs .rd-rp-locks .rd-ki svg { width: 22px; height: 22px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-heads { height: 52px; }
-#rd .rd-pane.rd-rp-fs .rd-rp-mlane { height: 34px; grid-template-columns: 14ch 1fr; }
+#rd .rd-pane.rd-rp-fs .rd-rp-mlane { height: 34px; grid-template-columns: 14ch 1fr minmax(0, 32ch); }
 #rd .rd-pane.rd-rp-fs .rd-rp-mname { font-size: 14px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-sdot { width: 14px; height: 14px; }
 #rd .rd-pane.rd-rp-fs .rd-rp-list .rd-move { font-size: 15px; }
@@ -891,7 +891,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 /* ---- Monitor: one heart-monitor trace per lane, in the stage's order, under the shared playhead ---- */
 #rd .rd-rp-monitor { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding: 4px 0; flex: 0 1 auto; }
 #rd .rv-activity .rd-rp-monitor { flex: 1 1 auto; }
-#rd .rd-rp-mlane { display: grid; grid-template-columns: 11ch 1fr; align-items: center; gap: 6px; height: 22px; flex: 0 0 auto; }
+#rd .rd-rp-mlane { display: grid; grid-template-columns: 11ch 1fr minmax(0, 26ch); align-items: center; gap: 6px; height: 22px; flex: 0 0 auto; }
 #rd .rd-rp-many .rd-rp-mlane { height: 16px; }
 #rd .rd-rp-mname { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 #rd .rd-rp-mtrace { height: 100%; min-width: 0; background: transparent; }
@@ -899,3 +899,19 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   #rd .rd-rp-lock { transition: none; }
 }
+
+/* ---- Tags: an activity's labels and tree attachments, as small chips ---- */
+#rd .rd-tags { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; min-width: 0; overflow: hidden; }
+#rd .rd-tag { display: inline-flex; align-items: center; gap: 2px; max-width: 16ch; height: 15px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--edge); color: var(--dim); background: var(--panel); }
+#rd .rd-tag i { font-style: normal; opacity: .8; }
+#rd .rd-tag-l { border-color: color-mix(in srgb, var(--cyan) 55%, var(--edge)); color: var(--cyan); }
+#rd .rd-tag-t { border-style: dashed; }
+#rd .rd-tag-w { border-color: color-mix(in srgb, var(--amber) 50%, var(--edge)); }
+#rd .rd-tag-r { border-radius: 3px; text-transform: none; }
+#rd .rd-tag-more { color: var(--dim); }
+#rd .rd-rp-mlane > .rd-tags { margin-left: 0; }
+#rd .rd-ki.rd-rp-wait { position: relative; }
+#rd .rd-tags-mini { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin: 1px 0 0; pointer-events: none; }
+#rd .rd-tags-mini .rd-tag { max-width: 9ch; height: 12px; line-height: 12px; font-size: 9px; padding: 0 3px; }
+#rd .rd-rp-tray .rd-ki.rd-rp-wait { margin-bottom: 12px; }
