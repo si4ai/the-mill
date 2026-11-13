@@ -689,7 +689,7 @@ def _heartbeat_rank(view: dict[str, Any]) -> tuple[int, float]:
 
 def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """`mill connected` (#274 word; RPC session). card 1207: each desk's current
-    doings (live tw runs) and who is waiting on it.
+    doings (live tw runs) and n, their count.
 
     ROSTER is optional (none = desks active in the last day; --all every desk;
     --desk X one desk). --history lists past doings (tw runs) instead, a page at a time.
