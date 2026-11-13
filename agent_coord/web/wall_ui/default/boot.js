@@ -1197,6 +1197,8 @@
       if (sub) sub.classList.toggle("is-later", !!hidden);
     }
     function showTab(name) {
+      /* The redesigned shell (rd/rd-app.js) owns the six tab hashes; leave them as they are. */
+      const rdKeepsHash = !!(window.WallRdApp && window.WallRdApp.keepsHash(name));
       /* The DESKS tab keeps its pane id (pane-session); #desks is its hash alias. */
       if (name === "desks") name = "session";
       if (name === "stations" || name === "leases" || name === "watch") {
@@ -1242,11 +1244,11 @@
       }
       if (nestAlias) {
         const h = nestAlias === "nest" ? "nest" : nestAlias;
-        if (location.hash !== "#" + h) location.hash = h;
+        if (!rdKeepsHash && location.hash !== "#" + h) location.hash = h;
       } else if (planAlias) {
-        if (location.hash !== "#jobs" && location.hash !== "#plan") location.hash = "jobs";
+        if (!rdKeepsHash && location.hash !== "#jobs" && location.hash !== "#plan") location.hash = "jobs";
         requestAnimationFrame(() => requestAnimationFrame(() => highlight("sec-parked")));
-      } else if (location.hash !== "#" + name) {
+      } else if (!rdKeepsHash && location.hash !== "#" + name) {
         location.hash = name;
       }
       saveWallTab(nestAlias || planAlias || name);
@@ -3147,6 +3149,7 @@
     }
     window.addEventListener("hashchange", () => {
       let name = (location.hash || "#session").replace("#", "");
+      if (window.WallRdApp && window.WallRdApp.keepsHash(name)) return;
       if (name === "scorecards") name = "score"; /* SCORE_BOOT_FIX */
       if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(name)) showTab(name);
     });
@@ -7847,7 +7850,8 @@
           if (nestHash && savedTab && !savedIsTodo) start = savedTab;
           else if (!start) start = savedTab || "session";
           if (start === "scorecards") start = "score"; /* SCORE_BOOT_FIX */
-          if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
+          if (window.WallRdApp && window.WallRdApp.keepsHash(start)) showTab("session");
+          else if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
           else showTab("session");
         }
         tick(true);

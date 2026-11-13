@@ -1,0 +1,325 @@
+/* WALL_UI_DEFAULT_RD_APP - wires the Wall redesign into the page: reads, scope, tabs, clicks.
+ * Marker: WALL_UI_DEFAULT_RD_APP
+ * Reads are plain GETs on the routes the Wall already uses. Each tab asks only for what it
+ * paints; the strip counts fill in as the reads land. The old panes (GUIDE, GLOSSARY, ADMIN,
+ * WIRE) still open from More; on those hashes the old shell shows and this one steps aside. */
+(function () {
+  "use strict";
+  var R = window.WallRd, V = window.WallRdView;
+  var root = document.getElementById("rd");
+  if (!root || !R || !V) return;
+
+  var TABS = ["desks", "todo", "mail", "priorities", "score", "collab"];
+  var ALIAS = {
+    "": "", desks: "desks", session: "desks", here: "desks", jobs: "todo", todo: "todo", plan: "todo", trees: "todo",
+    nest: "todo", backlog: "todo", board: "todo", issues: "todo", mail: "mail", priorities: "priorities",
+    score: "score", scorecards: "score", floor: "collab", collab: "collab"
+  };
+  var NEEDS = {
+    desks: ["labels", "scores", "todos", "holds", "mail", "events"],
+    todo: ["todos", "labels", "mail"],
+    mail: ["mail"],
+    priorities: ["labels", "todos"],
+    score: ["scores", "runs"],
+    collab: ["holds", "mail", "rooms", "trees"]
+  };
+  var ROUTE = {
+    agents: "/api/v1/agents?project=%R&limit=500",
+    names: "/api/v1/names?project=%R&limit=500",
+    todos: "/api/v1/todos?project=%R&limit=500",
+    mail: "/api/v1/mailbox?project=%R&limit=500",
+    labels: "/api/v1/labels?project=%R&limit=500",
+    scores: "/api/v1/scores?project=%R&limit=500",
+    holds: "/api/v1/holds?project=%R&limit=500",
+    rooms: "/api/v1/rooms?project=%R",
+    trees: "/api/v1/tree-todo?project=%R",
+    events: "/api/v1/events?project=%R&limit=200",
+    runs: "/api/v1/score-runs?project=%R&limit=300"
+  };
+  var PICK = {
+    agents: function (j) { return j.agents; }, names: function (j) { return j.catalog; },
+    todos: function (j) { return { needs: j.needs || [], issues: j.issues || [] }; },
+    mail: function (j) { return j.mailbox; }, labels: function (j) { return { rows: j.rows || [], checks: j.checks || {} }; },
+    scores: function (j) { return j.kpis; }, holds: function (j) { return j.locks; }, rooms: function (j) { return j.trees; },
+    trees: function (j) { return j.trees; }, events: function (j) { return j.events; }, runs: function (j) { return j.rows; }
+  };
+  var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
+  var SCOPE_KEY = "rd-scope", SORT_KEY = "factory-desks-sort", TAB_KEY = "rd-tab";
+
+  var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, doing: null, stations: null, rosterList: null };
+  var gotAt = {}, inflight = {};
+  var state = { tab: "desks", legacy: false, scope: loadScope(), sort: load(SORT_KEY, "urgency"), sel: {}, phoneDesk: false };
+
+  function load(k, d) { try { var v = localStorage.getItem(k); return v == null || v === "" ? d : v; } catch (e) { return d; } }
+  function save(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+  function loadScope() { try { return R.normScope(JSON.parse(localStorage.getItem(SCOPE_KEY) || "null")); } catch (e) { return R.normScope(null); } }
+  function saveScope() { save(SCOPE_KEY, JSON.stringify(state.scope)); }
+
+  function getJson(url) {
+    return fetch(url, { cache: "no-store", credentials: "same-origin" }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).catch(function () { return null; });
+  }
+  function fetchPart(kind, roster, force) {
+    var key = kind + "|" + roster;
+    if (inflight[key]) return inflight[key];
+    if (!force && gotAt[key] && Date.now() - gotAt[key] < FRESH_MS[kind]) return Promise.resolve();
+    var url = ROUTE[kind].replace("%R", encodeURIComponent(roster));
+    inflight[key] = getJson(url).then(function (j) {
+      inflight[key] = null;
+      if (j && !j.error) { data[kind][roster] = PICK[kind](j) || []; gotAt[key] = Date.now(); }
+      else if (data[kind][roster] === undefined) data[kind][roster] = kind === "todos" || kind === "labels" ? null : null;
+      paintSoon();
+    });
+    return inflight[key];
+  }
+  function fetchCore(force) {
+    var jobs = [];
+    if (force || !gotAt.doing || Date.now() - gotAt.doing > 15000) {
+      jobs.push(getJson("/api/v1/doing?all=1").then(function (j) {
+        if (j && Array.isArray(j.result)) {
+          var by = {};
+          j.result.forEach(function (v) { if (v && v.owner) by[v.owner] = v; });
+          data.doing = by;
+          gotAt.doing = Date.now();
+        }
+        paintSoon();
+      }));
+      jobs.push(getJson("/api/pov?part=desks").then(function (j) {
+        if (j && Array.isArray(j.rows)) data.stations = j.rows;
+        paintSoon();
+      }));
+    }
+    if (!data.rosterList) {
+      jobs.push(getJson("/api/pov?part=rosters").then(function (j) {
+        if (j && Array.isArray(j.rows)) data.rosterList = j.rows;
+        paintSoon();
+      }));
+    }
+    state.scope.rosters.forEach(function (r) { jobs.push(fetchPart("agents", r, force)); jobs.push(fetchPart("names", r)); });
+    return Promise.all(jobs);
+  }
+  function fetchTab(tab, force) {
+    var jobs = [];
+    (NEEDS[tab] || []).forEach(function (k) { state.scope.rosters.forEach(function (r) { jobs.push(fetchPart(k, r, force)); }); });
+    return Promise.all(jobs);
+  }
+  /* The strip counts every tab: after the open tab, read the small parts for the rest. */
+  function fetchCounts() {
+    ["todos", "labels", "scores", "holds", "mail", "rooms"].forEach(function (k) {
+      state.scope.rosters.forEach(function (r) { fetchPart(k, r); });
+    });
+  }
+  function fetchHistory(desk) {
+    if (!desk) return;
+    var key = "history|" + desk;
+    if (inflight[key] || (gotAt[key] && Date.now() - gotAt[key] < 30000)) return;
+    inflight[key] = getJson("/api/v1/doing/history?desk=" + encodeURIComponent(desk)).then(function (j) {
+      inflight[key] = null;
+      if (j && Array.isArray(j.history)) { data.history[desk] = j.history; gotAt[key] = Date.now(); paintSoon(); }
+    });
+  }
+
+  /* ---- paint ---- */
+  var queued = false, last = {};
+  function paintSoon() {
+    if (queued) return;
+    queued = true;
+    (window.requestAnimationFrame || setTimeout)(function () { queued = false; paint(); });
+  }
+  function setHtml(el, html, keyName) {
+    if (!el || last[keyName] === html) return false;
+    last[keyName] = html;
+    var keep = [];
+    el.querySelectorAll("[data-rd-scroll]").forEach(function (n) { keep.push([n.getAttribute("data-rd-scroll"), n.scrollTop, n.scrollLeft]); });
+    el.innerHTML = html;
+    keep.forEach(function (k) {
+      var n = el.querySelector('[data-rd-scroll="' + k[0] + '"]');
+      if (n) { n.scrollTop = k[1]; n.scrollLeft = k[2]; }
+    });
+    return true;
+  }
+  function models(b) {
+    var m = {};
+    m.desks = R.desks(b, { sort: state.sort, selected: state.sel.desks });
+    m.todo = R.todo(b, { selected: state.sel.todo });
+    m.mail = R.mail(b, { selected: state.sel.mail });
+    m.priorities = R.priorities(b, { selected: state.sel.priorities });
+    m.score = R.score(b, { selected: state.sel.score });
+    m.collab = R.collab(b, { selected: state.sel.collab });
+    return m;
+  }
+  function scrollWrap(name, cls, html, tag) {
+    tag = tag || "div";
+    return "<" + tag + ' class="' + cls + '" data-rd-scroll="' + name + '">' + html + "</" + tag + ">";
+  }
+  function paint() {
+    if (state.legacy) return;
+    var now = Date.now();
+    var b = R.base(data, state.scope, now);
+    var m = models(b);
+    setHtml(root.querySelector(".rd-rail"), V.rail(data.rosterList, b), "rail");
+    setHtml(root.querySelector(".rd-strip"), V.strip(R.strip(b, m), state.tab), "strip");
+    setHtml(root.querySelector(".rd-hero"), V.hero(R.hero(b, state.tab, m[state.tab])), "hero");
+    setHtml(root.querySelector(".rd-filter-bar"), V.chips(b), "chips");
+    var pane = root.querySelector(".rd-pane");
+    var t = state.tab, html;
+    if (t === "desks") {
+      var dm = m.desks;
+      state.sel.desks = dm.selected;
+      var dd = dm.selected ? R.deskDetail(b, dm.selected) : null;
+      if (dm.selected) fetchHistory(dm.selected);
+      html = V.paneHead("desks", b, V.sort(dm.sort)) +
+        '<div class="rd-pane-body"><div class="rd-here-split">' +
+        '<div class="rd-here-col">' + scrollWrap("here", "rd-here", V.desksList(dm, now)) + "</div>" +
+        scrollWrap("desk", "rd-here-desk", V.deskDetail(dd, now), "aside") +
+        scrollWrap("feed", "rd-office-feed", V.feed(R.feed(b)), "aside") + "</div></div>";
+    } else {
+      var model = m[t];
+      var body = model ? V[t](model) : '<div class="rd-loading">Loading ' + t.toUpperCase() + "\u2026</div>";
+      if (model && model.selected) state.sel[t] = model.selected;
+      html = V.paneHead(t, b) + '<div class="rd-pane-body rd-tab-body">' + body + "</div>";
+      html = html.replace('class="rd-tab-groups', 'data-rd-scroll="groups" class="rd-tab-groups').replace('<aside class="rd-tab-detail"', '<aside data-rd-scroll="detail" class="rd-tab-detail"');
+    }
+    pane.setAttribute("data-rd-pane", t);
+    setHtml(pane, html, "pane");
+    root.classList.toggle("desk-open", t === "desks" && state.phoneDesk);
+  }
+
+  /* ---- tabs + legacy panes ---- */
+  function isPhone() { return window.matchMedia && window.matchMedia("(max-width: 720px)").matches; }
+  function hashName() { return String(location.hash || "").replace(/^#/, "").trim().toLowerCase(); }
+  function setLegacy(on) {
+    state.legacy = on;
+    document.body.classList.toggle("rd-on", !on);
+    document.body.classList.toggle("rd-legacy", on);
+  }
+  function setTab(tab, fromHash) {
+    if (TABS.indexOf(tab) < 0) tab = "desks";
+    var changed = tab !== state.tab;
+    state.tab = tab;
+    save(TAB_KEY, tab);
+    if (tab !== "desks") state.phoneDesk = false;
+    setLegacy(false);
+    if (!fromHash && hashName() !== tab) {
+      try { history.replaceState(null, "", "#" + tab); } catch (e) { location.hash = tab; }
+    }
+    if (changed) { last.pane = null; }
+    paint();
+    fetchTab(tab).then(fetchCounts);
+  }
+  function onHash() {
+    var n = hashName();
+    if (has(ALIAS, n) && ALIAS[n]) { setTab(ALIAS[n], true); return; }
+    if (n) setLegacy(true);
+  }
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  /* ---- clicks ---- */
+  function closest(t, sel) { return t && t.closest ? t.closest(sel) : null; }
+  function scopeChanged() {
+    saveScope();
+    last = {};
+    fetchCore().then(function () { return fetchTab(state.tab); }).then(fetchCounts);
+    paint();
+  }
+  root.addEventListener("click", function (ev) {
+    var t = ev.target, el;
+    if ((el = closest(t, "[data-rd-tab]"))) { setTab(el.getAttribute("data-rd-tab")); return; }
+    if ((el = closest(t, "[data-rd-roster]"))) {
+      var r = el.getAttribute("data-rd-roster"), list = state.scope.rosters.slice(), i = list.indexOf(r);
+      if (i >= 0) { if (list.length > 1) list.splice(i, 1); } else list.push(r);
+      state.scope.rosters = list;
+      scopeChanged();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-unroster]"))) {
+      var u = el.getAttribute("data-rd-unroster");
+      state.scope.rosters = state.scope.rosters.filter(function (x) { return x !== u; });
+      if (!state.scope.rosters.length) state.scope.rosters = ["Office"];
+      scopeChanged();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-deskpick]"))) {
+      var d = el.getAttribute("data-rd-deskpick");
+      if (state.scope.off[d]) delete state.scope.off[d]; else state.scope.off[d] = 1;
+      scopeChanged();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-range]"))) { state.scope.range = el.getAttribute("data-rd-range"); scopeChanged(); return; }
+    if ((el = closest(t, "[data-rd-clear]"))) {
+      if (el.getAttribute("data-rd-clear") === "desks") state.scope.off = {};
+      else state.scope.range = "7d";
+      scopeChanged();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-filters]"))) { root.classList.add("filters-open"); return; }
+    if (closest(t, ".rd-filter-sheet-back")) { root.classList.remove("filters-open"); return; }
+    if ((el = closest(t, "[data-rd-sort]"))) { state.sort = el.getAttribute("data-rd-sort"); save(SORT_KEY, state.sort); paint(); return; }
+    if ((el = closest(t, "[data-rd-back]"))) { state.phoneDesk = false; paint(); return; }
+    if ((el = closest(t, "[data-rd-go]"))) {
+      ev.preventDefault();
+      var tab = el.getAttribute("data-rd-go"), sel = el.getAttribute("data-rd-sel");
+      if (sel) state.sel[tab] = sel;
+      setTab(tab);
+      return;
+    }
+    if ((el = closest(t, "[data-rd-desk]"))) {
+      ev.stopPropagation();
+      state.sel.desks = el.getAttribute("data-rd-desk");
+      state.phoneDesk = isPhone();
+      setTab("desks");
+      return;
+    }
+    if ((el = closest(t, "[data-rd-pickdesk]"))) {
+      state.sel.desks = el.getAttribute("data-rd-pickdesk");
+      state.phoneDesk = isPhone();
+      paint();
+      var pane = root.querySelector('[data-rd-scroll="desk"]');
+      if (pane) pane.scrollTop = 0;
+      return;
+    }
+    if ((el = closest(t, "[data-rd-pick]"))) { state.sel[state.tab] = el.getAttribute("data-rd-pick"); paint(); }
+  });
+  root.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rd-pick")) ev.target.click();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") root.classList.remove("filters-open"); });
+
+  /* ---- start ---- */
+  function skeleton() {
+    root.innerHTML = '<aside class="rd-rail" aria-label="Scope filter"></aside>' +
+      '<div class="rd-shell-main"><div class="rd-glance-band"><div class="rd-glance-status"><div class="rd-strip" role="tablist" aria-label="Office tabs"></div>' +
+      '<div class="rd-hero" aria-live="polite"></div></div></div>' +
+      '<div class="rd-filter-bar" aria-label="Active filter"></div><div class="rd-filter-sheet-back"></div>' +
+      '<main class="rd-main"><div class="rd-pane"></div></main></div>';
+  }
+  window.WallRdApp = {
+    /* boot.js leaves these hashes to this shell, so it does not rewrite #todo to #session. */
+    keepsHash: function (name) {
+      var n = String(name || "").replace(/^#/, "").toLowerCase();
+      return !state.legacy && has(ALIAS, n);
+    },
+    repaint: function () { last = {}; paint(); }
+  };
+  skeleton();
+  var start = hashName();
+  if (!start || !has(ALIAS, start)) {
+    if (!start) {
+      var saved = load(TAB_KEY, "desks");
+      try { history.replaceState(null, "", "#" + (TABS.indexOf(saved) >= 0 ? saved : "desks")); } catch (e) { /* file: */ }
+    }
+  }
+  window.addEventListener("hashchange", onHash);
+  start = hashName();
+  if (has(ALIAS, start) && ALIAS[start]) state.tab = ALIAS[start];
+  else if (start) setLegacy(true);
+  if (!state.legacy) setLegacy(false);
+  paint();
+  fetchCore(true).then(function () { return fetchTab(state.tab); }).then(fetchCounts);
+  setInterval(function () {
+    if (document.visibilityState === "hidden" || state.legacy) return;
+    fetchCore().then(function () { return fetchTab(state.tab); });
+  }, 15000);
+  setInterval(function () { if (!state.legacy && document.visibilityState !== "hidden") paintSoon(); }, 30000);
+})();
