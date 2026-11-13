@@ -462,14 +462,25 @@
       });
     }
     var vp = R.replayViewport(rep, rep.until, ov), X = function (f) { return (f * TRACE_W).toFixed(1); };
-    return '<div class="rd-rp-trace rd-rp-ov" data-rp-ov="1" data-lo="' + ov.lo + '" data-hi="' + ov.hi + '" role="slider" tabindex="0" aria-label="Replay position; drag the box to move the window" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000" title="' + h(plural(rep.total, "row") + " loaded \u00b7 drag the box to move the window, click outside it to jump") + '">' +
+    var end0 = rep.live ? null : rep.until;
+    function ovBtn(dir, label) {
+      var can = R.replayPanCan ? R.replayPanCan(rep, end0, dir) : dir < 0;
+      return '<button type="button" class="rd-rp-ov-btn" data-rp-ov-dir="' + dir + '"' +
+        (can ? "" : " disabled") + ' aria-label="' + label + '" title="' + label + '">' +
+        (dir < 0 ? "\u2039" : "\u203a") + "</button>";
+    }
+    return '<div class="rd-rp-ov-row">' +
+      ovBtn(-1, "Previous 100") +
+      '<div class="rd-rp-trace rd-rp-ov" data-rp-ov="1" data-lo="' + ov.lo + '" data-hi="' + ov.hi + '" role="slider" tabindex="0" aria-label="Replay position; drag the box or use the previous 100 and next 100 arrows" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000" title="' + h(plural(rep.total, "row") + " loaded \u00b7 drag the box to move the window, or use the arrows for the previous or next 100") + '">' +
       '<svg viewBox="0 0 ' + TRACE_W + " " + TRACE_H + '" preserveAspectRatio="none" aria-hidden="true">' +
       '<g class="rd-rp-bars rd-rp-bars-dim">' + bars + "</g>" +
       '<clipPath id="rd-rp-played"><rect data-rp-clip="1" x="0" y="0" width="' + X(vp.at) + '" height="' + TRACE_H + '"/></clipPath>' +
       '<g class="rd-rp-bars rd-rp-bars-lit" clip-path="url(#rd-rp-played)">' + lit + "</g>" +
       '<rect class="rd-rp-vp" data-rp-vp="1" x="' + X(vp.lo) + '" y="1" width="' + Math.max(2, (vp.hi - vp.lo) * TRACE_W).toFixed(1) + '" height="' + (TRACE_H - 2) + '"/>' +
       '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + X(vp.at) + '" y1="0" x2="' + X(vp.at) + '" y2="' + TRACE_H + '"/>' +
-      "</svg></div>";
+      "</svg></div>" +
+      ovBtn(1, "Next 100") +
+      "</div>";
   }
   /* ---- The two subtabs: the same stage, flipped ----
    * Desks: fixed pills are the desks (office, then the pick, then one outside cloud). Activity:

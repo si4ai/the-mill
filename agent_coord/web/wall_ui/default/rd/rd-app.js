@@ -391,6 +391,9 @@
       if (head) { head.setAttribute("x1", (vp.at * 1000).toFixed(1)); head.setAttribute("x2", (vp.at * 1000).toFixed(1)); }
       if (clip) clip.setAttribute("width", (vp.at * 1000).toFixed(1));
       ovEl.setAttribute("aria-valuenow", String(Math.round(1000 * vp.at)));
+      var back = root.querySelector("[data-rp-ov-dir='-1']"), fwd = root.querySelector("[data-rp-ov-dir='1']");
+      if (back && R.replayPanCan) back.disabled = !R.replayPanCan(rep, rp.end, -1);
+      if (fwd && R.replayPanCan) fwd.disabled = !R.replayPanCan(rep, rp.end, 1);
     }
     var span = root.querySelector("[data-rp-span]");
     if (span) span.textContent = spanText(rep);
@@ -689,8 +692,15 @@
       var c = origin + row * rowH + Math.max(0, (rowH - sz.cross) / 2);
       var m = L.start + it.pos * L.len;
       var tf = ax.main === "x" ? "translate(" + m.toFixed(1) + "px," + c.toFixed(1) + "px)" : "translate(" + c.toFixed(1) + "px," + m.toFixed(1) + "px)";
+      var POP = ((R.REPLAY_LEAD_PLAY_MS || 1250) / 4) / (R.REPLAY_PLAY_MS || 120000);
+      var pop = it.pos < POP ? (0.55 + 0.45 * (it.pos / POP)) : 1;
+      if (!moving()) pop = 1;
+      if (pop !== 1) tf += " scale(" + pop.toFixed(3) + ")";
       if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
-      var op = it.pos > 0.92 ? ((1 - it.pos) / 0.08).toFixed(2) : "1";
+      var op;
+      if (it.pos > 0.92) op = ((1 - it.pos) / 0.08).toFixed(2);
+      else if (it.pos < POP) op = Math.max(0.4, it.pos / POP).toFixed(2);
+      else op = "1";
       if (el.rdOp !== op) { el.style.opacity = op; el.rdOp = op; }
     });
     return g;
@@ -864,19 +874,40 @@
       });
     }
     drawItems(S, rep, t);
+    applyAnticipate(S, rep, t);
     var prev = rp.lastT;
     rp.lastT = t;
     if (!animate || prev == null || t <= prev || !moving()) return;
     rep.pool.forEach(function (r) { r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); }); });
   }
-  /* Picked up: the receiver's pill pulses once. */
+  function applyAnticipate(S, rep, t) {
+    var ant = R.replayAnticipate ? R.replayAnticipate(rep, t, rp.view) : {}, reduce = !moving();
+    Object.keys(S.lanes).forEach(function (id) {
+      var pill = S.lanes[id] && S.lanes[id].pill, a = ant[id] || { scale: 1, tint: 0, kind: "" };
+      var sc = reduce ? 1 : (a.scale || 1);
+      var key = sc.toFixed(3) + "," + (a.tint || 0).toFixed(3) + "," + (a.kind || "");
+      if (!pill || pill.rdAnt === key) return;
+      pill.rdAnt = key;
+      pill.style.setProperty("--rd-ant", String(sc));
+      pill.style.setProperty("--rd-ant-tint", String(a.tint || 0));
+      if (a.kind && a.tint) {
+        pill.style.setProperty("--rd-k-ant", "var(--rd-k-" + a.kind + ")");
+        pill.setAttribute("data-rp-ant", a.kind);
+      } else {
+        pill.style.removeProperty("--rd-k-ant");
+        pill.removeAttribute("data-rp-ant");
+      }
+    });
+  }
+  /* Picked up: a quiet ring on the receiver. Pill scale is owned by
+     anticipation (--rd-ant), so a WAAPI scale here would fight the playhead-driven size. */
   function catchAt(S, id) {
     var l = S.lanes[id];
-    if (!l || !l.pill || !l.pill.animate) return;
-    l.pill.animate([{ transform: "scale(1)" }, { transform: "scale(1.22)" }, { transform: "scale(1)" }], { duration: 520, easing: "ease-out" });
+    if (!l || !l.head) return;
     var ring = document.createElement("i");
     ring.className = "rd-rp-catch";
     l.head.appendChild(ring);
+    if (!ring.animate) { if (ring.parentNode) ring.parentNode.removeChild(ring); return; }
     var run = ring.animate([{ transform: "scale(.6)", opacity: 0.9 }, { transform: "scale(1.6)", opacity: 0 }], { duration: 650, easing: "ease-out" });
     run.onfinish = run.oncancel = function () { if (ring.parentNode) ring.parentNode.removeChild(ring); };
   }
@@ -1033,22 +1064,53 @@
       if (d && !d.moved && n === "pointerup" && !d.onVp) rpJump(ovFrac(d.el, ev));
     });
   });
+  /* Overview arrows: one click (or Left/Right on the focused strip) jumps a
+   * fixed 100 rows; press-and-hold repeats the same jump. */
+  var holdOv = null;
+  function ovStep(dir) {
+    var rep = rpRep();
+    if (!rep || !R.replayPanCan || !R.replayPanCan(rep, rp.end, dir)) { ovHoldStop(); return; }
+    var end = R.replayPanRows(rep, rp.end, dir);
+    rpPanTo(end);
+    if (dir < 0) rpOlderFor(rep, end == null ? rep.now : end);
+  }
+  function ovHoldStop() {
+    if (!holdOv) return;
+    if (holdOv.tid) clearTimeout(holdOv.tid);
+    if (holdOv.iid) clearInterval(holdOv.iid);
+    holdOv = null;
+  }
+  root.addEventListener("pointerdown", function (ev) {
+    var btn = closest(ev.target, "[data-rp-ov-dir]");
+    if (!btn || btn.disabled) return;
+    var dir = Number(btn.getAttribute("data-rp-ov-dir"));
+    if (!dir) return;
+    ovStep(dir);
+    holdOv = {
+      dir: dir,
+      tid: setTimeout(function () {
+        if (!holdOv) return;
+        holdOv.tid = 0;
+        holdOv.iid = setInterval(function () { ovStep(dir); }, 160);
+      }, 400)
+    };
+    if (btn.setPointerCapture) try { btn.setPointerCapture(ev.pointerId); } catch (e) { /* capture is optional */ }
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  ["pointerup", "pointercancel"].forEach(function (n) {
+    root.addEventListener(n, function () { ovHoldStop(); });
+  });
   root.addEventListener("keydown", function (ev) {
     var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-ov") ? ev.target : null, rep = rpRep();
     if (!el || !rep) return;
-    if (ev.shiftKey && (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "End")) {
-      /* Shift+arrows slide the window a quarter of its length; Shift+End goes back to now. */
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
       ev.preventDefault();
-      var step = (ev.key === "ArrowLeft" ? -1 : 1) * rep.ms / 4;
-      rpPanTo(ev.key === "End" ? null : R.replayPan(rep, rp.end, step));
-      if (ev.key === "ArrowLeft") rpOlderFor(rep, (rp.end == null ? rep.now : rp.end) + step);
+      ovStep(ev.key === "ArrowLeft" ? -1 : 1);
       return;
     }
-    var at = (Number(el.getAttribute("aria-valuenow")) || 0) / 1000;
-    var to = ev.key === "ArrowLeft" ? at - 0.01 : ev.key === "ArrowRight" ? at + 0.01 : ev.key === "Home" ? 0 : ev.key === "End" ? 1 : null;
-    if (to == null) return;
-    ev.preventDefault();
-    rpJump(to);
+    if (ev.key === "Home") { ev.preventDefault(); rpPanTo(rep.floorEnd); rpOlderFor(rep, rep.floorEnd); return; }
+    if (ev.key === "End") { ev.preventDefault(); rpPanTo(null); return; }
   });
   /* ---- The record, cached: past rows never change ----
    * Each desk's transition rows (doing history) merge by id into one cache per desk, kept in

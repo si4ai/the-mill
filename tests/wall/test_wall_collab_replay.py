@@ -308,8 +308,11 @@ def test_the_overview_is_a_bar_graph_of_row_counts_with_a_viewport():
     assert got["vp"]["lo"] < got["vp"]["hi"] or got["vp"]["hi"] > 0
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert "rpJump" in app and "onVp" in app and "[data-rp-ov]" in app
+    assert 'data-rp-ov-dir="-1"' in shell and 'data-rp-ov-dir="1"' in shell
+    assert 'aria-label="Previous 100"' in shell and 'aria-label="Next 100"' in shell
     css = (RD / "rd.css").read_text(encoding="utf-8")
     assert "cursor: grab;" in css and "cursor: grabbing;" in css
+    assert "rd-rp-ov-btn" in css and "rd-rp-ov-row" in css
 
 
 def test_stage_lanes_follow_the_pick_with_the_cloud_pinned_last():
@@ -401,8 +404,10 @@ def test_panning_slides_the_window_through_the_record():
     shell = got["shell"]
     assert 'data-rp-span="1"' in shell, "the window's start and end show while panning"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert "ev.shiftKey" in app and "PAN_PX" in app and "onVp" in app
+    assert "PAN_PX" in app and "onVp" in app
     assert "rpJump" in app and "!d.moved && n === \"pointerup\"" in app
+    assert "function ovStep" in app and "holdOv" in app
+    assert 'data-rp-ov-dir' in (RD / "rd-view.js").read_text(encoding="utf-8")
 
 
 def test_the_record_is_cached_and_only_gaps_are_read():
@@ -635,3 +640,97 @@ def test_group_mode_merges_by_lane_kind_and_time_and_is_the_default():
     assert "function drawGroupItems" in app and "replayOverflowTip" in app
     assert 'data-rp-tip", "group"' in app
 
+
+
+def _node(script: str) -> dict:
+    out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30)
+    return json.loads(out.stdout)
+
+
+def test_anticipation_scale_grows_with_n_returns_after_emit_and_is_deterministic():
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+const ms = 120000;
+const lead = (R.REPLAY_LEAD_PLAY_MS / R.REPLAY_PLAY_MS) * ms;
+const settle = (R.REPLAY_SETTLE_PLAY_MS / R.REPLAY_PLAY_MS) * ms;
+const at = 60000;
+const row = (lane, kind, t) => ({{lane, kind, at: t}});
+const one = {{ms, pool: [row('a','mail',at)]}};
+const four = {{ms, pool: [row('a','mail',at), row('a','todo',at+10), row('a','todo',at+20), row('a','hold',at+30)]}};
+const t = at - lead * 0.2;
+const A = R.replayAnticipate(one, t, 'desks');
+const B = R.replayAnticipate(four, t, 'desks');
+const after = R.replayAnticipate(four, at + 30 + settle + 1, 'desks');
+const mid = R.replayAnticipate(four, at + 30 + settle * 0.2, 'desks');
+const idle = R.replayAnticipate(one, at - lead - 1, 'desks');
+const same = JSON.stringify(R.replayAnticipate(four, t, 'desks')) === JSON.stringify(R.replayAnticipate(four, t, 'desks'));
+const act = R.replayAnticipate({{ms, pool: [row('x','mail',at), row('y','mail',at+5)]}}, t, 'activity');
+console.log(JSON.stringify({{
+  leadPlay: R.REPLAY_LEAD_PLAY_MS, settlePlay: R.REPLAY_SETTLE_PLAY_MS,
+  scale1: A.a.scale, n1: A.a.n, scale4: B.a.scale, n4: B.a.n, kind4: B.a.kind,
+  after: after.a ? after.a.scale : 1, mid: mid.a && mid.a.scale, idle: !idle.a,
+  same, s1: R.replayAnticipateScale(1), s4: R.replayAnticipateScale(4),
+  s9: R.replayAnticipateScale(9), s100: R.replayAnticipateScale(100),
+  actN: act.mail && act.mail.n, actScale: act.mail && act.mail.scale
+}}));
+"""
+    got = _node(script)
+    assert got["leadPlay"] == 1250 and got["settlePlay"] == 500
+    assert got["n1"] == 1 and got["n4"] == 4
+    assert got["scale4"] > got["scale1"] > 1, "scale grows with the number of upcoming emits"
+    assert got["s4"] > got["s1"] > 1 and got["s9"] == 1.25 and got["s100"] == 1.25
+    assert got["after"] == 1, "after the last emit and its settle, the pill is back at 1"
+    assert got["mid"] > 1, "just after emit it is still easing back"
+    assert got["idle"] is True and got["same"] is True
+    assert got["kind4"] == "todo", "dominant kind is the most frequent in the lead window"
+    assert got["actN"] == 2 and got["actScale"] > 1, "activity view groups the same function by kind"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "function applyAnticipate" in app and '"--rd-ant"' in app
+    assert "pill.animate" not in app, "pickup must not WAAPI-scale the pill"
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "scale(var(--rd-ant, 1))" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css and "transform: none;" in css
+
+
+def test_overview_arrows_jump_a_fixed_100_rows_and_clamp_at_the_ends():
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+const now = 600000;
+const ticks = Array.from({{length: 500}}, (_, i) => ({{at: 1000 + i * 1000, kind: 'mail'}}));
+const floor = ticks[299].at;
+const rep = {{now, ticks, floorEnd: floor, ms: 10000, count: 300}};
+const prev = R.replayPanRows(rep, null, -1);
+const prev2 = R.replayPanRows(rep, prev, -1);
+const stuck = R.replayPanRows(rep, prev2, -1);
+const nxt = R.replayPanRows(rep, prev, 1);
+const fromLast = R.replayPanRows(rep, ticks[499].at, 1);
+console.log(JSON.stringify({{
+  rows: R.REPLAY_PAN_ROWS,
+  prev, expectPrev: ticks[399].at,
+  prev2, floor, stuck,
+  nxt, expectNxt: ticks[499].at,
+  fromLast,
+  canNowBack: R.replayPanCan(rep, null, -1),
+  canNowFwd: R.replayPanCan(rep, null, 1),
+  canFloorBack: R.replayPanCan(rep, floor, -1),
+  canFloorFwd: R.replayPanCan(rep, floor, 1)
+}}));
+"""
+    got = _node(script)
+    assert got["rows"] == 100, "the jump size is one constant"
+    assert got["prev"] == got["expectPrev"]
+    assert got["prev2"] == got["floor"] and got["stuck"] == got["floor"]
+    assert got["nxt"] == got["expectNxt"]
+    assert got["fromLast"] is None, "the last step later lands at now"
+    assert got["canNowBack"] is True and got["canNowFwd"] is False
+    assert got["canFloorBack"] is False and got["canFloorFwd"] is True
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "function ovStep" in app and "setInterval" in app and "400" in app
+    assert 'ev.key === "ArrowLeft"' in app and 'ev.key === "ArrowRight"' in app
+    view = (RD / "rd-view.js").read_text(encoding="utf-8")
+    assert 'ovBtn(-1, "Previous 100")' in view and 'ovBtn(1, "Next 100")' in view
+    assert "disabled" in view

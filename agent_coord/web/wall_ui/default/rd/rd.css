@@ -767,7 +767,12 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 2px 0 4px; border-bottom: 1px solid var(--edge); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; }
 #rd .rd-rp-bar > * { flex: 0 0 auto; }
 #rd .rd-rp-top { flex: 0 0 auto; padding: 2px 0 4px; }
-#rd .rd-rp-top .rd-rp-trace { width: 100%; height: 40px; }
+#rd .rd-rp-ov-row { display: flex; align-items: stretch; gap: 4px; }
+#rd .rd-rp-top .rd-rp-ov-row .rd-rp-trace { flex: 1 1 auto; width: auto; min-width: 0; height: 40px; }
+#rd .rd-rp-ov-btn { flex: 0 0 auto; width: 22px; padding: 0; border: 1px solid var(--edge); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+#rd .rd-rp-ov-btn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+#rd .rd-rp-ov-btn:disabled { opacity: .35; cursor: default; }
+#rd .rd-rp-ov-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
 #rd.rd-rp-panning .rd-rp-trace, #rd .rd-rp-panning .rd-rp-trace { cursor: grabbing; }
 #rd.rd-rp-panning .rd-rp-vp, #rd .rd-rp-panning .rd-rp-vp { cursor: grabbing; }
 #rd .rd-rp-top { position: relative; }
@@ -883,7 +888,14 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-heads { position: relative; flex: 0 0 auto; height: var(--lane-pitch); align-items: center; }
 #rd .rd-rp-heads, #rd .rd-rp-rain { display: grid; grid-template-columns: repeat(var(--lanes, 1), minmax(72px, 1fr)); }
 #rd .rd-rp-lane { position: relative; display: flex; justify-content: center; align-self: center; justify-self: center; min-width: 0; max-width: calc(100% - 6px); }
-#rd .rd-rp-lane > .rd-pill, #rd .rd-rp-lane > .rd-cloud { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; display: inline-block; line-height: 16px; }
+#rd .rd-rp-lane > .rd-pill, #rd .rd-rp-lane > .rd-cloud {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; display: inline-block; line-height: 16px;
+  transform: scale(var(--rd-ant, 1)); transform-origin: center center;
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--rd-k-ant, transparent) calc(var(--rd-ant-tint, 0) * 46%), transparent),
+    color-mix(in srgb, var(--rd-k-ant, transparent) calc(var(--rd-ant-tint, 0) * 46%), transparent)
+  );
+}
 #rd .rd-pill.rd-office { border-color: color-mix(in srgb, var(--cyan) 50%, var(--edge)); cursor: default; color: var(--dim); }
 #rd .rd-rp-lane.rd-contest > .rd-pill { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 70%, transparent); }
 #rd .rd-rp-locks { position: absolute; top: -7px; right: -6px; display: flex; gap: 1px; pointer-events: auto; }
@@ -929,6 +941,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-many .rd-rp-lane > .rd-pill, #rd .rd-rp-many .rd-rp-lane > .rd-cloud { font-size: 10px; padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) {
   #rd .rd-rp-lock { transition: none; }
+  #rd .rd-rp-lane > .rd-pill, #rd .rd-rp-lane > .rd-cloud { transform: none; }
 }
 
 /* ---- Tags: an activity's labels and tree attachments, as small chips ---- */
