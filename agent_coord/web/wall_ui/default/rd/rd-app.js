@@ -369,11 +369,17 @@
     return rep;
   }
   function rpRep() { return rp.rep; }
-  /* Playhead in office time: span/REPLAY_PLAY_MS of the window per wall ms, times the speed. */
+  /* Playhead in office time: the 2 min playback advances at a constant
+   * rate along the display axis, so a squeezed void is crossed quickly.
+   * When the scale is linear this is the same as span/REPLAY_PLAY_MS. */
   function rpNow() {
     var rep = rpRep();
     if (!rep) return null;
     if (!rp.playing) return rp.t == null ? rep.until : rp.t;
+    var scale = R.replayScale && R.replayScale(rep);
+    if (scale && R.replayPlayhead) {
+      return Math.min(rep.until, R.replayPlayhead(scale, rp.t0, Date.now() - rp.wall0, rp.speed));
+    }
     return Math.min(rep.until, rp.t0 + (Date.now() - rp.wall0) * rp.speed * (rep.ms / R.REPLAY_PLAY_MS));
   }
   function drawReplay(animate) {
@@ -934,11 +940,60 @@
     }
     drawItems(S, rep, t);
     applyAnticipate(S, rep, t);
+    drawRuler(S, rep, t);
     var prev = rp.lastT;
     rp.lastT = t;
     if (!animate || prev == null || t <= prev || !moving()) return;
     rep.pool.forEach(function (r) { r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); }); });
   }
+
+  function drawRuler(S, rep, t) {
+    if (!R.replayScale || !R.replayRulerTimes) return;
+    var scale = R.replayScale(rep), g = rpGeom(S), ax = g.ax, id, lane = null;
+    if (!scale) return;
+    for (id in g.lanes) { if (g.lanes[id]) { lane = g.lanes[id]; break; } }
+    if (!lane) return;
+    var box = S.ruler;
+    if (!box) {
+      box = S.ruler = document.createElement("div");
+      box.className = "rd-rp-ruler";
+      box.setAttribute("aria-hidden", "true");
+      S.field.insertBefore(box, S.field.firstChild);
+    }
+    var start = lane.start, len = lane.len, ticks = R.replayRulerTimes(scale, t);
+    var key = ax.main + "|" + start.toFixed(1) + "|" + len.toFixed(1) + "|" + t + "|" + ticks.map(function (tk) { return tk.at + ":" + tk.pos.toFixed(4); }).join(",") + "|" + (scale.breaks || []).map(function (br) { return br.start + "-" + br.end; }).join(",");
+    if (key === S.rulerKey) return;
+    S.rulerKey = key;
+    box.textContent = "";
+    function place(el, along, size) {
+      if (ax.main === "x") { el.style.left = along.toFixed(1) + "px"; if (size != null) el.style.width = size.toFixed(1) + "px"; }
+      else { el.style.top = along.toFixed(1) + "px"; if (size != null) el.style.height = size.toFixed(1) + "px"; }
+      box.appendChild(el);
+    }
+    ticks.forEach(function (tk) {
+      var px = start + tk.pos * len, grid = document.createElement("i"), lab = document.createElement("span");
+      grid.className = "rd-rp-grid";
+      lab.className = "rd-rp-rlabel";
+      lab.textContent = tk.label;
+      place(grid, px);
+      place(lab, px);
+    });
+    (scale.breaks || []).forEach(function (br) {
+      var p0 = scale.toPos(t) - scale.toPos(br.end), p1 = scale.toPos(t) - scale.toPos(br.start);
+      if (p1 < 0 || p0 > 1) return;
+      var a = start + Math.max(0, p0) * len, b = start + Math.min(1, p1) * len, w = Math.max(8, b - a);
+      var el = document.createElement("i"), lab = R.dur ? R.dur(br.skip) : "";
+      el.className = "rd-rp-void";
+      if (lab) {
+        var s = document.createElement("span");
+        s.className = "rd-rp-void-lab";
+        s.textContent = lab;
+        el.appendChild(s);
+      }
+      place(el, a, w);
+    });
+  }
+
   function applyAnticipate(S, rep, t) {
     var ant = R.replayAnticipate ? R.replayAnticipate(rep, t, rp.view) : {}, reduce = !moving();
     Object.keys(S.lanes).forEach(function (id) {

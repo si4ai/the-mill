@@ -1157,7 +1157,8 @@
       return { key: e.key, item: e.item, at: e.at, kind: e.kind, act: e.act, actor: e.actor, dir: e.dir || "out", parts: sentence(b, e),
         outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null,
         lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "",
-        tags: tagsOf(b, e.item, e.roster), state: stateDesks(e) };
+        tags: tagsOf(b, e.item, e.roster), state: stateDesks(e),
+        ended: e.ended || false, endedBy: e.endedBy || "", endedAt: e.endedAt != null ? e.endedAt : null };
     }).map(function (r) {
       var st = r.state, ls = [r.lane];
       st.holders.concat(st.from, st.waiting).forEach(function (d) { var l = laneOf(b, d); if (ls.indexOf(l) < 0) ls.push(l); });
@@ -1237,6 +1238,200 @@
   function replayLinkFade(pos) {
     if (pos == null || pos < 0 || pos > 1) return 0;
     return Math.max(REPLAY_LINK_FADE, 1 - pos * (1 - REPLAY_LINK_FADE));
+  }
+
+  /* ---- Elastic time: squeeze empty stretches so playback crosses them quickly ----
+   * timeScale(rows, doingSpans, lo, hi) maps office time onto the display
+   * axis. Only a stretch with no event and no doing covering it, longer
+   * than the threshold, collapses to a short fixed width, marked as a
+   * break with the real duration skipped. A doing that covers a quiet
+   * gap stays proportional. toPos is 0 at lo and 1 at hi, monotonic;
+   * toTime inverts it. Tooltips and the ruler keep real times. The
+   * overview bar stays linear in real time. */
+  var REPLAY_VOID_MIN_MS = 5 * 60 * 1000, REPLAY_VOID_FRAC = 0.06, REPLAY_VOID_MARK_FRAC = 0.03;
+  var REPLAY_RULER_STEPS = [60000, 120000, 300000, 600000, 900000, 1800000, 3600000, 7200000, 10800000, 21600000, 43200000, 86400000];
+  function timeScale(rows, doingSpans, lo, hi, opts) {
+    opts = opts || {};
+    if (lo && typeof lo === "object") { opts = lo; lo = opts.lo; hi = opts.hi != null ? opts.hi : hi; }
+    rows = rows || [];
+    doingSpans = doingSpans || [];
+    if (lo == null || hi == null) {
+      var times = [], j;
+      for (j = 0; j < rows.length; j++) if (rows[j] && rows[j].at != null) times.push(rows[j].at);
+      for (j = 0; j < doingSpans.length; j++) {
+        if (doingSpans[j] && doingSpans[j].start != null) times.push(doingSpans[j].start);
+        if (doingSpans[j] && doingSpans[j].end != null) times.push(doingSpans[j].end);
+      }
+      if (lo == null) lo = times.length ? Math.min.apply(null, times) : 0;
+      if (hi == null) hi = times.length ? Math.max.apply(null, times) : lo;
+    }
+    lo = Number(lo); hi = Number(hi);
+    function identity() {
+      var span = Math.max(1, hi - lo);
+      return {
+        lo: lo, hi: hi, breaks: [], display: span,
+        toPos: function (t) { return (t - lo) / span; },
+        toTime: function (p) { return lo + p * span; }
+      };
+    }
+    if (!(hi > lo)) return identity();
+    var occ = [], i, s, a, b;
+    for (i = 0; i < doingSpans.length; i++) {
+      s = doingSpans[i];
+      if (!s || s.start == null) continue;
+      a = Math.max(lo, s.start);
+      b = Math.min(hi, s.end != null ? s.end : hi);
+      if (b > a) occ.push([a, b]);
+    }
+    occ.sort(function (x, y) { return x[0] - y[0] || x[1] - y[1]; });
+    var merged = [];
+    for (i = 0; i < occ.length; i++) {
+      if (!merged.length || occ[i][0] > merged[merged.length - 1][1]) merged.push([occ[i][0], occ[i][1]]);
+      else merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], occ[i][1]);
+    }
+    var threshold = opts.threshold != null ? opts.threshold : Math.max(REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC * (hi - lo));
+    var mark = opts.mark != null ? opts.mark : Math.max(1000, Math.min(threshold * 0.4, REPLAY_VOID_MARK_FRAC * (hi - lo)));
+    var ev = [];
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].at != null && rows[i].at >= lo && rows[i].at <= hi) ev.push(rows[i].at);
+    }
+    ev.sort(function (x, y) { return x - y; });
+    var ev2 = [];
+    for (i = 0; i < ev.length; i++) if (!ev2.length || ev[i] !== ev2[ev2.length - 1]) ev2.push(ev[i]);
+    ev = ev2;
+    function eventsIn(ga, gb) {
+      var out = [], k;
+      for (k = 0; k < ev.length; k++) if (ev[k] > ga && ev[k] < gb) out.push(ev[k]);
+      return out;
+    }
+    var gaps = [], cursor = lo, insides, g0, e;
+    function pushGap(ga, gb) { if (gb - ga > threshold) gaps.push([ga, gb]); }
+    function cutGap(ga, gb) {
+      insides = eventsIn(ga, gb);
+      g0 = ga;
+      for (e = 0; e < insides.length; e++) { pushGap(g0, insides[e]); g0 = insides[e]; }
+      pushGap(g0, gb);
+    }
+    for (i = 0; i < merged.length; i++) {
+      if (merged[i][0] > cursor) cutGap(cursor, merged[i][0]);
+      cursor = Math.max(cursor, merged[i][1]);
+    }
+    if (cursor < hi) cutGap(cursor, hi);
+    var segs = [], d = 0, t0 = lo, gi, w;
+    function addSeg(x0, x1, kind) {
+      if (!(x1 > x0)) return;
+      w = kind === "void" ? mark : (x1 - x0);
+      segs.push({ t0: x0, t1: x1, kind: kind, d0: d, d1: d + w });
+      d += w;
+    }
+    for (gi = 0; gi < gaps.length; gi++) {
+      addSeg(t0, gaps[gi][0], "active");
+      addSeg(gaps[gi][0], gaps[gi][1], "void");
+      t0 = gaps[gi][1];
+    }
+    addSeg(t0, hi, "active");
+    if (!d || !segs.length) return identity();
+    var breaks = [];
+    for (i = 0; i < segs.length; i++) if (segs[i].kind === "void") {
+      breaks.push({ start: segs[i].t0, end: segs[i].t1, skip: segs[i].t1 - segs[i].t0, lo: segs[i].d0 / d, hi: segs[i].d1 / d });
+    }
+    function findSegByT(t) {
+      var loI = 0, hiI = segs.length - 1, mid, s;
+      if (t <= segs[0].t0) return segs[0];
+      if (t >= segs[hiI].t1) return segs[hiI];
+      while (loI <= hiI) {
+        mid = (loI + hiI) >> 1;
+        s = segs[mid];
+        if (t < s.t0) hiI = mid - 1;
+        else if (t > s.t1) loI = mid + 1;
+        else return s;
+      }
+      return segs[Math.max(0, Math.min(segs.length - 1, loI))];
+    }
+    function findSegByD(x) {
+      var loI = 0, hiI = segs.length - 1, mid, s;
+      if (x <= 0) return segs[0];
+      if (x >= d) return segs[hiI];
+      while (loI <= hiI) {
+        mid = (loI + hiI) >> 1;
+        s = segs[mid];
+        if (x < s.d0) hiI = mid - 1;
+        else if (x > s.d1) loI = mid + 1;
+        else return s;
+      }
+      return segs[Math.max(0, Math.min(segs.length - 1, loI))];
+    }
+    function toPos(t) {
+      if (t <= lo) return (t - lo) / d;
+      if (t >= hi) return 1 + (t - hi) / d;
+      var s = findSegByT(t);
+      if (s.kind === "void") {
+        if (!(s.t1 > s.t0)) return s.d0 / d;
+        return (s.d0 + (t - s.t0) / (s.t1 - s.t0) * (s.d1 - s.d0)) / d;
+      }
+      return (s.d0 + (t - s.t0)) / d;
+    }
+    function toTime(p) {
+      if (p <= 0) return lo + p * d;
+      if (p >= 1) return hi + (p - 1) * d;
+      var x = p * d, s = findSegByD(x);
+      if (s.kind === "void") {
+        if (!(s.d1 > s.d0)) return s.t0;
+        return s.t0 + (x - s.d0) / (s.d1 - s.d0) * (s.t1 - s.t0);
+      }
+      return s.t0 + (x - s.d0);
+    }
+    return { lo: lo, hi: hi, breaks: breaks, display: d, toPos: toPos, toTime: toTime };
+  }
+  function replayPlayhead(scale, t0, wallMs, speed) {
+    if (!scale) return t0;
+    speed = speed == null ? 1 : speed;
+    var p = scale.toPos(t0) + (Math.max(0, wallMs) * speed) / REPLAY_PLAY_MS;
+    if (p <= 0) return scale.lo;
+    if (p >= 1) return scale.hi;
+    return scale.toTime(p);
+  }
+  function replayScaledAge(scale, t, at) {
+    if (!scale) return null;
+    var p = scale.toPos(t) - scale.toPos(at);
+    if (p < 0 || p > 1) return null;
+    return p;
+  }
+  function rulerLabel(at, step) {
+    var d = new Date(at);
+    function pad(n) { return n < 10 ? "0" + n : String(n); }
+    if (step >= 86400000) return d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function replayRulerTimes(scale, t, opts) {
+    opts = opts || {};
+    if (!scale) return [];
+    var visLo = scale.toTime(Math.max(0, scale.toPos(t) - 1));
+    var visHi = t;
+    if (!(visHi > visLo)) return [];
+    var span = visHi - visLo, raw = span / (opts.count || 8), step = REPLAY_RULER_STEPS[REPLAY_RULER_STEPS.length - 1], i;
+    for (i = 0; i < REPLAY_RULER_STEPS.length; i++) if (REPLAY_RULER_STEPS[i] >= raw) { step = REPLAY_RULER_STEPS[i]; break; }
+    var t0 = Math.ceil(visLo / step) * step, out = [], lastPos = null, p, at, brs = scale.breaks || [];
+    function nearVoid(at, p) {
+      var j, br, a, b;
+      for (j = 0; j < brs.length; j++) {
+        br = brs[j];
+        if (at >= br.start - 1 && at <= br.end + 1) return true;
+        a = scale.toPos(t) - scale.toPos(br.end);
+        b = scale.toPos(t) - scale.toPos(br.start);
+        if (p >= a - 0.02 && p <= b + 0.02) return true;
+      }
+      return false;
+    }
+    for (at = t0; at <= visHi + 1; at += step) {
+      p = scale.toPos(t) - scale.toPos(at);
+      if (p < 0 || p > 1) continue;
+      if (nearVoid(at, p)) continue;
+      if (lastPos != null && Math.abs(p - lastPos) < 0.035) continue;
+      out.push({ at: at, pos: p, label: rulerLabel(at, step) });
+      lastPos = p;
+    }
+    return out;
   }
   /* ---- Packing: items keep their time, collisions go across the lane ----
    * Greedy interval packing per lane, each frame. An item stays at its age along the
@@ -1320,9 +1515,10 @@
   function replayItemsAt(rep, t, cap, view) {
     var items = [], links = [], activity = view === "activity";
     cap = cap || 400;
+    var scale = replayScale(rep), far = scale ? scale.toTime(scale.toPos(t) - 1) : t - rep.ms;
     for (var i = rep.pool.length - 1; i >= 0; i--) {
-      var r = rep.pool[i], pos = replayAge(t, r.at, rep.ms);
-      if (pos == null) { if (r.at < t - rep.ms) break; continue; }
+      var r = rep.pool[i], pos = scale ? replayScaledAge(scale, t, r.at) : replayAge(t, r.at, rep.ms);
+      if (pos == null) { if (r.at < far) break; continue; }
       if (activity) {
         if (items.length < cap) items.push({ id: r.key, key: r.key, kind: r.kind, lane: r.kind, pos: pos, row: r });
       } else {
@@ -1339,7 +1535,10 @@
     return { items: items, links: links };
   }
   function replayVisibleKeys(rep, t) {
-    return (rep.pool || []).filter(function (r) { return replayAge(t, r.at, rep.ms) != null; }).map(function (r) { return r.key; }).sort();
+    var scale = replayScale(rep);
+    return (rep.pool || []).filter(function (r) {
+      return scale ? replayScaledAge(scale, t, r.at) != null : replayAge(t, r.at, rep.ms) != null;
+    }).map(function (r) { return r.key; }).sort();
   }
   /* Activity view: one fixed pill per kind, always all six, in REPLAY_KINDS order. */
   function replayKindLanes() {
@@ -1649,6 +1848,9 @@
     return s > REPLAY_LEAD_MAX ? REPLAY_LEAD_MAX : s;
   }
   function replayAnticipate(rep, t, view) {
+    var scale = replayScale(rep);
+    var leadPos = REPLAY_LEAD_PLAY_MS / REPLAY_PLAY_MS, settlePos = REPLAY_SETTLE_PLAY_MS / REPLAY_PLAY_MS;
+    var tPos = scale ? scale.toPos(t) : null;
     var lead = replayLeadMs(rep, REPLAY_LEAD_PLAY_MS), settle = replayLeadMs(rep, REPLAY_SETTLE_PLAY_MS);
     var activity = view === "activity", by = {}, out = {}, a, key;
     function slot(id) {
@@ -1665,7 +1867,18 @@
       key = activity ? r.kind : r.lane;
       if (!key) return;
       a = slot(key);
-      if (r.at > t && r.at <= t + lead) {
+      if (scale) {
+        var p = scale.toPos(r.at);
+        if (p > tPos && p <= tPos + leadPos) {
+          a.up.push(r);
+          add(a.upKinds, r.kind);
+          if (a.next == null || r.at < a.next) a.next = r.at;
+        } else if (p <= tPos && tPos - p <= settlePos) {
+          a.down.push(r);
+          add(a.downKinds, r.kind);
+          if (a.last == null || r.at > a.last) a.last = r.at;
+        }
+      } else if (r.at > t && r.at <= t + lead) {
         a.up.push(r);
         add(a.upKinds, r.kind);
         if (a.next == null || r.at < a.next) a.next = r.at;
@@ -1681,11 +1894,15 @@
       if (a.up.length) {
         n = a.up.length;
         kind = dominant(a.upKinds, a.up[0] && a.up[0].kind);
-        ramp = Math.max(0, Math.min(1, (lead - (a.next - t)) / lead));
+        ramp = scale
+          ? Math.max(0, Math.min(1, (leadPos - (scale.toPos(a.next) - tPos)) / leadPos))
+          : Math.max(0, Math.min(1, (lead - (a.next - t)) / lead));
       } else if (a.down.length) {
         n = a.down.length;
         kind = dominant(a.downKinds, a.down[0] && a.down[0].kind);
-        ramp = Math.max(0, Math.min(1, 1 - (t - a.last) / settle));
+        ramp = scale
+          ? Math.max(0, Math.min(1, 1 - (tPos - scale.toPos(a.last)) / settlePos))
+          : Math.max(0, Math.min(1, 1 - (t - a.last) / settle));
       } else return;
       target = replayAnticipateScale(n);
       out[id] = { n: n, scale: 1 + (target - 1) * ramp, tint: ramp, kind: kind, next: a.next, last: a.last };
@@ -1714,8 +1931,37 @@
     if (!row.ended && !row.endedBy) return { end: null, open: true, how: "" };
     return { end: null, open: false, how: row.endedBy || "ended" };
   }
+  /* Doing intervals for the window scale: open spans run to hi, not the playhead,
+   * so the map stays fixed for a given window. */
+  function replayDoingIntervals(rep, hi) {
+    hi = hi != null ? hi : (rep && rep.until);
+    var byDesk = {}, spans = [];
+    (rep.pool || []).forEach(function (r) {
+      if (r.kind !== "doing" || r.at == null) return;
+      var desk = r.actor || r.lane || "";
+      (byDesk[desk] = byDesk[desk] || []).push(r);
+    });
+    Object.keys(byDesk).forEach(function (desk) {
+      var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
+      list.forEach(function (r, i) {
+        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null);
+        if (!ev.open && ev.end == null) return;
+        var end = ev.open || ev.end == null ? hi : ev.end;
+        if (!(end > r.at)) return;
+        spans.push({ start: r.at, end: end, open: !!ev.open, desk: desk, key: r.key });
+      });
+    });
+    return spans;
+  }
+  function replayScale(rep) {
+    if (!rep || rep.since == null || rep.until == null || !(rep.until > rep.since)) return null;
+    if (rep.scale && rep.scale.lo === rep.since && rep.scale.hi === rep.until) return rep.scale;
+    rep.scale = timeScale(rep.pool, replayDoingIntervals(rep, rep.until), rep.since, rep.until);
+    return rep.scale;
+  }
   function replayDoingSpans(rep, t, view) {
     var activity = view === "activity", ms = Math.max(1, rep.ms || 1), byDesk = {}, spans = [];
+    var scale = replayScale(rep), far = scale ? scale.toTime(scale.toPos(t) - 1) : t - ms;
     (rep.pool || []).forEach(function (r) {
       if (r.kind !== "doing" || r.at == null) return;
       var desk = r.actor || r.lane || "";
@@ -1728,8 +1974,11 @@
         if (!ev.open && ev.end == null) return;
         if (t < r.at) return;
         var endDraw = ev.open || ev.end == null || ev.end > t ? t : ev.end;
-        if (endDraw <= r.at || endDraw <= t - ms) return;
-        var lo = Math.max(0, (t - endDraw) / ms), hi = Math.min(1, (t - r.at) / ms);
+        if (endDraw <= r.at || endDraw <= far) return;
+        var lo = scale ? (scale.toPos(t) - scale.toPos(endDraw)) : (t - endDraw) / ms;
+        var hi = scale ? (scale.toPos(t) - scale.toPos(r.at)) : (t - r.at) / ms;
+        lo = Math.max(0, lo);
+        hi = Math.min(1, hi);
         if (!(hi > lo)) return;
         spans.push({
           id: "doing-span-" + r.key, key: r.key, lane: activity ? "doing" : (r.lane || desk),
@@ -1757,7 +2006,7 @@
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

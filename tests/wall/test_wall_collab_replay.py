@@ -883,3 +883,90 @@ console.log(JSON.stringify({{
     assert "function applyLinkHot" in app and "function linkKeysOf" in app
     assert 'data-rp-tip="link"' in app and "rd-rp-hit" in app
     assert "#rd .rd-rp-links.is-hot" in css and "path.is-hot" in css
+
+
+def test_time_scale_collapses_empty_voids_and_keeps_doing_spans():
+    """A quiet gap longer than the threshold collapses; a doing-covered gap does not.
+
+    The map is monotonic and inverts on the display axis. Playback crosses a
+    void faster than the same stretch of active time. In-window lines still
+    stay at or above the fade floor.
+    """
+    model = str(RD / "rd-model.js")
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    got = run()
+    script = f"""
+require({model!r});
+const R = WallRd;
+const lo = 0, hi = 10000;
+const rows = [{{at:0}},{{at:1000}},{{at:9000}},{{at:10000}}];
+const sc = R.timeScale(rows, [], lo, hi, {{threshold: 2000, mark: 200}});
+const covered = R.timeScale([{{at:0}},{{at:10000}}], [{{start:500,end:9000}}], lo, hi, {{threshold: 2000, mark: 200}});
+let mono = true;
+for (let t = 0; t < 10000; t += 50) if (sc.toPos(t + 50) + 1e-9 < sc.toPos(t)) mono = false;
+let inv = true;
+for (let p = 0; p <= 1; p += 0.01) if (Math.abs(sc.toPos(sc.toTime(p)) - p) > 1e-9) inv = false;
+let act = true;
+[0, 500, 1000, 9000, 9500, 10000].forEach(t => {{ if (Math.abs(sc.toTime(sc.toPos(t)) - t) > 1e-6) act = false; }});
+const voidW = sc.toPos(9000) - sc.toPos(1000);
+const voidWall = voidW * R.REPLAY_PLAY_MS;
+const activeWall = (sc.toPos(1000) - sc.toPos(0)) * R.REPLAY_PLAY_MS;
+const through = R.replayPlayhead(sc, 0, voidWall + activeWall, 1);
+const data = {json.dumps(OFFICE)};
+const now = {got['nowMs']};
+const b = R.base(data, {{rosters: ['Office'], range: '7d'}}, now);
+const live = R.collabReplay(b, {{count: 300}});
+const scale = R.replayScale(live);
+const atEnd = R.replayItemsAt(live, live.until, 400, 'desks');
+const mail = atEnd.links.find(l => l.id === 'mail-100>builder>validator');
+const fades = atEnd.links.map(l => l.fade);
+const when = 1700000000000, t0 = when - 6 * 3600000, t1 = when - 30 * 60000;
+function iso(ms) {{ return new Date(ms).toISOString().replace("T", " ").replace("Z", "").slice(0, 19); }}
+const gapData = {{
+  agents: {{Office: [{{owner: "builder", alive: true, stale: false, heartbeat: iso(when - 60000)}}]}},
+  doing: {{}}, rosterList: [{{name: "Office", desks: 1}}], todos: {{Office: {{needs: []}}}},
+  holds: {{Office: []}}, scores: {{Office: []}}, mail: {{Office: []}},
+  events: {{Office: [{{id: 2, kind: "wake", at: iso(t1), owner: "System", roster_id: "Office"}}]}},
+  labels: {{Office: {{rows: [], checks: {{}}}}}}, trees: {{Office: []}}, rooms: {{Office: []}}, moves: {{}},
+  trail: {{builder: [{{id: 1, desk: "builder", at: iso(t0), doing: "working card", on: "todo-1", act: "focus",
+    ended: true, ended_by: "finished", ended_at: iso(t0 + 60000)}}]}}
+}};
+const gapB = R.base(gapData, {{rosters: ["Office"], range: "7d"}}, when);
+const gapRep = R.collabReplay(gapB, {{count: 300}});
+const focus = (gapRep.pool || []).find(r => r.key === "focus-1");
+const gapScale = R.replayScale(gapRep);
+const ruler = R.replayRulerTimes(gapScale, gapRep.until);
+const rulerInVoid = (gapScale.breaks || []).some(br => ruler.some(tk => tk.at >= br.start && tk.at <= br.end));
+console.log(JSON.stringify({{
+  breaks: sc.breaks.length, skip: sc.breaks[0] && sc.breaks[0].skip, display: sc.display,
+  coveredN: covered.breaks.length, coveredDisplay: covered.display,
+  mono, inv, act, voidW, voidWall, activeWall, through,
+  officeBreaks: (scale && scale.breaks || []).length,
+  mailId: mail && mail.id, mailFade: mail && mail.fade, fadeMin: fades.length ? Math.min(...fades) : null,
+  floor: R.REPLAY_LINK_FADE,
+  endedAt: focus && focus.endedAt, ended: focus && focus.ended,
+  gapBreaks: (gapScale && gapScale.breaks || []).length,
+  gapSkip: gapScale && gapScale.breaks[0] && gapScale.breaks[0].skip,
+  rulerInVoid: rulerInVoid
+}}));
+"""
+    out = _node(script)
+    assert out["breaks"] == 1 and out["skip"] == 8000
+    assert out["display"] == 2200
+    assert out["coveredN"] == 0 and out["coveredDisplay"] == 10000
+    assert out["mono"] and out["inv"] and out["act"]
+    assert out["voidW"] < 0.2, "the void is a short fixed band, not 80% of the axis"
+    assert out["voidWall"] < out["activeWall"], "playback crosses the void faster than 1s of active time"
+    assert abs(out["through"] - 9000) < 1
+    assert out["officeBreaks"] == 0, "the short office fixture has no void to collapse"
+    assert out["mailId"] == "mail-100>builder>validator"
+    assert out["fadeMin"] >= out["floor"] and out["mailFade"] >= out["floor"]
+    assert out["ended"] and out["endedAt"] == 1700000000000 - 6 * 3600000 + 60000
+    assert out["gapBreaks"] >= 1 and out["gapSkip"] > 3 * 3600000
+    assert not out["rulerInVoid"]
+    assert "function timeScale" in (RD / "rd-model.js").read_text(encoding="utf-8")
+    assert "function drawRuler" in app and "function rpNow" in app
+    assert "replayPlayhead" in app
+    assert "#rd .rd-rp-ruler" in css and "#rd .rd-rp-void" in css and "#rd .rd-rp-rlabel" in css
+    assert "#rd .rd-rp-links.is-hot" in css
