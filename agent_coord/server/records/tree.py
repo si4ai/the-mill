@@ -319,6 +319,52 @@ def forest_last_activity(
 
 
 
+def room_scope_facts(cn, names: list[str]) -> dict[str, dict[str, Any]]:
+    """Card 1193: per mail room (tree name), its newest letter time and its desks.
+
+    {tree: {"last_at": datetime | None, "desks": {name, ...}}}. A room's desks are
+    every letter's sender plus every addressed recipient. Read-only: two SELECTs.
+    """
+    want = [n for n in dict.fromkeys(str(x or "") for x in names or []) if n]
+    if not want:
+        return {}
+    marks = ",".join(["%s"] * len(want))
+    out: dict[str, dict[str, Any]] = {n: {"last_at": None, "desks": set()} for n in want}
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "SELECT n.name, MAX(m.created) FROM tree t"
+            " JOIN name n ON n.id = t.name_id"
+            " JOIN mail m ON m.type = 'mail' AND m.id = t.id"
+            f" WHERE t.type = 'mail' AND n.name IN ({marks})"
+            " GROUP BY n.name",
+            want,
+        )
+        for name, last in cur.fetchall():
+            if str(name or "") in out:
+                out[str(name)]["last_at"] = last
+        cur.execute(
+            "SELECT n.name, d.name FROM tree t"
+            " JOIN name n ON n.id = t.name_id"
+            " JOIN mail m ON m.type = 'mail' AND m.id = t.id"
+            " JOIN name d ON d.id = m.desk_id"
+            f" WHERE t.type = 'mail' AND n.name IN ({marks})"
+            " UNION"
+            " SELECT n.name, d.name FROM tree t"
+            " JOIN name n ON n.id = t.name_id"
+            " JOIN mail_to mt ON mt.type = 'mail' AND mt.id = t.id"
+            " JOIN name d ON d.id = mt.desk_id"
+            f" WHERE t.type = 'mail' AND n.name IN ({marks})",
+            want + want,
+        )
+        for name, desk in cur.fetchall():
+            if str(name or "") in out and desk:
+                out[str(name)]["desks"].add(str(desk))
+    finally:
+        cur.close()
+    return out
+
+
 def pack_trees(rows: list[dict] | None) -> list[dict]:
     """Group glance rows into floor trees. Depth from lft/rgt. Hex mint stays hidden."""
     groups: dict[str, list[dict]] = {}
