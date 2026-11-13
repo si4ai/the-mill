@@ -937,6 +937,9 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-links path { fill: none; stroke-width: 1.2; stroke: var(--dim); }
 #rd .rd-rp-links .k-mail { stroke: var(--rd-k-mail); } #rd .rd-rp-links .k-todo { stroke: var(--rd-k-todo); } #rd .rd-rp-links .k-hold { stroke: var(--rd-k-hold); }
 #rd .rd-rp-links .k-wake { stroke: var(--rd-k-wake); } #rd .rd-rp-links .k-doing { stroke: var(--rd-k-doing); } #rd .rd-rp-links .k-score { stroke: var(--rd-k-score); }
+#rd .rd-rp-links path.rd-rp-hit { stroke: transparent; stroke-width: 10; pointer-events: stroke; }
+#rd .rd-rp-links.is-hot path:not(.is-hot):not(.rd-rp-hit) { opacity: .35; }
+#rd .rd-rp-links path.is-hot:not(.rd-rp-hit) { opacity: 1; stroke-width: 2; }
 #rd .rd-rp-catch { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid var(--green); pointer-events: none; }
 #rd .rd-rp-many .rd-rp-lane > .rd-pill, #rd .rd-rp-many .rd-rp-lane > .rd-cloud { font-size: 10px; padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) {

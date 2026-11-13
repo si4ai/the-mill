@@ -550,6 +550,7 @@
     var t = root.querySelector("#" + TIP_ID);
     if (tipOn && tipOn.el) tipOn.el.removeAttribute("aria-describedby");
     tipOn = null;
+    applyLinkHot(null);
     if (t) { t.hidden = true; t.style.left = ""; t.style.top = ""; }
   }
   function placeTip(x, y, anchor) {
@@ -608,6 +609,7 @@
     if (!fillTip(el)) { hideTip(); return; }
     var ptr = ev && ev.clientX != null ? { x: ev.clientX, y: ev.clientY } : (tipOn && tipOn.ptr) || null;
     tipOn = { el: el, ptr: fromFocus ? null : ptr, fromFocus: !!fromFocus };
+    applyLinkHot(el);
     if (fromFocus || !ptr) placeTip(0, 0, el.getBoundingClientRect());
     else placeTip(ptr.x, ptr.y);
   }
@@ -620,8 +622,47 @@
       if (el !== tipOn.el) { showTip(el, { clientX: tipOn.ptr.x, clientY: tipOn.ptr.y }, false); return; }
     }
     fillTip(tipOn.el);
+    applyLinkHot(tipOn.el);
     if (tipOn.fromFocus) placeTip(0, 0, tipOn.el.getBoundingClientRect());
     else if (tipOn.ptr) placeTip(tipOn.ptr.x, tipOn.ptr.y);
+  }
+  /* Hovering a tick or a line lights that activity's desk-to-desk line
+   * and quiets the others a little. */
+  function linkKeysOf(el) {
+    if (!el) return [];
+    var kind = el.getAttribute("data-rp-tip"), keys = [], list, i, it;
+    if (kind === "link") {
+      if (el.getAttribute("data-rp-key")) keys.push(el.getAttribute("data-rp-key"));
+      return keys;
+    }
+    if (kind === "group" || kind === "more") {
+      list = (el.rdGroup && el.rdGroup.items) || (el.rdOverflow && el.rdOverflow.items) || [];
+      for (i = 0; i < list.length; i++) {
+        it = list[i];
+        if (it && it.key) keys.push(it.key);
+        else if (it && it.row && it.row.key) keys.push(it.row.key);
+      }
+      return keys;
+    }
+    if (el.rdRow && el.rdRow.key) keys.push(el.rdRow.key);
+    return keys;
+  }
+  function applyLinkHot(el) {
+    var svg = root.querySelector(".rd-rp-links");
+    if (!svg) return;
+    var keys = linkKeysOf(el), i, on = {};
+    for (i = 0; i < keys.length; i++) on[keys[i]] = 1;
+    svg.classList.toggle("is-hot", keys.length > 0);
+    Array.prototype.forEach.call(svg.querySelectorAll("path[data-rp-key]"), function (p) {
+      p.classList.toggle("is-hot", !!on[p.getAttribute("data-rp-key")]);
+    });
+  }
+  function bindLinkTips(S) {
+    var by = {}, pool = (rpRep() && rpRep().pool) || [], i;
+    for (i = 0; i < pool.length; i++) by[pool[i].key] = pool[i];
+    Array.prototype.forEach.call(S.svg.querySelectorAll('[data-rp-tip="link"]'), function (p) {
+      p.rdRow = by[p.getAttribute("data-rp-key")] || null;
+    });
   }
   function fitItem(el, ax, room) {
     if (ax.main === "x") { el.style.maxWidth = "16ch"; el.style.maxHeight = ""; }
@@ -837,9 +878,17 @@
       var ma = A.start + k.pos * A.len + RP_ICON / 2, mb = B.start + k.pos * B.len + RP_ICON / 2, bend = 10 + Math.min(40, Math.abs(B.cross - A.cross) / 6);
       var d = ax.main === "x" ? "M" + ma.toFixed(1) + " " + A.cross.toFixed(1) + " Q" + ((ma + mb) / 2 + bend).toFixed(1) + " " + ((A.cross + B.cross) / 2).toFixed(1) + " " + mb.toFixed(1) + " " + B.cross.toFixed(1)
         : "M" + A.cross.toFixed(1) + " " + ma.toFixed(1) + " Q" + ((A.cross + B.cross) / 2).toFixed(1) + " " + ((ma + mb) / 2 + bend).toFixed(1) + " " + B.cross.toFixed(1) + " " + mb.toFixed(1);
-      return '<path class="k-' + k.kind + '" stroke-opacity="' + (0.9 * k.fade).toFixed(2) + '" d="' + d + '"/>';
+      var op = (0.9 * (k.fade != null ? k.fade : 1)).toFixed(2);
+      var key = k.key || (k.id && k.id.split(">")[0]) || "";
+      return '<path class="k-' + k.kind + '" data-rp-key="' + key + '" stroke-opacity="' + op + '" d="' + d + '"/>' +
+        '<path class="rd-rp-hit" data-rp-tip="link" data-rp-key="' + key + '" d="' + d + '"/>';
     }).join("");
-    if (paths !== S.links) { S.links = paths; S.svg.innerHTML = paths; }
+    if (paths !== S.links) {
+      S.links = paths;
+      S.svg.innerHTML = paths;
+      bindLinkTips(S);
+    }
+    if (tipOn && tipOn.el) applyLinkHot(tipOn.el);
   }
   function drawStage(rep, t, animate) {
     var S = stageEls();

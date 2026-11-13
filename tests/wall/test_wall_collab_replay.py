@@ -830,4 +830,56 @@ console.log(JSON.stringify({{
     assert "move-3>builder>validator" in out["pastIds"]
     assert out["pastPos"]["move-3>builder>validator"] > 0.08
     model_js = (RD / "rd-model.js").read_text(encoding="utf-8")
-    assert "pos < REPLAY_LINK_AGE" not in model_js
+    assert "REPLAY_LINK_AGE" not in model_js
+
+
+def test_in_window_lines_stay_visible_and_only_dim_slightly():
+    """A line stays near full strength while its tick is in the window.
+
+    The line is not drawn before the playhead reaches the activity, and
+    age never fades it out: opacity stays at or above REPLAY_LINK_FADE.
+    A hover on a tick or a line highlights that line.
+    """
+    got = run()
+    model = str(RD / "rd-model.js")
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    script = f"""
+require({model!r});
+const R = WallRd;
+const now = {got['nowMs']};
+const data = {json.dumps(OFFICE)};
+const b = R.base(data, {{rosters: ['Office'], range: '7d'}}, now);
+const live = R.collabReplay(b, {{count: 300}});
+const floor = R.REPLAY_LINK_FADE;
+const atEnd = R.replayItemsAt(live, live.until, 40, 'desks');
+const midT = (live.since + live.until) / 2;
+const atMid = R.replayItemsAt(live, midT, 40, 'desks');
+const fades = atEnd.links.map(l => l.fade);
+const midFades = atMid.links.map(l => l.fade);
+const future = live.rows.filter(r => r.at > midT && r.flows.length).map(r => r.key);
+const midKeys = atMid.links.map(l => l.key || l.id.split('>')[0]);
+const far = atEnd.links.filter(l => l.pos >= 0.99);
+console.log(JSON.stringify({{
+  floor, fade0: R.replayLinkFade(0), fade1: R.replayLinkFade(1), fadeHalf: R.replayLinkFade(0.5),
+  fadeBefore: R.replayLinkFade(-0.1), fadeAfter: R.replayLinkFade(1.1),
+  endN: atEnd.links.length, endMin: fades.length ? Math.min(...fades) : null,
+  midN: atMid.links.length, midMin: midFades.length ? Math.min(...midFades) : null,
+  future, midKeys, farFades: far.map(l => [l.id, l.pos, l.fade]),
+  mail: atEnd.links.find(l => l.id === 'mail-100>builder>validator')
+}}));
+"""
+    out = _node(script)
+    assert out["floor"] == 0.7
+    assert out["fade0"] == 1
+    assert out["fade1"] >= out["floor"]
+    assert out["fadeHalf"] >= out["floor"]
+    assert out["fadeBefore"] == 0 and out["fadeAfter"] == 0
+    assert out["endN"] and out["endMin"] >= out["floor"]
+    assert out["midN"] and out["midMin"] >= out["floor"]
+    assert out["mail"] and out["mail"]["fade"] >= out["floor"]
+    for key in out["future"]:
+        assert key not in out["midKeys"], "a line is not drawn before its activity"
+    assert "function applyLinkHot" in app and "function linkKeysOf" in app
+    assert 'data-rp-tip="link"' in app and "rd-rp-hit" in app
+    assert "#rd .rd-rp-links.is-hot" in css and "path.is-hot" in css

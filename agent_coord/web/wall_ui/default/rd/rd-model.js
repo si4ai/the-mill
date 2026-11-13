@@ -1229,8 +1229,15 @@
     var a = t - at;
     return a < 0 || a > span || !(span > 0) ? null : a / span;
   }
-  /* The young end of a two-desk transition is joined by a line that fades as the pair ages. */
-  var REPLAY_LINK_AGE = 0.08;
+  /* A two-desk transition is joined by a line for as long as its tick is
+   * in the window. The line is not drawn before the playhead reaches it.
+   * Age may dim it slightly, but never below REPLAY_LINK_FADE of full
+   * strength: it does not fade out. */
+  var REPLAY_LINK_FADE = 0.7;
+  function replayLinkFade(pos) {
+    if (pos == null || pos < 0 || pos > 1) return 0;
+    return Math.max(REPLAY_LINK_FADE, 1 - pos * (1 - REPLAY_LINK_FADE));
+  }
   /* ---- Packing: items keep their time, collisions go across the lane ----
    * Greedy interval packing per lane, each frame. An item stays at its age along the
    * time axis; if its interval would overlap another on the same sub-row, it moves to
@@ -1313,16 +1320,20 @@
   function replayItemsAt(rep, t, cap, view) {
     var items = [], links = [], activity = view === "activity";
     cap = cap || 400;
-    for (var i = rep.pool.length - 1; i >= 0 && items.length < cap; i--) {
+    for (var i = rep.pool.length - 1; i >= 0; i--) {
       var r = rep.pool[i], pos = replayAge(t, r.at, rep.ms);
       if (pos == null) { if (r.at < t - rep.ms) break; continue; }
-      if (activity) items.push({ id: r.key, key: r.key, kind: r.kind, lane: r.kind, pos: pos, row: r });
-      else {
-        r.stateLanes.forEach(function (lane) { items.push({ id: r.key + "@" + lane, key: r.key, kind: r.kind, lane: lane, pos: pos, row: r }); });
-        /* Links follow every in-window transition, the same as ticks, so a pan
-         * of the overview still shows the desk-to-desk connections in that slice.
-         * A gentle fade with age keeps older lines quieter, but never drops them. */
-        r.flows.forEach(function (f) { links.push({ id: r.key + ">" + f.from + ">" + f.to, kind: r.kind, from: f.from, to: f.to, pos: pos, fade: Math.max(0.4, 1 - pos * 0.45) }); });
+      if (activity) {
+        if (items.length < cap) items.push({ id: r.key, key: r.key, kind: r.kind, lane: r.kind, pos: pos, row: r });
+      } else {
+        if (items.length < cap) {
+          r.stateLanes.forEach(function (lane) { items.push({ id: r.key + "@" + lane, key: r.key, kind: r.kind, lane: lane, pos: pos, row: r }); });
+        }
+        /* Every in-window transition keeps its line, even when tick packing
+         * hits the cap. Fade is slight; a line never drops out with age. */
+        r.flows.forEach(function (f) {
+          links.push({ id: r.key + ">" + f.from + ">" + f.to, key: r.key, kind: r.kind, from: f.from, to: f.to, pos: pos, fade: replayLinkFade(pos) });
+        });
       }
     }
     return { items: items, links: links };
@@ -1746,7 +1757,7 @@
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()
