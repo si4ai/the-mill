@@ -545,7 +545,8 @@ def test_kind_palette_is_single_sourced_and_used_on_bars_icons_and_chips():
         assert f"rd-pill rd-kind k-{k}" in act
         assert f'class="rd-ki k-{k}"' in desks
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert 'rd-rp-dchip k-" + it.kind' in app and 'k-" + kind' in app
+    assert "function tickItem" in app and "rd-rp-tick k-" in app
+    assert "#rd .rd-rp-tick.k-mail" in (RD / "rd.css").read_text(encoding="utf-8")
     # no second hex palette for kinds in the javascript
     assert not re.search(r"#[0-9a-fA-F]{6}", app)
 

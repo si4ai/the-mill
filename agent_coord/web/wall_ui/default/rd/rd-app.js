@@ -502,6 +502,12 @@
     return s;
   }
   /* Activity view: one small desk-name chip, or from->to when two desks share the instance. */
+  function tickItem(kind, extra) {
+    var el = document.createElement("span");
+    el.className = "rd-rp-item rd-rp-tick k-" + kind + (extra ? " " + extra : "");
+    el.innerHTML = '<i class="rd-rp-hash" aria-hidden="true"></i>';
+    return el;
+  }
   function deskItem(it, t) {
     var el = document.createElement("span"), r = it.row, f = r.flows && r.flows[0];
     var a = f && f.from !== f.to ? f.from : (r.lane || (f && f.from) || r.actor);
@@ -647,9 +653,13 @@
     return el;
   }
   function groupMark(g) {
-    var el = document.createElement("span");
-    el.className = "rd-rp-item rd-rp-group k-" + g.kind;
-    el.innerHTML = V.kindIcon(g.kind) + '<span class="rd-rp-gn">' + g.n + "</span>";
+    var el = tickItem(g.kind, "rd-rp-group");
+    if (g.n > 1) {
+      var n = document.createElement("span");
+      n.className = "rd-rp-gn";
+      n.textContent = String(g.n);
+      el.appendChild(n);
+    }
     el.tabIndex = 0;
     el.setAttribute("data-rp-tip", "group");
     el.setAttribute("aria-label", g.n + " " + g.kind);
@@ -723,7 +733,7 @@
       var el = S.items[it.id];
       if (!el || el.rdGroup) {
         if (el && el.parentNode) el.parentNode.removeChild(el);
-        el = S.items[it.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags);
+        el = S.items[it.id] = tickItem(it.kind);
         prepItem(el, it);
         S.field.appendChild(el);
       } else el.rdRow = it.row;
@@ -762,7 +772,7 @@
       if (m.n === 1) {
         if (!el || el.rdGroup) {
           if (el && el.parentNode) el.parentNode.removeChild(el);
-          el = S.items[m.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags);
+          el = S.items[m.id] = tickItem(it.kind);
           prepItem(el, it);
           S.field.appendChild(el);
         } else el.rdRow = it.row;

@@ -750,12 +750,12 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
  * Kind colours avoid those two hues so a mail or card cannot be read as a state.
  * Icon shape is the second cue, for common colour-vision deficiency. */
 #rd {
-  --rd-k-mail: #4ec3ff;
-  --rd-k-todo: #ff7043;
-  --rd-k-hold: #c084fc;
-  --rd-k-wake: #ff5c8a;
-  --rd-k-doing: #e8eef5;
-  --rd-k-score: #2ee6d6;
+  --rd-k-mail: #6e8eaa;
+  --rd-k-todo: #c0977c;
+  --rd-k-hold: #9a8eab;
+  --rd-k-wake: #b48790;
+  --rd-k-doing: #b4b8be;
+  --rd-k-score: #5e9a92;
 }
 /* ---- COLLAB replay: two views of the same rows; only time moves ---- */
 #rd .rd-collab-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1 1 auto; overflow: hidden; }
@@ -994,3 +994,14 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-group .rd-ki, #rd .rd-rp-group .rd-ki svg { width: calc(12px * var(--rd-gs)); height: calc(12px * var(--rd-gs)); }
 #rd .rd-rp-gn { font-size: calc(10px * min(var(--rd-gs), 1.6)); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: inherit; }
 #rd .rd-rp-btn.rd-rp-cluster { text-transform: none; letter-spacing: 0; font-size: 11px; min-width: 4.4em; }
+/* ---- Marks: a thin tick at the item's time, not a growing blob ----
+ * Length may grow a little with a group's count; the colour is the kind's muted tone. */
+#rd .rd-rp-tick { color: var(--rd-k, currentColor); gap: 3px; align-items: center; }
+#rd .rd-rp-tick.k-mail { --rd-k: var(--rd-k-mail); color: var(--rd-k-mail); } #rd .rd-rp-tick.k-todo { --rd-k: var(--rd-k-todo); color: var(--rd-k-todo); }
+#rd .rd-rp-tick.k-hold { --rd-k: var(--rd-k-hold); color: var(--rd-k-hold); } #rd .rd-rp-tick.k-wake { --rd-k: var(--rd-k-wake); color: var(--rd-k-wake); }
+#rd .rd-rp-tick.k-doing { --rd-k: var(--rd-k-doing); color: var(--rd-k-doing); } #rd .rd-rp-tick.k-score { --rd-k: var(--rd-k-score); color: var(--rd-k-score); }
+#rd .rd-rp-hash { display: block; width: 2px; height: 12px; background: currentColor; border-radius: 1px; flex: 0 0 auto; }
+#rd .rd-dir-tb .rd-rp-hash { width: 12px; height: 2px; }
+#rd .rd-rp-group .rd-rp-hash { height: calc(8px * var(--rd-gs, 1)); }
+#rd .rd-dir-tb .rd-rp-group .rd-rp-hash { width: calc(8px * var(--rd-gs, 1)); height: 2px; }
+#rd .rd-rp-tick .rd-rp-gn { font-size: 9px; font-weight: 600; color: var(--dim); }
