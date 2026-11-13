@@ -112,34 +112,43 @@ Delete leftover backups and `__pycache__` from the tree **before** `python -m bu
 
 ## Pipeline hygiene
 
-Three workflows live under `.github/workflows/`. Every action is pinned to a
+Every job, its triggers, the scripts it calls and why it exists:
+[PIPELINE.md](PIPELINE.md). This section is the short form.
+
+Six workflows live under `.github/workflows/` (`ci.yml`, `codeql.yml`,
+`validator.yml`, `pr_text.yml`, `release.yml`, `copilot-setup-steps.yml`). Every action is pinned to a
 full commit sha (the repo also requires sha pinning), no workflow uses
 `pull_request_target`, no job runs on a self-hosted runner, and the default
 `GITHUB_TOKEN` is read-only.
 
-- `ci.yml` runs on every pull request, every push to `main`, and when
-  `release.yml` calls it. It never publishes. Jobs:
+- `ci.yml` runs on every pull request, every merge-queue entry, every push to
+  `main`, a manual run, and when `release.yml` calls it. It never publishes.
+  The pytest suites run once, on the pull request head; the merge queue,
+  a push to `main` and a tag run none (#437). Jobs:
   1. `build_pack` - `python -m build --no-isolation` from the hash-locked `tools/ci-lock/build.txt`, dated by the commit (`SOURCE_DATE_EPOCH`) -> `dist/`, then `python tools/check_repro.py dist` (two more builds must match byte for byte, see [Reproducible pack](#reproducible-pack)) -> uploaded as the `dist` artifact
   2. `check_pack` - `python tools/check_pack.py dist` (with the `MILL_PRIVATE_NAMES` secret, see What must not be in either artifact), then on `pull_request` `python tools/check_pack.py --commits origin/main..HEAD` (every commit's message, author/committer identity, and added diff lines; F225), then on `pull_request` `--pr-message` (the squash message the queue will land, `TITLE (#N)` plus the PR body, read from the event file, with the private names and every message rule, so a hit shows on the PR), then on `merge_group` `--head-message`, then `pip-audit` (no installs) on the runtime floors (`pack-floors.txt`) and on `tools/ci-lock/ci.txt`
   3. `mill_cli_smoke` - install the sdist, run `python tools/mill_cli_smoke.py` (`mill -V`, `mill connect --help`, no retired commands on `--help`, and the real-path rows in `RUN_ROWS`: `mill connect` runs its whole body against a closed local port and must reach the socket loop with no traceback), then `tools/check_skill_copy.py --installed`, then `tools/check_doc_commands.py` (every `mill` command, flag and positional the docs teach matches the parser, F90)
-  4. `pytest_no_sql` and `pytest_sql` - the test suites (see step 4 of Release order)
+  4. `pytest_no_sql` and `pytest_sql` - required wrappers around `pytest_no_sql_run` and `pytest_sql_run`, the test suites (see step 4 of Release order), which `select` picks from `ci/test-select.toml`
+  5. `hidden_code_report` (report only) and `precheck` (not a required check) - see [PIPELINE.md](PIPELINE.md)
 
   Every PyPI install in CI is hash-checked (#634): the pinned pip wheel, then
   `pip install --require-hashes -r tools/ci-lock/<lock>.txt`; the local
   `dist/` files install with `--no-deps --no-build-isolation` and `pip check`.
   `tools/ci-lock/README.md` has the regenerate command.
 
-  `check_pack`, `pytest_no_sql` and `pytest_sql` check out full history
+  `check_pack`, `pytest_no_sql_run` and `pytest_sql_run` check out full history
   (`fetch-depth: 0`): they scan commit messages, and a shallow clone fails
   closed (regression row S-8).
   `check_pack` also fails when any commit's author or committer email is not a GitHub noreply address (`<id>+<login>@users.noreply.github.com`) or GitHub's own web-flow committer; the report names the commit, never the address (regression row S-10). On a pull request the `--commits` scan also requires author and committer **names** to be a role identity (desk role, project account, `the-mill maintainers`, `GitHub`, or a `[bot]` name) and scans each commit's added lines with the same scrub and secret rules as the tip (F225). Release branches land on main with a merge commit after that check; normal PRs stay squash.
 - `codeql.yml` runs CodeQL (`analyze (python)`, `analyze (actions)`) on pull
-  requests, pushes to `main` and weekly.
+  requests, the merge queue, pushes to `main` and weekly.
 - `release.yml` runs only on a pushed `v*` tag (PyPI) or a manual
   `workflow_dispatch` (a dry run: build and verify, no upload). A push to `main`
   never starts it.
 
-The `ci` and CodeQL jobs above are the required status checks on `main`.
+The required status checks on `main` are `build_pack`, `check_pack`,
+`mill_cli_smoke`, `pytest_no_sql`, `pytest_sql`, the two CodeQL jobs and the
+`validator` status (a ruleset setting; see [PIPELINE.md](PIPELINE.md#what-runs-when)).
 
 Same scanner locally (step 1 of Release order): `python tools/check_pack.py dist`.
 
