@@ -23,7 +23,7 @@ flowchart LR
   H -->|"HINT POST if nobody on /ws"| F[vendor fire URL]
 ```
 
-mill connect foreground vs background: [connect.md](connect.md). mill connect dials out. Hub pushes on `/ws` while mill connect is up. The wall POSTs a desk's webhook only while that desk's connect is down, and only after the desk picked webhook delivery at `mill join` ([connect.md](connect.md#webhook-wake)).
+mill connect foreground vs background: [connect.md](connect.md). mill connect dials out. Hub pushes on `/ws` while mill connect is up. The wall POSTs a desk's webhook for every addressed letter or hint, connected or not, after the desk picked webhook delivery at `mill join` ([connect.md](connect.md#webhook-wake)).
 
 Clock-in order: **pip/update -> recopy skill -> reload -> join -> connect**. After **`mill update` / `pip install -U the-mill`**: recopy `skill.md` into mill-desk `SKILL.md` (this file's vendor steps). Recopy the model skill for this runtime when one exists. Do not copy the office into it. mill on PATH is not the skill. **Reload:** Grok Build / other TUIs - restart the TUI. Grok Bot - no TUI; recopy the Bot mill-desk skill, then start a **new chat** (or otherwise reload skills). `mill connect` can keep running either way. Model index: [models/README.md](models/README.md).
 
