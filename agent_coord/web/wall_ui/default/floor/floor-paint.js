@@ -53,11 +53,11 @@
         box.stale = box.stale || !!d.stale;
         const agent = (dFloor.agents || []).find(a => a.owner === d.owner && a.alive)
           || (dFloor.agents || []).find(a => a.owner === d.owner)
-          || { owner: d.owner, doing: d.doing || "", waiting_on: d.waiting_on || "", stale: d.stale };
+          || { owner: d.owner, stale: d.stale };
         let st = "idle";
         try { st = (hereGlance(dFloor, agent).state) || (d.stale ? "stale" : "idle"); } catch (e) { st = d.stale ? "stale" : "idle"; }
         if (floorStateRank(st) > floorStateRank(box._state)) box._state = st;
-        if (!box.doing) box.doing = d.doing || "";
+        if (!box.doing) box.doing = wallDoingText(d.owner);  /* card 1207: live tw runs, "N doings" */
       });
       const desks = Object.keys(byHost).sort().map(h => {
         const box = byHost[h];
@@ -448,7 +448,7 @@
       const lane = ((((g.timeline || {}).lanes) || []).find(L => L.owner === owner)) || null;
       const d = window._floor || {};
       const agent = (d.agents || []).find(a => a.owner === owner && a.alive) || {};
-      const glance = agent.owner ? hereGlance(d, agent) : { state: (lane && lane.now_state) || "?", doing: String(desk.doing || "").trim() };
+      const glance = agent.owner ? hereGlance(d, agent) : { state: (lane && lane.now_state) || "?", doing: wallDoingText(owner) };
       const unread = Math.max(0, Number(desk.unread != null ? desk.unread : ((d.desk_unread || {})[owner] || 0)) | 0);
       const badge = unread > 0
         ? `<span class="fd-unread" data-n="${unread}" title="${unread} agent-unread">${unread > 99 ? "99+" : unread}</span>`
@@ -460,7 +460,7 @@
         `<span class="chip">tok ${esc(tok || 0)}</span>` +
         `<span class="chip">usd ${esc(desk.usd || (lane && lane.usd) || 0)}</span>` +
         `<span class="chip">done ${esc(floorSpanLabel(g.window || floorSpan))} ${esc(done || 0)}</span>` +
-        wallDoingBlock(owner, glance.doing || desk.doing || "(no doing)");
+        wallDoingBlock(owner);
       floorDetailSel = { type: "desk", owner };
     }
     function showFloorEdge(a, b) {

@@ -78,8 +78,6 @@ WALL = COMMANDS | SIT | PROBE | frozenset(
 _STR = (
     "need",
     "detail",
-    "doing",
-    "waiting_on",
     "status",
     "desk",
     "dst",
@@ -238,15 +236,12 @@ def resolve_body_file(path: str, what: str = "body") -> str:
     return s
 
 
-# Commands whose project and --doing are checked before the call (#243-#245).
+# Commands whose project is checked before the call (#243-#245).
 _PROJECT_GUARD = {"open", "todo", "label-add", "label-remove", "unpark"}
-# #818 PR B: every command that takes --doing (the doing entry links to its item).
-_DOING_GUARD = {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
-DOING_MAX = 512
 
 
 def _guard_args(command: str, cmd: str, args: Any) -> None:
-    """Refuse an empty or over-length project and an over-length --doing, plainly."""
+    """Refuse an empty or over-length project, plainly."""
     from agent_coord.helpers.errors import CoordError
 
     name = cmd or command
@@ -258,17 +253,6 @@ def _guard_args(command: str, cmd: str, args: Any) -> None:
                 raise CoordError(f"{name}: project required")
             if len(p) > 64:
                 raise CoordError(f"{name}: no such roster {p[:64]}. list them: mill member")
-    # #326: hold with no resource is the lock list, with or without --peek.
-    if command == "hold" and not str(getattr(args, "resource", "") or "").strip():
-        if str(getattr(args, "doing", "") or ""):
-            raise CoordError(f"{name}: --doing needs a resource")
-    if command in _DOING_GUARD:
-        doing = str(getattr(args, "doing", "") or "")
-        if len(doing) > DOING_MAX:
-            raise CoordError(f"{name}: --doing must be 0..{DOING_MAX} chars")
-        # #822: blocked-on rides the doing entry; alone it has nothing to sit on.
-        if str(getattr(args, "waiting_on", "") or "").strip() and not doing.strip():
-            raise CoordError(f"{name}: --waiting-on goes with --doing; nothing was changed")
 
 
 # Card 1125: mill todo ROSTER NEED --eta / --started / --progress / --done-when sets the card's own fields.
@@ -283,8 +267,6 @@ def _todo_card_fields(args: Any, body: dict[str, Any]) -> None:
     progress = str(getattr(args, "progress", "") or "").strip()
     raw_dw = getattr(args, "done_when", None)
     if not eta and not started and not progress and raw_dw is None:
-        if str(getattr(args, "doing", "") or "").strip():
-            raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
         body.pop("eta", None)
         body.pop("progress", None)
         return
@@ -433,10 +415,6 @@ def body_from_args(args: Any) -> dict[str, Any]:
         # --back still sends it; the server stores none.
         ev = str(getattr(args, "evidence", "") or "").strip()
         if ev:
-            if len(ev) > 2000:
-                raise CoordError(
-                    "pass: evidence would be %s chars (max 2000); refused, nothing changed" % len(ev)
-                )
             body["evidence"] = ev
     if command == "open":
         raw_dw = getattr(args, "done_when", None)

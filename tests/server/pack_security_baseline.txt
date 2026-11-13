@@ -1,6 +1,6 @@
 agent_coord/server/sql/sp_activity.sql|unbounded-read|SELECT w.desk_id, n.name AS desk, n.type AS desk_type, w.hint, h.delivery_mode, h.endpoint_url
 agent_coord/server/sql/sp_hold.sql|unbounded-read|SELECT h.type, h.id, h.created, h.updated, h.desk_id, h.resource_id,
-agent_coord/server/sql/sp_join.sql|unbounded-read|SELECT 'doing' AS type, cur.id, h.created, h.updated, h.desk_id, h.token_hash,
+agent_coord/server/sql/sp_join.sql|unbounded-read|SELECT 'seat' AS type, h.desk_id AS id, h.created, h.updated, h.desk_id, h.token_hash,
 agent_coord/server/sql/sp_label.sql|unbounded-read|SELECT l.type, l.id, l.name_id, l.ord, n.name AS label, n.type AS label_type, l.created
 agent_coord/server/sql/sp_mail.sql|unbounded-read|SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,
 agent_coord/server/sql/sp_member.sql|unbounded-read|SELECT m.name_id, m.desk_id, m.created, sn.name AS slot, sn.type AS slot_type, dn.name AS desk, dn.type AS desk_type

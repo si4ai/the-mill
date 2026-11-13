@@ -611,7 +611,7 @@ def _seat(database: str, desk: str) -> str:
     secret = secrets.token_urlsafe(24)
     cn = connect(database)
     try:
-        rec_join.upsert(cn, "the-mill", desk, "", token_hash(secret), None)
+        rec_join.upsert(cn, "the-mill", desk, "", token_hash(secret))
         cn.commit()
     finally:
         cn.close()

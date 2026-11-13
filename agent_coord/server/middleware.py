@@ -30,7 +30,6 @@ from urllib.parse import parse_qs, urlparse
 from agent_coord.const import (
     CONST_DESK,
     CONST_MAIL,
-    CONST_OFFICE,
     CONST_TODO,
 )
 from agent_coord.helpers.errors import CoordError
@@ -1166,7 +1165,7 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
         rows: list[dict] = []
         if tab == "here" and ids:
             cur.execute(
-                "SELECT n.name, (SELECT g.text FROM doing g WHERE g.desk_id = j.desk_id ORDER BY g.created DESC, g.id DESC LIMIT 1),"
+                "SELECT n.name,"
                 " (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
                 "  OR j.time_connect >= j.time_disconnect)) AS connected,"
                 + _RECENT_ACTIVITY_EXPR
@@ -1178,15 +1177,14 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             rows = [
                 {
                     "desk": _stored(str(r[0] or "")),
-                    "doing": str(r[1] or ""),
-                    "connected": bool(r[2]),
-                    "recent_activity": _recent(r[3]),
+                    "connected": bool(r[1]),
+                    "recent_activity": _recent(r[2]),
                 }
                 for r in cur.fetchall()
             ]
         elif tab == "here" and affil:
             cur.execute(
-                "SELECT d.name, (SELECT g.text FROM doing g WHERE g.desk_id = j.desk_id ORDER BY g.created DESC, g.id DESC LIMIT 1),"
+                "SELECT d.name,"
                 " (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
                 "  OR j.time_connect >= j.time_disconnect)) AS connected,"
                 + _RECENT_ACTIVITY_EXPR
@@ -1200,9 +1198,8 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             rows = [
                 {
                     "desk": _stored(str(r[0] or "")),
-                    "doing": str(r[1] or ""),
-                    "connected": bool(r[2]),
-                    "recent_activity": _recent(r[3]),
+                    "connected": bool(r[1]),
+                    "recent_activity": _recent(r[2]),
                 }
                 for r in cur.fetchall()
             ]
@@ -1321,6 +1318,15 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
                 })
                 if len(rows) >= 40:
                     break
+        if tab == "here" and rows:
+            from agent_coord.server.records.doing import live_doings
+
+            # card 1207 (wall-ui shape): each desk's live doings (tw runs), newest 20, and n.
+            live = live_doings(cn, [r["desk"] for r in rows])
+            for r in rows:
+                got = live.get(r["desk"]) or {}
+                r["n"] = got.get("n", 0)
+                r["doings"] = got.get("doings", [])
         return {"tab": tab, "rows": rows}
     finally:
         cur.close()
@@ -1743,43 +1749,18 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                         "recent_activity": _recent(r[4]),
                                     })
                             else:
-                                cur.execute(
-                                    "SELECT ANY_VALUE(n.name), COUNT(d.id) AS desks FROM name n"
-                                    " LEFT JOIN member m ON m.name_id=n.id"
-                                    " LEFT JOIN name d ON d.id=m.desk_id"
-                                    "  AND d.deleted IS NULL AND d.type = 'desk'"
-                                    " WHERE n.deleted IS NULL AND n.type = %s"
-                                    " GROUP BY n.id, n.name"
-                                    " ORDER BY n.name",
-                                    (pov_type,),
-                                )
-                                rows = [
-                                    {"name": _stored(str(r[0] or "")), "desks": int(r[1] or 0), "members": []}
-                                    for r in cur.fetchall() if r and r[0]
-                                ]
-                                # card 1193: the live member desk names on each roster, sorted,
-                                # so the filter pane can list the desks of the selected rosters.
-                                cur.execute(
-                                    "SELECT n.name, d.name FROM name n"
-                                    " JOIN member m ON m.name_id=n.id"
-                                    " JOIN name d ON d.id=m.desk_id"
-                                    "  AND d.deleted IS NULL AND d.type = 'desk'"
-                                    " WHERE n.deleted IS NULL AND n.type = %s"
-                                    " ORDER BY n.name, d.name",
-                                    (pov_type,),
-                                )
-                                by_roster = {rec["name"]: rec for rec in rows}
-                                for r in cur.fetchall():
-                                    rec = by_roster.get(_stored(str((r or ("", ""))[0] or "")))
-                                    if rec is not None and r[1]:
-                                        rec["members"].append(_stored(str(r[1])))
+                                # card 1204: same rows as mill member --all
+                                from agent_coord.server.records import member as rec_member
+
+                                rows = rec_member.list_rosters(c._cn)
                         finally:
                             cur.close()
-                        if part == "rosters":
-                            rows.sort(key=lambda rec: (rec["name"] != CONST_OFFICE, rec["name"].lower()))
                         if part == "desks":
                             from agent_coord.server.allow import workstation_ip
+                            from agent_coord.server.records.doing import live_doings
 
+                            # card 1207 (wall-ui shape): each desk's live doings (tw runs), newest 20, and n.
+                            live = live_doings(c._cn, [rec["name"] for rec in rows])
                             mine = workstation_ip((self.client_address or ("", 0))[0])
                             groups: dict[str, list] = {}
                             for rec in rows:
@@ -1797,6 +1778,8 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                         "lan_ip": rec["lan_ip"],
                                         "last_connected": rec["last_connected"],
                                         "recent_activity": rec.get("recent_activity"),
+                                        "n": (live.get(rec["name"]) or {}).get("n", 0),
+                                        "doings": (live.get(rec["name"]) or {}).get("doings", []),
                                     })
                             body = _json({"part": part, "mine": mine, "rows": rows})
                         else:

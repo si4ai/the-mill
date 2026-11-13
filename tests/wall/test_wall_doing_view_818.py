@@ -3,7 +3,7 @@
 
 The view is GET /api/v1/doing (the `mill connected` desk views) and the trails are
 GET /api/v1/doing/history (entries with ended_by). doing_818_fixture.json copies those
-shapes. boot.js's doing helpers and doing/doing-paint.js run in Node against it.
+shapes (card 1207: n and doings per desk; src doing runs and src transition moves). boot.js's doing helpers and doing/doing-paint.js run in Node against it.
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ const out = {};
   out.trail = wallDoingTrailHtml('todo-2');
   out.claimedBlank = wallClaimedSlot({});
   out.claimed = wallClaimedSlot({ claimed_at: '2026-10-23 02:00:00' });
-  out.waitN = wallDoingWaitN(window.WALL_DOING.byOwner.builder);
+  out.deskBuilder = wallDoingBlock('builder', 'seat text');
   process.stdout.write(JSON.stringify(out));
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });
 """
@@ -115,58 +115,59 @@ def _run() -> dict:
     return json.loads(proc.stdout)
 
 
-def test_route_missing_keeps_the_seat_text_and_guesses_nothing():
+def test_route_missing_shows_no_doing_and_guesses_nothing():
     got = _run()
-    assert got["seatRow"] == '<span class="here-doing">blocked on validator</span>'
-    # "blocked on ..." in a desk's text is not a state: no parsing of the text.
-    assert got["seatGlance"] == "working"
+    # Card 1207: a desk writes no doing text, so with no view the row is empty and the seat's words never show.
+    assert got["seatRow"] == '<span class="here-doing"></span>'
+    assert got["seatGlance"] != "working"
     assert got["absent"] == {"state": "absent", "by": None, "fetches": 1}
     assert got["absentRow"] == got["seatRow"]
     assert got["absentMeta"] == ""
-    assert got["absentGlance"] == "working"
+    assert got["absentGlance"] == got["seatGlance"]
     # No view: the history route is not probed as well (one 404, not two).
     assert got["trailSkipped"] == {"html": "", "fetches": 1}
     assert got["trailAbsent"] == {"html": "", "at": True}
 
 
-def test_strip_shows_the_view_text_link_age_ended_by_and_pill():
+def test_strip_shows_the_newest_live_doing_its_card_and_age():
     got = _run()
     assert got["ok"] == "ok"
     assert got["urls"][0] == "/api/v1/doing?all=1"
-    assert got["glance"] == {"builder": "working", "wall-ui": "working", "validator": "working", "gardener": "idle", "grok-tui": "idle"}
+    # builder has a live run in state waiting: the chip says waiting (card 1207, as the strip counts)
+    assert got["glance"] == {"builder": "waiting", "wall-ui": "working", "validator": "working", "gardener": "idle", "grok-tui": "idle"}
     assert ">landing the doing routes<" in got["row"]["builder"]
+    # a live run with no text (tw text is privacy-dropped) reads as the count
+    assert ">1 doing<" in got["row"]["validator"]
     assert "seat text" not in "".join(got["row"].values())
     b = got["meta"]["builder"]
     assert 'data-doing-go="todo-1"' in b and 'href="#jobs"' in b
-    assert ">42m<" in b
-    assert ">5 waiting<" in b
-    # The popover lists the newest 3 letters the server sent, in its order, and the card.
-    assert [m for m in re.findall(r'data-doing-go="(mail-\d+)"', b)] == ["mail-29", "mail-26", "mail-21"]
-    assert 'data-doing-go="todo-2"' in b
-    assert got["waitN"] == 5
-    assert ">0 waiting<" in got["meta"]["validator"]
-    assert 'data-doing-go="mail-1"' in got["meta"]["validator"] and 'href="#mail"' in got["meta"]["validator"]
-    g = got["meta"]["gardener"]
-    assert 'data-ended-by="finished"' in g and "ended: finished" in g and 'data-doing-go="todo-3"' in g
-    assert "idle 14m" in got["row"]["gardener"] and "last: skill.md doing bullet" in got["row"]["gardener"]
-    assert 'data-ended-by="cleared"' in got["meta"]["grok-tui"]
-    assert "ended: finished" in got["desk"]
+    assert re.search(r'class="doing-age"[^>]*>\d+[smhd]<', b)
+    assert "data-doing-go" not in got["meta"]["validator"]  # card null: no link
+    assert ">idle<" in got["row"]["gardener"] and "last:" not in got["row"]["gardener"]
+    assert "data-doing-go" not in got["meta"]["gardener"]
+    # card 1207 (wall-ui): no waiting-on-it row, pill or popover anywhere
+    for html in list(got["meta"].values()) + [got["desk"], got["deskBuilder"]]:
+        assert "waiting" not in html.replace('data-state="waiting"', "").replace(">waiting<", ""), html
+        assert "doing-wait" not in html and "doing-asked" not in html
+    # the desk panel lists every live run, newest first
+    ids = re.findall(r'class="doing-task-row" data-state="(\w+)" data-id="(\d+)"', got["deskBuilder"])
+    assert ids == [("started", "13"), ("waiting", "15")]
+    assert ">idle<" in got["desk"]
 
 
-def test_waiting_on_and_claimed_slots_are_blank_until_the_server_sends_them():
+def test_claimed_slot_is_blank_until_the_server_sends_it():
     got = _run()
-    assert got["meta"]["builder"].count('<span class="doing-asked" data-slot="asked"></span>') == 3
     assert got["claimedBlank"] == '<span class="card-claimed" data-slot="claimed_at"></span>'
     assert got["claimed"] == '<span class="card-claimed" data-slot="claimed_at">claimed 10-23 02:00</span>'
 
 
-def test_card_trail_lists_doing_rows_in_order_with_ended_by():
+def test_card_trail_lists_tw_runs_in_order_with_ended_by():
     got = _run()
     rows = re.findall(r'<span class="dt-text">([^<]*)</span>.*?data-ended-by="([^"]*)">([^<]*)<', got["trail"])
     assert rows == [
         ("stage 1 read of the strip brief", "cleared", "cleared"),
         ("route gap write-up", "finished", "finished"),
-        ("routes sketch for PR C", "newer", "newer"),
+        ("routes sketch for PR C", "stale", "stale"),
         ("PR C doing glass", "", "current"),
     ]
 

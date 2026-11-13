@@ -31,7 +31,7 @@ ADMIN = "d931-admin"
 def book(cn):
     seed_names(cn, (R, "roster"), (HOLDER, "desk"), (OTHER, "desk"), (ADMIN, "desk"))
     for d in (HOLDER, OTHER):
-        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     # admin_desk seats ADMIN with its own token; do not upsert it first (no-steal).
     admin_desk(cn, ADMIN)
     return cn
@@ -75,17 +75,34 @@ def _holder(cn, res: str) -> str | None:
 
 
 def _drop_row(cn, hid: int) -> dict | None:
+    """Card 1207: the drop is the hold's newest hold_drop / hold_force transition row (as rpc's _h_drop writes
+    it: desk_id the holder; a force names the acting desk in meta.by). doing keeps no move row."""
     rows = rows_done(
         cn,
-        "SELECT d.desk_id, dn.name AS actor, d.peer_id, pn.name AS peer, d.act"
-        " FROM doing d"
-        " JOIN name dn ON dn.id = d.desk_id"
-        " LEFT JOIN name pn ON pn.id = d.peer_id"
-        " WHERE d.on_type = 'hold' AND d.on_id = %s AND d.act = 'drop'"
-        " ORDER BY d.id DESC LIMIT 1",
+        "SELECT t.reason, hn.name AS holder, bn.name AS by_desk FROM transition t"
+        " JOIN name hn ON hn.id = t.desk_id"
+        " LEFT JOIN name bn ON bn.id = CAST(JSON_EXTRACT(t.meta, '$.by') AS UNSIGNED)"
+        " WHERE t.activity_type = 'hold' AND t.activity_id = %s AND t.reason IN ('hold_drop', 'hold_force')"
+        " ORDER BY t.id DESC LIMIT 1",
         (hid,),
     )
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    r = rows[0]
+    if r["reason"] == "hold_drop":
+        return {"actor": r["holder"], "peer": None}
+    return {"actor": r["by_desk"], "peer": r["holder"]}
+
+
+def _drop(cn, desk: str, res: str) -> dict:
+    """Drop as rpc's _h_drop does: the records call, then its transition row (card 1207)."""
+    from agent_coord.server.api.mill.rpc import emit_hold_release
+
+    out = rec_hold.drop(cn, R, desk, res)
+    if out.get("released"):
+        emit_hold_release(cn, out, desk)
+        cn.commit()
+    return out
 
 
 def _token(cn, desk: str) -> str | None:
@@ -103,7 +120,7 @@ def test_holder_drops_own_at_high_trust(book, monkeypatch) -> None:
     res = "h931/own-high"
     hid = _take(cn, HOLDER, res)
     _connect(cn, HOLDER)
-    out = rec_hold.drop(cn, R, HOLDER, res)
+    out = _drop(cn, HOLDER, res)
     assert out.get("released") is True
     assert _holder(cn, res) is None
     row = _drop_row(cn, hid)
@@ -129,7 +146,7 @@ def test_admin_drops_live_other_at_high(book, monkeypatch) -> None:
     hid = _take(cn, HOLDER, res)
     _connect(cn, HOLDER)
     tok_before = _token(cn, HOLDER)
-    out = rec_hold.drop(cn, R, ADMIN, res)
+    out = _drop(cn, ADMIN, res)
     assert out.get("released") is True, out
     assert _holder(cn, res) is None
     row = _drop_row(cn, hid)
@@ -143,7 +160,7 @@ def test_admin_drops_live_other_at_limited(book, monkeypatch) -> None:
     res = "h931/admin-live-lim"
     hid = _take(cn, HOLDER, res)
     _connect(cn, HOLDER)
-    out = rec_hold.drop(cn, R, ADMIN, res)
+    out = _drop(cn, ADMIN, res)
     assert out.get("released") is True, out
     assert _holder(cn, res) is None
     row = _drop_row(cn, hid)
@@ -186,7 +203,7 @@ def test_non_admin_eight_day_disconnected_ok_at_high(book, monkeypatch) -> None:
     _disconnect(cn, HOLDER)
     _age_hold(cn, hid, 8)
     tok_before = _token(cn, HOLDER)
-    out = rec_hold.drop(cn, R, OTHER, res)
+    out = _drop(cn, OTHER, res)
     assert out.get("released") is True, out
     assert _holder(cn, res) is None
     row = _drop_row(cn, hid)

@@ -49,11 +49,6 @@ def test_client_done_when_goes_alone_with_progress(no_owner):
         body_from_args(_args(progress="9/12", done_when="tests pass"))
 
 
-def test_client_doing_rides_progress(no_owner):
-    b = body_from_args(_args(progress="75%", doing="sweeping docs"))
-    assert b["progress"] == "75%"
-
-
 def test_client_card_fields_need_roster_and_need(no_owner):
     with pytest.raises(CoordError, match="need ROSTER NEED"):
         body_from_args(_args(need="", eta="2h"))
@@ -62,11 +57,6 @@ def test_client_card_fields_need_roster_and_need(no_owner):
 def test_client_card_fields_refuse_list_flags(no_owner):
     with pytest.raises(CoordError, match="drop the list flags"):
         body_from_args(_args(eta="2h", mine=True))
-
-
-def test_client_doing_needs_a_card_field(no_owner):
-    with pytest.raises(CoordError, match="--doing goes with"):
-        body_from_args(_args(doing="reading"))
 
 
 @pytest.mark.parametrize(
@@ -130,9 +120,10 @@ def test_card_fields_need_a_need(store):
         rpc._h_todo(MagicMock(), {"eta": "2h"}, "the-mill", "builder")
 
 
-def test_server_doing_on_a_board_read_is_refused():
-    with pytest.raises(CoordError, match="--doing goes with"):
-        rpc._doing_text("todo", {"doing": "reading the board"})
+def test_server_refuses_a_doing_key_on_todo():
+    # Card 1207: todo only does todo; a body that still carries doing is refused, nothing runs.
+    with pytest.raises(CoordError, match="--doing is gone"):
+        rpc._refuse_gone_doing_keys("todo", {"doing": "reading the board", "progress": "done"})
 
 
 def test_same_eta_twice_no_second_poke(store, monkeypatch):
@@ -156,8 +147,7 @@ def test_progress_token_stored(store):
 
 
 def test_progress_routes_without_eta(store):
-    # A progress-only call is a card write, not a board read; --doing may ride it.
-    assert rpc._doing_text("todo", {"doing": "sweeping", "progress": "done"}) == "sweeping"
+    # A progress-only call is a card write, not a board read.
     _todo({"progress": "done"})
     assert json.loads(store.body)["progress"]
 

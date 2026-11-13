@@ -62,12 +62,11 @@
       if (!isWs) {
         var agent = (dFloor.agents || []).find(function (a) { return a.owner === n.owner && a.alive; })
           || (dFloor.agents || []).find(function (a) { return a.owner === n.owner; })
-          || { owner: n.owner, doing: n.doing || "", waiting_on: n.waiting_on || "", stale: n.stale };
+          || { owner: n.owner, stale: n.stale };
         var gState = hereGlance(dFloor, agent);
         st = gState.state || (n.stale ? "stale" : "idle");
-        if (!doingStored) doingStored = String(agent.doing || "").trim();
       }
-      var now = isWs ? doingStored : wallDoingText(n.owner, doingStored);
+      var now = isWs ? doingStored : wallDoingText(n.owner);
       var unread = Number(n.unread || 0);
       var label = isWs ? String(n.owner || "").replace(/^Workstation-/i, "WS-") : millNameBare("desk", n.owner);
       var doing = now.length > 22 ? now.slice(0, 21) + "..." : now;

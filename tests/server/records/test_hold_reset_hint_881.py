@@ -25,7 +25,7 @@ def book(cn):
     seed_names(cn, (R, "roster"), (GONE, "desk"), (DEAD, "desk"))
     adm = admin_desk(cn)
     for d in (GONE, DEAD):
-        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     assert int(rec_hold.upsert(cn, R, GONE, "h881/a")[0]["ok"]) == 1
     assert int(rec_hold.upsert(cn, R, GONE, "h881/b")[0]["ok"]) == 1
     assert int(rec_hold.upsert(cn, R, DEAD, "h881/c")[0]["ok"]) == 1

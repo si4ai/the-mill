@@ -52,7 +52,7 @@ def _to_pre_1133(cn) -> None:
         _x(cn, f"ALTER TABLE {t} DROP KEY idx_body_updater")
         for c in cols:
             _x(cn, f"ALTER TABLE {t} DROP COLUMN {c}")
-    for table, default in (("activity", "create"), ("doing", "focus")):
+    for table, default in (("activity", "create"),):  # card 1207: doing has no act
         ctype = _q(cn, "SELECT COLUMN_TYPE AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
                        " AND TABLE_NAME = %s AND COLUMN_NAME = 'act'", (table,))[0]["c"]
         _x(cn, f"ALTER TABLE {table} MODIFY act {ctype.replace(',' + chr(39) + 'replace' + chr(39), '')}"

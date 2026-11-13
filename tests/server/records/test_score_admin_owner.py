@@ -44,7 +44,7 @@ def test_publish_writes_office_rows_with_no_desk(cn):
 
     seed_names(cn, ("sa_live", "desk"), ("Office", "roster"))
     # 0.8.0: score.desk_id FKs to seat; a desk needs a seat before a desk-owned score.
-    rec_join.upsert(cn, "Office", "sa_live", "", token_hash("seat-sa_live"), None)
+    rec_join.upsert(cn, "Office", "sa_live", "", token_hash("seat-sa_live"))
     cn.commit()
     counts = {score_tick.KPI_TICKS: 5, score_tick.KPI_API_N: 77, "desks": {"sa_live": {score_tick.KPI_TICKS: 2}}}
     out = score_tick.publish(dict(counts))

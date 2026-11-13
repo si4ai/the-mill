@@ -166,7 +166,7 @@
           : "Nothing has changed for this desk in this slice.");
       const html =
         `<div class="here-desk-head"><b>${esc(millName("desk", owner))}</b> <span class="here-state">${esc(g.state || "")}</span></div>` +
-        wallDoingBlock(owner, agent.doing) +
+        wallDoingBlock(owner) +
         `<details class="here-fold"><summary>Card</summary><div class="here-fold-body">${cardBody}</div></details>` +
         promise +
         `<details class="here-fold"><summary>Chat</summary><div class="here-fold-body">${chatBody}</div></details>` +

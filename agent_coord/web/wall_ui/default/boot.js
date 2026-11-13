@@ -1057,7 +1057,7 @@
         const states = {};
         desks.forEach(a => {
           const named = String((a && (a.state || a.status)) || "");
-          const st = (named || wallDoingText(a && a.owner, a && a.doing)).toLowerCase();
+          const st = (named || wallDoingText(a && a.owner)).toLowerCase();
           if (st.indexOf("wait") >= 0) states.waiting = true;
           else if (st === "idle" || st === "here" || st === "gone") states.idle = true;
           else if (st) states.working = true;
@@ -3625,8 +3625,11 @@
       const mailTitle = mailOverflow
         ? (mailUnreadN + " unread MAIL - overflow, desks are not consuming letters")
         : (mailUnreadN ? (mailUnreadN + " unread MAIL") : "No unread MAIL");
-      /* SESSION_GLANCE honesty: Waiting = desks with non-empty waiting_on */
-      let waitingN = live.filter(a => String(a.waiting_on || "").trim()).length;
+      /* SESSION_GLANCE honesty: Waiting = desks with a live tw task in state waiting (card 1207). */
+      let waitingN = live.filter(a => {
+        const v = wallDoingView(a.owner);
+        return !!v && (v.doings || []).some(x => x && x.state === "waiting");
+      }).length;
       if (!hasAgents && _stripLast.waitingN != null) waitingN = _stripLast.waitingN;
       else _stripLast.waitingN = waitingN;
       const maint = d.maintenance && d.maintenance.eta_at ? d.maintenance : null;
@@ -3878,10 +3881,10 @@
         return true;
       });
     }
-    /* #818 PR C: what a desk is doing is the server's view (GET /api/v1/doing, the same
-     * payload as `mill connected`). doing/doing-paint.js reads it into WALL_DOING; the Wall
-     * never recomputes it and never guesses a state from the text. Until the view is read,
-     * or when the route is not there, a desk shows its seat's doing text as is. */
+    /* Card 1207: what a desk is doing is its live doings (tw runs), the server's view
+     * (GET /api/v1/doing, the same payload as `mill connected`: n and doings, newest first).
+     * doing/doing-paint.js reads it into WALL_DOING; the Wall never recomputes it. There is
+     * no self-reported doing text: until the view is read, a desk shows nothing. */
     function wallDoingView(owner) {
       const v = window.WALL_DOING;
       if (!v || v.state !== "ok" || !v.byOwner) return null;
@@ -3892,36 +3895,35 @@
          (or is stale) is a leftover, not work. No time threshold of ours. */
       return !!view && (view.alive === false || view.stale === true);
     }
-    function wallDoingLeftover(view) {
-      /* "last: <doing>, <age> ago" for a stale view's leftover text; "" when there is none. */
-      if (!wallDoingStale(view)) return "";
-      const text = String(view.doing || "").trim();
-      if (!text) return "";
-      return "last: " + text + (view.age ? ", " + view.age + " ago" : "");
+    function wallDoingN(view) {
+      return (view && Number(view.n)) || 0;
     }
-    function wallDoingText(owner, seatText) {
+    function wallDoingNewest(view) {
+      return (view && Array.isArray(view.doings) && view.doings[0]) || null;
+    }
+    function wallDoingText(owner) {
+      /* The newest live doing's text, or "N doings", or "" (idle). Never a desk's own words. */
       const v = wallDoingView(owner);
-      if (v) return wallDoingStale(v) ? "" : String(v.doing || "").trim();
-      return String(seatText || "").trim();
+      if (!v || wallDoingStale(v)) return "";
+      const n = wallDoingN(v);
+      if (!n) return "";
+      const top = wallDoingNewest(v);
+      const text = top ? String(top.text || "").trim() : "";
+      return text || (n + " doing" + (n === 1 ? "" : "s"));
     }
-    function wallDoingWaitN(view) {
-      /* Letters and cards waiting on a desk: the server's counts (waiting_on_it), never ours. */
-      const w = (view && view.waiting_on_it) || {};
-      return (Number((w.letters || {}).n) || 0) + (Number((w.cards || {}).n) || 0);
-    }
-    function wallDoingBlock(owner, seatText) {
+    function wallDoingBlock(owner) {
       if (window.WALL_UI_DEFAULT_DOING_PAINT && typeof wallDoingDeskHtml === "function") {
-        const html = wallDoingDeskHtml(owner, seatText);
+        const html = wallDoingDeskHtml(owner);
         if (html) return html;
       }
-      return `<div class="here-doing"><div class="here-doing-now">${esc(wallDoingText(owner, seatText) || "-")}</div></div>`;
+      return `<div class="here-doing"><div class="here-doing-now">${esc(wallDoingText(owner) || "-")}</div></div>`;
     }
-    function wallDoingRow(owner, seatText) {
+    function wallDoingRow(owner) {
       if (window.WALL_UI_DEFAULT_DOING_PAINT && typeof wallDoingRowHtml === "function") {
-        const html = wallDoingRowHtml(owner, seatText);
+        const html = wallDoingRowHtml(owner);
         if (html) return html;
       }
-      return `<span class="here-doing">${esc(wallDoingText(owner, seatText))}</span>`;
+      return `<span class="here-doing">${esc(wallDoingText(owner))}</span>`;
     }
     function wallDoingMeta(owner) {
       if (window.WALL_UI_DEFAULT_DOING_PAINT && typeof wallDoingMetaHtml === "function") return wallDoingMetaHtml(owner) || "";
@@ -3949,11 +3951,12 @@
     }
     function hereGlance(d, agent) {
       /* SESSION_GLANCE SoR: docs/acceptance/ACCEPTANCE-SESSION-GLANCE.md
-         #818: the state comes from the server's doing view when it is read (doing -> working,
-         none -> idle). Without it: a claimed card, the seat's doing text, or recent activity
-         -> working, else here. Never parsed out of the text. */
+         Card 1207: the state comes from the server's doing view (live tw runs) when it is read:
+         a live run in state waiting -> waiting (as the strip and score counts), another live
+         run -> working, none -> idle. Without the view: a claimed card or recent activity ->
+         working, else here. Never parsed out of any text. */
       const view = wallDoingView(agent.owner);
-      const doing = wallDoingText(agent.owner, agent.doing);
+      const doing = wallDoingText(agent.owner);
       const jobs = millJobsForOwner(d, agent.owner, millGid(agent));
       const stale = !!(agent.stale || (agent.alive === false));
       const jobRec = jobs.length ? jobs[0] : null;
@@ -3963,17 +3966,17 @@
         progress: jobRec.progress || "",
         title: jobRec.detail || ""
       } : null;
-      const pack = (state, note) => ({ state, waiting_on: "", note: note || "", doing, view, job, stale });
+      const pack = (state, note) => ({ state, note: note || "", doing, view, job, stale });
       if (view) {
-        /* A stale view's leftover text is never "working". The seat decides gone vs idle: a
-           connected seat with a stale doing view is idle (with the leftover as its last). */
+        /* A stale view's runs are never "working". The seat decides gone vs idle: a connected
+           seat with a stale doing view is idle. */
         if (wallDoingStale(view)) {
-          const left = wallDoingLeftover(view);
-          return stale ? pack("gone", left || "gone") : pack("idle", left || "idle");
+          return stale ? pack("gone", "gone") : pack("idle", "idle");
         }
         if (stale && !doing) return pack("gone", "gone");
+        if (doing && (view.doings || []).some(x => x && x.state === "waiting")) return pack("waiting", doing);
         if (doing) return pack("working", doing);
-        return pack("idle", view.idle ? ("idle " + view.idle) : "idle");
+        return pack("idle", "idle");
       }
       if (!jobs.length) {
         if (stale || agent.alive === false) return pack("gone", "gone");
@@ -4601,7 +4604,7 @@
       const st = wallDesksStations();
       const doing = (window.WALL_DOING && window.WALL_DOING.state === "ok") ? window.WALL_DOING.byOwner : null;
       const ctx = {
-        live: live.map(r => ({ owner: r.owner, state: hereGlance(d, r).state, seat: r.doing,
+        live: live.map(r => ({ owner: r.owner, state: hereGlance(d, r).state,
           seatAlive: r.alive !== false && r.connected !== false && !r.stale })),
         doing: doing,
         stations: st.rows,
@@ -5045,7 +5048,7 @@
         const a = byOwner[owner] || {};
         return {
           owner: owner,
-          doing: a.doing || "",
+          doing: wallDoingText(owner),
           stale: a.alive === false,
           alive: a.alive !== false,
           kind: "desk",
@@ -5586,7 +5589,7 @@
         const rows = by[pid].map(r => {
           const st = !r.alive ? "dead" : r.remote ? "remote" : "alive";
           return `<tr class="${st}"><td>${esc(r.owner)}</td><td>${esc(r.pid)}</td>` +
-            `<td>${esc(r.owner_host || "")}</td><td>${wallDoingRow(r.owner, r.doing)}</td>` +
+            `<td>${esc(r.owner_host || "")}</td><td>${wallDoingRow(r.owner)}</td>` +
             `<td data-sort="${esc(r.heartbeat || "")}">${esc(t(r.heartbeat))}</td></tr>`;
         }).join("");
         return `<div class="station"><h3>${esc(pid)}</h3><table data-table="agents-${esc(pid)}"><thead><tr>` +
@@ -5752,10 +5755,10 @@
           ? (shared.rows + " shared. A line is a letter, a card, or a promise.")
           : "Nothing between desks yet. A desk shows up when a letter, a card, or a promise joins it to another desk.";
         parts = (shared.desks || []).slice(0, 14).map(n => {
-          const agent = (d.agents || []).find(a => floorDeskKey(a.owner) === n.owner) || { owner: n.owner, doing: n.doing || "", alive: false };
+          const agent = (d.agents || []).find(a => floorDeskKey(a.owner) === n.owner) || { owner: n.owner, alive: false };
           const g = hereGlance(d, agent);
           const hot = !!g.stale;
-          return chip(n.owner || "", g.stale ? "stale" : (g.state || ""), String(g.doing || wallDoingText(n.owner, n.doing) || "").slice(0, 36), hot);
+          return chip(n.owner || "", g.stale ? "stale" : (g.state || ""), String(g.doing || wallDoingText(n.owner) || "").slice(0, 36), hot);
         });
       } else {
         const sm = (document.querySelector("[data-session-mode].on") || {}).getAttribute
@@ -5787,20 +5790,15 @@
           }
           const glances = live.map(a => ({ a: a, g: hereGlance(d, a) }));
           const nWork = glances.filter(x => x.g.state === "working").length;
-          /* #818: "waiting" is who waits on a desk (the server's waiting_on_it), and only once
-             the doing view is read; nothing is guessed from a desk's text. */
-          const viewRead = glances.some(x => x.g.view);
-          const nWaitOn = glances.filter(x => wallDoingWaitN(x.g.view) > 0).length;
           const nHot = glances.filter(x => x.g.stale || x.g.state === "gone").length;
           name = cutName;
           doing = live.length + " desks here." +
-            (viewRead ? (nWaitOn ? " " + nWaitOn + " with mail or cards waiting on them." : " Nothing waiting on them.") : "") +
             (nHot ? " " + nHot + " need eyes." : (nWork ? " " + nWork + " working." : ""));
           hotBox = nHot > 0;
           parts = glances.map(x => {
             const g = x.g;
             const hot = !!(g.stale || g.state === "gone");
-            return chip(x.a.owner || "", g.stale ? "stale" : g.state, String(g.doing || wallDoingText(x.a.owner, x.a.doing) || "").slice(0, 36), hot);
+            return chip(x.a.owner || "", g.stale ? "stale" : g.state, String(g.doing || wallDoingText(x.a.owner) || "").slice(0, 36), hot);
           });
         }
       }

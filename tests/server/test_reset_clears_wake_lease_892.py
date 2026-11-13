@@ -81,7 +81,7 @@ def test_after_reset_seat_the_next_wake_is_sent_not_coalesced(office, monkeypatc
     # Reset must not need a real book join: stub rec_join.reset and admin gate.
     monkeypatch.setattr(
         "agent_coord.server.records.join.reset",
-        lambda cn, project, desk: [{"desk": desk, "ok": 1}],
+        lambda cn, project, desk, by=None: [{"desk": desk, "ok": 1}],
     )
     monkeypatch.setattr(
         "agent_coord.server.records.hold.find",

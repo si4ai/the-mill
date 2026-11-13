@@ -3,7 +3,7 @@
 -- where L1 has one; the rest are today-only and go away with the 0.8.0 schema.
 --
 -- Card guards run here, under the card's row lock, in the caller's transaction:
--- no START TRANSACTION / COMMIT (call() commits, request_tx owns a --doing run).
+-- no START TRANSACTION / COMMIT (call() commits, request_tx owns the run).
 -- A refusal SIGNALs 'card:<code>[:<arg>]' (MESSAGE_TEXT holds 128 characters);
 -- the server writes the desk's line for the code (rpc._card_refusal).
 -- Desk args are ids: the server passes MILL_DESK_ID(name) inside the same CALL.
@@ -82,15 +82,15 @@ BEGIN
 END //
 
 -- mill_todo_write inside the caller's transaction: @mill_req_tx is set for the
--- call and put back after it, also when it fails. p_evidence rides on the
--- status change's move row in doing (0.8.0).
+-- call and put back after it, also when it fails. p_evidence is the card's
+-- todo.meta.evidence on a ship or done (card 1207; no length cap).
 CREATE PROCEDURE mill_card_write(
   IN p_card     BIGINT UNSIGNED,
   IN p_desk     BIGINT UNSIGNED,
   IN p_status   VARCHAR(16),
   IN p_vol      VARCHAR(64),
   IN p_body     VARCHAR(4096),
-  IN p_evidence VARCHAR(2000)
+  IN p_evidence LONGTEXT
 )
 BEGIN
   DECLARE v_saved INT DEFAULT @mill_req_tx;
@@ -203,14 +203,14 @@ END //
 -- L1: cmd_pass(p_desk, p_card, p_step, p_evidence) -> card, status, was.
 -- ship: claimed -> shipped, the volunteer. done: shipped -> done, the asker or Admin
 -- (the volunteer when the asker does not resolve). back: done -> shipped, shipped ->
--- claimed (open with no volunteer), the asker or the volunteer. Evidence (0.8.0: on the
--- step's move row text in doing): ship keeps what it is given, done keeps it or the ship's when
--- none is given, any step back has none. Result evidence: the card's newest move row's, if a ship or done.
+-- claimed (open with no volunteer), the asker or the volunteer. Evidence (card 1207: the card's
+-- todo.meta.evidence, no length cap): ship keeps what it is given, done keeps it or the ship's when
+-- none is given, any step back removes it. Result evidence: the card's evidence after the step.
 CREATE PROCEDURE cmd_pass(
   IN p_desk     BIGINT UNSIGNED,
   IN p_card     BIGINT UNSIGNED,
   IN p_step     VARCHAR(4),
-  IN p_evidence VARCHAR(2000)
+  IN p_evidence LONGTEXT
 )
 BEGIN
   DECLARE v_st VARCHAR(8);
@@ -218,7 +218,7 @@ BEGIN
   DECLARE v_askname VARCHAR(64);
   DECLARE v_next VARCHAR(8);
   DECLARE v_msg VARCHAR(128);
-  DECLARE v_ev VARCHAR(2000) DEFAULT NULLIF(TRIM(p_evidence), '');
+  DECLARE v_ev LONGTEXT DEFAULT NULLIF(TRIM(p_evidence), '');
   DECLARE v_seat BIGINT UNSIGNED;
   SELECT id INTO v_seat FROM seat WHERE desk_id = p_desk FOR UPDATE;
   SELECT t.status, t.assigned_id, an.id, an.name INTO v_st, v_vol, v_ask, v_askname
@@ -260,9 +260,7 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   IF p_step = 'done' AND v_ev IS NULL THEN
-    SET v_ev = (SELECT d.evidence FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act = 'ship'
-           ORDER BY d.id DESC LIMIT 1);
+    SET v_ev = (SELECT MILL_TODO_EVIDENCE(meta) FROM todo WHERE id = p_card);
   END IF;
   -- Card 955: capture claim/eta before mill_card_write clears claimed_at.
   BEGIN
@@ -292,12 +290,10 @@ BEGIN
           END IF;
         END IF;
       END IF;
+      -- Card 1207: the minutes of the live doings (tw runs) for this card (tw_start meta.card), not focus rows.
       SELECT IFNULL(SUM(TIMESTAMPDIFF(MINUTE, g.created, v_now)), 0) INTO v_doing
         FROM doing g
-       WHERE g.on_type = 'todo' AND g.on_id = p_card AND g.act = 'focus'
-         AND IFNULL(g.text, '') <> ''
-         AND mill_doing_end(g.desk_id, g.id, g.on_type, g.on_id, g.created) IS NULL
-         AND mill_doing_cleared(g.desk_id, g.id, g.created) IS NULL;
+       WHERE MILL_DOING_CARD(g.id) = p_card AND MILL_DOING_LIVE(g.id);
       IF IFNULL(v_doing, 0) = 0 THEN SET v_doing = NULL; END IF;
     ELSEIF p_step = 'done' THEN
       SET v_kind = 'shipped';
@@ -341,9 +337,7 @@ BEGIN
         @mill_card_score_now = NULL;
   END;
   SELECT p_card AS card, v_next AS status, v_st AS was,
-         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = p_card AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence;
+         (SELECT MILL_TODO_EVIDENCE(t.meta) FROM todo t WHERE t.id = p_card) AS evidence;
 END //
 
 -- L1: cmd_card_accept(p_desk, p_card, p_done_when) -> card, done_when. The asker or
@@ -470,9 +464,7 @@ BEGIN
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type,
          sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
-         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence
+         MILL_TODO_EVIDENCE(t.meta) AS evidence
     FROM todo t
     JOIN JSON_TABLE(p_ids, '$[*]' COLUMNS (id BIGINT UNSIGNED PATH '$')) j ON j.id = t.roster_id
     LEFT JOIN name an ON an.id = t.roster_id

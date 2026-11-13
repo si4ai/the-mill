@@ -117,33 +117,24 @@ def test_score_update_then_delete_keeps_activity_and_id(cn) -> None:
     assert nxt > kid
     _has(cn, "score", kid)
 
-def test_join_updates_bump_activity_and_row_stays(cn) -> None:
-    """#818: seat events bump the current doing entry's activity; doing appends."""
+def test_join_and_seat_events_write_no_doing(cn) -> None:
+    """Card 1207: join, re-join, clock-out, reset, socket and LAN stamps touch only the seat; no doing row."""
     seed_names(cn, ("life_join", "roster"), ("life_join_d", "desk"))
     token = "a" * 64
-    jid = int(here.upsert(cn, "life_join", "life_join_d", "", token, "working")[0]["id"])
-    _has(cn, "doing", jid)
-    nxt = int(here.upsert(cn, "life_join", "life_join_d", "", None, "still working")[0]["id"])
-    assert nxt > jid
-    _has(cn, "doing", nxt)
-    assert scalar(cn, "SELECT text FROM doing WHERE id=%s", (jid,)) == "working"
+    did = int(here.upsert(cn, "life_join", "life_join_d", "", token)[0]["desk_id"])
+    count = "SELECT COUNT(*) FROM doing WHERE desk_id=%s"
+    seat = "SELECT {} FROM seat WHERE desk_id=%s"
+    here.upsert(cn, "life_join", "life_join_d", "", None)
     here.delete(cn, "life_join", "life_join_d")
-    cur = int(scalar(cn, "SELECT MAX(id) FROM doing WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)", (jid,)))
-    assert cur > nxt and scalar(cn, "SELECT text FROM doing WHERE id=%s", (cur,)) == ""
-    _has(cn, "doing", cur)
     here.reset(cn, "life_join", "life_join_d")
-    seat = "SELECT {} FROM seat WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)"
-    assert scalar(cn, seat.format("token_hash"), (jid,)) is None
-    assert not _gone(cn, "doing", jid)
-    _has(cn, "doing", cur)
+    assert scalar(cn, seat.format("token_hash"), (did,)) is None
     here.mark_socket(cn, "life_join_d", up=True)
-    assert scalar(cn, seat.format("time_connect"), (jid,)) is not None
-    _has(cn, "doing", cur)
+    assert scalar(cn, seat.format("time_connect"), (did,)) is not None
     here.set_lan_ip(cn, "life_join_d", "203.0.113.10")
-    assert scalar(cn, seat.format("lan_ip"), (jid,)) == "203.0.113.10"
-    _has(cn, "doing", cur)
-    again = int(here.upsert(cn, "life_join", "life_join_d", "", None, "back")[0]["id"])
-    assert again > cur and scalar(cn, "SELECT text FROM doing WHERE id=%s", (again,)) == "back"
+    assert scalar(cn, seat.format("lan_ip"), (did,)) == "203.0.113.10"
+    here.upsert(cn, "life_join", "life_join_d", "", None)
+    assert int(scalar(cn, count, (did,))) == 0
+
 
 def test_join_refuses_role_admin(cn) -> None:
     seed_names(cn, ("life_admin_proj", "roster"), ("life_admin", "desk"))
@@ -169,9 +160,9 @@ def test_name_rename_retire_reclaim_keep_id(cn) -> None:
 
 def test_membership_does_not_write_a_name_activity(cn) -> None:
     assert scalar(cn, "SELECT 1 FROM activity WHERE type='name' AND id=1") is None
-    here.upsert(cn, "Office", "life_office", "", "b" * 64, "")
+    here.upsert(cn, "Office", "life_office", "", "b" * 64)
     assert scalar(cn, "SELECT 1 FROM activity WHERE type='name' AND id=1") is None
-    here.upsert(cn, "life_role", "life_role_d", "life_role_job", "c" * 64, "")
+    here.upsert(cn, "life_role", "life_role_d", "life_role_job", "c" * 64)
     rid = name.get(cn, "life_role", "roster")
     assert rid is not None
     assert scalar(cn, "SELECT type FROM name WHERE id=%s", (rid,)) == "roster"

@@ -201,7 +201,7 @@ def test_span_reads_each_desk_once(cn) -> None:
     assert str(days[0]["timestamp"]).startswith(day_prefix)
     assert _loads(days[0]["value"])["n"] == 1
 
-    rec_join.upsert(cn, "Office", desk, "span", "a" * 64, "present")
+    rec_join.upsert(cn, "Office", desk, "span", "a" * 64)
     call(cn, "mill_join_lan", [desk, "192.0.2.10"])
     lan = span(cn, "lan", "192.0.2.10", "day")
     assert len(lan) == 1
@@ -267,7 +267,7 @@ def test_between_reads_recent_rows_for_the_scope_desks(cn) -> None:
     assert {r["owner"] for r in role_rows} == {"between_a", "between_b"}
     assert between_rows(cn, "project", "between_empty", 50) == []
 
-    rec_join.upsert(cn, "Office", desk_a, "between", "b" * 64, "present")
+    rec_join.upsert(cn, "Office", desk_a, "between", "b" * 64)
     call(cn, "mill_join_lan", [desk_a, "192.0.2.11"])
     lan_rows = between_rows(cn, "lan", "192.0.2.11", 50)
     assert lan_rows

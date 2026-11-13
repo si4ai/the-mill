@@ -323,7 +323,6 @@ def _on_it(
         key = (lock.get("project_id") or "", lock.get("owner") or "")
         leases_by.setdefault(key, []).append(lock)
     extra: list[dict[str, Any]] = []
-    skip_doing = {"", "standup-wall", "present"}
     by_owner: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for rec in agents:
         if not rec.get("alive"):
@@ -333,10 +332,11 @@ def _on_it(
     for key, rows in by_owner.items():
         if key in covered:
             continue
-        preferred = [r for r in rows if (r.get("doing") or "").strip() not in skip_doing]
-        rec = preferred[0] if preferred else rows[0]
+        # Card 1207: a desk's work is its live doings (tw runs, doing_n), not a self-reported focus text.
+        rec = max(rows, key=lambda r: int(r.get("doing_n") or 0))
         leases = leases_by.get(key, [])
-        doing = (rec.get("doing") or "").strip()
+        n_doing = int(rec.get("doing_n") or 0)
+        doing = f"{n_doing} doing{'s' if n_doing != 1 else ''}" if n_doing else ""
         if not doing and not leases:
             continue
         resources = ", ".join(str(x.get("resource") or "") for x in leases if x.get("resource"))

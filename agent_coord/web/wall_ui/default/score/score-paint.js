@@ -105,11 +105,12 @@
       return out;
     }
     function scoreWaiting(d) {
-      let n = 0;
-      (d.agents || d.live_agents || []).forEach(a => {
-        if (a && String(a.waiting_on || "").trim()) n++;
-      });
-      return n;
+      return (d.agents || d.live_agents || []).filter(a => a && scoreDeskWaitCause(a)).length;
+    }
+    /* Card 1207: a desk waits when a live tw run of its is waiting. */
+    function scoreDeskWaitCause(a) {
+      const t = ((wallDoingView(a.owner) || {}).doings || []).find(x => x && x.state === "waiting");
+      return t ? (String(t.text || "").trim() || "waiting") : "";
     }
     function scoreStalledNeeds(d) {
       const rows = [];
@@ -128,19 +129,19 @@
       const now = Date.now();
       (d.agents || d.live_agents || []).forEach(a => {
         if (!a) return;
-        const wo = String(a.waiting_on || "").trim();
+        const wo = scoreDeskWaitCause(a);
         if (!wo) return;
         const desk = String(a.owner || a.desk || "").trim() || "(desk)";
         const prog = scoreParseProgress(a.progress || "");
         const hb = scoreParseAt(a.heartbeat || a.updated_at);
         const age = hb == null ? "-" : Math.max(0, Math.round((now - hb) / 60000)) + "m";
         out.push({
-          kind: "waiting_on",
+          kind: "waiting",
           desk: desk,
           target: wo,
           age: age,
           progress: prog,
-          job: wallDoingText(a.owner, a.doing).slice(0, 48),
+          job: wallDoingText(a.owner).slice(0, 48),
         });
       });
       scoreStalledNeeds(d).forEach(n => {

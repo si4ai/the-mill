@@ -32,13 +32,13 @@ def desk(cn, monkeypatch):
 
     def make():
         name = "builder-" + uuid4().hex[:8]
-        join.upsert(cn, "Office", name, "", "a" * 64, "reviewing")
+        join.upsert(cn, "Office", name, "", "a" * 64)
 
         def event(wid, kind, conn=None, **kw):
             return rpc._h_tw_event(SimpleNamespace(_cn=conn or cn), {"watch_id": wid, "kind": kind, **kw}, "Office", name)
 
         def tasks(conn=None):
-            return rows(conn or cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (name,))
+            return rows(conn or cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s", (name,))
 
         def edges(wid=None):
             if wid is None:

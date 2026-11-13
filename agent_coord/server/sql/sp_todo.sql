@@ -39,9 +39,8 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
-  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
-  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
-  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  -- Lock order (F183, card 1113): the filing desk's seat first, exclusive, as every card write takes it, so
+  -- two cards filed at once by one desk queue on the seat instead of each holding the FK check's shared lock.
   SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
@@ -51,8 +50,7 @@ BEGIN
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'),
           MILL_BODY_TEXT(IFNULL(p_body, '')), MILL_BODY_META(IFNULL(p_body, '')));
   SET v_id = LAST_INSERT_ID();
-  -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
-  CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
+  -- card 1207: no doing row; the create is transition T1/T2 (todo_activity.emit_create).
   CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, IF(p_status = 'parked', 'park', 'create'), LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -95,9 +93,8 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
-  -- Lock order (F183, card 1113): the filing desk's seat first. The todo insert's FK check takes a
-  -- shared lock on that seat row and mill_doing_move then wants it exclusive, so two cards filed at
-  -- once by one desk each held S and waited for X (deadlock 1213). Taking X first makes them queue.
+  -- Lock order (F183, card 1113): the filing desk's seat first, exclusive, as every card write takes it, so
+  -- two cards filed at once by one desk queue on the seat instead of each holding the FK check's shared lock.
   SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_move = NULL;
   -- Payload first (#216). The todo table assigns the id; LAST_INSERT_ID() is that id.
@@ -107,8 +104,7 @@ BEGIN
   VALUES (v_ts, v_desk, v_proj, v_desk, IFNULL(NULLIF(p_status, ''), 'open'),
           MILL_BODY_TEXT(IFNULL(p_body, '')), MILL_BODY_META(IFNULL(p_body, '')));
   SET v_id = LAST_INSERT_ID();
-  -- 0.8.0: a filed card's first move row (create, or park when filed parked) by the filing desk.
-  CALL mill_doing_move(v_desk, v_proj, 'todo', v_id, IF(p_status = 'parked', 'park', 'create'), NULL, '', v_ts, v_move);
+  -- card 1207: no doing row; the create is transition T1/T2 (todo_activity.emit_create).
   CALL mill_activity_put('todo', v_id, v_ts, v_desk, v_proj, IF(p_status = 'parked', 'park', 'create'), LENGTH(IFNULL(p_body, '')));
   CALL mill_watcher_roster('todo', v_id, v_proj, v_desk);
   SELECT id INTO v_lock FROM activity
@@ -158,18 +154,18 @@ BEGIN
   SELECT v_id AS id, v_ts AS updated, p_status AS status, v_name AS name_id, v_r AS lft;
 END //
 
--- One card write. 0.8.0 (the owner, 2026-10-26): it reads the old status and volunteer FOR UPDATE, and every
--- status change or volunteer change (a take-over, an assign with no status change) appends one move row by the
--- acting desk (mill_doing_move): act from the old and new state (BETA-CHANGES.md, the act list), peer_id the
--- second desk, evidence on a ship or done. A write with no move (a body edit) is act note, no row.
--- mill_todo_update is this with no evidence; cmd_pass passes it.
+-- One card write. It reads the old status and volunteer FOR UPDATE and names the move in activity.act (the act
+-- list in BETA-CHANGES.md); a write with no move (a body edit) is act note. Card 1207 (the owner, 2026-11-13): a
+-- move writes no doing row; transition is the card's history. A ship or done sets todo.meta.evidence (the newest
+-- wins; a done with none keeps the ship's), a step back removes it, and any other write keeps it. Evidence is a
+-- JSON key and has no length cap. mill_todo_update is this with no evidence; cmd_pass passes it.
 CREATE PROCEDURE mill_todo_write(
   IN p_id        BIGINT UNSIGNED,
   IN p_desk      VARCHAR(64),
   IN p_status    VARCHAR(16),
   IN p_volunteer VARCHAR(64),
   IN p_body      VARCHAR(4096),
-  IN p_evidence  VARCHAR(2000)
+  IN p_evidence  LONGTEXT
 )
 BEGIN
   DECLARE v_ts DATETIME(6);
@@ -181,8 +177,7 @@ BEGIN
   DECLARE v_old_vol BIGINT UNSIGNED;
   DECLARE v_new_vol BIGINT UNSIGNED;
   DECLARE v_act VARCHAR(16);
-  DECLARE v_peer BIGINT UNSIGNED;
-  DECLARE v_ev VARCHAR(2000);
+  DECLARE v_ev LONGTEXT;
   DECLARE v_move BIGINT UNSIGNED;
   DECLARE v_old_body VARCHAR(4096);
   DECLARE v_old_meta JSON;
@@ -275,23 +270,24 @@ BEGIN
     WHEN v_now = 'open' THEN 'unclaim'
     ELSE NULL
   END;
-  SET v_peer = CASE v_act
-    WHEN 'assign' THEN v_new_vol
-    WHEN 'claim' THEN v_old_vol
-    WHEN 'unclaim' THEN v_old_vol
-    ELSE NULL
-  END;
-  IF v_act IS NOT NULL THEN
-    -- Evidence rides on ship and done; a done with none carries the ship's (main's todo.evidence rule).
-    SET v_ev = IF(v_act IN ('ship', 'done'), NULLIF(TRIM(p_evidence), ''), NULL);
-    IF v_act = 'done' AND v_ev IS NULL THEN
-      SET v_ev = (SELECT e.evidence FROM doing e
-                   WHERE e.on_type = 'todo' AND e.on_id = p_id AND e.act = 'ship'
-                   ORDER BY e.id DESC LIMIT 1);
-      SET v_ev = IF(v_was = 'shipped', v_ev, NULL);
-    END IF;
-    CALL mill_doing_move(v_desk, v_proj, 'todo', p_id, v_act, v_peer, v_ev, v_ts, v_move);
+  -- Card 1207: the card's evidence (todo.meta.evidence). The new meta above came from the document (no evidence
+  -- key: MILL_BODY_META drops it), so the old evidence is put back unless this move changes it: a ship sets what
+  -- it is given (none: the key goes), a done sets what it is given or keeps the ship's, a step back removes it.
+  SET v_ev = MILL_TODO_EVIDENCE(v_old_meta);
+  IF v_act = 'ship' THEN
+    SET v_ev = NULLIF(TRIM(p_evidence), '');
+  ELSEIF v_act = 'done' THEN
+    SET v_ev = IFNULL(NULLIF(TRIM(p_evidence), ''), IF(v_was = 'shipped', v_ev, NULL));
+  ELSEIF v_act = 'back' THEN
+    SET v_ev = NULL;
   END IF;
+  -- A row the 1133 migration has not split (meta NULL) is split here first, so its document stays whole.
+  UPDATE todo
+     SET meta = IF(v_ev IS NULL, JSON_REMOVE(IFNULL(meta, MILL_BODY_META(body)), '$.evidence'),
+                   JSON_SET(IFNULL(meta, MILL_BODY_META(body)), '$.evidence', v_ev)),
+         body = IF(v_old_meta IS NULL AND p_body IS NULL, MILL_BODY_TEXT(body), body)
+   WHERE id = p_id
+     AND NOT (MILL_TODO_EVIDENCE(meta) <=> v_ev);
   CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, IFNULL(v_act, 'note'), LENGTH(p_body));
   CALL mill_watcher_roster('todo', p_id, v_proj, v_desk);
   IF v_vol IS NOT NULL THEN
@@ -317,7 +313,7 @@ BEGIN
   SELECT p_id AS id, v_ts AS updated;
 END //
 
--- Public: same arguments and result as on main; a move writes its move row in doing.
+-- Public: same arguments and result as on main; a move writes no doing row (card 1207).
 CREATE PROCEDURE mill_todo_update(
   IN p_id        BIGINT UNSIGNED,
   IN p_desk      VARCHAR(64),
@@ -379,7 +375,7 @@ BEGIN
     CALL mill_tree_detach('todo', p_id);
     -- activity_del_watchers fires only on a hard activity delete, so drop watchers here.
     DELETE FROM watcher WHERE type = 'todo' AND id = p_id;
-    -- 0.8.0: the card's move rows in doing stay (doing is append-only history, no FK to todo).
+    -- The card's doing rows (focus, timeline) and transition rows stay (no FK to todo).
     DELETE FROM todo WHERE id = p_id;  -- todo_no_delete_in_tree still guards
     -- 0.8.0: an office touch leaves activity.desk_id NULL, so a stored row is stamped either way.
     IF v_has > 0 OR v_desk IS NOT NULL THEN
@@ -437,6 +433,8 @@ BEGIN
   VALUES ('todo', p_id, v_ts, v_ts, v_ts, v_desk, v_proj, 'retire', NULL)
   ON DUPLICATE KEY UPDATE deleted = v_ts, updated = v_ts, desk_id = v_desk, act = 'retire';
   UPDATE todo SET updated = v_ts, updated_id = v_desk WHERE id = p_id;
+  -- Card 1207: the retire is transition T12 (any -> retired), in this transaction.
+  CALL mill_transition_put('todo', p_id, 'any', 'retired', 'retire', v_desk, 'actor', CONCAT('card:', p_id), MILL_FX_META(v_proj));
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'retired' AS op;
 END //
@@ -471,6 +469,9 @@ BEGIN
   END IF;
   UPDATE activity SET deleted = NULL, updated = v_ts WHERE type = 'todo' AND id = p_id;
   UPDATE todo SET updated = v_ts, updated_id = v_desk WHERE id = p_id;
+  -- Card 1207: the reclaim is transition T13 (retired -> prior; the status stays on the card), in this transaction.
+  CALL mill_transition_put('todo', p_id, 'retired', 'prior', 'reclaim', v_desk, 'actor', CONCAT('card:', p_id),
+                           MILL_FX_META((SELECT roster_id FROM todo WHERE id = p_id)));
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
   SELECT p_id AS id, 'reclaimed' AS op;
 END //
@@ -481,10 +482,8 @@ BEGIN
          t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         -- card 1207: the card's newest ship/done evidence (todo.meta.evidence; a step back removes it)
+         MILL_TODO_EVIDENCE(t.meta) AS evidence,
          -- card 1133: the text stamp mill_body_replace checks (NULL = never edited; created stands)
          t.body_updated, bun.name AS body_updater
   FROM todo t
@@ -522,10 +521,8 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         -- card 1207: the card's newest ship/done evidence (todo.meta.evidence; a step back removes it)
+         MILL_TODO_EVIDENCE(t.meta) AS evidence,
          t.body_updated, bun.name AS body_updater
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
@@ -574,10 +571,8 @@ BEGIN
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
-         -- 0.8.0: the card's evidence is its newest move row's evidence when that is a ship or done (idx_on)
-         (SELECT IF(d.act IN ('ship', 'done'), d.evidence, NULL) FROM doing d
-           WHERE d.on_type = 'todo' AND d.on_id = t.id AND d.act NOT IN ('focus', 'clear', 'finish')
-           ORDER BY d.id DESC LIMIT 1) AS evidence,
+         -- card 1207: the card's newest ship/done evidence (todo.meta.evidence; a step back removes it)
+         MILL_TODO_EVIDENCE(t.meta) AS evidence,
          t.body_updated, bun.name AS body_updater
   FROM todo t
   LEFT JOIN name an ON an.id = t.roster_id
@@ -599,7 +594,9 @@ BEGIN
 END //
 
 -- #926: guarded rename of a card's need slug. Id stays; old slug reserved in meta.aliases (card 1133).
--- One doing move + activity.act=rename (evidence JSON: old, new, why). Auth is in Python.
+-- activity.act=rename plus transition T16 (any -> same, rename) in the same transaction. Auth is in Python.
+-- Card 1207 (the owner, 2026-11-13): no doing row. The old slug stays in meta.aliases; p_why is not stored (the
+-- doing row's evidence JSON held it; transition meta holds no text). The card's todo.meta.evidence is kept.
 CREATE PROCEDURE mill_todo_rename(
   IN p_id      BIGINT UNSIGNED,
   IN p_desk    VARCHAR(64),
@@ -613,7 +610,6 @@ BEGIN
   DECLARE v_desk BIGINT UNSIGNED;
   DECLARE v_proj BIGINT UNSIGNED;
   DECLARE v_move BIGINT UNSIGNED;
-  DECLARE v_ev VARCHAR(2000);
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -626,8 +622,8 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: no such desk';
   END IF;
   -- Lock order (card 1113): the renaming desk's seat, then the card, as every card write does. The
-  -- UPDATE below sets updated_id, whose FK check takes a shared lock on that seat row, and
-  -- mill_doing_move then wants it exclusive; with the card first, a note on the card waited the other way.
+  -- UPDATE below sets updated_id, whose FK check takes a shared lock on that seat row; with the card
+  -- first, a note on the card waited the other way.
   SELECT id INTO v_move FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_move = NULL;
   SELECT roster_id INTO v_proj FROM todo WHERE id = p_id FOR UPDATE;
@@ -643,16 +639,13 @@ BEGIN
      SET body_updated = IF(CAST(MILL_BODY_TEXT(p_body) AS BINARY) <=> CAST(MILL_BODY_TEXT(MILL_TODO_DOC(body, meta)) AS BINARY),
                            body_updated, v_ts),
          body_updater_id = IF(body_updated <=> v_ts, v_desk, body_updater_id),
-         meta = MILL_BODY_META(p_body),
+         meta = IF(MILL_TODO_EVIDENCE(meta) IS NULL, MILL_BODY_META(p_body),
+                   JSON_SET(MILL_BODY_META(p_body), '$.evidence', MILL_TODO_EVIDENCE(meta))),
          body = MILL_BODY_TEXT(p_body),
          updated = v_ts,
          updated_id = v_desk
    WHERE id = p_id;
-  SET v_ev = JSON_OBJECT('old', TRIM(p_old), 'new', TRIM(p_new), 'why', IFNULL(TRIM(p_why), ''));
-  IF CHAR_LENGTH(v_ev) > 2000 THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'rename todo: why too long; nothing changed';
-  END IF;
-  CALL mill_doing_move(v_desk, v_proj, 'todo', p_id, 'rename', NULL, v_ev, v_ts, v_move);
+  CALL mill_transition_put('todo', p_id, 'any', 'same', 'rename', v_desk, 'actor', CONCAT('card:', p_id), MILL_FX_META(v_proj));
   CALL mill_activity_put('todo', p_id, v_ts, v_desk, v_proj, 'rename', LENGTH(p_body));
   CALL mill_watcher_roster('todo', p_id, v_proj, v_desk);
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;

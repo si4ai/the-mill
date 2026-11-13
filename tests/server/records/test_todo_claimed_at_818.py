@@ -3,9 +3,7 @@
 (a) claim, claim --take-over, assign and a pass --back that puts the card
     back to claimed set todo.claimed_at; a note, an eta or a second claim by
     the same desk leaves it; unclaim, pass and pass --done clear it;
-(b) `mill connected` reads a claimed card's age and order (waiting on it:
-    claimed cards another desk watches) from claimed_at, not todo.updated, so
-    a note on the card no longer makes it look new;
+(b) card 1207: `mill connected` no longer lists cards waiting on a desk (waiting_on_it is gone);
 (c) on an existing book `migrate.ensure()` adds the column and backfills
     every claimed card from its volunteer's watcher row (written on the
     volunteer's first write on the card: the claim, or the create when it
@@ -20,13 +18,13 @@ import pytest
 from agent_coord.install import migrate
 from agent_coord.server.records.db import rows_done, scalar_done
 from tests.server.records.conftest import seed_names
-from tests.server.records.test_doing_flag_818 import World, _dispatch
+from tests.server.records.test_doing_only_tw_1207 import World, _dispatch
 
 pytestmark = pytest.mark.sql
 
 ME = "d818c-me"
 PEER = "d818c-peer"
-R = "r818"
+R = "r1207"  # World.card files cards on the shared harness roster
 
 
 class W(World):
@@ -49,7 +47,7 @@ def w(cn, tmp_path_factory):
 
     seed_names(cn, (R, "roster"), ("the-mill", "roster"), (ME, "desk"), (PEER, "desk"))
     for d in (ME, PEER):
-        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     mp = pytest.MonkeyPatch()
     world = W(cn, tmp_path_factory.mktemp("d818c"))
     mp.setenv("AGENT_COORD_MILL_HOME", str(tmp_path_factory.mktemp("d818chome")))
@@ -89,16 +87,6 @@ def _back(cn, tid: int, hours: int) -> None:
     claim = "claimed_at = claimed_at - INTERVAL %s HOUR, " if has else ""
     args = (hours, hours, tid) if has else (hours, tid)
     _exec(cn, "UPDATE todo SET " + claim + "updated = updated - INTERVAL %s HOUR WHERE id = %s", args)
-
-
-def _no_claims(cn) -> None:
-    """Start a connected case with no claimed card on the book (the list shows 3)."""
-    _exec(cn, "UPDATE todo SET status = 'open', assigned_id = NULL WHERE status = 'claimed'")
-
-
-def _card_view(w, tid: int) -> dict:
-    cards = w.me(ME)["waiting_on_it"]["cards"]["newest"]
-    return next(c for c in cards if c["id"] == f"todo-{tid}")
 
 
 # (a) the writes ------------------------------------------------------------------
@@ -152,34 +140,6 @@ def test_take_over_and_assign_set_it(w):
     assert _row(w.cn, tid2)["claimed_at"] is not None
 
 
-# (b) connected -------------------------------------------------------------------
-
-def test_connected_card_age_is_the_claim_not_the_last_note(w):
-    _no_claims(w.cn)
-    need, tid = _card(w)
-    w.ok(["claim", R, need])
-    w.ok(["watch", "todo", str(tid)], desk=PEER)
-    _back(w.cn, tid, 2)
-    w.ok(["todo", R, need, "--started"], desk=PEER)
-    assert _card_view(w, tid)["age"] == "2h"
-
-
-def test_connected_orders_cards_by_claim(w):
-    _no_claims(w.cn)
-    older, t_old = _card(w)
-    newer, t_new = _card(w)
-    w.ok(["claim", R, older])
-    w.ok(["claim", R, newer])
-    for t in (t_old, t_new):
-        w.ok(["watch", "todo", str(t)], desk=PEER)
-    _back(w.cn, t_old, 5)
-    _back(w.cn, t_new, 1)
-    # A note bumps the older card's updated; it stays behind the newer claim.
-    w.ok(["todo", R, older, "--started"], desk=PEER)
-    ids = [c["id"] for c in w.me(ME)["waiting_on_it"]["cards"]["newest"]]
-    assert ids.index(f"todo-{t_new}") < ids.index(f"todo-{t_old}")
-
-
 # (c) migration -------------------------------------------------------------------
 
 def test_migration_backfills_claimed_cards_from_the_volunteer_watcher(w):
@@ -223,24 +183,3 @@ def test_a_run_killed_after_the_column_was_added_converges(w):
     assert int(scalar_done(
         w.cn, "SELECT COUNT(*) FROM todo WHERE status = 'claimed' AND claimed_at IS NULL"
     )) == 0
-
-
-# (d) the Wall reads it -------------------------------------------------------------
-
-from tests.server.records.test_doing_routes_818 import _get, wall  # noqa: E402,F401
-
-
-def test_cards_carry_claimed_at_in_connected_and_the_wall_route(w, wall):  # noqa: F811
-    _no_claims(w.cn)
-    need, tid = _card(w)
-    w.ok(["claim", R, need])
-    w.ok(["watch", "todo", str(tid)], desk=PEER)
-    _back(w.cn, tid, 2)
-    w.ok(["todo", R, need, "--started"], desk=PEER)
-    at = str(_row(w.cn, tid)["claimed_at"])[:19]
-    view = _card_view(w, tid)
-    assert view["claimed_at"] == at and view["age"] == "2h"
-    code, got = _get(wall, f"/api/v1/doing?desk={ME}")
-    assert code == 200, got
-    route = next(c for c in got[0]["waiting_on_it"]["cards"]["newest"] if c["id"] == f"todo-{tid}")
-    assert route == view and set(route) == {"id", "need", "roster", "watchers", "age", "claimed_at"}

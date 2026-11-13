@@ -46,11 +46,11 @@ def _flags(cn, desk: str) -> tuple[bool, bool, bool, bool]:
 
 def test_fresh_old_and_reconnect(cn) -> None:
     seed_names(cn, ("c235", "roster"), ("c235-desk", "desk"))
-    rec_join.upsert(cn, "c235", "c235-desk", "", "c235", "working")
+    rec_join.upsert(cn, "c235", "c235-desk", "", "c235")
     assert _flags(cn, "c235-desk")[:2] == (True, False)
 
     _set_updated(cn, "c235-desk", datetime.now() - timedelta(seconds=HEARTBEAT_STALE_S + 30))
     assert _flags(cn, "c235-desk")[:2] == (False, True)
 
-    rec_join.upsert(cn, "c235", "c235-desk", "", "c235", "working")
+    rec_join.upsert(cn, "c235", "c235-desk", "", "c235")
     assert _flags(cn, "c235-desk")[:2] == (True, False)

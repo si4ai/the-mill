@@ -1,4 +1,4 @@
-"""#818 PR B: the Wall's two read-only doing routes (PR C reads them), on a real book. Row F118.
+"""#818 PR B / card 1207: the Wall's two read-only doing routes, on a real book. Row F118.
 
 GET /api/v1/doing?all=1 | ?desk=D | ?project=R   the `mill connected` desk views (a list)
 GET /api/v1/doing/history?desk=D | ?on=ITEM       the `--history` page {history, page}, ended_by
@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_coord.server.records.db import scalar_done
-from tests.server.records.test_doing_flag_818 import ME, PEER, R, World, _hist, _joined, w  # noqa: F401
+from tests.server.records.test_doing_only_tw_1207 import ME, PEER, R, World, _hist, _joined, _tw, w  # noqa: F401
 
 pytestmark = pytest.mark.sql
 
@@ -65,17 +65,21 @@ def _get(wall, url: str):
     return r.status_code, got
 
 
-def test_doing_all_is_the_connected_view(w, wall):
-    mid = w.letter()
-    w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "on the route"])
+def test_doing_all_is_the_connected_view(w, wall, monkeypatch):
+    """Card 1207 (wall-ui shape): n and doings (live tw runs, newest first), nothing from the dropped columns."""
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
+    _tw(w, ME, "route-a", "start")
+    _tw(w, ME, "route-b", "start")
+    _tw(w, ME, "route-b", "stall", cause="quiet")
     code, got = _get(wall, "/api/v1/doing?all=1")
     assert code == 200 and isinstance(got, list), got
     mine = [d for d in got if d["owner"] == ME]
     assert len(mine) == 1
     view = mine[0]
-    assert view["doing"] == "on the route" and view["on"] == f"mail-{mid}"
-    assert set(view) >= {"owner", "alive", "stale", "doing", "on", "age", "waiting_on_it", "line"}
-    # asked (#160) and claimed_at (#161) are checked in test_mail_asked_818 and test_todo_claimed_at_818.
+    assert set(view) == {"owner", "heartbeat", "alive", "stale", "n", "doings"} | ({"project_id"} & set(view))
+    assert view["n"] >= 2 and view["doings"][0]["state"] == "waiting"
+    assert view["doings"][0]["created"] >= view["doings"][1]["created"]
+    assert view["doings"][0]["card"] is None  # the tw-to-card link is not decided
 
 
 def test_doing_one_desk_or_one_roster(w, wall):
@@ -91,52 +95,43 @@ def test_doing_needs_one_scope_and_refuses_unknowns(wall):
     assert code == 400 and "all=1" in got["error"]
     code, got = _get(wall, "/api/v1/doing?all=1&desk=x")
     assert code == 400
-    code, got = _get(wall, "/api/v1/doing?desk=d818-nobody")
+    code, got = _get(wall, "/api/v1/doing?desk=d1207-nobody")
     assert code == 400 and "no desk" in got["error"]
-    code, got = _get(wall, "/api/v1/doing?project=r818-nothing")
+    code, got = _get(wall, "/api/v1/doing?project=r1207-nothing")
     assert code == 400
 
 
-def test_history_by_desk_has_ended_by(w, wall):
-    mid, mid2 = w.letter(), w.letter()
-    w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "first"])
-    w.ok(["reply", str(mid2), "--body-file", str(w.body), "--doing", "second"])
-    code, got = _get(wall, f"/api/v1/doing/history?desk={ME}")
+def test_history_by_desk_has_ended_by(w, wall, monkeypatch):
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
+    desk = _joined(w, "d1207-hist-" + uuid.uuid4().hex[:4])
+    _tw(w, desk, "h1", "start")
+    _tw(w, desk, "h1", "exit", exit_code=0)
+    _tw(w, desk, "h2", "start")
+    code, got = _get(wall, f"/api/v1/doing/history?desk={desk}")
     assert code == 200 and set(got) == {"history", "page"}
-    assert got["history"] == _hist(w, ME)[: len(got["history"])]
-    first = [e for e in got["history"] if e["doing"] == "first"][0]
-    assert first["ended_by"] == "newer" and all("ended_by" in e for e in got["history"])
+    assert got["history"] == _hist(w, desk)[: len(got["history"])]
+    assert [e["ended_by"] for e in got["history"]] == [None, "finished"]
+    assert all(e["src"] == "doing" for e in got["history"])
     assert got["page"]["n"] == 1
 
 
 def test_history_on_one_card_without_a_desk(w, wall):
-    """A card trail: every desk's doing rows on that card, newest first, nobody else's.
-
-    Card 901 / F213: at least one move row is present (act not focus/clear/finish;
-    evidence when ship/done), not only that focus rows survive.
-    """
+    """A card trail: that card's moves (transition rows, src transition, with act; evidence on the newest
+    ship), every desk's, nobody else's. Card 1207: no desk-written rows on a card."""
     need, tid = w.card()
-    w.ok(["claim", R, need, "--doing", "mine on the card"])
-    w.ok(["todo", R, need, "--started", "--doing", "peer on the card"], desk=PEER)
+    w.ok(["claim", R, need])
     mid = w.letter()
-    w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "not the card"])
-    w.ok(["pass", R, need, "--evidence", "shipped for 901", "--doing", "closing"])
+    w.ok(["reply", str(mid), "--body-file", str(w.body)])
+    w.ok(["pass", R, need, "--evidence", "shipped for 901"])
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}")
     assert code == 200, got
     rows = got["history"]
-    # Focus entries that name the two desks' --doing text (F188 keeps them).
-    named = {(e["desk"], e["doing"]) for e in rows if e.get("doing") in ("peer on the card", "mine on the card")}
-    assert named == {(PEER, "peer on the card"), (ME, "mine on the card")}
-    assert {e["on"] for e in rows} == {f"todo-{tid}"}
-    moves = [e for e in rows if e.get("act") not in (None, "focus", "clear", "finish")]
-    assert moves, rows
-    ship = [e for e in moves if e.get("act") == "ship"]
+    assert rows and {e["on"] for e in rows} == {f"todo-{tid}"}
+    assert {e["src"] for e in rows} == {"transition"}
+    ship = [e for e in rows if e.get("act") == "ship"]
     assert ship and ship[0].get("evidence") == "shipped for 901", ship
-    mine = [e for e in rows if e["desk"] == ME and e.get("doing") == "mine on the card"][0]
-    assert mine["ended_by"] in ("newer", "finished")
-    assert got["page"]["entries"] >= 2
     code, got = _get(wall, f"/api/v1/doing/history?on=todo-{tid}&desk={PEER}")
-    assert code == 200 and got["history"] and {e["desk"] for e in got["history"]} == {PEER}
+    assert code == 200 and {e["desk"] for e in got["history"]} <= {PEER}
 
 
 def test_history_on_hold_includes_move_rows(w, wall):
@@ -173,21 +168,6 @@ def test_a_refused_door_never_reads_the_book(w, wall, monkeypatch):
         code, _ = _get(wall, url)
         assert code == base, url
     assert wall.opened == []
-
-
-def test_last_says_how_it_ended(w):
-    from agent_coord.server.records import join as here
-
-    desk = _joined(w, "d818-last-" + uuid.uuid4().hex[:4])
-    mid = w.letter(to=desk)
-    w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "answering"], desk=desk)
-    w.ok(["reply", str(mid), "--body-file", str(w.body)], desk=desk)
-    view = w.me(desk)
-    assert view["doing"] == "" and view["last"]["doing"] == "answering"
-    assert view["last"]["ended_by"] == "finished"
-    w.ok(["reply", str(mid), "--body-file", str(w.body), "--doing", "again"], desk=desk)
-    here.reset(w.cn, R, desk)
-    assert w.me(desk)["last"]["ended_by"] == "cleared"
 
 
 def test_cards_carry_no_doing_key(w):

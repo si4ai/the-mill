@@ -27,7 +27,7 @@ def rows(cn, sql, args=()):
 @pytest.fixture
 def task(cn, monkeypatch):
     desk = "builder-" + uuid4().hex[:8]
-    join.upsert(cn, "Office", desk, "", "a" * 64, "reviewing")
+    join.upsert(cn, "Office", desk, "", "a" * 64)
     monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
 
     def event(kind, **kw):

@@ -93,9 +93,7 @@
               <li><b>Desk (stacked):</b> line 1 = <b>owner</b> bold + <b>mail icon</b>; show | role only when role is set and != owner; line 2 muted = <code>node:pid</code> under the name. Do <b>not</b> put project id under desk.</li>
               <li><b>Mail icon</b> = message this desk (opens mail popup; To = that owner; src = your human badge). <b>Unread badge</b> = that desk <b>agent-unread</b> (mill party=agent); hidden when zero. Human open is optional.</li>
               <li><b>Status chip:</b> working | idle | waiting | blocked (+ <b>stale</b> if heartbeat / lease dead).</li>
-              <li><b>Waiting on:</b> desk ids / <code>lease:resource</code> / <code>JOB:id</code> - empty shows -. Lease blocks use <b>desk</b> or <code>lease:resource</code> (not role). Roles in waiting_on are for mail/coord waits, not file locks. Column hides when no desk waits. Never vague "waiting" with no target.</li>
               <li><b>What / job:</b> short <code>doing</code>; JOB+ETA+progress when claimed (<b>no claimed JOB -> chip idle</b> even if doing set). Muted <b>project id</b> under what (e.g. mill) - not the disk path (<code>session_root</code> tooltip on desk OK only).</li>
-              <li><b>Honesty:</b> agents clear <code>waiting_on</code> when unblocked / JOB done (CLI <code>waiting-on --waiting-on ""</code>). Pulse <b>Waiting</b> = desks with non-empty <code>waiting_on</code>. Wire OFF by default.</li>
             </ul>
           </div>
         </aside>
@@ -152,7 +150,7 @@
           <ul>
             <li><b>Needs</b> = mill <code>needs</code> kanban: <b>Open</b> (HELP WANTED) | <b>In progress</b> (ON IT / claimed) | <b>Done</b> (time window: 1h/24h/7d/30d/all). Not the human PLAN tab.</li>
             <li><b>Card:</b> need_id | doing | asker | volunteer | progress/ETA | stale cue if holder dead.</li>
-            <li><b>Stations</b> = peer sub-tab (same pane; swaps with Needs). Who may write a scarce file (leases). Holder = <b>desk id</b> (session), not role. Roles are mail-only. Blocked desks show on <b>Session</b> via status + <code>waiting_on</code>.</li>
+            <li><b>Stations</b> = peer sub-tab (same pane; swaps with Needs). Who may write a scarce file (leases). Holder = <b>desk id</b> (session), not role. Roles are mail-only. Waiting desks show on <b>Session</b> via their live tw runs in state waiting (card 1207).</li>
           </ul>
         </div>
       </aside>
@@ -316,7 +314,7 @@
           <button type="button" data-score-filter="needs" class="on">Needs attention</button>
           <button type="button" data-score-filter="all">All desks</button>
         </span>
-        <span class="note" id="score-note">floor waiting_on + needs | LLM exact / dim LLM est / mill bytes | agent_kpi secondary</span>
+        <span class="note" id="score-note">waiting tw runs + needs | LLM exact / dim LLM est / mill bytes | agent_kpi secondary</span>
       </div>
       <div class="score-core" id="score-core">
         <div class="score-block" id="score-bottlenecks" aria-label="Bottlenecks"></div>

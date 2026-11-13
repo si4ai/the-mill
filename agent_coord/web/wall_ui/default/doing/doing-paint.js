@@ -1,5 +1,5 @@
-/* WALL_UI_DEFAULT_DOING_PAINT - what each desk is doing, on what, for how long, and who
- * waits on it (#818 PR C).
+/* WALL_UI_DEFAULT_DOING_PAINT - each desk's live doings (tw runs)
+ * (#818 PR C; card 1207: doing is only tw runs, a desk may run many, no desk-written text).
  * Marker: WALL_UI_DEFAULT_DOING_PAINT
  * Loads through lib/lazy.js (MODULES.doingPaint) after the first CONNECTED paint. Classic
  * script on purpose: it shares boot.js globals, and its function declarations replace the
@@ -9,8 +9,7 @@
  *   /api/v1/doing?all=1                        the `mill connected` desk views
  *   /api/v1/doing/history?desk=D | ?on=ITEM    the `mill connected --history` page (ended_by)
  * The Wall shows what they say and computes nothing. If a route is not there (404), the
- * Wall stays on the seat's doing text with no error and no made-up field, and asks again
- * every 10 minutes.
+ * Wall shows no doing, with no error and no made-up field, and asks again every 10 minutes.
  */
 var WALL_DOING_URL = "/api/v1/doing?all=1";
 var WALL_DOING_HISTORY_URL = "/api/v1/doing/history";
@@ -93,105 +92,59 @@ function wallDoingEndedHtml(by) {
   const how = String(by || "").trim();
   return `<span class="doing-ended" data-slot="ended_by" data-ended-by="${esc(how)}">${how ? esc("ended: " + how) : ""}</span>`;
 }
-function wallDoingAskedHtml(x) {
-  /* Slot for the coming asked-vs-copied flag on mail_to. Blank until the server sends it. */
-  const a = x && x.asked;
-  const txt = a === true ? "asked" : (a === false ? "copied" : "");
-  return `<span class="doing-asked" data-slot="asked">${esc(txt)}</span>`;
+/* Age of an ISO UTC stamp, as the server's views used to say it (12s, 5m, 3h, 2d). */
+function wallDoingAge(iso) {
+  const t = Date.parse(String(iso || ""));
+  if (!Number.isFinite(t)) return "";
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (sec < 60) return sec + "s";
+  if (sec < 3600) return Math.floor(sec / 60) + "m";
+  if (sec < 86400) return Math.floor(sec / 3600) + "h";
+  return Math.floor(sec / 86400) + "d";
 }
-function wallDoingWaitHtml(owner, v) {
-  const w = (v && v.waiting_on_it) || {};
-  const L = w.letters || {};
-  const C = w.cards || {};
-  const nl = Number(L.n) || 0;
-  const nc = Number(C.n) || 0;
-  const n = nl + nc;
-  const who = millName("desk", owner);
-  if (!n) {
-    return `<span class="doing-wait zero" title="${esc("Nothing is waiting on " + who)}">0 waiting</span>`;
-  }
-  const title = [nl ? (nl + " unanswered letter" + (nl === 1 ? "" : "s")) : "", nc ? (nc + " watched card" + (nc === 1 ? "" : "s") + " it claimed") : ""]
-    .filter(Boolean).join(" and ") + " wait on " + who;
-  const letters = (L.newest || []).slice(0, 3).map(function (x) {
-    return `<span class="dw-row">${wallDoingItemHtml(x.id)} <span class="dw-from">from ${esc(millName("desk", x.from || ""))}</span> <span class="dw-age">${esc(x.age || "")}</span> ${wallDoingAskedHtml(x)}</span>`;
-  }).join("");
-  const cards = (C.newest || []).slice(0, 3).map(function (x) {
-    const watch = (x.watchers || []).length ? ("watched by " + x.watchers.join(", ")) : "";
-    return `<span class="dw-row">${wallDoingItemHtml(x.id)} <span class="dw-need">${esc(x.need || "")}</span> <span class="dw-from">${esc(watch)}</span> <span class="dw-age">${esc(x.age || "")}</span></span>`;
-  }).join("");
-  const moreL = nl > 3 ? `<span class="dw-more">${esc((nl - 3) + " older letters")}</span>` : "";
-  const moreC = nc > 3 ? `<span class="dw-more">${esc((nc - 3) + " older cards")}</span>` : "";
-  return `<details class="doing-wait"><summary title="${esc(title)}">${esc(n + " waiting")}</summary>` +
-    `<span class="doing-pop" role="note">` +
-    (nl ? `<span class="dw-head">${esc(nl + " letter" + (nl === 1 ? "" : "s") + ", newest")}</span>${letters}${moreL}` : "") +
-    (nc ? `<span class="dw-head">${esc(nc + " card" + (nc === 1 ? "" : "s") + ", newest")}</span>${cards}${moreC}` : "") +
-    `</span></details>`;
-}
-/* The text in the row button: the doing, or idle and the last one. Plain text (it sits in a button). */
-function wallDoingRowHtml(owner, seatText) {
+/* The text in the row button: the newest doing's text, or "N doings", or idle. Plain text (it sits in a button). */
+function wallDoingRowHtml(owner) {
   const v = wallDoingView(owner);
   if (!v) return "";
-  const line = String(v.line || "");
-  /* A stale view (alive false or stale true): its doing text is a leftover, never "working". */
-  const left = wallDoingLeftover(v);
-  if (left) return `<span class="here-doing is-idle is-stale" title="${esc(line)}">${esc(left)}</span>`;
-  if (!wallDoingStale(v) && String(v.doing || "").trim()) {
-    return `<span class="here-doing" title="${esc(line)}">${esc(v.doing)}</span>`;
-  }
-  const last = v.last && String(v.last.doing || "").trim();
-  const idle = "idle" + (v.idle ? " " + v.idle : "");
-  return `<span class="here-doing is-idle" title="${esc(line)}">${esc(idle)}${last ? `<span class="doing-last"> | last: ${esc(last)}</span>` : ""}</span>`;
+  const cur = wallDoingText(owner);
+  if (cur) return `<span class="here-doing">${esc(cur)}</span>`;
+  return `<span class="here-doing is-idle${wallDoingStale(v) ? " is-stale" : ""}">idle</span>`;
 }
-/* Beside the row button: link, age, ended_by, waiting-on pill. */
+/* Beside the row button: the newest doing's age (from its created) and its card link. */
 function wallDoingMetaHtml(owner) {
   const v = wallDoingView(owner);
   if (!v) return "";
-  const gone = wallDoingStale(v);
-  const cur = gone ? "" : String(v.doing || "").trim();
-  const last = v.last || null;
-  if (gone && String(v.doing || "").trim()) {
-    /* The leftover's age is in the row text; here only its item link and the waiting pill. */
-    return `<span class="doing-meta">` + wallDoingItemHtml(v.on) + wallDoingWaitHtml(owner, v) + `</span>`;
-  }
-  const on = cur ? v.on : (last && last.on);
-  const age = cur ? v.age : (last && last.age);
-  const ended = cur ? "" : (last && last.ended_by);
+  const top = wallDoingText(owner) ? wallDoingNewest(v) : null;
   return `<span class="doing-meta">` +
-    wallDoingItemHtml(on) +
-    `<span class="doing-age" title="${esc(cur ? "doing this for" : "last doing started")}">${esc(age || "")}</span>` +
-    wallDoingEndedHtml(ended) +
-    wallDoingWaitHtml(owner, v) +
+    (top && top.card != null ? wallDoingItemHtml("todo-" + top.card) : "") +
+    `<span class="doing-age" title="newest doing started">${esc(top ? wallDoingAge(top.created) : "")}</span>` +
     `</span>`;
 }
 
-/* wall-scores Phase A: non-terminal act=task rows + once-per-desk doing.task.* leaves. */
+/* wall-scores Phase A: live doing rows (tw runs) + once-per-desk doing.task.* leaves. */
 function wallDoingTaskList(owner) {
   const v = wallDoingView(owner);
-  const raw = (v && Array.isArray(v.tasks)) ? v.tasks : [];
+  const raw = (v && Array.isArray(v.doings)) ? v.doings : [];
   if (typeof scoreDoingTaskLiveRows === "function") return scoreDoingTaskLiveRows(raw);
   return raw.filter(function (t) {
     const st = String((t && t.state) || "").trim().toLowerCase();
     return st !== "finished" && st !== "failed";
-  }).slice(0, 8);
+  }).slice(0, typeof WALL_DOINGS_CAP === "number" ? WALL_DOINGS_CAP : 20);
 }
 function wallDoingTaskRowHtml(row) {
   if (!row) return "";
   const actBit = (typeof wallActLabel === "function") ? wallActLabel("task") : "tasked";
   const state = String(row.state || "").trim();
-  const join = String(row.join_key || "").trim();
-  const wait = String(row.waiting_on || "").trim();
-  const card = String(row.card || "").trim();
-  const waitBit = (state === "waiting" && wait)
-    ? ` <span class="dt-wait" title="waiting_on">${esc("waiting_on " + wait)}</span>`
-    : "";
+  const text = String(row.text || "").trim();
+  const card = row.card == null ? "" : String(row.card).trim();
   const cardBit = card
     ? (` ` + (typeof wallDoingItemHtml === "function" ? wallDoingItemHtml(card.indexOf("-") >= 0 ? card : ("todo-" + card)) : `<span class="doing-on">${esc(card)}</span>`))
     : "";
-  return `<span class="doing-task-row" data-act="task" data-state="${esc(state)}" data-join-key="${esc(join)}">` +
+  return `<span class="doing-task-row" data-state="${esc(state)}" data-id="${esc(row.id == null ? "" : row.id)}">` +
     `<span class="dt-act">${esc(actBit)}</span>` +
-    (state ? ` <span class="dt-state">${esc(state)}</span>` : "") +
-    waitBit +
-    (join ? ` <span class="dt-join" title="join_key">${esc(join)}</span>` : "") +
+    (state ? ` <span class="dt-state" title="${esc(row.state_at || "")}">${esc(state)}</span>` : "") +
+    (text ? ` <span class="dt-text">${esc(text)}</span>` : "") +
+    ` <span class="dt-ago">${esc(wallDoingAge(row.created))}</span>` +
     cardBit +
     `</span>`;
 }
@@ -218,7 +171,7 @@ function wallDoingTaskLastDoneHtml(row) {
     bits.join(" ") + `</span>`;
 }
 function wallDoingTaskRowsHtml(owner) {
-  /* Live non-terminal tasks[] win. If none, last-done tail from doing.task.* scores. */
+  /* Live doings[] win. If none, last-done tail from doing.task.* scores. */
   const rows = wallDoingTaskList(owner);
   if (rows.length) {
     return `<div class="doing-tasks" data-slot="tasks">` +
@@ -262,43 +215,27 @@ function wallDoingTaskScoresHtml(owner) {
 }
 
 /* The desk panel and the COLLAB desk detail: the whole view, with links. */
-function wallDoingDeskHtml(owner, seatText) {
+function wallDoingDeskHtml(owner) {
   const v = wallDoingView(owner);
   const tasksHtml = wallDoingTaskRowsHtml(owner);
   const scoresHtml = wallDoingTaskScoresHtml(owner);
   if (!v) {
     /* No /api/v1/doing view yet: still paint Phase A task rows/scores when present. */
-    const seat = String(seatText || "").trim();
-    if (!tasksHtml && !scoresHtml && !seat) return "";
-    const head = seat
-      ? `<div class="here-doing-now">${esc(seat)}</div>`
-      : `<div class="here-doing-now is-idle">${esc("-")}</div>`;
+    if (!tasksHtml && !scoresHtml) return "";
+    const head = `<div class="here-doing-now is-idle">${esc("-")}</div>`;
     return `<div class="here-doing doing-view">${head}${tasksHtml}${scoresHtml}</div>`;
   }
-  const cur = wallDoingStale(v) ? "" : String(v.doing || "").trim();
-  const last = v.last || null;
-  const left = wallDoingLeftover(v);
-  let head;
-  if (left) {
-    head = `<div class="here-doing-now is-idle is-stale">${esc(left)}</div>` +
-      (v.on ? `<div class="doing-facts">on ${wallDoingItemHtml(v.on)}</div>` : "");
-  } else if (cur) {
-    head = `<div class="here-doing-now">${esc(cur)}</div>` +
-      `<div class="doing-facts">${v.on ? "on " + wallDoingItemHtml(v.on) : ""}<span class="doing-age">${esc(v.age ? "for " + v.age : "")}</span></div>`;
-  } else {
-    head = `<div class="here-doing-now is-idle">${esc("idle" + (v.idle ? " " + v.idle : ""))}</div>` +
-      (last && last.doing
-        ? `<div class="doing-facts">last: ${esc(last.doing)} ${last.on ? "on " + wallDoingItemHtml(last.on) : ""}<span class="doing-age">${esc(last.age || "")}</span>${wallDoingEndedHtml(last.ended_by)}</div>`
-        : "");
-  }
-  return `<div class="here-doing doing-view" title="${esc(String(v.line || ""))}">${head}` +
-    `<div class="doing-facts">Waiting on it: ${wallDoingWaitHtml(owner, v)}</div>` +
+  const cur = wallDoingText(owner);
+  const head = cur
+    ? `<div class="here-doing-now">${esc(cur)}</div><div class="doing-facts"><span class="doing-age">${esc(wallDoingNewest(v) ? "newest " + wallDoingAge(wallDoingNewest(v).created) : "")}</span></div>`
+    : `<div class="here-doing-now is-idle${wallDoingStale(v) ? " is-stale" : ""}">idle</div>`;
+  return `<div class="here-doing doing-view">${head}` +
     tasksHtml +
     scoresHtml +
     `</div>`;
 }
 
-/* Trails: a card's doing rows (on=todo-N) or a desk's (desk=D), oldest first. */
+/* Trails: a card's tw runs and moves (on=todo-N) or a desk's tw runs (desk=D), oldest first. */
 function wallDoingTrailUrl(key) {
   const k = String(key || "");
   if (k.indexOf("desk-") === 0) return WALL_DOING_HISTORY_URL + "?desk=" + encodeURIComponent(k.slice(5));
@@ -310,30 +247,31 @@ function wallDoingTrailHtml(key) {
   if (!got || got.state !== "ok") return "";
   const byDesk = String(key).indexOf("desk-") === 0;
   const rows = (got.rows || []).slice(0, WALL_DOING_TRAIL_MAX).reverse();
-  if (!rows.length) return `<span class="dt-head">Doing</span><span class="dt-none">${esc(byDesk ? "No doing rows from this desk yet." : "No doing rows on this card yet.")}</span>`;
+  if (!rows.length) return `<span class="dt-head">Doing</span><span class="dt-none">${esc(byDesk ? "No tw runs from this desk yet." : "No tw runs or moves on this card yet.")}</span>`;
   const older = Math.max(0, (Number(got.entries) || rows.length) - rows.length);
   return `<span class="dt-head">Doing</span>` +
     (byDesk ? "" : wallDoingCardEvidenceHtml(key)) +
     (older ? `<span class="dt-more">${esc(older + " older not shown")}</span>` : "") +
     rows.map(function (e) {
-      /* #897 rule-doing-focus: a move row is never "current". #899 paints act. */
-      const act = String(e.act || "").trim();
-      const isFocus = !act || (typeof wallActIsFocus === "function" ? wallActIsFocus(act) : (act === "focus" || act === "clear" || act === "finish"));
+      /* Card 1207: src doing is a tw run (current until its terminal transition); src transition is a
+         move on the item's trail, painted by its act (#899). */
+      const isRun = String(e.src || "doing") !== "transition";
+      const act = isRun ? "" : String(e.act || "").trim();
       const actBit = act ? (typeof wallActLabel === "function" ? wallActLabel(act) : act) : "";
       let how;
-      if (!isFocus) how = actBit || "move";
+      if (!isRun) how = actBit || "move";
       else if (e.ended_by) how = String(e.ended_by);
       else if (e.ended) how = "ended";
       else how = "current";
       const ev = e.evidence != null && String(e.evidence) ? String(e.evidence) : "";
-      return `<span class="dt-row${isFocus ? "" : " dt-move"}" data-act="${esc(act)}">` +
+      return `<span class="dt-row${isRun ? "" : " dt-move"}" data-act="${esc(act)}">` +
         `<span class="dt-at">${esc(e.at ? dt(e.at).slice(5, 16) : "")}</span> ` +
         (byDesk ? "" : `<b class="dt-desk">${esc(millName("desk", e.desk || ""))}</b> `) +
         (actBit ? `<span class="dt-act">${esc(actBit)}</span> ` : "") +
-        `<span class="dt-text">${esc(e.doing || "")}</span>` +
+        `<span class="dt-text">${esc(e.text || (isRun ? "tw run" : ""))}</span>` +
         (byDesk && e.on ? ` <span class="dt-on">${esc("on " + e.on)}</span>` : "") +
         (ev ? ` <span class="dt-evidence">${esc(ev)}</span>` : "") +
-        ` <span class="doing-ended" data-ended-by="${esc(isFocus ? (e.ended_by || "") : "")}">${esc(how)}</span>` +
+        ` <span class="doing-ended" data-ended-by="${esc(isRun ? (e.ended_by || "") : "")}">${esc(how)}</span>` +
         `</span>`;
     }).join("");
 }
@@ -423,12 +361,6 @@ function wallDoingGo(item) {
       ev.preventDefault();
       ev.stopPropagation();
     }
-  }, true);
-  /* One popover open at a time. */
-  document.addEventListener("toggle", function (ev) {
-    const t = ev.target;
-    if (!t || !t.classList || !t.classList.contains("doing-wait") || !t.open) return;
-    document.querySelectorAll("details.doing-wait[open]").forEach(function (o) { if (o !== t) o.open = false; });
   }, true);
 })();
 var WALL_UI_DEFAULT_DOING_PAINT = "WALL_UI_DEFAULT_DOING_PAINT";

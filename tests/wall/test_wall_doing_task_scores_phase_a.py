@@ -42,13 +42,19 @@ const by = scoreDoingTaskLeavesByDesk(kpis);
 const office = scoreDoingTaskOfficeRollup(by);
 const builder = scoreDoingTaskDeskRollup(by.builder);
 const live = scoreDoingTaskLiveRows([
-  { act: 'task', state: 'active', join_key: 'task:builder:w1', card: 'todo-12' },
-  { act: 'task', state: 'finished', join_key: 'task:builder:w0' },
-  { act: 'task', state: 'waiting', join_key: 'task:builder:w2', cause: 'pattern', title: 'SECRET', argv: ['x'], pattern: '/leak/' },
-  { act: 'task', state: 'failed', join_key: 'task:builder:w3' },
+  // card 1207 doings[] shape: id, created, text, state, state_at, card (a feed may still leak old keys)
+  { id: 1, created: '2026-11-13T01:00:00Z', text: '', state: 'active', state_at: '2026-11-13T01:00:00Z', card: 12 },
+  { id: 0, created: '2026-11-13T00:00:00Z', text: '', state: 'finished', state_at: '2026-11-13T00:30:00Z', card: null },
+  { id: 2, created: '2026-11-13T02:00:00Z', text: '', state: 'waiting', state_at: '2026-11-13T02:10:00Z', card: null,
+    join_key: 'task:builder:w2', cause: 'pattern', waiting_on: 'x', title: 'SECRET', argv: ['x'], pattern: '/leak/' },
+  { id: 3, created: '2026-11-13T03:00:00Z', text: '', state: 'failed', state_at: '2026-11-13T03:05:00Z', card: null },
 ]);
 
+const many = scoreDoingTaskLiveRows(Array.from({ length: 25 }, (_, i) => (
+  { id: i + 1, created: '2026-11-13T01:00:00Z', text: '', state: 'active', state_at: '2026-11-13T01:00:00Z', card: null })));
 const out = {
+  cap: WALL_DOINGS_CAP,
+  manyIds: many.map(r => r.id),
   tasked: wallActLabel('task'),
   builderKeys: Object.keys(builder).sort(),
   builderWait: scoreDoingTaskFormatLeaf('wait_by_cause', builder.wait_by_cause),
@@ -63,7 +69,8 @@ const out = {
   officeDesks: office.desks,
   liveN: live.length,
   liveStates: live.map(r => r.state),
-  liveJoin: live.map(r => r.join_key),
+  liveIds: live.map(r => r.id),
+  liveCards: live.map(r => r.card),
   liveHasTitle: live.some(r => r.title),
   liveHasPattern: live.some(r => r.pattern),
   liveWaiting: live.find(r => r.state === 'waiting'),
@@ -139,13 +146,13 @@ def test_phase_a_hide_terminal_and_privacy():
     got = _run()
     assert got["liveN"] == 2
     assert got["liveStates"] == ["active", "waiting"]
-    assert got["liveJoin"] == ["task:builder:w1", "task:builder:w2"]
+    assert got["liveIds"] == [1, 2]
+    assert got["liveCards"] == [12, None]
     assert got["liveHasTitle"] is False
     assert got["liveHasPattern"] is False
     wait = got["liveWaiting"]
-    assert wait["waiting_on"] == "pattern"
-    assert "title" not in wait
-    assert "argv" not in wait
+    assert sorted(wait) == ["card", "created", "id", "state", "state_at", "text"]
+    assert wait["state_at"] == "2026-11-13T02:10:00Z"
 
 
 def test_phase_a_last_done_from_scores():
@@ -183,3 +190,10 @@ def test_phase_a_last_done_ago_only_from_real_timestamp():
     assert got["lastWithFinishedAt"]["end_reason"] == "tw_finished"
     assert "ago" not in got["lastWithDocAt"]
     assert got["lastWithDocAt"]["end_reason"] == "tw_finished"
+
+
+def test_phase_a_lists_up_to_the_shared_doings_cap():
+    # card 1207 (wall-ui): the panel follows the server cap of 20 (lib/data.js WALL_DOINGS_CAP), not TASK_CAP 8.
+    got = _run()
+    assert got["cap"] == 20
+    assert got["manyIds"] == list(range(1, 21))

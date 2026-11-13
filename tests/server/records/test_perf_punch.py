@@ -77,7 +77,7 @@ def test_roster_ids_project_before_role(cn) -> None:
 def test_floor_part_mail_one_row_per_letter(cn, seeded) -> None:
     m1, _m2, _m3 = seeded
     seed_names(cn, ("pp_lan_p", "roster"))
-    rec_join.upsert(cn, "pp_lan_p", "pp_r2", "", "1" * 64, "")
+    rec_join.upsert(cn, "pp_lan_p", "pp_r2", "", "1" * 64)
     cur = cn.cursor()
     cur.execute("UPDATE seat SET lan_ip='192.0.2.77' WHERE desk_id=(SELECT id FROM name WHERE type='desk' AND name='pp_r2')")
     cn.commit()

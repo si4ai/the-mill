@@ -17,7 +17,7 @@ def _seat(cn, name: str) -> str:
     from agent_coord.client.tokens import token_hash
     from agent_coord.server.records import join as rec_join
 
-    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
+    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name))
     return name
 
 def _trashed(cn, kind: str, name: str):
@@ -146,23 +146,22 @@ def test_human_member_blocks_purge(cn) -> None:
     with pytest.raises(CoordError, match="human|referenced|retire"):
         rec_name.purge_trashed(cn, "r879-hm", "roster", by=admin)
 
-def test_delete_restore_purge_write_timeline_acts(cn) -> None:
+def test_delete_restore_purge_write_no_timeline_row(cn) -> None:
     admin = admin_desk(cn)
-    rec_name.get_or_insert(cn, "l879-act", "label")
+    lid = rec_name.get_or_insert(cn, "l879-act", "label")
     rec_name.trash(cn, "l879-act", "label", by=admin)
     rec_name.restore_trashed(cn, "l879-act", "label", by=admin)
     rec_name.trash(cn, "l879-act", "label", by=admin)
     rec_name.purge_trashed(cn, "l879-act", "label", by=admin)
-    acts = []
     cur = cn.cursor()
-    cur.execute(
-        "SELECT act FROM doing WHERE act IN ('delete','restore','purge') ORDER BY id"
-    )
-    acts = [r[0] for r in cur.fetchall()]
+    # Card 1207: a name is not an activity and focus rows are gone, so the events leave no timeline row at all.
+    cur.execute("SELECT COUNT(*) FROM transition WHERE join_key = %s", (f"name:{int(lid)}",))
+    n_tr = int(cur.fetchone()[0])
+    cur.execute("SELECT COUNT(*) FROM transition_edge WHERE reason LIKE 'name\\_%'")
+    n_edge = int(cur.fetchone()[0])
     cur.close()
-    assert acts.count("delete") >= 2
-    assert "restore" in acts
-    assert "purge" in acts
+    assert n_tr == 0 and n_edge == 0
+    assert rec_name.get(cn, "l879-act", "label") is None
 
 def test_purge_label_refuses_non_admin(cn) -> None:
     """Card 931 follow-up: purge of label/tree is Admin only (cli-desk.md)."""

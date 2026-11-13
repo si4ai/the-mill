@@ -116,16 +116,8 @@
     {"updated": "2026-11-11 09:00:00", "type": "mail", "act": "", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 1},
     {"updated": "2026-11-10 23:00:00", "type": "wake", "act": "", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 3},
     {"updated": "2026-11-11 09:00:00", "type": "doing", "act": "task", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 4},
-    {"updated": "2026-11-11 10:00:00", "type": "doing", "act": "seat", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 9},
-    {"updated": "2026-11-11 11:00:00", "type": "doing", "act": "task", "desk": "wall-ui", "desk_id": 7, "roster": "Office", "items": 3}
-   ],
-   "next": null
-  },
-  "activityTask": {
-   "rows": [
-    {"updated": "2026-11-11 09:00:00", "type": "doing", "act": "task", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 4},
-    {"updated": "2026-11-11 11:00:00", "type": "doing", "act": "task", "desk": "wall-ui", "desk_id": 7, "roster": "Office", "items": 3},
     {"updated": "2026-11-11 10:00:00", "type": "doing", "act": "task", "desk": "builder", "desk_id": 3, "roster": "Office", "items": 2},
+    {"updated": "2026-11-11 11:00:00", "type": "doing", "act": "task", "desk": "wall-ui", "desk_id": 7, "roster": "Office", "items": 3},
     {"updated": "2026-11-11 11:00:00", "type": "doing", "act": "task", "desk": "gardener", "desk_id": 5, "roster": "Office", "items": 1}
    ],
    "next": null

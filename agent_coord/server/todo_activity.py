@@ -169,6 +169,25 @@ def emit_claim(
         )
 
 
+def emit_assign(cn, *, todo_id: int, desk_id: int, fixture: bool = False) -> None:
+    """T5 assign (open->claimed); desk_id is the desk that assigned. Card 1207: the doing move row is gone."""
+    tid, did = int(todo_id), int(desk_id)
+    if tid <= 0 or did <= 0:
+        return
+    _safe_put(
+        cn,
+        activity_type=ActivityType.todo,
+        activity_id=tid,
+        from_state=State.open,
+        to_state=State.claimed,
+        reason=Reason.assign,
+        desk_id=did,
+        role="actor",
+        join_key=join_key(tid),
+        meta=_meta(fixture),
+    )
+
+
 def emit_unclaim(cn, *, todo_id: int, desk_id: int, fixture: bool = False) -> None:
     tid, did = int(todo_id), int(desk_id)
     if tid <= 0 or did <= 0:
