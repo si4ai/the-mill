@@ -1104,6 +1104,22 @@
     return cur.state;
   }
   /* Rows up to playhead t, newest first, at most cap. */
+  /* The heart-monitor trace: the window cut into n equal buckets, how many rows fall in each
+   * (all kinds, and per kind), and the busiest bucket. Bursts spike; quiet stays flat. */
+  function replayTrace(rep, n) {
+    n = n || 160;
+    var span = Math.max(1, rep.until - rep.since), total = [], kinds = {}, peak = 0;
+    for (var i = 0; i < n; i++) total.push(0);
+    REPLAY_KINDS.forEach(function (k) { kinds[k] = total.slice(); });
+    rep.rows.forEach(function (r) {
+      if (r.at < rep.since || r.at > rep.until) return;
+      var b = Math.min(n - 1, Math.floor((r.at - rep.since) / span * n));
+      total[b]++;
+      if (kinds[r.kind]) kinds[r.kind][b]++;
+      if (total[b] > peak) peak = total[b];
+    });
+    return { n: n, total: total, kinds: kinds, peak: peak };
+  }
   function replayAt(rep, t, cap) {
     var out = [];
     for (var i = rep.rows.length - 1; i >= 0 && out.length < (cap || 60); i--) if (rep.rows[i].at <= t) out.push(rep.rows[i]);
@@ -1200,7 +1216,7 @@
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayItems: replayItems, replayStateAt: replayStateAt,
+    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayItems: replayItems, replayStateAt: replayStateAt,
     REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,

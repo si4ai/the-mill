@@ -80,6 +80,9 @@ console.log(JSON.stringify({
   stateWorking: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:06:00Z')),
   stateWaiting: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:34:00Z')),
   shell: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1}),
+  trace: (() => { const t = R.replayTrace(rep, 40); return {n: t.n, sum: t.total.reduce((a, c) => a + c, 0), peak: t.peak,
+    kinds: Object.fromEntries(Object.entries(t.kinds).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])),
+    quiet: t.total.filter(c => c === 0).length}; })(),
   shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
 }));
 """
@@ -184,3 +187,19 @@ def test_full_screen_toggle_with_a_viewport_fallback():
     assert any("position: fixed; inset: 0" in ln for ln in fs), "covers the viewport without the API"
     assert any(".rd-rp-bar { order: 2" in ln for ln in fs), "controls sit along the bottom"
     assert any(".rd-pill" in ln and "font-size: 18px" in ln for ln in fs), "desk pills scale up"
+
+
+def test_the_timeline_is_a_heart_monitor_trace_that_scrubs():
+    got = run()
+    tr = got["trace"]
+    assert tr["n"] == 40 and tr["sum"] == len(got["rows"]), "every row in the window lands in a bucket"
+    assert tr["peak"] >= 1 and tr["quiet"] > 0, "bursts spike, quiet stretches stay flat"
+    assert sum(tr["kinds"].values()) == tr["sum"] and tr["kinds"]["mail"] >= 1
+    shell = got["shell"]
+    assert 'type="range"' not in shell, "the plain scrubber is gone"
+    assert 'data-rp-trace="1" role="slider" tabindex="0"' in shell
+    assert 'class="rd-rp-tr-dim"' in shell and 'clip-path="url(#rd-rp-clip)"' in shell, "dim ahead, lit behind the playhead"
+    assert 'data-rp-head="1"' in shell and 'data-rp-clip="1"' in shell
+    assert re.search(r'<rect class="k-(mail|todo|hold|wake|doing|score)"', shell), "a lane coloured by kind"
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "pointerdown" in app and "[data-rp-trace]" in app and "ArrowLeft" in app

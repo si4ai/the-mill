@@ -375,8 +375,13 @@
     var rows = R.replayAt(rep, t, RP_CAP);
     var keys = rows.map(function (r) { return r.key; });
     var sig = keys.join("|");
-    var scrub = root.querySelector("[data-rp-scrub]"), clockEl = root.querySelector("[data-rp-clock]"), play = root.querySelector("[data-rp-play]");
-    if (scrub && document.activeElement !== scrub) scrub.value = String(Math.round(1000 * (t - rep.since) / Math.max(1, rep.until - rep.since)));
+    var clockEl = root.querySelector("[data-rp-clock]"), play = root.querySelector("[data-rp-play]");
+    /* The trace: lit up to the playhead, dim after it. */
+    var frac = Math.max(0, Math.min(1, (t - rep.since) / Math.max(1, rep.until - rep.since))), x = (1000 * frac).toFixed(1);
+    var clip = root.querySelector("[data-rp-clip]"), head = root.querySelector("[data-rp-head]"), trace = root.querySelector("[data-rp-trace]");
+    if (clip) clip.setAttribute("width", x);
+    if (head) { head.setAttribute("x1", x); head.setAttribute("x2", x); }
+    if (trace) trace.setAttribute("aria-valuenow", String(Math.round(1000 * frac)));
     if (clockEl) { var d = new Date(t); clockEl.textContent = (rp.t == null && !rp.playing ? "now " : "") + d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
     if (play) { play.textContent = rp.playing ? "\u23f8" : "\u25b6"; play.setAttribute("aria-label", rp.playing ? "Pause" : "Play"); }
     if (list && sig !== rp.drawn) drawRows(list, rows, keys, sig, animate);
@@ -538,15 +543,35 @@
   }
   function rpPause() { if (!rp.playing) return; rp.t = rpNow(); rp.playing = false; drawReplay(false); }
   function rpStop() { rp.playing = false; rp.t = null; rp.drawn = null; }
-  root.addEventListener("input", function (ev) {
-    var el = ev.target;
-    if (!el || !el.getAttribute || !el.getAttribute("data-rp-scrub")) return;
+  /* Scrub on the trace: click or drag sets the playhead (and pauses); the far right is now. */
+  function rpSeek(frac) {
     var rep = rpRep();
     if (!rep) return;
     rp.playing = false;
-    var v = Number(el.value) || 0;
-    rp.t = v >= 1000 ? null : rep.since + (rep.until - rep.since) * v / 1000;
+    frac = Math.max(0, Math.min(1, frac));
+    rp.t = frac >= 0.999 ? null : rep.since + (rep.until - rep.since) * frac;
     drawReplay(false);
+  }
+  function traceFrac(el, ev) { var r = el.getBoundingClientRect(); return r.width ? (ev.clientX - r.left) / r.width : 1; }
+  var dragTrace = null;
+  root.addEventListener("pointerdown", function (ev) {
+    var el = closest(ev.target, "[data-rp-trace]");
+    if (!el) return;
+    dragTrace = el;
+    if (el.setPointerCapture) try { el.setPointerCapture(ev.pointerId); } catch (e) { /* capture is optional */ }
+    ev.preventDefault();
+    rpSeek(traceFrac(el, ev));
+  });
+  root.addEventListener("pointermove", function (ev) { if (dragTrace) rpSeek(traceFrac(dragTrace, ev)); });
+  ["pointerup", "pointercancel"].forEach(function (n) { root.addEventListener(n, function () { dragTrace = null; }); });
+  root.addEventListener("keydown", function (ev) {
+    var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-trace") ? ev.target : null;
+    if (!el) return;
+    var at = (Number(el.getAttribute("aria-valuenow")) || 0) / 1000;
+    var to = ev.key === "ArrowLeft" ? at - 0.01 : ev.key === "ArrowRight" ? at + 0.01 : ev.key === "Home" ? 0 : ev.key === "End" ? 1 : null;
+    if (to == null) return;
+    ev.preventDefault();
+    rpSeek(to);
   });
   /* The move rows (the transitions) of the cards and promises in the week, and each focused
    * desk's own focus rows. Read again only when the item moved, or once a minute for a desk. */

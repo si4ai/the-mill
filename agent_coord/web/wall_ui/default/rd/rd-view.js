@@ -409,6 +409,34 @@
       return "<li>" + head + (r.note ? " " + flag(r.note, r.kind === "unread" ? "older" : "hot") : "") + "</li>";
     }).join("") + "</ul>" : empty("Nothing is blocking anyone.")) + "</details>";
   }
+  /* The trace strip: one EKG line of row density over the window, drawn twice. The dim copy is
+   * what is still to come; the lit copy is clipped to the playhead, so the sweep reveals it. A
+   * thin lane under the line takes the colour of each bucket's busiest kind. rd-app moves the
+   * clip and the playhead; click or drag on the strip scrubs. */
+  var TRACE_W = 1000, TRACE_H = 40, TRACE_BASE = 30;
+  function traceHtml(rep) {
+    var tr = R.replayTrace(rep, 160), w = TRACE_W / tr.n, pts = [], lane = "";
+    for (var i = 0; i < tr.n; i++) {
+      var x0 = i * w, c = tr.total[i];
+      if (!c) { pts.push(x0.toFixed(1) + "," + TRACE_BASE); continue; }
+      var y = TRACE_BASE - 2 - 26 * Math.sqrt(c / tr.peak);
+      pts.push(x0.toFixed(1) + "," + TRACE_BASE, (x0 + w * 0.35).toFixed(1) + "," + y.toFixed(1), (x0 + w * 0.6).toFixed(1) + "," + (TRACE_BASE + 3), (x0 + w).toFixed(1) + "," + TRACE_BASE);
+      var top = null;
+      R.REPLAY_KINDS.forEach(function (k) { if (tr.kinds[k][i] && (top == null || tr.kinds[k][i] > tr.kinds[top][i])) top = k; });
+      if (top) lane += '<rect class="k-' + top + '" x="' + x0.toFixed(1) + '" y="' + (TRACE_H - 4) + '" width="' + w.toFixed(1) + '" height="3"/>';
+    }
+    pts.push(TRACE_W + "," + TRACE_BASE);
+    var line = pts.join(" ");
+    return '<div class="rd-rp-trace" data-rp-trace="1" role="slider" tabindex="0" aria-label="Replay position" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000" title="' + h(plural(rep.rows.length, "row") + ", busiest stretch " + tr.peak) + '">' +
+      '<svg viewBox="0 0 ' + TRACE_W + " " + TRACE_H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<defs><clipPath id="rd-rp-clip"><rect data-rp-clip="1" x="0" y="0" width="' + TRACE_W + '" height="' + TRACE_H + '"/></clipPath></defs>' +
+      '<line class="rd-rp-tr-base" x1="0" y1="' + TRACE_BASE + '" x2="' + TRACE_W + '" y2="' + TRACE_BASE + '"/>' +
+      '<g class="rd-rp-tr-lane">' + lane + "</g>" +
+      '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
+      '<polyline class="rd-rp-tr-lit" clip-path="url(#rd-rp-clip)" points="' + line + '"/>' +
+      '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + TRACE_W + '" y1="0" x2="' + TRACE_W + '" y2="' + TRACE_H + '"/>' +
+      "</svg></div>";
+  }
   /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
   function replayHtml(rep, blocking, ui) {
     var wins = ["auto", "hour", "day", "week"].map(function (w) {
@@ -423,7 +451,7 @@
     return '<section class="rd-replay" data-rp-stage="1"><div class="rd-rp-bar">' +
       '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
       '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
-      '<input type="range" class="rd-rp-scrub" data-rp-scrub="1" min="0" max="1000" value="1000" aria-label="Replay position">' +
+      traceHtml(rep) +
       '<span class="rd-rp-clock" data-rp-clock="1"></span>' +
       '<span class="rd-time-range" role="group" aria-label="Replay window">' + wins + "</span>" +
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
