@@ -274,7 +274,8 @@ MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher",
                "mill_invite", "mill_invite_join", "push_queue")
 CARD_1022_TABLES = ("wake", "transition", "transition_edge")
 CARD_1133_TABLES = ("activity_history",)
-FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
+CARD_1212_TABLES = ("score_view",)
+FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES + CARD_1212_TABLES
 
 def _apply_1022_after_080(cn) -> None:
     """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including cards 1163 and 1200."""
@@ -287,6 +288,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_1163(cn)
     migrate.apply_1200(cn)
     migrate.apply_1207(cn)  # card 1207: moves to transition, evidence to todo.meta, doing.evidence dropped
+    migrate.apply_1212(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.

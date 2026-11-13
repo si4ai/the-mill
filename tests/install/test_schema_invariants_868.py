@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SHORT_TEXT_OK = {
     ("name", "name"): "the name itself",
     ("score", "kpi"): "a kpi key, not a name row (main)",
+    ("score_view", "kpi"): "a score key, not a name row (card 1212)",
     ("score", "value"): "a reading (main)",
     ("score", "target"): "a target (main)",
     ("score", "unit"): "a unit (main)",
@@ -178,11 +179,11 @@ def test_app_grant_is_execute_only(book):
 
 
 def test_no_name_event_anywhere_in_the_book(book):
-    # No name history (the owner): no table, trigger or routine names name_event, and the book has 25 tables (22 - push_queue + wake/transition/transition_edge + activity_history, card 1133) (F166).
+    # No name history (the owner): no table, trigger or routine names name_event, and the book has 26 tables (22 - push_queue + wake/transition/transition_edge + activity_history, card 1133, + score_view, card 1212) (F166).
     cn, db = book
     tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
     assert "name_event" not in tables
-    assert len(tables) == 25, f"beta book has {len(tables)} tables"
+    assert len(tables) == 26, f"beta book has {len(tables)} tables"
     trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
                      " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
                      " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))

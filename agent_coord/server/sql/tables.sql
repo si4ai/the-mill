@@ -1,7 +1,7 @@
--- 25 tables. Wipe then apply.
+-- 26 tables. Wipe then apply.
 -- 0.8.0 schema (card 868): main's 0.7.18 tables with the departures in docs/requirements/beta/BETA-CHANGES.md;
 -- name, seat, member, activity, label, tree, watcher, mail, mail_to, tree_read, todo,
--- doing, hold, score, score_point, score_evidence, wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join, activity_history.
+-- doing, hold, score, score_point, score_evidence, score_view, wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join, activity_history.
 -- activity_history (card 1133): the old text of a mail or card body, one row per replace.
 -- card 1207: card and hold moves are transition rows (card 1022); a doing row is one tw.exe run (no seat pointer).
 -- activity.act uses the act list (BETA-CHANGES.md, "The act list"); doing has no act.

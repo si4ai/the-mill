@@ -185,8 +185,27 @@ def _desk_scores(cn, desk_id: int, window: str, active: set[int]) -> list[dict]:
     return [scores[name] for name in SCORE_NAMES]
 
 
+def _ensure_view_table(cn) -> None:
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS score_view ("
+            " kpi VARCHAR(64) NOT NULL,"
+            " viewer_id BIGINT UNSIGNED NOT NULL,"
+            " n INT UNSIGNED NOT NULL DEFAULT 0,"
+            " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
+            " PRIMARY KEY (kpi, viewer_id),"
+            " KEY idx_viewer (viewer_id, last_seen)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+        )
+        cn.commit()
+    finally:
+        cur.close()
+
+
 def read_scores(cn, window: str = "7d", viewer: str | None = None) -> dict[str, Any]:
     """Every active desk, each score, and a roster rollup. Wall reads pass no viewer."""
+    _ensure_view_table(cn)
     window = (window or "7d").strip().lower() or "7d"
     active = active_desk_ids(cn, window)
     desks = _rows(cn, "SELECT id, name FROM name WHERE type='desk' ORDER BY name")

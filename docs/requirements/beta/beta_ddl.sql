@@ -1,5 +1,5 @@
--- 25 tables. Wipe then apply.
--- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 25 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history).
+-- 26 tables. Wipe then apply.
+-- BETA (0.8, card 868 + 1022 + 1133): main's tables.sql with the departures listed in BETA-CHANGES.md; 26 tables (fold wake into wake + transition + transition_edge; card 1133 adds activity_history; card 1212 adds score_view).
 -- Card 1022 adds wake/transition/transition_edge (owner 2026-11-01). card 1207: doing is only tw runs (six columns);
 -- moves are transition rows; seat has no doing pointer. activity.act uses the act list (BETA-CHANGES.md, "The act list").
 -- BETA order: name, then seat (the desk kind table), then main's order.

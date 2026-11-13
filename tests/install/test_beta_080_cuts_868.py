@@ -19,7 +19,7 @@ CHANGES = ROOT / "docs" / "requirements" / "beta" / "BETA-CHANGES.md"
 MAIN_22 = {"name", "seat", "member", "activity", "label", "tree", "watcher", "mail", "mail_to", "tree_read", "todo",
            "doing", "hold", "score", "score_point", "score_evidence", "human", "human_desk", "human_member",
            "mill_invite", "mill_invite_join", "wake", "transition", "transition_edge",
-           "activity_history"}  # card 1133
+           "activity_history", "score_view"}  # card 1133, card 1212
 
 
 def doc_acts() -> list[str]:
