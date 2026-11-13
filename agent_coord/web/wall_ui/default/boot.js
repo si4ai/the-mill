@@ -879,8 +879,6 @@
       if (tables.length) return tables.map(tableTsv).join("\n\n");
       const hist = pane.querySelector(".hist-row");
       if (hist) return rowsTsv(".hist-row", pane);
-      const list = document.getElementById("jobs-list");
-      if (list && !list.hidden && list.querySelector(".todo-list-row")) return rowsTsv(".todo-list-row", list);
       const cards = [...pane.querySelectorAll("#jobs-kanban .body > *")].filter(el => !el.classList.contains("jobs-col-gutter"));
       if (cards.length) return cards.map(el => el.innerText.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
       return "";
@@ -892,7 +890,8 @@
     }
     function enhanceTables(root) {
       (root || document).querySelectorAll("table").forEach(tbl => {
-        if (tbl.closest("#howto-card")) return;
+        /* The TODO list table sorts and opens cards itself. */
+        if (tbl.closest("#howto-card, #jobs-list")) return;
         let wrap = tbl.parentElement;
         if (!wrap || !wrap.classList.contains("tbl-wrap")) {
           wrap = document.createElement("div");
@@ -1122,7 +1121,7 @@
 
       const sub = document.getElementById("jobs-view-sub");
       if (sub) {
-        if (v === "nest") sub.textContent = "plans | chart left to right";
+        if (v === "nest") sub.textContent = _todoTreePlan ? "tree | one line per card" : "trees | open one for its outline";
         else sub.textContent = "one card | parked / open / claimed / shipped / done";
       }
       /* Picking Plan does not rename the address, so a refresh returns to Board. */
@@ -1451,7 +1450,7 @@
          Do NOT treat "has loading descendant" as empty - that blanked panes on re-enter. */
       if (!el) return false;
       if (!wallLoadingOnly(el)) return true;
-      if (el.querySelector && el.querySelector("table, svg, .mail-rooms-nest, .mail-rooms-row, .need, .todo-list-group, .floor-node, .score-row, .desk-row, .mill-outline-row, .idle, .col-empty, .empty-session, .mail-all-clear")) return true;
+      if (el.querySelector && el.querySelector("table, svg, .mail-rooms-nest, .mail-rooms-row, .need, .todo-tree-row, .todo-outline-row, .floor-node, .score-row, .desk-row, .mill-outline-row, .idle, .col-empty, .empty-session, .mail-all-clear")) return true;
       const t = String(el.textContent || "").trim();
       if (!t) return false;
       /* Pure loading label text alone is not "real" content. */
@@ -4129,6 +4128,138 @@
         `</div>`;
     }
 
+    /* TODO List: a Jira-style table over the kanban's cards, one row per card. Rows, columns,
+     * sort and filter choices come from todo/todo.js (WallTodo); sort and filters persist. */
+    const TODO_LIST_KEY = "rd-todo-list";
+    let _todoListCards = [];
+    function loadTodoListOpt() {
+      try {
+        const o = JSON.parse(localStorage.getItem(TODO_LIST_KEY) || "{}");
+        return o && typeof o === "object" ? o : {};
+      } catch (e) { return {}; }
+    }
+    function saveTodoListOpt(o) {
+      try { localStorage.setItem(TODO_LIST_KEY, JSON.stringify(o || {})); } catch (e) {}
+    }
+    /* The open card's fuller face, on its own row under the card's line. */
+    function todoListMoreHtml(r, span) {
+      const id = String(r.id || "");
+      const detail = String(r.detail || "").trim();
+      const was = String(r.was || "").trim();
+      return `<tr class="todo-jira-more"><td colspan="${span}">` +
+        (detail ? `<div class="todo-card-note">${esc(detail)}</div>` : "") +
+        (r.progress ? `<span class="todo-tree-field"><span>progress</span> <b>${esc(r.progress)}</b></span>` : "") +
+        (was ? `<span class="todo-tree-field"><span>was</span> <code>${esc(was)}</code></span>` : "") +
+        wallClaimedSlot(r) +
+        (id ? wallDoingTrailSlot("todo-" + id) : "") +
+        `</td></tr>`;
+    }
+    function wallTodoListPaint() {
+      const el = document.getElementById("jobs-list");
+      const T = window.WallTodo;
+      if (!el || !T || !T.todoListView) return;
+      wireTodoList();
+      const opt = loadTodoListOpt();
+      const raw = {};
+      const all = _todoListCards.map(r => { const row = T.todoListRow(r); raw[row.id] = r; return row; });
+      if (!all.length) {
+        el.innerHTML = `<div class="idle">No mill todo</div>`;
+        return;
+      }
+      const cols = T.todoListCols(all);
+      const col = cols.some(c => c.key === opt.col) ? opt.col : "state";
+      const dir = opt.dir === "desc" ? "desc" : "asc";
+      const pick = T.todoListChoices(all);
+      const desk = String(opt.desk || ""), state = String(opt.state || "");
+      /* A saved pick with no card today stays in its menu, so the filter is never hidden. */
+      if (desk && pick.desks.indexOf(desk) < 0) pick.desks.push(desk);
+      if (state && pick.states.indexOf(state) < 0) pick.states.push(state);
+      const rows = T.todoListView(all, { col: col, dir: dir, desk: desk, state: state });
+      const sel = (key, label, none, list, cur) =>
+        `<label class="todo-jira-filter"><span>${label}</span><select data-todo-filter="${key}">` +
+        `<option value="">${none}</option>` +
+        list.map(v => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("") +
+        `</select></label>`;
+      const count = rows.length === all.length ? `${all.length} cards` : `${rows.length} of ${all.length} cards`;
+      const bar = `<div class="todo-jira-bar">` + sel("desk", "Desk", "All desks", pick.desks, desk) +
+        sel("state", "State", "All states", pick.states, state) +
+        `<span class="todo-jira-n" aria-live="polite">${count}</span></div>`;
+      const head = cols.map(c => {
+        const on = c.key === col;
+        const mark = on ? (dir === "asc" ? "\u25B2" : "\u25BC") : "";
+        return `<th scope="col" class="c-${c.key}" aria-sort="${on ? (dir === "asc" ? "ascending" : "descending") : "none"}">` +
+          `<button type="button" data-todo-sort="${c.key}" title="Sort by ${c.label.toLowerCase()}">${esc(c.label)}` +
+          `<span class="todo-jira-mark" aria-hidden="true">${mark}</span></button></th>`;
+      }).join("");
+      const cell = (row, c) => {
+        const v = row[c.key];
+        if (c.key === "state") return `<span class="todo-jira-st st-${esc(v)}">${esc(v)}</span>`;
+        if (c.key === "title") return `<span class="todo-jira-ttl">${esc(v || "(no instructions)")}</span>` + millWatchBadge("todo", row.id);
+        if (c.key === "eta") return esc(v ? t(v) : "");
+        return esc(v);
+      };
+      /* On a phone the row stacks; these cells carry their own label (shown there only). */
+      const LABELLED = { claimant: 1, asker: 1, eta: 1 };
+      const body = rows.map(row => {
+        const open = row.id === String(_todoDetailId);
+        const r = raw[row.id] || {};
+        const tr = `<tr class="todo-jira-row st-${esc(row.state)}${open ? " is-open" : ""}" data-todo-id="${esc(row.id)}" ` +
+          `data-todo-trunc="${r.detail_trunc === true ? "1" : "0"}" tabindex="0" aria-expanded="${open ? "true" : "false"}">` +
+          cols.map(c => `<td class="c-${c.key}">${LABELLED[c.key] && row[c.key] ? `<span class="todo-jira-lbl">${esc(c.label)}</span>` : ""}${cell(row, c)}</td>`).join("") + `</tr>`;
+        return open ? tr + todoListMoreHtml(r, cols.length) : tr;
+      }).join("");
+      /* A repaint keeps the reader's place: scroll, and focus on the same header, menu or row. */
+      const a = document.activeElement;
+      let refocus = "";
+      if (a && el.contains(a)) {
+        if (a.getAttribute("data-todo-sort")) refocus = `[data-todo-sort="${a.getAttribute("data-todo-sort")}"]`;
+        else if (a.getAttribute("data-todo-filter")) refocus = `[data-todo-filter="${a.getAttribute("data-todo-filter")}"]`;
+        else if (a.getAttribute("data-todo-id")) refocus = `tr[data-todo-id="${wallCssq(a.getAttribute("data-todo-id"))}"]`;
+      }
+      const top = el.scrollTop;
+      el.innerHTML = bar + (rows.length
+        ? `<table class="todo-jira" aria-label="Cards"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
+        : `<div class="idle">No cards match these filters.</div>`);
+      el.scrollTop = top;
+      const back = refocus ? el.querySelector(refocus) : null;
+      if (back) { try { back.focus({ preventScroll: true }); } catch (eF) {} }
+    }
+    /* A value made safe inside a quoted attribute selector. */
+    function wallCssq(v) {
+      return (window.CSS && CSS.escape) ? CSS.escape(String(v)) : String(v).replace(/["\\]/g, "\\$&");
+    }
+    function wireTodoList() {
+      if (document._todoListWired) return;
+      document._todoListWired = true;
+      document.addEventListener("click", ev => {
+        const b = ev.target && ev.target.closest ? ev.target.closest("#jobs-list [data-todo-sort]") : null;
+        if (!b) return;
+        const key = b.getAttribute("data-todo-sort");
+        const o = loadTodoListOpt();
+        const asc = (o.col || "state") === key && o.dir !== "desc";
+        o.col = key;
+        o.dir = asc ? "desc" : "asc";
+        saveTodoListOpt(o);
+        wallTodoListPaint();
+      });
+      document.addEventListener("change", ev => {
+        const s = ev.target && ev.target.closest ? ev.target.closest("#jobs-list select[data-todo-filter]") : null;
+        if (!s) return;
+        const o = loadTodoListOpt();
+        o[s.getAttribute("data-todo-filter")] = s.value || "";
+        saveTodoListOpt(o);
+        wallTodoListPaint();
+      });
+      /* Enter or Space on a list row or a tree line opens the card, as a click does. */
+      document.addEventListener("keydown", ev => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        const r = ev.target;
+        if (!r || !r.matches || !r.matches("#jobs-list tr[data-todo-id], #jobs-outline .todo-outline-row[data-todo-id]")) return;
+        ev.preventDefault();
+        r.click();
+      });
+    }
+
     /* nest time window for tree-mail / tree-todo (All | 1d | 1w | 30d).
      * Persist like floor-span / todo-done-span. All = omit window=.
      * Sticky: when v1 down, floor parts=trees does not take window -> All-only. */
@@ -4440,11 +4571,7 @@
       return `<span class="watch-n" title="${n} ${word}">${n}</span>`;
     }
     let _todoTreePlan = "";
-    let _todoTreeCard = "";
     let _todoDetailId = "";
-    let _todoTreeChainOpen = true;
-    let _todoChartPanning = false;
-    let _todoChartPaintWait = false;
     const _todoTreeExpandTried = {};
     let _hereOwner = "";
     function hereKpiName(k) {
@@ -4711,56 +4838,10 @@
           g.innerHTML = cap + (function(){ let _pp=""; return doneN.map(r => { const n = millNestMeta(nestIx, r) || {}; const chip = !!(n.parentId && n.parentId !== _pp); _pp = n.parentId || ""; return needCard(r, n, chip); }); })().join("");
         }
       }
-      (function paintTodoList() {
-        if (hereOnly) return;
-        const el = document.getElementById("jobs-list");
-        if (!el) return;
-        const groups = [
-          { key: "parked", label: "Parked", match: s => s === "parked" },
-          { key: "open", label: "Open", match: s => s === "open" },
-          { key: "claimed", label: "Claimed", match: s => s === "claimed" },
-          { key: "shipped", label: "Shipped", match: s => s === "shipped" },
-          { key: "done", label: "Done | " + doneSpanLabel(doneSpan), match: s => s === "done" }
-        ];
-        const html = groups.map(g => {
-          const rows = g.key === "done"
-            ? recentDone
-            : cards.filter(r => g.match(String(r.status || "").toLowerCase()));
-          if (!rows.length) return "";
-          return `<div class="todo-list-group" data-group="${esc(g.key)}">` +
-            `<h3>${esc(g.label)} <span>${rows.length}</span></h3>` +
-            (() => { let _pp = ""; return millNestSortRows(rows, nestIx).map(r => {
-              const st = String(r.status || "").toLowerCase();
-              const detailOpen = String(r.id || "") === String(_todoDetailId);
-              const shrunk = todoStatusCollapsed(st) && !detailOpen;
-              const detailLine = String(r.detail || "").trim();
-              const title = detailLine || r.title || r.need_id || "";
-              const cardNote = detailOpen && detailLine && detailLine !== title
-                ? `<div class="todo-card-note">${esc(detailLine)}</div>` : "";
-              const who = [r.asker || r.src ? ("asker " + (r.asker || r.src)) : "",
-                r.volunteer ? ("claimed by " + r.volunteer) : ""].filter(Boolean).join(" | ");
-              const nest = millNestMeta(nestIx, r) || {};
-              const depth = Math.max(0, Number(nest.depth) || 0);
-              const nestCls = depth > 0 ? " nest-child" : (nest.tree ? " nest-root" : "");
-              const chip = !!(nest.parentId && nest.parentId !== _pp);
-              _pp = nest.parentId || "";
-              const pid = String(nest.parentId || "");
-              const todoId = String(r.id || "");
-              const todoTrunc = r.detail_trunc === true ? "1" : "0";
-              const detail = shrunk ? "" : (
-                `<div class="ttl"><b>${esc(title)}</b><code>${esc(r.need_id || "")}</code></div>` +
-                `<span class="who">${esc(who)}</span>` +
-                cardNote
-              );
-              return `<div class="todo-list-row st-${esc(st)}${nestCls}${shrunk ? " is-collapsed" : ""}${detailOpen ? " is-open" : ""}" data-todo-id="${esc(todoId)}" data-todo-trunc="${todoTrunc}" data-depth="${depth}"${pid ? ` data-parent="${esc(pid)}"` : ""}>` +
-                millNestSpineHtml(nest, chip) +
-                `<span class="st">${esc(st)}</span>` +
-                detail +
-                `</div>`;
-            }).join(""); })() + `</div>`;
-        }).filter(Boolean).join("");
-        el.innerHTML = html || `<div class="idle">No mill todo</div>`;
-      })();
+      if (!hereOnly) {
+        _todoListCards = cards.filter(r => String(r.status || "").toLowerCase() !== "done").concat(recentDone);
+        wallTodoListPaint();
+      }
       const live = uniqueDesksByOwner((d.agents || []).filter(r => r.alive));
       const h = document.getElementById("here");
       try { paintHereScores(d); } catch (eScores) {}
@@ -7356,25 +7437,6 @@
         }
       }
     });
-    /* The redesigned TODO shows kanban, list and tree side by side on a wide screen. A card
-     * picked in one is the card open in all three: the tree moves to the plan that holds it. */
-    function wallLinkTodoViews() {
-      const id = String(_todoDetailId || "");
-      if (!id || !window._floor) return id;
-      const trees = Array.isArray(window._floor.trees) ? window._floor.trees : [];
-      trees.forEach(function (t, ti) {
-        const nodes = t && Array.isArray(t.nodes) ? t.nodes : [];
-        const hit = nodes.some(function (n) { return n && String(n.id) === id && String(n.type || "").toLowerCase() === "todo"; });
-        if (hit && !_todoTreeCard.endsWith(":" + id)) {
-          _todoTreePlan = String((t && (t.name || t.id)) || ("t" + ti));
-          _todoTreeCard = "todo:" + id;
-          _todoTreeChainOpen = true;
-        }
-      });
-      try { board(window._floor); paintPlan(window._floor); } catch (eLink) {}
-      return id;
-    }
-    window.WallLegacy = Object.assign(window.WallLegacy || {}, { linkTodo: wallLinkTodoViews });
     /* HELP_BOX component: one pattern, different copy slots */
     window._helpBoxes = window._helpBoxes || {};
     /* WALL_UI_LIB_POPUP: thin wrapper -> wallMountHelpBox */

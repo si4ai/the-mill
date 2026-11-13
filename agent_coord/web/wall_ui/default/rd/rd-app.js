@@ -51,14 +51,15 @@
   /* Tabs that host the Wall's own pane. views: the pane's view switch; attr: the old button
    * that switches it (TODO switches through setJobsView). */
   var HOSTED = {
-    todo: { pane: "pane-todo", legacy: "jobs", views: [{ key: "board", label: "Kanban" }, { key: "list", label: "List" }, { key: "nest", label: "Tree" }] },
+    /* Kanban and List are one toggle over the same cards; Tree (how cards nest) is its own button. */
+    todo: { pane: "pane-todo", legacy: "jobs", views: [{ key: "board", label: "Kanban" }, { key: "list", label: "List" }, { key: "nest", label: "Tree", alone: true }] },
     mail: { pane: "pane-mail", legacy: "mail", attr: "data-mail-view", views: [{ key: "rooms", label: "Rooms" }, { key: "letters", label: "Letters" }] },
     /* Replay is this shell's own; Timeline is the Wall's pane (the old Between ring is gone). */
     collab: { pane: "pane-floor", legacy: "floor", attr: "data-floor-mode", own: "all", views: [{ key: "desks", label: "Desks" }, { key: "activity", label: "Activity" }] },
     priorities: { pane: "pane-priorities", legacy: "priorities", views: [] }
   };
-  /* Wide enough for kanban, list and tree side by side. */
-  var WIDE_Q = "(min-width: 1600px)";
+  /* Wide enough that TODO opens on Kanban; narrower opens on List (until the reader picks). */
+  var WIDE_Q = "(min-width: 900px)";
   var TODO_VIEW_KEY = "rd-todo-view";
   /* Card 1193: these reads take ?window=1d|7d|30d on the tab that shows a time range. */
   var WINDOWED = { desks: ["agents"], score: ["scores"] };
@@ -256,10 +257,7 @@
   var homes = {}, todoMode = "";
   function legacy() { return window.WallLegacy || null; }
   function isWide() { return !!(window.matchMedia && window.matchMedia(WIDE_Q).matches); }
-  function savedTodoView() {
-    var v = load(TODO_VIEW_KEY, "board");
-    return v === "list" || v === "nest" ? v : "board";
-  }
+  function savedTodoView() { return R.todoView(load(TODO_VIEW_KEY, ""), isWide()); }
   function hostPane(tab) {
     var cfg = HOSTED[tab], el = cfg && document.getElementById(cfg.pane), slot = root.querySelector(".rd-host-body");
     if (!el || !slot || el.parentNode === slot) return el;
@@ -290,11 +288,10 @@
   function syncTodoMode(el) {
     var W = legacy();
     if (!W || !W.started || !W.setJobsView || !el) return;
-    var all = isWide(), mode = all ? "all" : savedTodoView();
-    el.classList.toggle("rd-todo-all", all);
+    var mode = savedTodoView();
     if (mode === todoMode) return;
     todoMode = mode;
-    W.setJobsView(all ? "nest" : mode);
+    W.setJobsView(mode);
   }
   /* COLLAB's two subtabs, both drawn here on one replay clock: Desks (the stage) and Activity
    * (one heart-monitor line per desk). */
@@ -314,26 +311,9 @@
     var el = hostPane(t);
     syncLegacy();
     if (t === "todo") syncTodoMode(el);
-    var all = t === "todo" && isWide();
-    setHtml(root.querySelector(".rd-host-head"), V.hostHead(t, b, cfg.views, viewOn(t), all), "host");
+    setHtml(root.querySelector(".rd-host-head"), V.hostHead(t, b, cfg.views, viewOn(t)), "host");
     root.setAttribute("data-rd-host", t);
   }
-  /* A card picked in one TODO view: open it in the other two and bring it into sight there. */
-  function linkTodo(from) {
-    var W = legacy();
-    if (!W || !W.linkTodo) return;
-    var id = W.linkTodo();
-    if (!id) return;
-    (window.requestAnimationFrame || setTimeout)(function () {
-      [["jobs-kanban", '[data-todo-id="' + id + '"]'], ["jobs-list", '[data-todo-id="' + id + '"]'], ["jobs-outline", '.todo-tree-card[data-id="' + id + '"]']].forEach(function (p) {
-        var box = document.getElementById(p[0]);
-        if (!box || box === from) return;
-        var hit = box.querySelector(p[1]);
-        if (hit && hit.scrollIntoView) hit.scrollIntoView({ block: "nearest", inline: "nearest" });
-      });
-    });
-  }
-
   var lastBase = null;
   function rpBase() { return lastBase; }
   function paint() {
@@ -1476,12 +1456,6 @@
       }
       last.host = null;
       paint();
-      return;
-    }
-    if (state.tab === "todo" && isWide() && (el = closest(t, "#pane-todo [data-todo-id], #pane-todo .todo-tree-card"))) {
-      var from = closest(el, "#jobs-kanban, #jobs-list, #jobs-outline");
-      /* After boot.js's own click opened the card. */
-      setTimeout(function () { linkTodo(from); }, 0);
       return;
     }
     if ((el = closest(t, "[data-rp-play]"))) { if (rp.playing) rpPause(); else rpPlay(); return; }

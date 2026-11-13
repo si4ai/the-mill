@@ -55,6 +55,113 @@
     });
   }
 
+  /* TODO List view: a Jira-style table, one row per card. Pure (no DOM) so the wall
+   * tests run it in node. A column shows only when the payload serves its field. */
+  var TODO_STATES = ["parked", "open", "claimed", "shipped", "done"];
+  var TODO_LIST_COLS = [
+    { key: "id", label: "ID" },
+    { key: "title", label: "Title" },
+    { key: "state", label: "State" },
+    { key: "claimant", label: "Claimant", ifServed: true },
+    { key: "asker", label: "Asker", ifServed: true },
+    /* TODO(card 1194): "age" (time in the current state) needs a state-since stamp on
+     * each card; /api/v1/todos does not serve one yet, so the column stays out. */
+    { key: "eta", label: "ETA", ifServed: true }
+  ];
+
+  function todoListRow(r) {
+    r = r || {};
+    return {
+      id: String(r.id != null && r.id !== "" ? r.id : (r.need_id || "")),
+      title: String(r.detail || r.title || "").replace(/\s+/g, " ").trim(),
+      state: String(r.status || "").toLowerCase(),
+      claimant: String(r.assigned || r.volunteer || r.owner || "").trim(),
+      asker: String(r.creator || r.asker || r.src || "").trim(),
+      eta: r.eta ? String(r.eta) : ""
+    };
+  }
+
+  /* Columns to draw: the fixed three, plus each served column some row fills. */
+  function todoListCols(rows) {
+    return TODO_LIST_COLS.filter(function (c) {
+      return !c.ifServed || (rows || []).some(function (r) { return !!r[c.key]; });
+    });
+  }
+
+  function todoListCmp(col) {
+    return function (a, b) {
+      var x = a[col], y = b[col];
+      if (col === "id") return (Number(x) || 0) - (Number(y) || 0);
+      if (col === "state") return TODO_STATES.indexOf(x) - TODO_STATES.indexOf(y);
+      return String(x).toLowerCase() < String(y).toLowerCase() ? -1 : (String(x).toLowerCase() > String(y).toLowerCase() ? 1 : 0);
+    };
+  }
+
+  /* Filter by desk (claimant or asker) and state, then sort on one column. A blank cell
+   * sorts last either way; ties fall back to the newest card first. */
+  function todoListView(rows, opt) {
+    opt = opt || {};
+    var desk = String(opt.desk || ""), state = String(opt.state || "");
+    var col = TODO_LIST_COLS.some(function (c) { return c.key === opt.col; }) ? opt.col : "state";
+    var dir = opt.dir === "desc" ? -1 : 1, cmp = todoListCmp(col);
+    var byId = todoListCmp("id");
+    return (rows || []).filter(function (r) {
+      if (desk && r.claimant !== desk && r.asker !== desk) return false;
+      return !state || r.state === state;
+    }).sort(function (a, b) {
+      var ea = a[col] === "", eb = b[col] === "";
+      if (ea !== eb) return ea ? 1 : -1;
+      return dir * cmp(a, b) || -byId(a, b);
+    });
+  }
+
+  /* Filter choices: every desk named on a row, every state present, in workflow order. */
+  function todoListChoices(rows) {
+    var desks = {}, states = {};
+    (rows || []).forEach(function (r) {
+      if (r.claimant) desks[r.claimant] = 1;
+      if (r.asker) desks[r.asker] = 1;
+      if (r.state) states[r.state] = 1;
+    });
+    return {
+      desks: Object.keys(desks).sort(),
+      states: TODO_STATES.filter(function (s) { return states[s]; })
+    };
+  }
+
+  /* Tree outline: nested-set nodes (lft/rgt) -> one line per card in reading order, with
+   * its depth and how many lines sit directly under it. keep (id -> truthy) limits the
+   * cards shown (it must keep each kept card's parents); a card in collapsed hides
+   * everything under it. more: the server says it has children not loaded yet. */
+  function todoOutline(nodes, opt) {
+    opt = opt || {};
+    var keep = opt.keep || null, collapsed = opt.collapsed || {};
+    var list = (nodes || []).filter(function (n) {
+      return n && (!keep || keep[String(n.id)]);
+    }).slice().sort(function (a, b) { return (Number(a.lft) || 0) - (Number(b.lft) || 0); });
+    var rows = [], stack = [];
+    list.forEach(function (n) {
+      var lft = Number(n.lft) || 0;
+      while (stack.length && !(lft < stack[stack.length - 1].rgt)) stack.pop();
+      var parent = stack.length ? stack[stack.length - 1] : null;
+      var row = { id: String(n.id), node: n, depth: stack.length, kids: 0, parent: parent ? parent.row.id : "" };
+      if (parent) parent.row.kids += 1;
+      rows.push(row);
+      stack.push({ rgt: Number(n.rgt) || 0, row: row });
+    });
+    var out = [], hideBelow = -1;
+    rows.forEach(function (r) {
+      if (hideBelow >= 0 && r.depth > hideBelow) return;
+      hideBelow = -1;
+      var hint = r.node.has_children === true || r.node.has_children === 1 || r.node.has_children === "1";
+      r.more = !r.kids && hint;
+      r.collapsed = !!collapsed[r.id] && (r.kids > 0 || r.more);
+      if (r.collapsed) hideBelow = r.depth;
+      out.push(r);
+    });
+    return out;
+  }
+
   function todoEnsurePaintContract() {
     return {
       marker: "WALL_UI_DEFAULT_TODO",
@@ -68,6 +175,11 @@
     isMillNeedId: isMillNeedId,
     millTodoCards: millTodoCards,
     millJobsForOwner: millJobsForOwner,
+    todoListRow: todoListRow,
+    todoListCols: todoListCols,
+    todoListView: todoListView,
+    todoListChoices: todoListChoices,
+    todoOutline: todoOutline,
     todoEnsurePaintContract: todoEnsurePaintContract
   };
   Object.keys(api).forEach(function (k) { global[k] = api[k]; });

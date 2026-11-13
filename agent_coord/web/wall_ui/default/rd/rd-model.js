@@ -1722,7 +1722,7 @@
   function rangeText(r) { return r === "today" ? "today" : r === "30d" ? "last 30 days" : "last 7 days"; }
   function hero(b, tab, m) {
     var R = rosterText(b.scope);
-    if (tab === "todo" && m) return { lead: plural(m.open, "open card") + " on " + R + ".", rest: "Kanban, list and tree are the same cards: parked, open, claimed, shipped, done." };
+    if (tab === "todo" && m) return { lead: plural(m.open, "open card") + " on " + R + ".", rest: "Kanban and List show the same cards: parked, open, claimed, shipped, done. Tree shows how they nest." };
     if (tab === "mail" && m) return { lead: plural(m.waiting, "letter") + " waiting on " + R + ".", rest: "Rooms is each conversation with its thread and party; Letters is every letter, newest first." };
     if (tab === "priorities" && m) return { lead: plural(m.lists, "ranked list") + " on this scope.", rest: "Each desk\u2019s ranked list." };
     if (tab === "score" && m) return { lead: plural(m.off, "score") + " off target on " + R + ".", rest: "Grouped by impact. Desks are rows inside each group. Platform scores only." };
@@ -1938,11 +1938,18 @@
     });
     return spans;
   }
+  /* TODO's view: the reader's own pick (Kanban, List or Tree) when there is one; else Kanban
+   * on a wide screen and List on a narrow one. */
+  var TODO_VIEWS = ["board", "list", "nest"];
+  function todoView(saved, wide) {
+    return TODO_VIEWS.indexOf(saved) >= 0 ? saved : (wide ? "board" : "list");
+  }
+
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayStateAt: replayStateAt,
     REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
-    normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
+    normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel, todoView: todoView,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()
   };

@@ -76,8 +76,8 @@
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow320",
-      css: "/todo/todo.css?v=wow335",
+      js: "/todo/todo.js?v=wow374",
+      css: "/todo/todo.css?v=wow374",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -132,7 +132,7 @@
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow322",
+      js: "/todo/todo-paint.js?v=wow374",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
     },

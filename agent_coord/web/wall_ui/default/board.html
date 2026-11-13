@@ -14,7 +14,7 @@
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
   <link rel="stylesheet" href="/shell.css?v=wow362">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
-  <link rel="stylesheet" href="/rd/rd.css?v=wow373">
+  <link rel="stylesheet" href="/rd/rd.css?v=wow374">
   <link id="board-css" rel="stylesheet" href="/board.css?v=wow362" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
   <noscript><link rel="stylesheet" href="/board.css?v=wow362"></noscript>
@@ -297,8 +297,8 @@
             <input type="search" id="trees-q" placeholder="title / status / who" autocomplete="off" spellcheck="false" title="Filter plans by title, status, or who. The path to a hit stays visible.">
           </label>
           <span class="wall-filter" id="trees-collapse-chrome" role="group" aria-label="Expand or collapse nest">
-            <button type="button" data-trees-collapse="expand" title="Show what sits under the open card">Expand</button>
-            <button type="button" data-trees-collapse="collapse" title="Show only the first column of the chain">Collapse</button>
+            <button type="button" data-trees-collapse="expand" title="Open every branch of this tree">Expand</button>
+            <button type="button" data-trees-collapse="collapse" title="Fold every branch of this tree">Collapse</button>
           </span>
         </span>
         </div>
@@ -312,9 +312,9 @@
         <div class="help-body">
           <ul>
             <li><b>TODO</b> is the work: parked, open, claimed, shipped, done. On Board, drag a column edge. The mark on the heading collapses that column.</li>
-            <li><b>Board | List | Plan:</b> Board is the five columns. List is the same cards, one line each. Plan is the plans, then the boxes left to right for what sits under what. The selected card sits on the same line as the cards above it. Drag the chart sideways. The wheel scrolls it.</li>
-            <li><b>Status chips:</b> lit means the card is full. Click a status to shrink those cards to the word. Plan keeps the arrow. Board and List keep the link to the card above. Click again for the title. The open card stays full.</li>
-            <li><b>Card:</b> the box is the short heading. Click it and that card opens, and so does every card above it: the full doing line, the longer note, who asked, and who holds it.</li>
+            <li><b>Kanban | List, and Tree:</b> Kanban is the five columns. List is the same cards as a table, one row each: click a heading to sort, pick a desk or a state to filter. Tree is its own view: the trees first, then one tree as an outline, each card under the card it sits under. The +/- folds a branch.</li>
+            <li><b>Status chips:</b> lit means the card is full. Click a status to shrink those Kanban cards to the word. Click again for the title. The open card stays full.</li>
+            <li><b>Card:</b> click a card, a row or a tree line (or press Enter on it) and it opens: the longer note, who asked, and who holds it.</li>
           </ul>
         </div>
       </aside>
@@ -686,13 +686,13 @@
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow347"></script>
+  <script defer src="/lib/lazy.js?v=wow374"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
     <script src="/mail/mail.js?v=wow285"></script>
     <script src="/score/score.js?v=wow320"></script>
-    <script src="/todo/todo.js?v=wow320"></script>
+    <script src="/todo/todo.js?v=wow374"></script>
   </template>
   <script defer src="/floor/floor.js"></script>
   
@@ -771,9 +771,9 @@
   </form>
 </div>
 <script defer src="/session/desks-rows.js?v=wow349"></script>
-<script defer src="/rd/rd-model.js?v=wow373"></script>
-<script defer src="/rd/rd-view.js?v=wow373"></script>
-<script defer src="/rd/rd-app.js?v=wow373"></script>
-<script defer src="/boot.js?v=wow362"></script>
+<script defer src="/rd/rd-model.js?v=wow374"></script>
+<script defer src="/rd/rd-view.js?v=wow374"></script>
+<script defer src="/rd/rd-app.js?v=wow374"></script>
+<script defer src="/boot.js?v=wow374"></script>
 </body>
 </html>

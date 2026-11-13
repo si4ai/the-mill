@@ -654,16 +654,19 @@
   }
 
   /* The head over a tab that hosts its full pane: the scope, and the pane's own view switch. */
+  /* One toggle group for the views that show the same data; a view marked alone (TODO's Tree)
+   * is its own button beside it. */
   function viewSwitch(views, on) {
-    return views && views.length ? '<span class="rd-view-switch" role="group" aria-label="View">' + views.map(function (v) {
+    var btn = function (v) {
       var cur = v.key === on;
       return '<button type="button" data-rd-view="' + h(v.key) + '"' + (cur ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + h(v.label) + "</button>";
-    }).join("") + "</span>" : "";
+    };
+    var group = (views || []).filter(function (v) { return !v.alone; }), alone = (views || []).filter(function (v) { return v.alone; });
+    return (group.length ? '<span class="rd-view-switch" role="group" aria-label="View">' + group.map(btn).join("") + "</span>" : "") +
+      alone.map(function (v) { return '<span class="rd-view-switch rd-view-alone">' + btn(v) + "</span>"; }).join("");
   }
-  function hostHead(tab, base, views, on, allWide) {
-    var sw = viewSwitch(views, on);
-    var note = allWide ? '<span class="rd-pane-scope">Kanban, list and tree side by side \u00b7 picking a card shows it in all three</span>' : "";
-    return '<div class="rd-pane-head rd-host-head"><span class="rd-pane-scope">' + h(base.scope.label) + "</span>" + (allWide ? "" : sw) + note + "</div>";
+  function hostHead(tab, base, views, on) {
+    return '<div class="rd-pane-head rd-host-head"><span class="rd-pane-scope">' + h(base.scope.label) + "</span>" + viewSwitch(views, on) + "</div>";
   }
 
   global.WallRdView = {

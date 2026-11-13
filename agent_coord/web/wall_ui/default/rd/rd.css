@@ -733,17 +733,6 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   flex: 1 1 auto; min-height: 0; min-width: 0;
   display: flex; flex-direction: column; overflow: hidden;
 }
-/* Wide: kanban, list and tree side by side over the same cards. */
-#rd #pane-todo.rd-todo-all .pane-body {
-  display: grid; gap: 8px;
-  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1.1fr);
-  grid-template-rows: minmax(0, 1fr);
-  border: 0;
-}
-#rd #pane-todo.rd-todo-all #jobs-kanban { display: grid !important; min-height: 0; }
-#rd #pane-todo.rd-todo-all #jobs-list { display: block !important; min-height: 0; }
-#rd #pane-todo.rd-todo-all #jobs-outline { display: flex !important; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; }
-#rd #pane-todo.rd-todo-all #todo-done-span { display: inline-flex !important; }
 
 /* ---- COLLAB kind colours: one palette, used everywhere in this tab ----
  * Desk state rings stay as they are (working green, waiting amber, idle grey).
