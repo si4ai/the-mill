@@ -63,7 +63,7 @@
   var WINDOWED = { desks: ["agents"], score: ["scores"] };
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
-  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_WIN_KEY = "rd-replay-window", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-";
+  var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, moves: {}, trail: {}, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
@@ -335,7 +335,7 @@
     } else if (t === "collab") {
       rp.view = collabView();
       html = V.paneHead("collab", b, V.viewSwitch(HOSTED.collab.views, rp.view)) +
-        '<div class="rd-pane-body rd-collab-body">' + V.replay(replayModel(b), m.collab ? m.collab.groups[0].rows : null, rp) + "</div>";
+        '<div class="rd-pane-body rd-collab-body">' + V.replay(replayModel(b), rp) + "</div>";
     } else {
       var model = m[t];
       var body = model ? V[t](model) : '<div class="rd-loading">Loading ' + t.toUpperCase() + "\u2026</div>";
@@ -350,11 +350,10 @@
   }
 
 
-  /* ---- COLLAB replay: plays the recorded rows back; motion only on rows the playhead reaches ----
-   * Parked at the end (the default) the list is still: every row up to now, newest first. Play
-   * rewinds the window and walks the playhead forward in R.REPLAY_PLAY_MS / speed; each row it
-   * passes slides in at the top. The rows come from the reads, nothing is made up. */
-  var RP_CAP = 60;
+  /* ---- COLLAB replay: the same rows, two views, one clock ----
+   * Parked at the end (the default) the items sit still at their age for now. Play rewinds
+   * the window and walks the playhead forward in R.REPLAY_PLAY_MS / speed. Position is a
+   * function of the playhead, the item's time and the span: nothing else moves. */
   var rp = { playing: false, t: null, t0: 0, wall0: 0, rep: null, raf: 0, drawn: null, speed: Number(load(RP_SPEED_KEY, "1")) || 1,
     view: "desks", lastT: null, st: null, live: 0, dirs: { desks: dirOf("desks"), activity: dirOf("activity") } };
   /* Each subtab keeps its own direction; both start left to right. */
@@ -362,7 +361,7 @@
   function rpAxis() { return R.replayAxis(rp.dirs[rp.view]); }
   if (R.REPLAY_SPEEDS.indexOf(rp.speed) < 0) rp.speed = 1;
   function replayModel(b) {
-    var rep = R.collabReplay(b, { window: load(RP_WIN_KEY, "auto"), end: rp.end });
+    var rep = R.collabReplay(b, { count: R.replayCount(load(RP_COUNT_KEY, String(R.REPLAY_COUNT_DEFAULT))), end: rp.end });
     if (!rp.playing) rp.rep = rep;
     return rep;
   }
@@ -375,23 +374,25 @@
     return Math.min(rep.until, rp.t0 + (Date.now() - rp.wall0) * rp.speed * (rep.ms / R.REPLAY_PLAY_MS));
   }
   function drawReplay(animate) {
-    var rep = rpRep(), list = root.querySelector("[data-rp-list]");
+    var rep = rpRep();
     if (!rep) return;
     var t = rpNow();
-    var rows = R.replayAt(rep, t, RP_CAP);
-    var keys = rows.map(function (r) { return r.key; });
-    var sig = keys.join("|");
     var clockEl = root.querySelector("[data-rp-clock]"), play = root.querySelector("[data-rp-play]");
-    /* The trace: lit up to the playhead, dim after it. */
-    var frac = Math.max(0, Math.min(1, (t - rep.since) / Math.max(1, rep.until - rep.since))), x = (1000 * frac).toFixed(1);
-    root.querySelectorAll("[data-rp-clip]").forEach(function (c) { c.setAttribute(c.getAttribute("data-rp-clip") === "y" ? "height" : "width", x); });
-    root.querySelectorAll("[data-rp-head]").forEach(function (l) { var y = l.getAttribute("data-rp-head") === "y"; l.setAttribute(y ? "y1" : "x1", x); l.setAttribute(y ? "y2" : "x2", x); });
-    root.querySelectorAll("[data-rp-trace]").forEach(function (tr) { tr.setAttribute("aria-valuenow", String(Math.round(1000 * frac))); });
+    /* The overview: the viewport box is the slice the big pane shows ([t - span, t]); the
+     * lit bars run up to the playhead. */
+    var ovEl = root.querySelector("[data-rp-ov]");
+    if (ovEl) {
+      var vp = R.replayViewport(rep, t, { lo: Number(ovEl.getAttribute("data-lo")), hi: Number(ovEl.getAttribute("data-hi")) });
+      var box = ovEl.querySelector("[data-rp-vp]"), head = ovEl.querySelector("[data-rp-head]"), clip = ovEl.querySelector("[data-rp-clip]");
+      if (box) { box.setAttribute("x", (vp.lo * 1000).toFixed(1)); box.setAttribute("width", Math.max(2, (vp.hi - vp.lo) * 1000).toFixed(1)); }
+      if (head) { head.setAttribute("x1", (vp.at * 1000).toFixed(1)); head.setAttribute("x2", (vp.at * 1000).toFixed(1)); }
+      if (clip) clip.setAttribute("width", (vp.at * 1000).toFixed(1));
+      ovEl.setAttribute("aria-valuenow", String(Math.round(1000 * vp.at)));
+    }
     var span = root.querySelector("[data-rp-span]");
     if (span) span.textContent = spanText(rep);
     if (clockEl) { var d = new Date(t); clockEl.textContent = (rp.t == null && !rp.playing ? "now " : "") + d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
     if (play) { play.textContent = rp.playing ? "\u23f8" : "\u25b6"; play.setAttribute("aria-label", rp.playing ? "Pause" : "Play"); }
-    if (list && sig !== rp.drawn) drawRows(list, rows, keys, sig, animate);
     /* In the past, each pill takes its desk's state at the playhead from the recorded state
      * changes; at now it keeps the current state the row was drawn with. */
     var sec = root.querySelector(".rd-replay");
@@ -412,64 +413,140 @@
     }
     drawStage(rep, t, animate);
   }
-  function drawRows(list, rows, keys, sig, animate) {
-    var prev = rp.drawn == null ? null : rp.drawn.split("|");
-    /* While playing, rows the playhead just passed sit above the ones shown: add only those. */
-    if (animate && prev && prev.length && keys.indexOf(prev[0]) > 0) {
-      var cut = keys.indexOf(prev[0]), fresh = {};
-      rows.slice(0, cut).forEach(function (r) { fresh[r.key] = 1; });
-      list.insertAdjacentHTML("afterbegin", V.replayRows(rows.slice(0, cut), fresh));
-      while (list.children.length > RP_CAP) list.removeChild(list.lastElementChild);
-    } else if (animate && prev && !prev[0] && rows.length) {
-      var all = {};
-      rows.forEach(function (r) { all[r.key] = 1; });
-      list.innerHTML = V.replayRows(rows, all);
-    } else {
-      list.innerHTML = rows.length ? V.replayRows(rows, null) : '<li class="rd-rp-empty">' + (rp.playing || rp.t != null ? "Nothing yet at this point in the window." : "No activity for these desks in this window.") + "</li>";
-    }
-    rp.drawn = sig;
-  }
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   function moving() { return !(still && still.matches); }
-  /* ---- Stage: the lanes, their locks and trays, and the icons the playhead drops ----
-   * The six kind icons are the only things that fall. A row with two desks (a letter, a card
-   * handed off, a contested promise) drops the same icon in both columns at once, joined by a
-   * thin arc that fades; the far end may be the outside cloud. When the receiver picks it up
-   * later its pill pulses; until then the icon waits in its tray. The pills never move. Motion is transform and
-   * opacity only, at most RP_LIVE icons fall at once. */
-  var RP_LIVE = 30, RP_TRAY = 5, rpText = {};
+  /* ---- Age is position: the items of both subtabs ----
+   * Every frame the items on screen come from R.replayItemsAt(rep, t): an activity enters at its
+   * lane (each desk in its state) when the playhead reaches it and sits as far out along the
+   * lane as it is old, across the whole stage, leaving at the far edge one span later. Scrub
+   * either way and it is put back. Motion is transform and opacity only. A two-desk transition
+   * is joined by a line while it is young. Each item carries one chip; the rest is on hover. */
+  var RP_ITEMS = 360, RP_ICON = 14, rpText = {};
   function stageEls() {
-    var st = root.querySelector(".rd-rp-stage[data-rp-lanes]");
-    if (!st) return null;
-    if (rp.st && rp.st.el === st) return rp.st;
-    var lanes = {};
-    st.querySelectorAll("[data-lane]").forEach(function (el) {
-      lanes[el.getAttribute("data-lane")] = { head: el, pill: el.firstElementChild, locks: el.querySelector("[data-rp-locks]"), tray: null };
+    var field = root.querySelector("[data-rp-field]");
+    if (!field) return null;
+    if (rp.st && rp.st.field === field) return rp.st;
+    var st = root.querySelector(".rd-rp-stage[data-rp-lanes]"), lanes = {};
+    root.querySelectorAll(".rd-replay [data-lane]").forEach(function (el) {
+      lanes[el.getAttribute("data-lane")] = { head: el, pill: el.firstElementChild, locks: el.querySelector("[data-rp-locks]") };
     });
-    st.querySelectorAll("[data-rp-tray]").forEach(function (el) { var l = lanes[el.getAttribute("data-rp-tray")]; if (l) { l.tray = el; l.col = el.parentNode; } });
-    st.style.setProperty("--lanes", st.getAttribute("data-rp-lanes") || "1");
-    rp.st = { el: st, rain: st.querySelector("[data-rp-rain]"), lanes: lanes, locks: "", trays: "" };
-    rp.lastT = null;
+    root.querySelectorAll(".rd-replay [data-col]").forEach(function (el) {
+      var id = el.getAttribute("data-col");
+      (lanes[id] = lanes[id] || {}).track = el;
+    });
+    if (st) st.style.setProperty("--lanes", String(Object.keys(lanes).length || 1));
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "rd-rp-links");
+    svg.setAttribute("aria-hidden", "true");
+    field.appendChild(svg);
+    rp.st = { el: st, field: field, lanes: lanes, locks: "", waits: "", items: {}, geo: null, svg: svg, links: "" };
     return rp.st;
+  }
+  /* Each lane's place in the field: its centre across the flow, and where along the flow its
+   * items start and how far they may travel (the whole stage, or the lane's own track). */
+  function rpGeom(S) {
+    var ax = rpAxis(), fb = S.field.getBoundingClientRect(), key = [Math.round(fb.width), Math.round(fb.height), ax.dir].join(",");
+    if (S.geo && S.geo.key === key) return S.geo;
+    var g = { key: key, ax: ax, lanes: {} };
+    Object.keys(S.lanes).forEach(function (id) {
+      var l = S.lanes[id], ref = l.track || l.head;
+      if (!ref) return;
+      var r = ref.getBoundingClientRect(), start, len;
+      var cross = ax.cross === "x" ? r.left + r.width / 2 - fb.left : r.top + r.height / 2 - fb.top;
+      if (l.track) { start = ax.main === "x" ? r.left - fb.left : r.top - fb.top; len = ax.main === "x" ? r.width : r.height; }
+      else { start = 4; len = (ax.main === "x" ? fb.width : fb.height) - 8; }
+      var room = l.track ? (ax.main === "x" ? r.height : r.width) : (ax.main === "x" ? 40 : 72);
+      g.lanes[id] = { cross: cross, start: start, len: Math.max(0, len - RP_ICON), room: room };
+    });
+    S.geo = g;
+    return g;
   }
   function rowText(r) {
     if (!rpText[r.key]) { var d = document.createElement("div"); d.innerHTML = V.replayRows([r]); rpText[r.key] = (d.textContent || "").replace(/\s+/g, " ").trim(); }
     return rpText[r.key];
   }
+  /* One chip at most: its first label, else its tree, else a watcher, else its roster. */
+  function firstTag(tags) {
+    if (!tags) return null;
+    if (tags.labels.length) return { labels: [tags.labels[0]], trees: [], watchers: [], roster: "" };
+    if (tags.trees.length) return { labels: [], trees: [tags.trees[0]], watchers: [], roster: "" };
+    if ((tags.watchers || []).length) return { labels: [], trees: [], watchers: [tags.watchers[0]], roster: "" };
+    return null;
+  }
   function icon(kind, cls, title, tags) {
-    var w = document.createElement("span");
-    w.innerHTML = V.kindIcon(kind);
-    var el = w.firstChild;
-    el.className += " " + cls;
-    el.title = title || "";
-    /* Its labels and trees ride along as one tiny chip; the rest is in the hover text. */
-    if (tags) { w.innerHTML = V.tagsHtml(tags, 1); var chip = w.firstChild; chip.className += " rd-tags-mini"; el.appendChild(chip); }
+    var el = document.createElement("span");
+    el.className = ((cls || "").indexOf("rd-rp-lock") >= 0 ? "" : "rd-rp-item ") + cls;
+    el.innerHTML = V.kindIcon(kind);
+    el.title = (title || "") + (tags ? " \u00b7 " + V.tagsText(tags) : "");
+    var one = firstTag(tags);
+    if (one) {
+      var w = document.createElement("span");
+      w.innerHTML = V.tagsHtml(one, 1);
+      var chip = w.firstChild;
+      chip.className += " rd-tags-mini";
+      el.appendChild(chip);
+    }
     return el;
+  }
+  function laneWord(id) {
+    return id === "@out" ? "outside" : id === "@office" ? "office" : id === "@human" ? "you" : (id || "");
+  }
+  function nameChip(id, t) {
+    var s = document.createElement("span"), st = id && id.charAt(0) !== "@" ? (R.replayStateAt(rpRep(), id, t) || "") : "";
+    s.className = "rd-dnm" + (st ? " st-" + st : "") + (id === "@out" ? " rd-cloud-nm" : "");
+    s.textContent = laneWord(id);
+    return s;
+  }
+  /* Activity view: one small desk-name chip, or from->to when two desks share the instance. */
+  function deskItem(it, t) {
+    var el = document.createElement("span"), r = it.row, f = r.flows && r.flows[0];
+    var a = f && f.from !== f.to ? f.from : (r.lane || (f && f.from) || r.actor);
+    var b = f && f.from !== f.to ? f.to : "";
+    el.className = "rd-rp-item rd-rp-dchip";
+    el.title = rowText(r) + (b ? " (" + laneWord(a) + " \u2192 " + laneWord(b) + ")" : "");
+    var chip = nameChip(a, t);
+    if (b) chip.textContent = laneWord(a) + "\u2192" + laneWord(b);
+    el.appendChild(chip);
+    return el;
+  }
+  function drawItems(S, rep, t) {
+    var g = rpGeom(S), ax = g.ax, got = R.replayItemsAt(rep, t, RP_ITEMS, rp.view), seen = {};
+    got.items.forEach(function (it) {
+      var L = g.lanes[it.lane];
+      if (!L) return;
+      var el = S.items[it.id];
+      if (!el) { el = S.items[it.id] = rp.view === "activity" ? deskItem(it, t) : icon(it.kind, "", rowText(it.row), it.row.tags); S.field.appendChild(el); }
+      seen[it.id] = 1;
+      var room = Math.max(16, (L.room || 40) - 6);
+      if (el.rdRoom !== room) { el.style.maxWidth = room + "px"; el.rdRoom = room; }
+      var half = ax.main === "x" ? (el.offsetHeight || RP_ICON) / 2 : Math.min(el.offsetWidth || RP_ICON, room) / 2;
+      var m = L.start + it.pos * L.len, c = L.cross - half;
+      var tf = ax.main === "x" ? "translate(" + m.toFixed(1) + "px," + c.toFixed(1) + "px)" : "translate(" + c.toFixed(1) + "px," + m.toFixed(1) + "px)";
+      if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
+      var op = it.pos > 0.92 ? ((1 - it.pos) / 0.08).toFixed(2) : "1";
+      if (el.rdOp !== op) { el.style.opacity = op; el.rdOp = op; }
+    });
+    Object.keys(S.items).forEach(function (id) {
+      if (seen[id]) return;
+      var el = S.items[id];
+      if (el.parentNode) el.parentNode.removeChild(el);
+      delete S.items[id];
+    });
+    var paths = got.links.map(function (k) {
+      var A = g.lanes[k.from], B = g.lanes[k.to];
+      if (!A || !B) return "";
+      var ma = A.start + k.pos * A.len + RP_ICON / 2, mb = B.start + k.pos * B.len + RP_ICON / 2, bend = 10 + Math.min(40, Math.abs(B.cross - A.cross) / 6);
+      var d = ax.main === "x" ? "M" + ma.toFixed(1) + " " + A.cross.toFixed(1) + " Q" + ((ma + mb) / 2 + bend).toFixed(1) + " " + ((A.cross + B.cross) / 2).toFixed(1) + " " + mb.toFixed(1) + " " + B.cross.toFixed(1)
+        : "M" + A.cross.toFixed(1) + " " + ma.toFixed(1) + " Q" + ((A.cross + B.cross) / 2).toFixed(1) + " " + ((ma + mb) / 2 + bend).toFixed(1) + " " + B.cross.toFixed(1) + " " + mb.toFixed(1);
+      return '<path class="k-' + k.kind + '" stroke-opacity="' + (0.9 * k.fade).toFixed(2) + '" d="' + d + '"/>';
+    }).join("");
+    if (paths !== S.links) { S.links = paths; S.svg.innerHTML = paths; }
   }
   function drawStage(rep, t, animate) {
     var S = stageEls();
     if (!S) { rp.lastT = t; return; }
-    /* Locks: held promises (solid) and waited-on ones (faded, amber edge) fade in and out. */
+    /* Locks: held promises (solid) and waited-on ones (faded, amber edge) fade in and out
+     * beside the pill, never over it. */
     var L = R.replayLocksAt(rep, t), ls = JSON.stringify(L);
     if (ls !== S.locks) {
       S.locks = ls;
@@ -494,77 +571,22 @@
         });
       });
     }
-    /* Trays: what reached a desk and is not picked up yet. */
-    var P = R.replayPending(rep, t), ps = Object.keys(P).map(function (k) { return k + ":" + P[k].map(function (x) { return x.key; }).join(","); }).join("|");
-    if (ps !== S.trays) {
-      S.trays = ps;
+    /* Not picked up yet: one small count on the pill. */
+    var W = R.replayWaitingAt(rep, t), ws = JSON.stringify(W);
+    if (ws !== S.waits) {
+      S.waits = ws;
       Object.keys(S.lanes).forEach(function (id) {
-        var tray = S.lanes[id].tray, list = P[id] || [];
-        if (!tray) return;
-        tray.textContent = "";
-        list.slice(-RP_TRAY).forEach(function (x) { tray.appendChild(icon(x.kind, "rd-rp-wait", rowText(x.row) + " \u00b7 not picked up yet", x.row.tags)); });
-        if (list.length > RP_TRAY) { var more = document.createElement("span"); more.className = "rd-rp-more"; more.textContent = "+" + (list.length - RP_TRAY); tray.appendChild(more); }
+        var el = S.lanes[id].wait;
+        if (!el) return;
+        el.textContent = W[id] ? String(W[id]) : "";
+        el.title = W[id] ? W[id] + " handed over and not picked up yet" : "";
       });
     }
+    drawItems(S, rep, t);
     var prev = rp.lastT;
     rp.lastT = t;
-    if (!animate || prev == null || t <= prev || !moving() || !S.rain) return;
-    var fell = 0;
-    for (var i = 0; i < rep.rows.length; i++) {
-      var r = rep.rows[i];
-      if (r.at > prev && r.at <= t && fell < 8) { fell++; dropRow(S, r); }
-      r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); });
-    }
-  }
-  /* Where a lane sits across the flow: its pill's centre on the cross axis. */
-  function laneX(S, id, box) {
-    var l = S.lanes[id], ax = rpAxis();
-    if (!l) return null;
-    var r = l.head.getBoundingClientRect();
-    return ax.cross === "x" ? r.left + r.width / 2 - box.left : r.top + r.height / 2 - box.top;
-  }
-  function dropRow(S, r) {
-    if (rp.live >= RP_LIVE) return;
-    /* The drop lands on every desk in the activity's state (and the actor's own column); the
-     * links join only the desks a transition moved the state between. */
-    var ax = rpAxis(), box = S.rain.getBoundingClientRect(), hgt = (ax.main === "y" ? box.height : box.width) || 200, ends = [r.lane];
-    function add(id) { if (id && ends.indexOf(id) < 0) ends.push(id); }
-    (r.stateLanes || []).forEach(add);
-    r.flows.forEach(function (f) { add(f.from); add(f.to); });
-    var xs = [];
-    ends.forEach(function (id) {
-      var x = laneX(S, id, box);
-      if (x == null || rp.live >= RP_LIVE) return;
-      xs.push(x);
-      var el = icon(r.kind, "rd-rp-drop", rowText(r), r.tags);
-      el.style[ax.crossStart] = (x - 7) + "px";
-      el.style[ax.start] = "0";
-      S.rain.appendChild(el);
-      rp.live++;
-      function at(v) { return ax.main === "y" ? "translate(0," + v + "px)" : "translate(" + v + "px,0)"; }
-      var run = el.animate([
-        { transform: at(-6) + " scale(1.3)", opacity: 0 },
-        { transform: at(6) + " scale(1.15)", opacity: 1, offset: 0.12 },
-        { transform: at(Math.round(hgt * 0.72)) + " scale(1)", opacity: 0 }
-      ], { duration: 2400, easing: "cubic-bezier(.3,0,.8,1)" });
-      run.onfinish = run.oncancel = function () { rp.live--; if (el.parentNode) el.parentNode.removeChild(el); };
-    });
-    if (!r.flows.length || xs.length < 2) return;
-    /* The pair's link: a thin arc between the two drops that fades as they fall. */
-    var svg = S.rain.querySelector("svg.rd-rp-links");
-    if (!svg) { svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "rd-rp-links"); svg.setAttribute("aria-hidden", "true"); S.rain.appendChild(svg); }
-    for (var i = 0; i < r.flows.length; i++) {
-      var a = laneX(S, r.flows[i].from, box), z = laneX(S, r.flows[i].to, box);
-      if (a == null || z == null) continue;
-      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      var bend = (14 + Math.min(60, Math.abs(z - a) / 4)).toFixed(1), mid = ((a + z) / 2).toFixed(1);
-      path.setAttribute("d", ax.main === "y" ? "M" + a.toFixed(1) + " 14 Q" + mid + " " + bend + " " + z.toFixed(1) + " 14"
-        : "M14 " + a.toFixed(1) + " Q" + bend + " " + mid + " 14 " + z.toFixed(1));
-      path.setAttribute("class", "k-" + r.kind);
-      svg.appendChild(path);
-      var fade = path.animate([{ opacity: 0 }, { opacity: 0.9, offset: 0.2 }, { opacity: 0 }], { duration: 1600, easing: "ease-out" });
-      fade.onfinish = fade.oncancel = (function (pp) { return function () { if (pp.parentNode) pp.parentNode.removeChild(pp); }; })(path);
-    }
+    if (!animate || prev == null || t <= prev || !moving()) return;
+    rep.pool.forEach(function (r) { r.flows.forEach(function (f) { if (f.pickAt != null && f.pickAt > prev && f.pickAt <= t) catchAt(S, f.to); }); });
   }
   /* Picked up: the receiver's pill pulses once. */
   function catchAt(S, id) {
@@ -650,8 +672,8 @@
     if (el.getAttribute("data-rp-axis") === "y") return r.height ? (ev.clientY - r.top) / r.height : 1;
     return r.width ? (ev.clientX - r.left) / r.width : 1;
   }
-  /* On a trace: a click seeks the playhead; a grab-hand drag slides the window itself through the
-   * recorded history (never past now), and the replay re-scopes to it: two minutes, anywhere. */
+  /* On the overview: drag the viewport box (grab hand) to slide the window through the
+   * loaded history (never past now); a click outside the box jumps the window there. */
   var dragTrace = null, PAN_PX = 4;
   function spanText(rep) {
     function f(t) { return new Date(t).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -662,24 +684,39 @@
     rp.end = end; rp.playing = false; rp.t = null; rp.drawn = null; rp.st = null;
     if (!rpPanTo.raf) rpPanTo.raf = (window.requestAnimationFrame || setTimeout)(function () { rpPanTo.raf = 0; last.pane = null; paint(); });
   }
+  function ovFrac(el, ev) {
+    var r = el.getBoundingClientRect();
+    return r.width ? (ev.clientX - r.left) / r.width : 1;
+  }
+  function rpJump(frac) {
+    var rep = rpRep(), ovEl = root.querySelector("[data-rp-ov]");
+    if (!rep || !ovEl) return;
+    var lo = Number(ovEl.getAttribute("data-lo")), hi = Number(ovEl.getAttribute("data-hi"));
+    var T = lo + Math.max(0, Math.min(1, frac)) * Math.max(1, hi - lo);
+    rp.playing = false;
+    var end = T >= rep.now - 1000 ? null : R.replayPan(rep, Math.round(T), 0);
+    rpPanTo(end);
+    if (end != null) rpOlderFor(rep, end);
+  }
   root.addEventListener("pointerdown", function (ev) {
-    var el = closest(ev.target, "[data-rp-trace]"), rep = rpRep();
+    var el = closest(ev.target, "[data-rp-ov]"), rep = rpRep();
     if (!el || !rep) return;
-    var vy = el.getAttribute("data-rp-axis") === "y", bx = el.getBoundingClientRect();
-    dragTrace = { el: el, vy: vy, x0: vy ? ev.clientY : ev.clientX, w: (vy ? bx.height : bx.width) || 1, end0: rp.end, ms: rep.ms, moved: false };
+    var bx = el.getBoundingClientRect(), frac = ovFrac(el, ev);
+    var vp = R.replayViewport(rep, rpNow(), { lo: Number(el.getAttribute("data-lo")), hi: Number(el.getAttribute("data-hi")) });
+    var onVp = frac >= vp.lo - 0.01 && frac <= vp.hi + 0.01;
+    dragTrace = { el: el, x0: ev.clientX, w: bx.width || 1, end0: rp.end, ov: Math.max(1, Number(el.getAttribute("data-hi")) - Number(el.getAttribute("data-lo"))), onVp: onVp, moved: false };
     if (el.setPointerCapture) try { el.setPointerCapture(ev.pointerId); } catch (e) { /* capture is optional */ }
     ev.preventDefault();
   });
   root.addEventListener("pointermove", function (ev) {
     var d = dragTrace, rep = rpRep();
-    if (!d || !rep) return;
-    var dx = (d.vy ? ev.clientY : ev.clientX) - d.x0;
+    if (!d || !rep || !d.onVp) return;
+    var dx = ev.clientX - d.x0;
     if (!d.moved && Math.abs(dx) < PAN_PX) return;
     if (!d.moved) { d.moved = true; root.classList.add("rd-rp-panning"); }
     /* Drag right shows earlier time, as a map does: the window's end moves back. */
-    var dt = -dx / d.w * d.ms;
+    var dt = -dx / d.w * d.ov;
     rpPanTo(R.replayPan(rep, d.end0, dt));
-    /* Asked for earlier than the cache holds: read older pages (the clamp eases as they land). */
     if (dt < 0) rpOlderFor(rep, (d.end0 == null ? rep.now : d.end0) + dt);
   });
   ["pointerup", "pointercancel"].forEach(function (n) {
@@ -687,11 +724,11 @@
       var d = dragTrace;
       dragTrace = null;
       root.classList.remove("rd-rp-panning");
-      if (d && !d.moved && n === "pointerup") rpSeek(traceFrac(d.el, ev));
+      if (d && !d.moved && n === "pointerup" && !d.onVp) rpJump(ovFrac(d.el, ev));
     });
   });
   root.addEventListener("keydown", function (ev) {
-    var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-trace") ? ev.target : null, rep = rpRep();
+    var el = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rp-ov") ? ev.target : null, rep = rpRep();
     if (!el || !rep) return;
     if (ev.shiftKey && (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "End")) {
       /* Shift+arrows slide the window a quarter of its length; Shift+End goes back to now. */
@@ -705,7 +742,7 @@
     var to = ev.key === "ArrowLeft" ? at - 0.01 : ev.key === "ArrowRight" ? at + 0.01 : ev.key === "Home" ? 0 : ev.key === "End" ? 1 : null;
     if (to == null) return;
     ev.preventDefault();
-    rpSeek(to);
+    rpJump(to);
   });
   /* ---- The record, cached: past rows never change ----
    * Each desk's transition rows (doing history) merge by id into one cache per desk, kept in
@@ -784,7 +821,7 @@
   function fetchReplay(b) {
     if (state.tab !== "collab" || !b.data.events) return;
     var at = {};
-    R.replayItems(b, 40).forEach(function (key) { at[key] = 1; });
+    R.replayItems(b, 200).forEach(function (key) { at[key] = 1; });
     Object.keys(at).forEach(function (key) {
       var stamp = itemStamp(b, key);
       var k = "moves|" + key;
@@ -908,7 +945,7 @@
       rp.st = null; rp.drawn = null; last.pane = null; paint();
       return;
     }
-    if ((el = closest(t, "[data-rp-win]"))) { save(RP_WIN_KEY, el.getAttribute("data-rp-win")); rpStop(); paint(); return; }
+    if ((el = closest(t, "[data-rp-count]"))) { save(RP_COUNT_KEY, el.getAttribute("data-rp-count")); rpStop(); paint(); return; }
     if ((el = closest(t, "[data-rp-speed]"))) {
       var sp = Number(el.getAttribute("data-rp-speed")) || 1;
       if (rp.playing) { var at = rpNow(); rp.speed = sp; rp.t0 = at; rp.wall0 = Date.now(); } else rp.speed = sp;

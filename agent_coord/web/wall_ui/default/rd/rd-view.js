@@ -370,7 +370,6 @@
       return '<span>' + kindIcon(k) + h(KIND_WORD[k]) + "</span>";
     }).join("") + "</span>";
   }
-  var WIN_WORD = { hour: "1 hour", day: "1 day", week: "1 week" };
   function cloud(names) {
     return '<span class="rd-cloud" title="' + h("outside this scope: " + names.join(", ")) + '"><i aria-hidden="true">\u2601</i>outside</span>';
   }
@@ -416,9 +415,11 @@
   function replayRows(rows, fresh) {
     return rows.map(function (r) { return replayRow(r, fresh && fresh[r.key]); }).join("");
   }
-  function speedText(win, speed) {
-    var s = Math.round(R.REPLAY_PLAY_MS / 1000 / (speed || 1));
-    return (WIN_WORD[win] || win) + " in " + (s >= 60 && s % 60 === 0 ? (s / 60) + " min" : s + "s");
+  /* "300 rows (5h 10m) in 2 min": the window, the time it spans, and its playback length. */
+  function speedText(rep, speed) {
+    var s = Math.round(R.REPLAY_PLAY_MS / 1000 / (speed || 1)), m = Math.round(rep.ms / 60000);
+    var span = m >= 2880 ? Math.round(m / 1440) + "d" : m >= 120 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + "m";
+    return plural(rep.rows.length, "row") + " (" + span + ") in " + (s >= 60 && s % 60 === 0 ? (s / 60) + " min" : s + "s");
   }
   /* Under the stage and folded, so the replay gets the height; the count says when to open it. */
   function blockingHtml(rows, open) {
@@ -430,138 +431,88 @@
       return "<li>" + head + (r.note ? " " + flag(r.note, r.kind === "unread" ? "older" : "hot") : "") + "</li>";
     }).join("") + "</ul>" : empty("Nothing is blocking anyone.")) + "</details>";
   }
-  /* The trace strip: one EKG line of row density over the window, drawn twice. The dim copy is
-   * what is still to come; the lit copy is clipped to the playhead, so the sweep reveals it. A
-   * thin lane under the line takes the colour of each bucket's busiest kind. rd-app moves the
-   * clip and the playhead; click or drag on the strip scrubs. */
-  var TRACE_W = 1000, TRACE_H = 40, TRACE_BASE = 30;
-  function traceHtml(rep) {
-    var tr = R.replayTrace(rep, 160), w = TRACE_W / tr.n, pts = [], lane = "";
-    for (var i = 0; i < tr.n; i++) {
-      var x0 = i * w, c = tr.total[i];
-      if (!c) { pts.push(x0.toFixed(1) + "," + TRACE_BASE); continue; }
-      var y = TRACE_BASE - 2 - 26 * Math.sqrt(c / tr.peak);
-      pts.push(x0.toFixed(1) + "," + TRACE_BASE, (x0 + w * 0.35).toFixed(1) + "," + y.toFixed(1), (x0 + w * 0.6).toFixed(1) + "," + (TRACE_BASE + 3), (x0 + w).toFixed(1) + "," + TRACE_BASE);
-      var top = null;
-      R.REPLAY_KINDS.forEach(function (k) { if (tr.kinds[k][i] && (top == null || tr.kinds[k][i] > tr.kinds[top][i])) top = k; });
-      if (top) lane += '<rect class="k-' + top + '" x="' + x0.toFixed(1) + '" y="' + (TRACE_H - 4) + '" width="' + w.toFixed(1) + '" height="3"/>';
+  /* ---- The overview: the whole loaded history as a bar graph of row counts ----
+   * One bar per time bucket, height by count (linear). Bars are stacked by kind when a
+   * bucket has more than one. The dim copy is the whole record; the lit copy is clipped
+   * to the playhead, so the played part is bright. The box is the slice the big pane
+   * shows at the playhead ([t - span, t]); drag it (grab hand) to slide the window, or
+   * click outside it to jump. */
+  var TRACE_W = 1000, TRACE_H = 40;
+  function overviewHtml(rep) {
+    var ov = R.replayOverview(rep, 160), w = TRACE_W / ov.n, bars = "", lit = "", kinds = R.REPLAY_KINDS;
+    for (var i = 0; i < ov.n; i++) {
+      if (!ov.total[i] || !ov.peak) continue;
+      var x = (i * w).toFixed(1), bw = Math.max(1, w - 0.4).toFixed(1), y = TRACE_H, stack = [];
+      kinds.forEach(function (k) {
+        var c = ov.kinds[k] ? ov.kinds[k][i] : 0;
+        if (!c) return;
+        var h = TRACE_H * c / ov.peak;
+        y -= h;
+        stack.push({ k: k, y: y, h: h });
+      });
+      stack.forEach(function (b) {
+        var r = '<rect class="k-' + b.k + '" x="' + x + '" y="' + b.y.toFixed(1) + '" width="' + bw + '" height="' + Math.max(0.5, b.h).toFixed(1) + '"/>';
+        bars += r; lit += r;
+      });
     }
-    pts.push(TRACE_W + "," + TRACE_BASE);
-    var line = pts.join(" ");
-    return '<div class="rd-rp-trace" data-rp-trace="1" role="slider" tabindex="0" aria-label="Replay position" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000" title="' + h(plural(rep.rows.length, "row") + ", busiest stretch " + tr.peak) + '">' +
+    var vp = R.replayViewport(rep, rep.until, ov), X = function (f) { return (f * TRACE_W).toFixed(1); };
+    return '<div class="rd-rp-trace rd-rp-ov" data-rp-ov="1" data-lo="' + ov.lo + '" data-hi="' + ov.hi + '" role="slider" tabindex="0" aria-label="Replay position; drag the box to move the window" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000" title="' + h(plural(rep.total, "row") + " loaded \u00b7 drag the box to move the window, click outside it to jump") + '">' +
       '<svg viewBox="0 0 ' + TRACE_W + " " + TRACE_H + '" preserveAspectRatio="none" aria-hidden="true">' +
-      '<defs><clipPath id="rd-rp-clip"><rect data-rp-clip="1" x="0" y="0" width="' + TRACE_W + '" height="' + TRACE_H + '"/></clipPath></defs>' +
-      '<line class="rd-rp-tr-base" x1="0" y1="' + TRACE_BASE + '" x2="' + TRACE_W + '" y2="' + TRACE_BASE + '"/>' +
-      '<g class="rd-rp-tr-lane">' + lane + "</g>" +
-      '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
-      '<polyline class="rd-rp-tr-lit" clip-path="url(#rd-rp-clip)" points="' + line + '"/>' +
-      '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + TRACE_W + '" y1="0" x2="' + TRACE_W + '" y2="' + TRACE_H + '"/>' +
+      '<g class="rd-rp-bars rd-rp-bars-dim">' + bars + "</g>" +
+      '<clipPath id="rd-rp-played"><rect data-rp-clip="1" x="0" y="0" width="' + X(vp.at) + '" height="' + TRACE_H + '"/></clipPath>' +
+      '<g class="rd-rp-bars rd-rp-bars-lit" clip-path="url(#rd-rp-played)">' + lit + "</g>" +
+      '<rect class="rd-rp-vp" data-rp-vp="1" x="' + X(vp.lo) + '" y="1" width="' + Math.max(2, (vp.hi - vp.lo) * TRACE_W).toFixed(1) + '" height="' + (TRACE_H - 2) + '"/>' +
+      '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + X(vp.at) + '" y1="0" x2="' + X(vp.at) + '" y2="' + TRACE_H + '"/>' +
       "</svg></div>";
   }
-  /* ---- Stage: the lanes' pills across the top, one column under each. rd-app drops the six kind
-   * icons from a pill into its column as the playhead reaches them, and parks the ones not yet
-   * picked up in the receiver's tray. ---- */
+  /* ---- The two subtabs: the same stage, flipped ----
+   * Desks: fixed pills are the desks (office, then the pick, then one outside cloud). Activity:
+   * fixed pills are the six kinds. Each pill heads a lane; items travel out along it as they
+   * age. One axis config turns both left to right or top to bottom. */
   function laneHead(l) {
-    var pill = l.t === "desk" ? partHtml({ t: "desk", name: l.name, state: l.state })
+    var pill = l.t === "kind" ? '<span class="rd-pill rd-kind k-' + h(l.id) + '" title="' + h(KIND_WORD[l.id] || l.name) + '">' + kindIcon(l.id) + h(KIND_WORD[l.id] || l.name) + "</span>"
+      : l.t === "desk" ? partHtml({ t: "desk", name: l.name, state: l.state })
       : l.t === "human" ? partHtml({ t: "human", name: l.name })
       : l.t === "cloud" ? partHtml({ t: "cloud", names: l.names && l.names.length ? l.names : ["desks off this pick"] })
       : '<span class="rd-pill rd-office" title="rows no desk sent, like a wake">office</span>';
-    return '<div class="rd-rp-lane" data-lane="' + h(l.id) + '">' + pill + '<span class="rd-rp-locks" data-rp-locks="' + h(l.id) + '"></span></div>';
+    var locks = l.t === "desk" ? '<span class="rd-rp-locks" data-rp-locks="' + h(l.id) + '"></span>' : "";
+    return '<div class="rd-rp-lane" data-lane="' + h(l.id) + '">' + pill + locks + "</div>";
   }
-  function stageHtml(rep) {
-    var n = rep.lanes.length;
-    if (!n) return '<div class="rd-rp-stage rd-rp-empty">No desks on this pick.</div>';
-    var cols = rep.lanes.map(function (l) { return '<div class="rd-rp-col" data-col="' + h(l.id) + '"><div class="rd-rp-tray" data-rp-tray="' + h(l.id) + '"></div></div>'; }).join("");
-    return '<div class="rd-rp-stage' + (n > 10 ? " rd-rp-many" : "") + '" data-rp-lanes="' + n + '">' +
-      '<div class="rd-rp-heads">' + rep.lanes.map(laneHead).join("") + "</div>" +
-      '<div class="rd-rp-rain" data-rp-rain="1">' + cols + "</div></div>";
+  function stageHtml(rep, view) {
+    var lanes = view === "activity" ? R.replayKindLanes() : rep.lanes;
+    if (!lanes.length) return '<div class="rd-rp-stage rd-rp-empty">No desks on this pick.</div>';
+    var cols = lanes.map(function (l) { return '<div class="rd-rp-col" data-col="' + h(l.id) + '"></div>'; }).join("");
+    return '<div class="rd-rp-stage' + (lanes.length > 10 ? " rd-rp-many" : "") + '" data-rp-lanes="' + lanes.length + '" data-rp-view="' + view + '">' +
+      '<div class="rd-rp-heads">' + lanes.map(laneHead).join("") + "</div>" +
+      '<div class="rd-rp-rain" data-rp-rain="1">' + cols + '<div class="rd-rp-field" data-rp-field="' + view + '"></div></div></div>';
   }
-  /* ---- Monitor: the same replay as one heart-monitor trace per lane, in the stage's order,
-   * under the shared playhead. Each line rises with the rows the lane sent or received. ---- */
-  var MON_W = 1000, MON_H = 24, MON_BASE = 19;
-  function laneLine(counts, peak) {
-    var w = MON_W / counts.length, pts = [];
-    counts.forEach(function (c, i) {
-      var x0 = i * w;
-      if (!c) { pts.push(x0.toFixed(1) + "," + MON_BASE); return; }
-      var y = MON_BASE - 2 - 15 * Math.sqrt(c / Math.max(1, peak));
-      pts.push(x0.toFixed(1) + "," + MON_BASE, (x0 + w * 0.35).toFixed(1) + "," + y.toFixed(1), (x0 + w * 0.6).toFixed(1) + "," + (MON_BASE + 2), (x0 + w).toFixed(1) + "," + MON_BASE);
-    });
-    pts.push(MON_W + "," + MON_BASE);
-    return pts.join(" ");
-  }
-  /* A lane's labels and trees across the window, busiest first: chips beside its trace. */
-  function laneTags(rep, id) {
-    var n = {}, by = {};
-    rep.rows.forEach(function (r) {
-      if (!r.tags || (r.lane !== id && !r.flows.some(function (f) { return f.from === id || f.to === id; }))) return;
-      r.tags.labels.forEach(function (l) { var k = "l|" + l.name; n[k] = (n[k] || 0) + 1; by[k] = { labels: [l], trees: [] }; });
-      r.tags.trees.forEach(function (t) { var k = "t|" + t.name; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [t] }; });
-      (r.tags.watchers || []).forEach(function (w) { var k = "w|" + w; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [], watchers: [w] }; });
-      if (r.tags.roster) { var k = "r|" + r.tags.roster; n[k] = (n[k] || 0) + 1; by[k] = { labels: [], trees: [], roster: r.tags.roster }; }
-    });
-    var keys = Object.keys(n).sort(function (a, c) { return n[c] - n[a] || (a < c ? -1 : 1); });
-    if (!keys.length) return { html: '<span class="rd-tags"></span>', text: "" };
-    var top = keys.slice(0, 3), pick = function (c) { return top.filter(function (k) { return k.charAt(0) === c; }); };
-    return { html: tagsHtml({ labels: pick("l").map(function (k) { return by[k].labels[0]; }), trees: pick("t").map(function (k) { return by[k].trees[0]; }),
-      watchers: pick("w").map(function (k) { return by[k].watchers[0]; }), roster: pick("r").map(function (k) { return by[k].roster; })[0] || "" }) +
-      (keys.length > 3 ? '<span class="rd-tag rd-tag-more" title="' + h(keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ")) + '">+' + (keys.length - 3) + "</span>" : ""),
-      text: keys.map(function (k) { return tagsText(by[k]) + " (" + n[k] + ")"; }).join("; ") };
-  }
-  /* Top to bottom: the same trace with x and y swapped, so time runs down the column. */
-  function swapPts(line) { return line.split(" ").map(function (p) { var q = p.split(","); return q[1] + "," + q[0]; }).join(" "); }
-  function monitorHtml(rep, dir) {
-    var tr = R.replayLaneTrace(rep, 120), tb = dir === "tb";
-    if (!rep.lanes.length) return "";
-    var vb = tb ? MON_H + " " + MON_W : MON_W + " " + MON_H;
-    return '<div class="rd-rp-monitor' + (rep.lanes.length > 10 ? " rd-rp-many" : "") + '" data-rp-monitor="1">' + rep.lanes.map(function (l, i) {
-      var c = tr.by[l.id], line = tb ? swapPts(laneLine(c, tr.peak)) : laneLine(c, tr.peak), sum = c.reduce(function (a, x) { return a + x; }, 0), id = "rd-rp-mclip-" + i;
-      var tg = laneTags(rep, l.id);
-      return '<div class="rd-rp-mlane lt-' + h(l.t) + '" data-rp-mlane="' + h(l.id) + '">' +
-        '<span class="rd-rp-mname" title="' + h(l.name + ": " + plural(sum, "row") + " sent or received" + (tg.text ? "\n" + tg.text : "")) + '">' + h(l.name) + "</span>" +
-        '<div class="rd-rp-trace rd-rp-mtrace" data-rp-trace="1"' + (tb ? ' data-rp-axis="y" aria-orientation="vertical"' : "") + ' role="slider" tabindex="-1" aria-label="' + h(l.name + " activity; replay position") + '" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="1000">' +
-        '<svg viewBox="0 0 ' + vb + '" preserveAspectRatio="none" aria-hidden="true">' +
-        (tb ? '<defs><clipPath id="' + id + '"><rect data-rp-clip="y" x="0" y="0" width="' + MON_H + '" height="' + MON_W + '"/></clipPath></defs>' +
-          '<line class="rd-rp-tr-base" x1="' + MON_BASE + '" y1="0" x2="' + MON_BASE + '" y2="' + MON_W + '"/>'
-        : '<defs><clipPath id="' + id + '"><rect data-rp-clip="1" x="0" y="0" width="' + MON_W + '" height="' + MON_H + '"/></clipPath></defs>' +
-          '<line class="rd-rp-tr-base" x1="0" y1="' + MON_BASE + '" x2="' + MON_W + '" y2="' + MON_BASE + '"/>') +
-        '<polyline class="rd-rp-tr-dim" points="' + line + '"/>' +
-        '<polyline class="rd-rp-tr-lit" clip-path="url(#' + id + ')" points="' + line + '"/>' +
-        (tb ? '<line class="rd-rp-tr-head" data-rp-head="y" x1="0" y1="' + MON_W + '" x2="' + MON_H + '" y2="' + MON_W + '"/>'
-          : '<line class="rd-rp-tr-head" data-rp-head="1" x1="' + MON_W + '" y1="0" x2="' + MON_W + '" y2="' + MON_H + '"/>') +
-        "</svg></div>" + '<span class="rd-rp-mtags">' + tg.html + "</span></div>";
-    }).join("") + "</div>";
-  }
-  /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
-  function replayHtml(rep, blocking, ui) {
-    var wins = ["auto", "hour", "day", "week"].map(function (w) {
-      var on = w === rep.want, n = w === "auto" ? null : rep.counts[w];
-      return '<button type="button" data-rp-win="' + w + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') +
-        (n != null ? ' title="' + h(plural(n, "row") + " in the last " + WIN_WORD[w]) + '"' : ' title="the shortest window with enough to watch"') + ">" +
-        (w === "auto" ? "Auto" + (rep.want === "auto" ? " \u00b7 " + rep.window : "") : w.charAt(0).toUpperCase() + w.slice(1)) + "</button>";
+  /* The replay shell: only the two subtabs' shared controls, the overview, and the stage.
+   * The playhead, the viewport and the items are drawn by rd-app as it plays. */
+  function replayHtml(rep, ui) {
+    ui = ui || {};
+    if (ui && ui.speed == null && arguments[2] && arguments[2].speed != null) ui = arguments[2];
+    var counts = R.REPLAY_COUNTS.map(function (n) {
+      var on = n === rep.count;
+      return '<button type="button" data-rp-count="' + n + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ' title="' + h(n + " rows in the window") + '">' + n + "</button>";
     }).join("");
     var speeds = R.REPLAY_SPEEDS.map(function (x) {
       return '<button type="button" data-rp-speed="' + x + '"' + (x === ui.speed ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (x === 0.25 ? "\u00bc" : x === 0.5 ? "\u00bd" : x) + "x</button>";
     }).join("");
-    /* Desks: the stage, scrubbed by the density trace. Activity: one line per desk. One clock. */
     var view = ui.view === "activity" ? "activity" : "desks";
     var dir = (ui.dirs && ui.dirs[view]) === "tb" ? "tb" : R.REPLAY_DIR_DEFAULT[view];
-    var dirBtn = '<button type="button" class="rd-rp-play rd-rp-dir" data-rp-dir="' + (dir === "tb" ? "lr" : "tb") + '" aria-pressed="' + (dir === "tb" ? "true" : "false") + '" aria-label="Direction: ' + (dir === "tb" ? "top to bottom" : "left to right") + '" title="' + (dir === "tb" ? "Top to bottom; switch to left to right" : "Left to right; switch to top to bottom") + '">' + (dir === "tb" ? "\u2193" : "\u2192") + "</button>";
-    var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' :
-      (view === "desks" ? stageHtml(rep) : monitorHtml(rep, dir)) +
-      '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay" aria-label="What happened, newest first"></ol>';
-    /* The density trace sits on top, over both subtabs; click or drag it to scrub. */
+    var dirBtn = '<button type="button" class="rd-rp-btn rd-rp-dir" data-rp-dir="' + (dir === "tb" ? "lr" : "tb") + '" aria-pressed="' + (dir === "tb" ? "true" : "false") + '" aria-label="Direction: ' + (dir === "tb" ? "top to bottom" : "left to right") + '" title="' + (dir === "tb" ? "Top to bottom; switch to left to right" : "Left to right; switch to top to bottom") + '">' + (dir === "tb" ? "\u2193" : "\u2192") + "</button>";
+    var body = !rep.known ? '<div class="rd-loading">Loading COLLAB\u2026</div>' : stageHtml(rep, view);
     return '<section class="rd-replay rv-' + view + " rd-dir-" + dir + '" data-rp-stage="1" data-rp-subtab="' + view + '" data-rp-dirnow="' + dir + '">' +
-      '<div class="rd-rp-top">' + traceHtml(rep) + '<span class="rd-rp-span" data-rp-span="1" aria-live="polite"></span></div>' + body + '<div class="rd-rp-bar">' +
-      '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
-      '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
+      '<div class="rd-rp-bar">' +
+      '<button type="button" class="rd-rp-btn rd-rp-go" data-rp-play="1" aria-label="Play">\u25b6</button>' +
+      '<button type="button" class="rd-rp-btn" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
       '<span class="rd-rp-clock" data-rp-clock="1"></span>' +
-      '<span class="rd-time-range" role="group" aria-label="Replay window">' + wins + "</span>" +
+      '<span class="rd-time-range" role="group" aria-label="Rows in the window">' + counts + "</span>" +
       '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
-      '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep.window, ui.speed)) + "</span>" + legendHtml() +
-      '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span>" +
-      dirBtn + '<button type="button" class="rd-rp-play rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div></section>" +
-      blockingHtml(blocking, ui.blockOpen);
+      '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep, ui.speed)) + "</span>" + legendHtml() +
+      dirBtn + '<button type="button" class="rd-rp-btn rd-rp-full" data-rp-full="1" aria-label="Full screen" aria-pressed="' + (ui.full ? "true" : "false") + '" title="' + (ui.full ? "Leave full screen (Esc)" : "Full screen") + '">' + (ui.full ? "\u2715" : "\u26f6") + "</button></div>" +
+      '<div class="rd-rp-top">' + overviewHtml(rep) + '<span class="rd-rp-span" data-rp-span="1" aria-live="polite"></span></div>' +
+      body + "</section>";
   }
 
   var SCOPE_TEXT = {

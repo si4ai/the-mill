@@ -857,13 +857,16 @@
    * focus rows (doing history desk=D). A move row stands for the activity row of the same
    * item, so nothing shows twice. A row shows when one of its desks is on the picked roster
    * or station; a desk off it is drawn as "outside". Windows roll back from now. */
-  var REPLAY_WINDOWS = { hour: HOUR, day: DAY, week: 7 * DAY };
-  var REPLAY_ORDER = ["hour", "day", "week"];
+  /* The window is a row count: the N most recent rows, or the N rows ending where the
+   * viewport was dragged to. */
+  var REPLAY_COUNTS = [100, 300, 1000], REPLAY_COUNT_DEFAULT = 300;
+  /* A window never spans less than this, so a burst of rows still has room to move. */
+  var REPLAY_MIN_SPAN = 60000;
+  /* How far back the move rows of cards and promises are read for the replay. */
+  var REPLAY_FETCH_MS = 7 * DAY;
   /* The six kinds the activity table records; each has its own icon. */
   var REPLAY_KINDS = ["mail", "todo", "hold", "wake", "doing", "score"];
-  /* Auto picks the shortest window with at least this many rows: enough to watch. */
-  var REPLAY_WATCH_MIN = 150;
-  /* Every window plays back in this long at 1x: an hour 30x, a day 720x, a week 5040x. */
+  /* Every window plays back in this long at 1x, whatever time its rows span. */
   var REPLAY_PLAY_MS = 120000;
   var REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4];
   var CARD_WORD = { none: "", open: "OPEN", parked: "PARKED", claimed: "CLAIMED", shipped: "SHIPPED", done: "DONE", removed: "REMOVED" };
@@ -993,16 +996,6 @@
     });
     mine.sort(function (x, y) { return x.at - y.at || (x.key < y.key ? -1 : 1); });
     return mine;
-  }
-  /* The rolling window: the one asked for, or the shortest holding enough rows to watch. */
-  function replayWindow(events, now, want) {
-    if (REPLAY_WINDOWS[want]) return want;
-    for (var i = 0; i < REPLAY_ORDER.length; i++) {
-      var w = REPLAY_ORDER[i], since = now - REPLAY_WINDOWS[w];
-      var n = events.filter(function (e) { return e.at >= since && e.at <= now; }).length;
-      if (n >= REPLAY_WATCH_MIN) return w;
-    }
-    return "week";
   }
   /* One row as parts of a plain sentence. A desk off the focused set is a cloud: "outside". */
   /* The person at the office: the human mailbox names the Wall already knows. */
@@ -1145,30 +1138,35 @@
     return dir === "tb" ? { dir: "tb", main: "y", cross: "x", size: "height", crossSize: "width", start: "top", crossStart: "left", client: "clientY", crossClient: "clientX" }
       : { dir: "lr", main: "x", cross: "y", size: "width", crossSize: "height", start: "left", crossStart: "top", client: "clientX", crossClient: "clientY" };
   }
+  function replayCount(n) { return REPLAY_COUNTS.indexOf(Number(n)) >= 0 ? Number(n) : REPLAY_COUNT_DEFAULT; }
   function collabReplay(b, opts) {
     opts = opts || {};
-    var all = replayEvents(b);
-    var want = REPLAY_WINDOWS[opts.window] ? opts.window : "auto";
-    /* The window ends now, or at opts.end when panned back into the history. */
+    var all = replayEvents(b).filter(function (e) { return e.at != null; }).sort(function (x, y) { return x.at - y.at || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0); });
+    var count = replayCount(opts.count);
+    /* The window ends now, or at opts.end when the viewport was dragged back into the history. */
     var live = opts.end == null || opts.end >= b.now, end = live ? b.now : opts.end;
-    var win = replayWindow(all, end, want);
-    var since = end - REPLAY_WINDOWS[win];
+    var upto = all.filter(function (e) { return e.at <= (live ? end + MIN : end); });
+    var win = upto.slice(-count);
+    /* The window spans from its oldest row to its end (at least REPLAY_MIN_SPAN). That span is
+     * also the age axis: an item travels from its desk to the far edge over one span. */
+    var span = Math.max(REPLAY_MIN_SPAN, end - (win.length ? win[0].at : end)), since = end - span;
     var pick = pickIndex(b);
-    var rows = all.filter(function (e) { return e.at >= since && e.at <= (live ? end + MIN : end); }).map(function (e) {
+    /* The pool: every row that can be on screen for a playhead inside the window. */
+    var pool = upto.filter(function (e) { return e.at >= since - span; }).map(function (e) {
       return { key: e.key, item: e.item, at: e.at, kind: e.kind, act: e.act, actor: e.actor, dir: e.dir || "out", parts: sentence(b, e),
         outside: e.peers.concat([e.actor]).some(function (n) { var x = party(b, n); return x && x.t === "cloud"; }), read: e.read || null,
         lane: e.office || !e.actor ? "@office" : laneOf(b, e.actor), flows: flowsOf(b, e, pick), text: e.text || "",
         tags: tagsOf(b, e.item, e.roster), state: stateDesks(e) };
     }).map(function (r) {
-      var st = r.state, ls = [];
+      var st = r.state, ls = [r.lane];
       st.holders.concat(st.from, st.waiting).forEach(function (d) { var l = laneOf(b, d); if (ls.indexOf(l) < 0) ls.push(l); });
+      r.flows.forEach(function (f) { [f.from, f.to].forEach(function (l) { if (ls.indexOf(l) < 0) ls.push(l); }); });
       r.stateLanes = ls;
       return r;
     });
-    var lanes = replayLanes(b, rows);
+    var rows = pool.filter(function (r) { return r.at >= since; });
+    var lanes = replayLanes(b, pool);
     var known = !!(b.letters || b.data.events);
-    var counts = {};
-    REPLAY_ORDER.forEach(function (w) { var s0 = end - REPLAY_WINDOWS[w]; counts[w] = all.filter(function (e) { return e.at >= s0 && e.at <= end + MIN; }).length; });
     /* Each desk's focus rows, oldest first: its state changes, to recolor its pill as the playhead moves. */
     var states = {};
     Object.keys(b.data.trail || {}).forEach(function (desk) {
@@ -1181,18 +1179,73 @@
     eachRoster(b.data.holds, b.scope.rosters, function (list) {
       (list || []).forEach(function (l) { if (l && str(l.owner)) (heldNow[laneOf(b, l.owner)] = heldNow[laneOf(b, l.owner)] || []).push({ item: "hold-" + l.id, text: str(l.resource) }); });
     });
-    var oldest = null;
-    all.forEach(function (e) { if (oldest == null || e.at < oldest) oldest = e.at; });
-    return { known: known, want: want, window: win, since: since, until: end, live: live, now: b.now, oldest: oldest, ms: REPLAY_WINDOWS[win], rows: rows, counts: counts, states: states,
-      lanes: lanes, heldNow: heldNow };
+    return { known: known, count: count, since: since, until: end, live: live, now: b.now, ms: span, rows: rows, pool: pool, states: states,
+      lanes: lanes, heldNow: heldNow, total: all.length, before: upto.length - win.length,
+      oldest: all.length ? all[0].at : null, ticks: all.map(function (e) { return { at: e.at, kind: e.kind }; }),
+      /* The earliest end a dragged window may have: it still holds `count` rows. */
+      floorEnd: all.length > count ? all[count - 1].at : null };
   }
-  /* Panning: the window's end moved by dt, never past now nor before the oldest recorded row
-   * (that row stays in the window). null means "ends now". */
+  /* Dragging the viewport: the window's end moved by dt, never past now nor so far back it
+   * would hold fewer than `count` loaded rows. null means "ends now". */
   function replayPan(rep, end0, dt) {
     var now = rep.now, end = (end0 == null ? now : end0) + dt;
-    var floor = rep.oldest != null ? Math.min(now, rep.oldest + rep.ms) : now;
-    end = Math.max(floor, Math.min(now, end));
+    if (rep.floorEnd == null) return null;
+    end = Math.max(rep.floorEnd, Math.min(now, end));
     return end >= now - 1000 ? null : Math.round(end);
+  }
+  /* ---- Age is position ----
+   * An item enters at its desk when the playhead reaches its time and travels outward as it
+   * ages, leaving at the far edge once it is one window span old. A pure function of the
+   * playhead t, the item's time and the span: scrubbing either way puts it back. null: not on
+   * screen (not happened yet, or aged out). */
+  function replayAge(t, at, span) {
+    var a = t - at;
+    return a < 0 || a > span || !(span > 0) ? null : a / span;
+  }
+  /* The young end of a two-desk transition is joined by a line that fades as the pair ages. */
+  var REPLAY_LINK_AGE = 0.08;
+  /* The same instances, two views: desks places each on every desk lane in its state (and
+   * joins a two-desk transition with a line); activity places each once on its kind lane. */
+  function replayItemsAt(rep, t, cap, view) {
+    var items = [], links = [], activity = view === "activity";
+    cap = cap || 400;
+    for (var i = rep.pool.length - 1; i >= 0 && items.length < cap; i--) {
+      var r = rep.pool[i], pos = replayAge(t, r.at, rep.ms);
+      if (pos == null) { if (r.at < t - rep.ms) break; continue; }
+      if (activity) items.push({ id: r.key, key: r.key, kind: r.kind, lane: r.kind, pos: pos, row: r });
+      else {
+        r.stateLanes.forEach(function (lane) { items.push({ id: r.key + "@" + lane, key: r.key, kind: r.kind, lane: lane, pos: pos, row: r }); });
+        if (pos < REPLAY_LINK_AGE) r.flows.forEach(function (f) { links.push({ id: r.key + ">" + f.from + ">" + f.to, kind: r.kind, from: f.from, to: f.to, pos: pos, fade: 1 - pos / REPLAY_LINK_AGE }); });
+      }
+    }
+    return { items: items, links: links };
+  }
+  function replayVisibleKeys(rep, t) {
+    return (rep.pool || []).filter(function (r) { return replayAge(t, r.at, rep.ms) != null; }).map(function (r) { return r.key; }).sort();
+  }
+  /* Activity view: one fixed pill per kind, always all six, in REPLAY_KINDS order. */
+  function replayKindLanes() {
+    return REPLAY_KINDS.map(function (k) { return { id: k, t: "kind", name: k }; });
+  }
+  /* ---- The overview: the whole loaded history, and the viewport on it ----
+   * The strip at the top buckets every loaded row from the oldest to now; the viewport is the
+   * slice the big pane shows at playhead t: [t - span, t]. */
+  function replayOverview(rep, n) {
+    n = n || 160;
+    var lo = rep.oldest != null ? Math.min(rep.oldest, rep.since) : rep.since, hi = Math.max(rep.now, rep.until), w = Math.max(1, hi - lo), total = [], kinds = {}, peak = 0;
+    for (var i = 0; i < n; i++) total.push(0);
+    REPLAY_KINDS.forEach(function (k) { kinds[k] = total.slice(); });
+    (rep.ticks || []).forEach(function (x) {
+      var i = Math.min(n - 1, Math.max(0, Math.floor((x.at - lo) / w * n)));
+      total[i]++;
+      if (kinds[x.kind]) kinds[x.kind][i]++;
+      if (total[i] > peak) peak = total[i];
+    });
+    return { n: n, lo: lo, hi: hi, total: total, kinds: kinds, peak: peak };
+  }
+  function replayViewport(rep, t, ov) {
+    var w = Math.max(1, ov.hi - ov.lo), c = function (x) { return Math.max(0, Math.min(1, x)); };
+    return { lo: c((t - rep.ms - ov.lo) / w), hi: c((t - ov.lo) / w), at: c((t - ov.lo) / w), winLo: c((rep.since - ov.lo) / w), winHi: c((rep.until - ov.lo) / w) };
   }
   /* ---- The stage: one column per desk, the activity drops from its desk ----
    * A lane is a focused desk (its name), the person, the office (rows no desk sent, like a wake),
@@ -1315,18 +1368,6 @@
     }
     return out;
   }
-  /* What waits in each lane at t: flows that arrived and are not picked up yet. */
-  function replayPending(rep, t) {
-    var out = {};
-    rep.rows.forEach(function (r) {
-      if (r.at > t) return;
-      r.flows.forEach(function (f, i) {
-        if (f.pickAt != null && f.pickAt <= t) return;
-        (out[f.to] = out[f.to] || []).push({ key: r.key + "~" + i, kind: r.kind, row: r, flow: f });
-      });
-    });
-    return out;
-  }
   /* The locks on each lane at t: promises held (from the move rows; at now, the holds table) and
    * promises waited on (a faded lock) until the waiter takes it. */
   function replayLocksAt(rep, t) {
@@ -1337,7 +1378,7 @@
       return now;
     }
     var held = {};
-    rep.rows.forEach(function (r) {
+    (rep.pool || rep.rows).forEach(function (r) {
       if (r.at > t || r.kind !== "hold") return;
       if (r.act === "hold") { Object.keys(held).forEach(function (l) { delete held[l][r.item]; }); (held[r.lane] = held[r.lane] || {})[r.item] = r.text; }
       if (r.act === "drop" && held[r.lane]) delete held[r.lane][r.item];
@@ -1348,7 +1389,7 @@
     return out;
   }
   function replayPendingHolds(rep, t, out) {
-    rep.rows.forEach(function (r) {
+    (rep.pool || rep.rows).forEach(function (r) {
       if (r.at > t || r.kind !== "hold" || r.act !== "wait") return;
       var f = r.flows[0], until = f ? f.pickAt : null;
       if (until != null && until <= t) return;
@@ -1356,24 +1397,16 @@
       if (!l.some(function (x) { return x.item === r.item; })) l.push({ item: r.item, text: r.text, wait: true });
     });
   }
-  /* ---- The monitor: one heart-monitor trace per lane, rows per slice (as actor or receiver) ---- */
-  function replayLaneTrace(rep, n) {
-    n = n || 120;
-    var span = Math.max(1, rep.until - rep.since), by = {}, peak = 0;
-    rep.lanes.forEach(function (l) { var z = []; for (var i = 0; i < n; i++) z.push(0); by[l.id] = z; });
-    rep.rows.forEach(function (r) {
-      if (r.at < rep.since || r.at > rep.until) return;
-      var i = Math.min(n - 1, Math.floor((r.at - rep.since) / span * n)), hit = {};
-      hit[r.lane] = 1;
-      r.flows.forEach(function (f) { hit[f.to] = 1; });
-      Object.keys(hit).forEach(function (l) { if (by[l]) { by[l][i]++; if (by[l][i] > peak) peak = by[l][i]; } });
+  /* How many two-desk transitions reached each lane by t and are not picked up yet: one small
+   * count on the pill, not a queue of icons. */
+  function replayWaitingAt(rep, t) {
+    var out = {};
+    rep.pool.forEach(function (r) {
+      if (r.at > t || t - r.at > rep.ms) return;
+      r.flows.forEach(function (f) { if (f.pickAt == null || f.pickAt > t) out[f.to] = (out[f.to] || 0) + 1; });
     });
-    return { n: n, by: by, peak: peak };
+    return out;
   }
-  /* A desk's state at office time t, from its recorded state changes; "" when none is recorded
-   * before t. A focus row holds until the next one, or until its end when the server sends one
-   * (finished: idle, cleared: disconnected). */
-  /* When the desk's current focus at t began: doing is time spent, so its bar grows from here. */
   function replaySince(rep, desk, t) {
     var list = rep && rep.states && rep.states[desk], cur = null;
     for (var i = 0; list && i < list.length && list[i].at <= t; i++) cur = list[i];
@@ -1388,23 +1421,6 @@
     if (cur.end != null && cur.end <= t) return cur.by === "cleared" ? "disconnected" : "idle";
     return cur.state;
   }
-  /* Rows up to playhead t, newest first, at most cap. */
-  /* The heart-monitor trace: the window cut into n equal buckets, how many rows fall in each
-   * (all kinds, and per kind), and the busiest bucket. Bursts spike; quiet stays flat. */
-  function replayTrace(rep, n) {
-    n = n || 160;
-    var span = Math.max(1, rep.until - rep.since), total = [], kinds = {}, peak = 0;
-    for (var i = 0; i < n; i++) total.push(0);
-    REPLAY_KINDS.forEach(function (k) { kinds[k] = total.slice(); });
-    rep.rows.forEach(function (r) {
-      if (r.at < rep.since || r.at > rep.until) return;
-      var b = Math.min(n - 1, Math.floor((r.at - rep.since) / span * n));
-      total[b]++;
-      if (kinds[r.kind]) kinds[r.kind][b]++;
-      if (total[b] > peak) peak = total[b];
-    });
-    return { n: n, total: total, kinds: kinds, peak: peak };
-  }
   function replayAt(rep, t, cap) {
     var out = [];
     for (var i = rep.rows.length - 1; i >= 0 && out.length < (cap || 60); i--) if (rep.rows[i].at <= t) out.push(rep.rows[i]);
@@ -1412,7 +1428,7 @@
   }
   /* The items whose move rows the replay needs: todo and hold rows in the week, newest first. */
   function replayItems(b, cap) {
-    var since = b.now - REPLAY_WINDOWS.week, seen = {}, rows = [];
+    var since = b.now - REPLAY_FETCH_MS, seen = {}, rows = [];
     eachRoster(b.data.events, b.scope.rosters, function (list) {
       (list || []).forEach(function (e) {
         var k = e && (str(e.kind || e.type) + "-" + e.id);
@@ -1501,8 +1517,8 @@
 
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
-    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayTrace: replayTrace, replayPending: replayPending, replayLocksAt: replayLocksAt, replayLaneTrace: replayLaneTrace, replayPan: replayPan, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_WINDOWS: REPLAY_WINDOWS, REPLAY_WATCH_MIN: REPLAY_WATCH_MIN, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

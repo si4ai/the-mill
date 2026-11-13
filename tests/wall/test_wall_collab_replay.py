@@ -77,48 +77,58 @@ require(process.argv[1] + '/rd-view.js');
 const data = JSON.parse(process.argv[2]);
 const now = Date.parse(process.argv[3]);
 const sc = JSON.parse(process.argv[4]);
-const win = process.argv[5];
+const count = process.argv[5];
 const R = WallRd, V = WallRdView;
 const b = R.base(data, Object.assign({rosters: ['Office'], range: '7d'}, sc), now);
-const rep = R.collabReplay(b, {window: win});
+const rep = R.collabReplay(b, {count: count === 'auto' ? undefined : Number(count) || count});
 const txt = h => h.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/g, ' ').replace(/\s+/g, ' ').trim();
+const mid = rep.since + (rep.until - rep.since) / 2;
+const ov = R.replayOverview(rep, 160);
 console.log(JSON.stringify({
-  window: rep.window, want: rep.want, counts: rep.counts,
+  count: rep.count, total: rep.total, counts: R.REPLAY_COUNTS, defaultCount: R.REPLAY_COUNT_DEFAULT,
   rows: rep.rows.map(r => ({key: r.key, kind: r.kind, act: r.act, text: txt(V.replayRows([r])), html: V.replayRows([r]), tags: r.tags})),
   at: R.replayAt(rep, now, 3).map(r => r.key),
   playMs: R.REPLAY_PLAY_MS, speeds: R.REPLAY_SPEEDS,
-  rate: V.speedText(rep.window, 1), rateSlow: V.speedText('week', 0.25),
+  rate: V.speedText(rep, 1), rateSlow: V.speedText(rep, 0.25),
   stateBefore: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:01:00Z')),
   stateWorking: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:06:00Z')),
   stateWaiting: R.replayStateAt(rep, 'builder', Date.parse('2026-11-13T04:34:00Z')),
-  shell: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1}),
-  trace: (() => { const t = R.replayTrace(rep, 40); return {n: t.n, sum: t.total.reduce((a, c) => a + c, 0), peak: t.peak,
-    kinds: Object.fromEntries(Object.entries(t.kinds).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])),
-    quiet: t.total.filter(c => c === 0).length}; })(),
+  shell: V.replay(rep, {speed: 1, view: 'desks'}),
+  activity: V.replay(rep, {speed: 1, view: 'activity'}),
+  head: V.paneHead('collab', b, V.viewSwitch([{key:'desks',label:'Desks'},{key:'activity',label:'Activity'}], 'desks')),
+  overview: {n: ov.n, sum: ov.total.reduce((a,c)=>a+c,0), peak: ov.peak,
+    kinds: Object.fromEntries(Object.entries(ov.kinds).map(([k,v]) => [k, v.reduce((a,c)=>a+c,0)])),
+    quiet: ov.total.filter(c => c === 0).length},
   lanes: rep.lanes.map(l => l.id),
+  kinds: R.replayKindLanes().map(l => l.id),
   flows: Object.fromEntries(rep.rows.filter(r => r.flows.length).map(r => [r.key, r.flows.map(f => [f.from, f.to, f.pickAt == null ? null : f.pickAt - r.at])])),
-  pendingNow: Object.fromEntries(Object.entries(R.replayPending(rep, now)).map(([k, v]) => [k, v.map(x => x.key)])),
+  waitingNow: R.replayWaitingAt(rep, now),
   locksNow: R.replayLocksAt(rep, now),
   locksPast: R.replayLocksAt(rep, Date.parse('2026-11-13T04:29:00Z')),
-  past: (() => { const p = R.collabReplay(b, {window: 'hour', end: now - 25 * 60000});
-    return {live: p.live, since: p.since, until: p.until, keys: p.rows.map(r => r.key), oldest: p.oldest,
+  past: (() => { const p = R.collabReplay(b, {count: 100, end: now - 25 * 60000});
+    return {live: p.live, until: p.until, keys: p.rows.map(r => r.key), oldest: p.oldest, count: p.count,
       locksEnd: R.replayLocksAt(p, p.until),
       panShort: R.replayPan(p, null, -10 * 60000)}; })(),
-  pan: (() => { const r = {now: now, oldest: now - 5 * 3600000, ms: 3600000};
+  pan: (() => {
+    const r = {now: now, floorEnd: now - 4 * 3600000, ms: 3600000};
     return {now: R.replayPan(r, null, 60000), back: R.replayPan(r, null, -10 * 60000), far: R.replayPan(r, null, -365 * 86400000),
-      fwd: R.replayPan(r, now - 25 * 60000, 24 * 60000)}; })(),
+      fwd: R.replayPan(r, now - 25 * 60000, 24 * 60000), none: R.replayPan({now: now, ms: 3600000}, null, -60000)};
+  })(),
   nowMs: now,
-  dirs: Object.fromEntries(['desks', 'activity'].flatMap(v => ['lr', 'tb', null].map(d => [v + '-' + d, V.replay(rep, [], {speed: 1, view: v, dirs: d ? {[v]: d} : {}})]))),
+  dirs: Object.fromEntries(['desks', 'activity'].flatMap(v => ['lr', 'tb', null].map(d => [v + '-' + d, V.replay(rep, {speed: 1, view: v, dirs: d ? {[v]: d} : {}})]))),
   axis: {lr: R.replayAxis('lr'), tb: R.replayAxis('tb'), dflt: R.REPLAY_DIR_DEFAULT},
-  laneTrace: (() => { const t = R.replayLaneTrace(rep, 30); return Object.fromEntries(Object.entries(t.by).map(([k, v]) => [k, v.reduce((a, c) => a + c, 0)])); })(),
-  monitor: V.replay(rep, [], {speed: 1, view: 'activity'}),
-  shellFull: V.replay(rep, R.collab(b, {}).groups[0].rows, {speed: 1, full: true, blockOpen: true}),
+  age: {before: R.replayAge(mid, mid + 1, rep.ms), at: R.replayAge(mid, mid, rep.ms), half: R.replayAge(mid + rep.ms / 2, mid, rep.ms), gone: R.replayAge(mid + rep.ms + 1, mid, rep.ms)},
+  keysDesks: R.replayVisibleKeys(rep, mid),
+  keysActivity: R.replayItemsAt(rep, mid, 400, 'activity').items.map(i => i.key).sort(),
+  keysDesksItems: [...new Set(R.replayItemsAt(rep, mid, 400, 'desks').items.map(i => i.key))].sort(),
+  shellFull: V.replay(rep, {speed: 1, full: true, view: 'desks'}),
+  vp: R.replayViewport(rep, mid, ov),
 }));
 """
 
 
-def run(scope: dict | None = None, window: str = "auto", data: dict = OFFICE) -> dict:
-    out = subprocess.run([NODE, "-e", SCRIPT, "--", str(RD), json.dumps(data), NOW, json.dumps(scope or {}), window],
+def run(scope: dict | None = None, count: str = "300", data: dict = OFFICE) -> dict:
+    out = subprocess.run([NODE, "-e", SCRIPT, "--", str(RD), json.dumps(data), NOW, json.dumps(scope or {}), str(count)],
                          capture_output=True, text=True, check=True, timeout=30)
     return json.loads(out.stdout)
 
@@ -163,20 +173,25 @@ def test_scope_keeps_rows_touching_the_focused_desks_and_clouds_the_rest():
     assert "outside" in out["text"], "a desk off the roster is a cloud"
 
 
-def test_window_rolls_back_from_now_and_auto_picks_the_shortest_watchable():
+def test_the_window_is_a_row_count_defaulting_to_300():
     got = run()
-    assert got["want"] == "auto" and got["window"] == "week", "too few rows for an hour or a day"
-    assert got["counts"]["hour"] == len(got["rows"])
-    assert run(window="hour")["window"] == "hour"
+    assert got["counts"] == [100, 300, 1000] and got["defaultCount"] == 300
+    assert got["count"] == 300
+    assert run(count="100")["count"] == 100
+    assert run(count="1000")["count"] == 1000
+    assert run(count="auto")["count"] == 300, "an unknown pick falls back to 300"
     assert got["at"][0] == "focus-51", "newest first at the playhead"
+    shell = got["shell"]
+    assert 'data-rp-count="100"' in shell and 'data-rp-count="300" class="on"' in shell and 'data-rp-count="1000"' in shell
+    assert "data-rp-win" not in shell, "hour, day, week and auto are gone"
 
 
 def test_playback_is_one_constant_and_slower_speeds_exist():
     got = run()
     assert got["playMs"] == 120000
     assert got["speeds"][:2] == [0.25, 0.5]
-    assert got["rate"] == "1 week in 2 min"
-    assert got["rateSlow"] == "1 week in 8 min"
+    assert got["rate"].endswith("in 2 min") and "row" in got["rate"]
+    assert "in 8 min" in got["rateSlow"]
     assert 'data-rp-step="1"' in got["shell"] and 'data-rp-play="1"' in got["shell"]
 
 
@@ -195,14 +210,27 @@ def test_collab_has_no_between_ring_view():
     assert "prefers-reduced-motion" in css
 
 
-def test_the_stage_leads_and_blocking_folds_below_it():
+def test_collab_has_only_the_two_subtabs_and_no_list_or_blocking():
     got = run()
-    shell = got["shell"]
-    assert shell.index('data-rp-stage="1"') < shell.index('data-rp-blocking="1"'), "the replay stage comes first"
-    assert re.search(r'<details class="rd-block rd-rp-blocking" data-rp-blocking="1">', shell), "folded by default"
-    assert 'data-rp-blocking="1" open>' in got["shellFull"], "an opened list stays open on repaint"
-    css = (RD / "rd.css").read_text(encoding="utf-8")
-    assert "min-height: 70vh" in css and "flex-wrap: nowrap" in css
+    shell, activity, head = got["shell"], got["activity"], got["head"]
+    assert 'data-rd-view="desks"' in head and 'data-rd-view="activity"' in head
+    for html in (shell, activity):
+        assert "data-rp-list" not in html and "data-rp-blocking" not in html
+        assert "BLOCKING SOMEONE NOW" not in html
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert '{ key: "desks", label: "Desks" }, { key: "activity", label: "Activity" }' in app
+    assert '"rd-collab-subtab"' in app
+    assert "Replay" not in re.findall(r'label: "(\w+)"', app) and "Timeline" not in re.findall(r'label: "(\w+)"', app)
+
+
+def test_controls_sit_above_the_stage_in_the_dom():
+    got = run()
+    for html in (got["shell"], got["activity"]):
+        play = html.index('data-rp-play="1"')
+        ov = html.index('data-rp-ov="1"')
+        stage = html.index('data-rp-lanes=')
+        assert play < ov < stage, "play and the bar graph sit above the stage"
+        assert 'rd-rp-go' in html and 'data-rp-play="1"' in html
 
 
 def test_full_screen_toggle_with_a_viewport_fallback():
@@ -214,24 +242,27 @@ def test_full_screen_toggle_with_a_viewport_fallback():
     css = (RD / "rd.css").read_text(encoding="utf-8")
     fs = [ln for ln in css.splitlines() if "rd-rp-fs" in ln]
     assert any("position: fixed; inset: 0" in ln for ln in fs), "covers the viewport without the API"
-    assert any(".rd-rp-bar { order: 2" in ln for ln in fs), "controls sit along the bottom"
+    assert not any(".rd-rp-bar { order: 2" in ln for ln in fs), "controls stay on top in full screen"
     assert any(".rd-pill" in ln and "font-size: 18px" in ln for ln in fs), "desk pills scale up"
 
 
-def test_the_timeline_is_a_heart_monitor_trace_that_scrubs():
+def test_the_overview_is_a_bar_graph_of_row_counts_with_a_viewport():
     got = run()
-    tr = got["trace"]
-    assert tr["n"] == 40 and tr["sum"] == len(got["rows"]), "every row in the window lands in a bucket"
-    assert tr["peak"] >= 1 and tr["quiet"] > 0, "bursts spike, quiet stretches stay flat"
-    assert sum(tr["kinds"].values()) == tr["sum"] and tr["kinds"]["mail"] >= 1
+    ov = got["overview"]
+    assert ov["n"] == 160 and ov["sum"] == got["total"], "every loaded row lands in a bucket"
+    assert ov["peak"] >= 1 and ov["quiet"] > 0, "bursts rise, quiet stretches stay flat"
+    assert sum(ov["kinds"].values()) == ov["sum"] and ov["kinds"]["mail"] >= 1
     shell = got["shell"]
-    assert 'type="range"' not in shell, "the plain scrubber is gone"
-    assert 'data-rp-trace="1" role="slider" tabindex="0"' in shell
-    assert 'class="rd-rp-tr-dim"' in shell and 'clip-path="url(#rd-rp-clip)"' in shell, "dim ahead, lit behind the playhead"
-    assert 'data-rp-head="1"' in shell and 'data-rp-clip="1"' in shell
-    assert re.search(r'<rect class="k-(mail|todo|hold|wake|doing|score)"', shell), "a lane coloured by kind"
+    assert "polyline" not in shell and "rd-rp-tr-lit" not in shell, "the ekg line is gone"
+    assert 'class="rd-rp-bars rd-rp-bars-dim"' in shell and 'class="rd-rp-bars rd-rp-bars-lit"' in shell
+    assert 'clip-path="url(#rd-rp-played)"' in shell
+    assert 'data-rp-vp="1"' in shell and 'data-rp-ov="1" data-lo="' in shell
+    assert re.search(r'<rect class="k-(mail|todo|hold|wake|doing|score)"', shell), "a bar coloured by kind"
+    assert got["vp"]["lo"] < got["vp"]["hi"] or got["vp"]["hi"] > 0
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert "pointerdown" in app and "[data-rp-trace]" in app and "ArrowLeft" in app
+    assert "rpJump" in app and "onVp" in app and "[data-rp-ov]" in app
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "cursor: grab;" in css and "cursor: grabbing;" in css
 
 
 def test_stage_lanes_follow_the_pick_with_the_cloud_pinned_last():
@@ -241,9 +272,9 @@ def test_stage_lanes_follow_the_pick_with_the_cloud_pinned_last():
     assert {"builder", "validator", "gardener"} <= set(got["lanes"])
     shell = got["shell"]
     for lane in got["lanes"]:
-        assert f'data-lane="{lane}"' in shell and f'data-rp-tray="{lane}"' in shell
-    rain = shell[shell.index('data-rp-rain="1">') + 17:shell.index('<ol class="rd-rp-list"')]
-    assert re.sub(r"<[^>]+>", "", rain).strip() == "", "nothing but the kind icons ever falls: the columns start empty"
+        assert f'data-lane="{lane}"' in shell and f'data-col="{lane}"' in shell
+    rain = shell[shell.index('data-rp-rain="1">'):shell.index('data-rp-field="desks"')]
+    assert "rd-rp-item" not in rain, "the field starts empty; items are placed by the playhead"
 
 
 def test_pickup_is_read_from_the_records_per_kind():
@@ -253,74 +284,77 @@ def test_pickup_is_read_from_the_records_per_kind():
     assert fl["move-3"] == [["builder", "validator", None]], "shipped for the desk the row names: waits for its next move"
     assert fl["focus-60"] == [["gardener", "validator", None]], "a contested promise waits until the waiter takes it"
     got = run()
-    assert "mail-101~0" in got["pendingNow"]["@out"] and "move-3~0" in got["pendingNow"]["validator"]
+    assert got["waitingNow"].get("@out") or got["waitingNow"].get("validator")
     assert any(x["wait"] and x["item"] == "hold-3" for x in got["locksNow"]["validator"])
     assert any(not x["wait"] and x["text"] == "docs-lock" for x in got["locksNow"]["gardener"]), "at now the holds table says who holds"
     assert any(x["wait"] for x in got["locksPast"]["validator"])
 
 
-def test_desk_pills_are_fixed_in_one_row():
+def test_desk_pills_stay_fixed():
     got = run()
     desks = [l for l in got["lanes"] if not l.startswith("@")]
     assert desks == ["builder", "validator", "gardener"], "the DESKS list order, not a layout that moves"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert "replayLayout" not in app and "placeLanes" not in app, "no gravity: pills never move"
     css = (RD / "rd.css").read_text(encoding="utf-8")
-    assert "grid-template-columns: repeat(var(--lanes, 1), minmax(0, 1fr))" in css
+    assert "--lane-pitch" in css
+    assert "grid-template-rows: repeat(var(--lanes, 1), var(--lane-pitch))" in css
 
 
-def test_activity_subtab_is_the_same_replay_one_trace_per_desk():
+def test_activity_view_is_six_kind_lanes_of_the_same_instances():
     got = run()
-    mon = got["monitor"]
-    assert mon.count('data-rp-mlane="') == len(got["lanes"])
-    assert [m for m in re.findall(r'data-rp-mlane="([^"]+)"', mon)] == got["lanes"], "same order as the stage"
-    assert 'data-rp-lanes=' not in mon and 'data-rp-subtab="activity"' in mon, "Activity has no stage"
-    assert 'data-rp-subtab="desks"' in got["shell"] and 'data-rp-mlane=' not in got["shell"], "Desks has no per-desk lines"
-    assert mon.count('data-rp-trace="1"') == len(got["lanes"]) + 1, "every lane scrubs, plus the total in the bar"
-    assert got["laneTrace"]["builder"] >= 4 and got["laneTrace"]["validator"] >= 2
-    assert mon.count('data-rp-trace="1"') == got["shell"].count('data-rp-trace="1"') + len(got["lanes"]), "same controls row, one clock"
+    act = got["activity"]
+    assert got["kinds"] == ["mail", "todo", "hold", "wake", "doing", "score"]
+    for k in got["kinds"]:
+        assert f'data-lane="{k}"' in act and f'data-col="{k}"' in act
+    assert 'data-rp-subtab="activity"' in act and 'data-rp-view="activity"' in act
+    assert 'data-rp-subtab="desks"' in got["shell"]
+    assert 'rd-pill rd-kind k-mail' in act
+    # same instances: unique keys on both views match the visible set
+    assert got["keysDesks"] == got["keysActivity"] == got["keysDesksItems"]
+    assert got["keysDesks"], "the mid-window playhead shows some rows"
+
+
+def test_position_is_a_function_of_the_playhead_the_time_and_the_window():
+    got = run()
+    age = got["age"]
+    assert age["before"] is None and age["gone"] is None
+    assert age["at"] == 0
+    assert abs(age["half"] - 0.5) < 1e-9
+    ax, d = got["axis"], got["dirs"]
+    assert ax["dflt"] == {"desks": "lr", "activity": "lr"}
+    assert ax["lr"]["main"] == "x" and ax["lr"]["cross"] == "y" and ax["tb"]["main"] == "y" and ax["tb"]["cross"] == "x"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert '{ key: "desks", label: "Desks" }, { key: "activity", label: "Activity" }' in app, "two subtabs"
-    assert '"rd-collab-subtab"' in app, "the subtab is remembered"
-    assert "Replay" not in re.findall(r'label: "(\w+)"', app) and "Timeline" not in re.findall(r'label: "(\w+)"', app)
+    assert "it.pos * L.len" in app and "replayItemsAt(rep, t, RP_ITEMS, rp.view)" in app
+    assert "el.style.transform" in app and "el.style.opacity" in app
 
 
 def test_stage_motion_is_transform_and_opacity_only():
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    body = app[app.index("function dropRow"):app.index("function rpTick")]
-    for frame in re.findall(r"\{ (?:transform|opacity)[^}]*\}", body):
-        keys = set(re.findall(r"(\w+):", frame))
-        assert keys <= {"transform", "opacity", "offset"}, frame
-    assert "RP_LIVE" in app and "moving()" in app
-
-
-def test_density_trace_sits_on_top_of_both_subtabs():
-    got = run()
-    for html, body in ((got["shell"], 'data-rp-lanes='), (got["monitor"], 'data-rp-mlane=')):
-        top = html.index('<div class="rd-rp-top">')
-        assert top < html.index(body) < html.index('class="rd-rp-bar"'), "density on top, the subtab under it, controls last"
-        assert html.index('data-rp-trace="1" role="slider" tabindex="0"') > top
+    body = app[app.index("function drawItems"):app.index("function drawStage")]
+    assert "el.style.transform" in body and "el.style.opacity" in body
+    assert "RP_ITEMS" in app and "moving()" in app
 
 
 def test_panning_slides_the_window_through_the_record():
     got = run()
     p, now = got["past"], got["nowMs"]
-    assert p["live"] is False and p["until"] == now - 25 * 60000 and p["since"] == p["until"] - 3600000
+    assert p["live"] is False and p["until"] == now - 25 * 60000
+    assert p["count"] == 100
     assert "mail-100" not in p["keys"] and "focus-50" in p["keys"], "the window re-scopes: rows after its end are out"
     assert "gardener" not in p["locksEnd"], "a past window does not borrow the holds table of now"
     assert p["panShort"] is None, "a record shorter than the window has nowhere to pan"
     pan = got["pan"]
     assert pan["now"] is None, "never past now: the window ends now"
     assert pan["back"] == now - 10 * 60000
-    assert pan["far"] == now - 4 * 3600000, "clamped so the oldest recorded row stays in the window"
+    assert pan["far"] == now - 4 * 3600000, "clamped so the window still holds its row count"
     assert pan["fwd"] == now - 60000
+    assert pan["none"] is None, "no floor means the record is shorter than the window"
     shell = got["shell"]
     assert 'data-rp-span="1"' in shell, "the window's start and end show while panning"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert "ev.shiftKey" in app and "PAN_PX" in app, "drag past a few pixels pans; Shift+arrows pan from the keyboard"
-    assert "!d.moved && n === \"pointerup\"" in app, "a click without a drag still seeks"
-    css = (RD / "rd.css").read_text(encoding="utf-8")
-    assert "cursor: grab;" in css and "cursor: grabbing;" in css
+    assert "ev.shiftKey" in app and "PAN_PX" in app and "onVp" in app
+    assert "rpJump" in app and "!d.moved && n === \"pointerup\"" in app
 
 
 def test_the_record_is_cached_and_only_gaps_are_read():
@@ -354,12 +388,8 @@ def test_every_activity_carries_its_labels_and_trees():
     assert 'class="rd-tag rd-tag-l" title="label validator, position 1">validator<' in html
     assert 'class="rd-tag rd-tag-t" title="card tree stations, 1 deep: Stations epic"' in html
     assert "label gardener" not in html, "a label on another card is not this card's"
-    mon = got["monitor"]
-    lane = mon[mon.index('data-rp-mlane="validator"'):]
-    lane = lane[:lane.index('data-rp-mlane="', 20)] if 'data-rp-mlane="' in lane[20:] else lane
-    assert "rd-tag-l" in lane and "stations" in lane, "the Activity lanes show their desk's labels and trees"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
-    assert 'icon(r.kind, "rd-rp-drop", rowText(r), r.tags)' in app, "the falling icons carry a chip too"
+    assert "firstTag(tags)" in app and "V.tagsHtml(one, 1)" in app, "the desk-view icons carry one chip; the rest is on hover"
     assert '"labels", "trees", "rooms"' in app
 
 
@@ -426,21 +456,14 @@ def test_direction_toggles_per_subtab_and_both_start_left_to_right():
     got = run()
     ax, d = got["axis"], got["dirs"]
     assert ax["dflt"] == {"desks": "lr", "activity": "lr"}
-    assert ax["lr"]["main"] == "x" and ax["lr"]["cross"] == "y" and ax["tb"]["main"] == "y" and ax["tb"]["cross"] == "x"
+    assert ax["lr"]["main"] == "x" and ax["tb"]["main"] == "y"
     for v in ("desks", "activity"):
         assert "rd-dir-lr" in d[v + "-null"] and 'data-rp-dir="tb"' in d[v + "-null"], v + " starts left to right; the toggle offers top to bottom"
         assert "rd-dir-tb" in d[v + "-tb"] and 'data-rp-dir="lr"' in d[v + "-tb"]
-    # Activity, left to right: one row per lane, time along x.
-    lr = d["activity-lr"]
-    assert 'viewBox="0 0 1000 24"' in lr and 'data-rp-axis="y"' not in lr
-    # Activity, top to bottom: lanes as columns, the same trace with x and y swapped, time along y.
-    tb = d["activity-tb"]
-    assert 'viewBox="0 0 24 1000"' in tb and 'data-rp-axis="y"' in tb and 'data-rp-clip="y"' in tb and 'data-rp-head="y"' in tb
-    # Desks renders the same stage in either direction: the CSS turns it.
-    assert 'data-rp-rain="1"' in d["desks-lr"] and 'data-rp-rain="1"' in d["desks-tb"]
+        assert 'data-rp-rain="1"' in d[v + "-lr"] and 'data-rp-rain="1"' in d[v + "-tb"], v + " uses the same stage in both directions"
     css = (RD / "rd.css").read_text(encoding="utf-8")
-    assert "#rd .rd-dir-lr .rd-rp-stage { flex-direction: row; }" in css, "desks left to right: pills in a column on the left"
-    assert "#rd .rd-dir-tb .rd-rp-monitor { flex-direction: row;" in css, "activity top to bottom: lanes as columns"
+    assert "#rd .rd-dir-lr .rd-rp-stage { flex-direction: row;" in css, "left to right: pills in a column on the left"
+    assert "#rd .rd-dir-tb .rd-rp-stage { flex-direction: column; }" in css, "top to bottom: pills in a row on top"
     app = (RD / "rd-app.js").read_text(encoding="utf-8")
     assert 'RP_DIR_KEY = "rd-replay-dir-"' in app and "save(RP_DIR_KEY + rp.view" in app, "each subtab keeps its own choice"
-    assert "el.style[ax.crossStart]" in app and 'getAttribute("data-rp-axis") === "y"' in app, "drops, scrubbing and panning follow the axis"
+    assert "el.style.transform" in app and "ax.main === \"x\"" in app, "placement follows the axis"
