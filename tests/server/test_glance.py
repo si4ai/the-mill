@@ -497,6 +497,16 @@ def test_digest_follows_tap_order():
     assert digest_for(one, "") != digest_for(one, "word")
 
 
+def test_digest_is_not_a_fast_sha256():
+    from agent_coord.server.glance import digest_for
+
+    taps = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"]
+    # slow digest for these taps and this passphrase.
+    assert digest_for(taps, "word") == (
+        "32437a39e81b8bab0c1cd72d2afd2cb75a8812762e6e45e6e213c323e09bf721"
+    )
+
+
 def test_install_stores_the_digest_only(tmp_path):
     from agent_coord.install.glance_tap import store
     from agent_coord.server.glance import digest_for
