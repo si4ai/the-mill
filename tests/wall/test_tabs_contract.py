@@ -77,7 +77,7 @@ def test_score_aliases():
 
 
 def test_default_main_tab_order_lock():
-    assert DEFAULT_MAIN_TABS == ("session", "floor", "jobs", "score", "mail", "plan")
+    assert DEFAULT_MAIN_TABS == ("session", "jobs", "mail", "priorities", "score", "floor", "plan")
     assert "admin" not in DEFAULT_MAIN_TABS
     assert "guide" not in DEFAULT_MAIN_TABS
     assert "wire" not in DEFAULT_MAIN_TABS

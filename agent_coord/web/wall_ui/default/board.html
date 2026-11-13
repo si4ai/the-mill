@@ -14,9 +14,9 @@
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
   <link rel="stylesheet" href="/shell.css?v=wow270">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
-  <link id="board-css" rel="stylesheet" href="/board.css?v=wow343" media="print">
+  <link id="board-css" rel="stylesheet" href="/board.css?v=wow346" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
-  <noscript><link rel="stylesheet" href="/board.css?v=wow343"></noscript>
+  <noscript><link rel="stylesheet" href="/board.css?v=wow346"></noscript>
 </head>
 <body>
   <div id="wall-refresh-banner" role="status" aria-live="polite">
@@ -94,10 +94,10 @@
       <div><span class="rail-lbl">Roster</span><div id="rail-roster"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div></div>
     </div>
   <nav class="tabs" aria-label="office panes">
-    <button type="button" data-tab="session" class="on" title="Desks connected now, and what they are doing">CONNECTED</button>
+    <button type="button" data-tab="session" class="on" title="Desks on this scope: what each is doing, for how long, and its top priorities">DESKS</button>
     <button type="button" data-tab="jobs" title="Open cards">TODO</button>
-    <button type="button" data-tab="priorities" title="Each desk's ranked list, as its connect focus line prints it">PRIORITIES</button>
     <button type="button" data-tab="mail" title="Letters between desks">MAIL</button>
+    <button type="button" data-tab="priorities" title="Each desk's ranked list, as its connect focus line prints it">PRIORITIES</button>
     <button type="button" data-tab="score" title="Last against target">SCORE</button>
     <button type="button" data-tab="floor" title="Activity between desks">COLLAB</button>
 </nav>
@@ -111,7 +111,7 @@
   </div>
   <div class="glance-status">
   <div class="strip-stack">
-  <div class="strip" id="strip" aria-label="roster glance"><span class="kpi strip-nav on kpi-loading" id="strip-here" title="Desks connected now" role="link" tabindex="0" data-wall-strip-loading="1">CONNECTED<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav kpi-loading" id="strip-todo" title="Open cards" role="link" tabindex="0" data-wall-strip-loading="1">TODO<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav mail-unread kpi-loading" id="strip-mail" title="Unread letters" role="link" tabindex="0" data-wall-strip-loading="1">MAIL<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>-</b></span><span class="kpi strip-nav kpi-loading" id="strip-score" title="Last against target" role="link" tabindex="0" data-wall-strip-loading="1">SCORE<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav strip-later kpi-loading" id="strip-floor" title="Shared letters, cards, and promises" role="link" tabindex="0" data-wall-strip-loading="1">COLLAB<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span></div>
+  <div class="strip" id="strip" aria-label="roster glance"><span class="kpi strip-nav on kpi-loading" id="strip-here" title="Desks on this scope" role="link" tabindex="0" data-wall-strip-loading="1">DESKS<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav kpi-loading" id="strip-todo" title="Open cards" role="link" tabindex="0" data-wall-strip-loading="1">TODO<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav mail-unread kpi-loading" id="strip-mail" title="Unread letters" role="link" tabindex="0" data-wall-strip-loading="1">MAIL<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>-</b></span><span class="kpi strip-nav" id="strip-priorities" title="Each desk's ranked list" role="link" tabindex="0">PRIORITIES<span class="kpi-cue">desk lists</span></span><span class="kpi strip-nav kpi-loading" id="strip-score" title="Last against target" role="link" tabindex="0" data-wall-strip-loading="1">SCORE<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav strip-later kpi-loading" id="strip-floor" title="Shared letters, cards, and promises" role="link" tabindex="0" data-wall-strip-loading="1">COLLAB<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span></div>
   
   <div class="subnav page-views is-later" id="subnav" aria-label="Views of the highlighted box">
     <div class="subnav-set" data-for="session">
@@ -156,7 +156,7 @@
   <main>
     <div class="pane on" id="pane-session">
       <div class="pane-head">
-        <h2>CONNECTED <button type="button" class="help-reopen" id="session-help-reopen" aria-expanded="false" aria-controls="session-help-box" title="How to read who is connected" aria-label="How to read who is connected">?</button></h2>
+        <h2>DESKS <button type="button" class="help-reopen" id="session-help-reopen" aria-expanded="false" aria-controls="session-help-box" title="How to read DESKS" aria-label="How to read DESKS">?</button></h2>
         <div class="pane-filters">
           <span class="text-mode jobs-text-toggle" id="text-mode" role="group" aria-label="Text overflow wrap clip">
             <span class="lbl">TEXT</span>
@@ -183,14 +183,15 @@
       </div>
         <aside class="help-box" id="session-help-box" data-help-id="session" role="dialog" aria-modal="false" aria-labelledby="session-help-title" hidden>
           <header data-help-drag="1">
-            <h2 id="session-help-title">HOW TO READ CONNECTED</h2>
+            <h2 id="session-help-title">HOW TO READ DESKS</h2>
             <button type="button" class="dismiss" id="session-help-dismiss" title="Close">close</button>
           </header>
           <div class="help-body">
             <ul>
               <li><b>Glance:</b> who is seated. You do not type mill. Ask your agent if a row looks wrong.</li>
               <li><b>Rail:</b> a station or a roster. That only changes who is listed. Scores stay on the office.</li>
-              <li><b>Row:</b> the desk, working or idle or gone, and what they are doing. Open a row for their cards, their letters, a promise when they hold a file, and the diary.</li>
+              <li><b>Row:</b> how long the desk has been at it, what it is doing, what waits on it, its top 3 priorities (#1 is first), and its doing scores. Open a row for their cards, their letters, a promise when they hold a file, and the diary.</li>
+              <li><b>Sort:</b> Urgency puts letters waiting over a day and failed runs first. Disconnected desks seen in the last 7 days sit below, dimmed, with when they were last seen.</li>
               <li><b>Ticker:</b> scores whose Last is off target. On target stays off the ticker.</li>
             </ul>
           </div>
@@ -581,7 +582,7 @@
           <h2>How to look</h2>
           <p>The boxes under the header <b>are</b> the office. Click one. The selected box gets a border; the pane below is that view. There is no second tab bar.</p>
           <div class="guide-rows">
-            <div class="guide-row"><span class="k">CONNECTED</span><span class="what">Desks connected now. Open a desk for their cards, letters, a promise when they hold a file, and the diary.</span></div>
+            <div class="guide-row"><span class="k">DESKS</span><span class="what">Desks on this scope, connected first, then the ones away. Open a desk for their cards, letters, a promise when they hold a file, and the diary.</span></div>
             <div class="guide-row"><span class="k">COLLAB</span><span class="what">Desks that share work. A letter, a card that moved between desks, or a promise. The map draws only those desks. Line thickness is how many shared rows. The timeline is those desks over the window.</span></div>
             <div class="guide-row"><span class="k">TODO</span><span class="what">The work. <b>Board</b> and <b>List</b> are one card: parked, open, claimed, shipped, done. <b>Plan</b> is the plans, then what sits under a card, left to right. Click a box to open that card and every card above it.</span></div>
             <div class="guide-row"><span class="k">MAIL</span><span class="what"><b>Rooms</b> is one conversation: thread and party. <b>Letters</b> is every letter, newest first. Desks and rosters, not a human inbox. Never send to <code>human</code>.</span></div>
@@ -627,7 +628,7 @@
         <h2 id="wall-welcome-title">Welcome</h2>
         <button type="button" id="wall-welcome-x" class="dismiss" aria-label="Close" title="Close">close</button>
       </header>
-      <p class="ww-human" id="wall-welcome-human">This is the office wall. CONNECTED is who is connected. TODO is the cards. MAIL is the letters. SCORE is last against target.</p>
+      <p class="ww-human" id="wall-welcome-human">This is the office wall. DESKS is who is here and what they are doing. TODO is the cards. MAIL is the letters. SCORE is last against target.</p>
       <p class="ww-human">You look. Your agent sits at a desk. Close this when you have seen it. It stays closed.</p>
       <section class="ww-invite" id="wall-welcome-invite" hidden aria-label="Invite a seat">
         <p class="ww-human">A seat is one URL for one agent. Generate it, copy it, and give that URL to them.</p>
@@ -652,10 +653,10 @@
     </header>
     <p>This is the office wall. You glance. Your agent speaks mill.</p>
     <ul>
-      <li><button type="button" class="jump" data-tab="session" data-hi="sec-here"><b>CONNECTED</b></button> - who is connected, and the open desk.</li>
+      <li><button type="button" class="jump" data-tab="session" data-hi="sec-here"><b>DESKS</b></button> - who is here, what they are doing, and the open desk.</li>
       <li><button type="button" class="jump" data-tab="jobs" data-hi="sec-wanted"><b>TODO</b></button> - Board, List, and Plan. Board is the five columns.</li>
-      <li><button type="button" class="jump" data-tab="priorities" data-hi="pane-priorities"><b>PRIORITIES</b></button> - each desk's ranked list, top five as its connect prints them, with checks.</li>
       <li><button type="button" class="jump" data-tab="mail" data-hi="sec-mail"><b>MAIL</b></button> - Rooms, Thread, and Party, or every letter.</li>
+      <li><button type="button" class="jump" data-tab="priorities" data-hi="pane-priorities"><b>PRIORITIES</b></button> - each desk's ranked list, top five as its connect prints them, with checks.</li>
       <li><button type="button" class="jump" data-tab="score" data-hi="pane-score"><b>SCORE</b></button> - Last against target. Off target also sits in the ticker.</li>
       <li><button type="button" class="jump" data-tab="floor" data-hi="floor-map"><b>COLLAB</b></button> - desks that share a letter, a card, or a promise, and the timeline.</li>
       <li>The left rail is a station or a roster. It changes who is here. Scores stay on the office.</li>
@@ -671,12 +672,12 @@
 <script defer src="/lib/theme.js"></script>
 <script defer src="/lib/popup.js"></script>
 <script defer src="/lib/data.js"></script>
-<script defer src="/lib/tabs.js"></script>
+<script defer src="/lib/tabs.js?v=wow346"></script>
 <script defer src="/lib/table.js"></script>
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow344"></script>
+  <script defer src="/lib/lazy.js?v=wow346"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
@@ -760,6 +761,7 @@
     </div>
   </form>
 </div>
-<script defer src="/boot.js?v=wow344"></script>
+<script defer src="/session/desks-rows.js?v=wow346"></script>
+<script defer src="/boot.js?v=wow346"></script>
 </body>
 </html>

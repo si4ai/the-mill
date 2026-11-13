@@ -14,7 +14,7 @@
     score: "ensureScorePaint",
     scorecards: "ensureScorePaint"
   };
-  var DEFAULT_MAIN_TABS = ["session", "floor", "jobs", "score", "mail"];
+  var DEFAULT_MAIN_TABS = ["session", "jobs", "mail", "priorities", "score", "floor"];
 
   function normalizeTab(name) {
     var raw = String(name || "").trim().toLowerCase();

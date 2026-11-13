@@ -45,9 +45,11 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow344",
-    "board.css": "wow343",
-    "lazy.js": "wow344",
+    "boot.js": "wow346",
+    "tabs.js": "wow346",
+    "board.css": "wow346",
+    "lazy.js": "wow346",
+    "desks-rows.js": "wow346",
     "shell.css": "wow270",
     "shell-early.js": "wow283",
     "theme.css": "wow165",
@@ -69,7 +71,7 @@ LAZY_PINS = (
     "/lists/lists-paint.js?v=wow321",
     "/admin/mint-paint.js?v=wow322",
     "/doing/doing.css?v=wow324",
-    "/priorities/priorities-paint.js?v=wow344",
+    "/priorities/priorities-paint.js?v=wow346",
     "/priorities/priorities.css?v=wow344",
     "/mail/mail.js?v=wow285",
     "/score/score.js?v=wow328",
@@ -85,14 +87,14 @@ VOID = {
     "link", "meta", "source", "track", "wbr",
 }
 STRIP = (
-    ("session", "CONNECTED"),
+    ("session", "DESKS"),
     ("jobs", "TODO"),
-    ("priorities", "PRIORITIES"),
     ("mail", "MAIL"),
+    ("priorities", "PRIORITIES"),
     ("score", "SCORE"),
     ("floor", "COLLAB"),
 )
-REJECTED = {"SESSION", "FLOOR", "LEASES", "SCORECARDS"}
+REJECTED = {"SESSION", "FLOOR", "LEASES", "SCORECARDS", "CONNECTED"}
 REQUIRED_IDS = (
     "pane-session",
     "pane-todo",

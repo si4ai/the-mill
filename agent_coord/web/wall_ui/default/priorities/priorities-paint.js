@@ -375,7 +375,22 @@
       _live.rows = rows;
       _live.busy = false;
       paintPriorities();
+      if (typeof global.wallDesksRepaint === "function") global.wallDesksRepaint();
     }, function () { _live.busy = false; _live.rows = null; paintPriorities(); });
+  }
+  function prioDeskTops(n) {
+    /* DESKS rows: each desk's top n workable cards, 1-based pos. null until the labels read lands
+     * (or when the route is missing), so DESKS leaves the line out rather than guess. */
+    if (!global._prioritiesCtx) prioLoad(false);
+    var ctx = global._prioritiesCtx || (_live.rows ? { rows: _live.rows, desks: seatedDesks() } : null);
+    if (!ctx || !Array.isArray(ctx.rows)) return null;
+    var out = {};
+    prioModel(ctx).columns.forEach(function (c) {
+      out[c.desk] = c.top.slice(0, n || 3).map(function (r) {
+        return { pos: r.pos, id: r.id, ord: r.ord, title: r.title, overdue: r.overdue };
+      });
+    });
+    return out;
   }
   function paintPriorities() {
     var doc = global.document;
@@ -413,6 +428,7 @@
     prioCards: prioCards,
     prioModel: prioModel,
     prioHtml: prioHtml,
+    prioDeskTops: prioDeskTops,
     paintPriorities: paintPriorities
   };
   Object.keys(api).forEach(function (k) { global[k] = api[k]; });

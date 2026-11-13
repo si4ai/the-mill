@@ -1949,6 +1949,57 @@ div.here-doing { overflow: visible; white-space: normal; text-overflow: clip; }
   #sec-here > .here-split > #here { border-right: 0; border-bottom: 1px solid var(--edge); max-height: 50vh; }
   #here-desk.here-desk { flex: 1 1 auto; width: auto; max-width: none; min-width: 0; max-height: 42vh; }
 }
+/* DESKS tab rows (Wall redesign): the doing time leads, then the doing text, what waits on the
+   desk, its top 3 priorities and its doing scores. Every section is open; nothing folds. */
+.desks-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding: .3rem .2rem; }
+.desks-sort { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .2rem 0; }
+.desks-sort .lbl { color: var(--dim); font-size: 10px; letter-spacing: .08em; margin-right: .4rem; }
+.desks-sort button {
+  white-space: nowrap; font: inherit; font-size: 11px; color: var(--dim); background: transparent;
+  border: 1px solid var(--edge); padding: .12rem .45rem; cursor: pointer;
+}
+.desks-sort button.on { color: var(--ink); background: rgba(228, 181, 106, .16); border-color: var(--amber); }
+.here-section {
+  color: var(--dim); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  padding: .45rem .2rem .2rem; border-bottom: 1px solid var(--edge);
+}
+.desk-line .here-row { grid-template-columns: .7rem minmax(0, 1fr) auto; }
+.desk-line .desk-doing { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; }
+.desk-time { color: var(--amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.desk-text { color: var(--ink); white-space: normal; line-height: 1.35; }
+.desk-text.is-idle { color: var(--dim); font-style: italic; }
+.desk-meta, .desk-prios, .desk-scores {
+  display: flex; flex-wrap: wrap; gap: .15rem .6rem; align-items: baseline;
+  padding: 0 .15rem .2rem 1.25rem; font-size: 12px;
+}
+.desk-meta:empty { display: none; }
+.desk-wait { color: var(--dim); }
+.desk-wait.older { color: var(--red); }
+.desk-wait.zero { opacity: .7; }
+.desk-oldest { color: var(--dim); }
+.desk-prios { display: block; color: var(--dim); line-height: 1.45; }
+.desk-prio { white-space: normal; }
+.desk-prios.empty { font-style: italic; }
+.desk-prio .rank { color: var(--amber); font-weight: 650; }
+.desk-prio .item-id { color: var(--cyan); }
+.desk-score { border: 1px solid var(--edge); padding: 0 .35rem; color: var(--dim); }
+.desk-score b { color: var(--ink); font-weight: 600; }
+.desk-score.off { border-color: var(--red); }
+.desk-score.off b { color: var(--red); }
+.desk-line.away { opacity: .55; }
+.desk-line.away .here-row { cursor: default; }
+.desk-line.away .here-row:hover { background: transparent; }
+.desks-attention { display: none; border: 1px solid var(--edge); margin: .2rem .2rem .45rem; padding: .3rem .5rem; }
+.desks-attention h3 { margin: 0 0 .2rem; font-size: 11px; letter-spacing: .08em; color: var(--amber); }
+.desks-attention h3 .sub { color: var(--dim); font-weight: 400; }
+.attn-row { display: flex; gap: .5rem; align-items: baseline; font-size: 12px; padding: .1rem 0; }
+.attn-row.empty { color: var(--dim); }
+.attn-row .desk-chip { color: var(--ink); font-weight: 650; }
+.attn-row[data-attn="letter"] .attn-text, .attn-row[data-attn="score"] .attn-text { color: var(--red); }
+/* Wide screens get the office-wide Needs attention block; a phone keeps one stacked column. */
+@media (min-width: 1100px) {
+  .desks-attention { display: block; }
+}
 
 #wall-service {
   position: fixed; inset: 0; z-index: 96;
