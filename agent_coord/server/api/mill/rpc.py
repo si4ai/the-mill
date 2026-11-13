@@ -819,6 +819,10 @@ def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str,
         for x in by.get("blocked", [])
     ]
     n_letters = int(by["letter"][0].get("n") or 0) if by["letter"] else 0
+    # card 1192: office clock, same 19-char cut as claimed_at. empty when nothing is waiting.
+    raw_oldest = by["letter"][0].get("oldest_at") if by["letter"] else None
+    oldest_at = str(raw_oldest)[:19] if raw_oldest is not None else ""
+    n_over_day = int(by["letter"][0].get("n_over_day") or 0) if by["letter"] else 0
     n_cards = int(by["card"][0].get("n") or 0) if by["card"] else 0
     n_blocked = int(by["blocked"][0].get("n") or 0) if by.get("blocked") else 0
     tasks = []
@@ -838,7 +842,12 @@ def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str,
             break
     out["tasks"] = tasks
     out["waiting_on_it"] = {
-        "letters": {"n": n_letters, "newest": letters},
+        "letters": {
+            "n": n_letters,
+            "newest": letters,
+            "oldest_at": oldest_at,
+            "n_over_day": n_over_day,
+        },
         "cards": {"n": n_cards, "newest": cards},
         "desks": {"n": n_blocked, "newest": blocked},
     }
