@@ -88,7 +88,7 @@ def test_v1_todos_pages_needs_then_issues(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "agent_coord.server.records.floor.build_todos",
-        lambda cn, mail_ps, want=None, lean=True: (needs, issues),
+        lambda cn, mail_ps, want=None, lean=True, **k: (needs, issues),
     )
     monkeypatch.setattr("agent_coord.server.records.floor._projects_part_fp", lambda *a, **k: "ffeeddccbbaa0011")
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_v1_agents_pages(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "agent_coord.server.records.floor.build_agents",
-        lambda cn, mail_ps, want=None: list(rows),
+        lambda cn, mail_ps, want=None, **k: list(rows),
     )
     monkeypatch.setattr("agent_coord.server.records.floor._projects_part_fp", lambda *a, **k: "0011223344556677")
     monkeypatch.setattr(
@@ -139,7 +139,7 @@ def test_v1_scores_pages(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "agent_coord.server.records.floor.build_scores",
-        lambda cn, mail_ps, want=None: list(rows),
+        lambda cn, mail_ps, want=None, **k: list(rows),
     )
     monkeypatch.setattr("agent_coord.server.records.floor._projects_part_fp", lambda *a, **k: "7788990011223344")
     monkeypatch.setattr(
@@ -163,7 +163,7 @@ def test_v1_holds_pages(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "agent_coord.server.records.floor.build_holds",
-        lambda cn, mail_ps, want=None: list(rows),
+        lambda cn, mail_ps, want=None, **k: list(rows),
     )
     monkeypatch.setattr("agent_coord.server.records.floor._projects_part_fp", lambda *a, **k: "99aabbccddeeff00")
     monkeypatch.setattr(
