@@ -336,11 +336,16 @@ BEGIN
     ) en ON TRUE
    ORDER BY IFNULL(cur.created, '1970-01-01') DESC, d.name;
 
-  SELECT 'letter' AS part, x.desk, x.id, x.sender, x.age_s, x.n, x.asked
+  SELECT 'letter' AS part, x.desk, x.id, x.sender, x.age_s, x.n, x.asked,
+         x.oldest_at, x.n_over_day
     FROM (
       SELECT d.name AS desk, m.id, sd.name AS sender, mt.asked,
              TIMESTAMPDIFF(SECOND, m.created, v_now) AS age_s,
              COUNT(*) OVER (PARTITION BY mt.desk_id) AS n,
+             -- card 1192: office clock of the oldest waiting letter, and how many waited more than one day
+             MIN(m.created) OVER (PARTITION BY mt.desk_id) AS oldest_at,
+             SUM(CASE WHEN m.created < v_now - INTERVAL 1 DAY THEN 1 ELSE 0 END)
+               OVER (PARTITION BY mt.desk_id) AS n_over_day,
              ROW_NUMBER() OVER (PARTITION BY mt.desk_id ORDER BY m.created DESC, m.id DESC) AS rn
         FROM tmp_doing_desk t
         JOIN mail_to mt ON mt.desk_id = t.desk_id AND mt.type = 'mail' AND mt.opened IS NULL
