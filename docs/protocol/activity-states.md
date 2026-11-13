@@ -168,7 +168,7 @@ stateDiagram-v2
 
 Alive or stale in `mill connected` comes from the seat row's age (15 minutes).
 
-The focus edges D4 to D10 (`doing_put`, `doing_newer`, `doing_wait`, `finish_*`, `wait_cycle`) stay in `transition_edge` but have no writer since card 1207. The connect pseudo row (`activity('doing', desk id)`, act focus, D2/D3) predates card 1207 and is left as it is.
+The focus edges D4 to D10 (`doing_put`, `doing_newer`, `doing_wait`, `finish_*`, `wait_cycle`) stay in `transition_edge` but have no writer since card 1207. The connect rows (D2/D3) sit on their own anchor, `activity('doing', 10^15 + desk id)` (`connect_activity.anchor_id`), so they never land on a tw run's trail; `apply_1207` moves rows an older book wrote on `activity('doing', desk id)`.
 
 Refused, nothing changed:
 
