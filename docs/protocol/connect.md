@@ -200,6 +200,6 @@ Example (placeholder values):
 
 ## Windows / PowerShell notes
 
-- Prefer `--doing=text-without-spaces` (or quote carefully). PowerShell `Start-Process -ArgumentList` with `--doing` then a spaced string can split into extra argv; `mill` then rejects unknown tokens.
+- Quote a spaced flag value carefully (or use `--flag=value-without-spaces`). PowerShell `Start-Process -ArgumentList` with a flag then a spaced string can split into extra argv; `mill` then rejects unknown tokens.
 - Same host rule as JOIN: mill connect must run where Wall is reachable.
 

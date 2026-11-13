@@ -38,9 +38,9 @@ let routes = fx.routes;
 if (mode === 'bare') {
   // Shape of main today: no seeded families, no updated, no new routes answering.
   kpis = kpis.filter(k => !new RegExp(process.argv[5]).test(k.kpi)).map(k => { const c = Object.assign({}, k); delete c.updated; return c; });
-  routes = { activityAll: null, activityTask: null, runs: null, transitions: null };
+  routes = { activityAll: null, runs: null, transitions: null };
 }
-if (mode === 'notask') routes = Object.assign({}, routes, { activityTask: null });
+if (mode === 'noactivity') routes = Object.assign({}, routes, { activityAll: null });
 const ctx = scoreImpactCtxFromRoutes(routes, now);
 const m = scoreImpactModel(kpis, ctx, now);
 const sm = scoreSpendModel(kpis, ctx);
@@ -159,7 +159,7 @@ def test_activity_buckets_today_by_type_and_task_only(sample):
     wake = sample["wake"]
     assert wake["today"] == 6  # yesterday's 23:00 bucket is not today
     assert round(wake["rate"], 2) == 0.5  # 6 items by 12:00
-    # doing items come from the act=task route only; the act=seat row never counts
+    # card 1207: every doing row is a tw run, so the all-type read counts doing (no act=task read)
     assert sample["doingBuilder"]["today"] == 6
     wakes = _group(sample["scoresHtml"], "wakes")
     assert "~0.5/hr" in wakes and "si-spark" in wakes
@@ -167,8 +167,8 @@ def test_activity_buckets_today_by_type_and_task_only(sample):
     assert ">0</td>" in hold  # route answered with no hold rows: 0, not a dash
 
 
-def test_no_task_route_leaves_doing_unfetched():
-    out = _run("notask")
+def test_no_activity_route_leaves_doing_unfetched():
+    out = _run("noactivity")
     assert "doing" not in out["actKeys"]
     assert out["doingBuilder"] is None
 

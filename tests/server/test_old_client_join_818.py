@@ -49,8 +49,8 @@ OLD_BODIES = [
 @pytest.mark.parametrize("command,extra", OLD_BODIES)
 def test_old_client_join_type_over_http_is_refused_with_upgrade(cn, monkeypatch, command, extra) -> None:
     monkeypatch.setattr(HUB, "rooms", {})
-    rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN), doing="present")
-    jid = int(rec[0]["id"])
+    rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN))
+    jid = int(rec[0]["desk_id"])  # card 1207: a join writes no doing row; any id will do for the old type
     before = _counts(cn)
     body = {"project": "unit", "owner": "alice", "id": jid, **extra}
     r = _client(monkeypatch).post(

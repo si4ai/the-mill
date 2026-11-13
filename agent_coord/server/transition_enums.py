@@ -100,6 +100,7 @@ class Reason(str, Enum):
     pass_back = "pass_back"
     retire = "retire"
     reclaim = "reclaim"
+    rename = "rename"
     note = "note"
     join = "join"
     connect = "connect"
@@ -253,6 +254,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.todo, State.retired, State.prior, Reason.reclaim),  # T13
         (ActivityType.todo, State.any, State.same, Reason.note),  # T14
         (ActivityType.todo, State.live, State.deleted, Reason.delete_probe),  # T15
+        (ActivityType.todo, State.any, State.same, Reason.rename),  # T16
         (ActivityType.doing, State.no_seat, State.seated, Reason.join),  # D1
         (ActivityType.doing, State.seated, State.connected, Reason.connect),  # D2
         (ActivityType.doing, State.connected, State.seated, Reason.disconnect),  # D3

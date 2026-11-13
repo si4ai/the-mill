@@ -41,7 +41,7 @@ CHART = [
 def _sit(cn, who: str = "alice"):
     project = "unit"
     stored = who
-    rec = here.upsert(cn, project, stored, "builder", token_hash="a" * 64, doing="present")
+    rec = here.upsert(cn, project, stored, "builder", token_hash="a" * 64)
     return project, stored, rec
 
 def _frames(cn, typ: str, nid: int) -> dict[str, dict]:
@@ -68,7 +68,7 @@ def _desk_id(cn, stored: str) -> int:
 def test_default_then_custom_recipe(cn, typ, hint, recipe) -> None:
     project, alice, _ = _sit(cn)
     bob = "bob"
-    here.upsert(cn, project, bob, "builder", token_hash="b" * 64, doing="present")
+    here.upsert(cn, project, bob, "builder", token_hash="b" * 64)
     if typ == "todo":
         nid = int(todo.insert(cn, project, alice, "open", '{"slug":"chart"}')[0]["id"])
     elif typ == "hold":
@@ -187,42 +187,17 @@ def test_label_retire_does_not_push_a_name_hint(cn) -> None:
     assert name.get(cn, "chart2", "label") is None
     assert nid
 
-def test_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
-    project, alice, rec = _sit(cn)
-    jid = int(rec[0]["id"])
-    from agent_coord.server.api.mill import rpc
+def test_doing_watch_frames_default_then_custom_and_dispatch_ignores(cn) -> None:
+    """Card 1207: a doing is a tw run; a watcher on it gets DOING frames (default, then its own hint)."""
+    _, alice, _ = _sit(cn)
+    from agent_coord.server.records.db import call
 
-    class Book:
-        def __init__(self, conn):
-            self._cn = conn
-
-    notified: list[tuple[str, dict]] = []
-
-    def capture(desk, payload, row=None):  # row: #832 settle key
-        notified.append((str(desk), dict(payload)))
-
-    # #280: alice's own doing does not hint alice; another watcher (bob) gets it.
-    bob = "bob"
-    here.upsert(cn, project, bob, "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "doing", jid, _desk_id(cn, bob))
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(push.HUB, "rooms", {desk(alice): {object()}, desk(bob): {object()}})
-        mp.setattr(push.HUB, "notify", capture)
-        # #818 PR B: --doing on a command writes the entry right after it.
-        from agent_coord.server.records import todo as rec_todo
-
-        tid = int(rec_todo.insert(cn, project, "alice", "open", '{"slug":"chart818"}')[0]["id"])
-        got = rpc._doing_after(Book(cn), "open", {}, {"id": tid}, project, "alice", "chart")["doing_entry"]
-    assert notified, "doing did not push DOING"
-    assert [room for room, _ in notified] == [desk(bob)]
-    payload = notified[0][1]
-    # #818: a new doing entry; bob's watch followed alice's current entry to it.
-    assert payload["type"] == "doing"
-    jid = int(got["id"])
-    assert int(payload["id"]) == jid
-    assert payload["hint"] == "DOING"
-    check_frame(payload)
-    assert dispatch_hint(alice, payload) == "skip"
+    jid = int(call(cn, "mill_doing_task", [alice, f"task:{alice}:chart", None, 1])[0]["id"])
+    watchers.put(cn, "doing", jid, _desk_id(cn, alice))
+    frames = _frames(cn, "doing", jid)
+    assert frames[desk(alice)]["hint"] == "DOING"
+    check_frame(frames[desk(alice)])
+    assert dispatch_hint(alice, frames[desk(alice)]) == "skip"
 
     watchers.set_hint(cn, "doing", jid, _desk_id(cn, alice), "session")
     frames = _frames(cn, "doing", jid)
@@ -231,13 +206,11 @@ def test_doing_pushes_default_then_custom_and_dispatch_ignores(cn) -> None:
     check_frame(frames[desk(alice)], "session")
     assert dispatch_hint(alice, frames[desk(alice)]) == "skip"
 
-def test_note_connect_pushes_doing(cn) -> None:
-    """Connect pushes DOING to other watchers of the seat, not back to the connecting desk."""
-    _, alice, rec = _sit(cn)
-    jid = int(rec[0]["id"])
+def test_note_connect_pushes_no_doing(cn) -> None:
+    """Card 1207: a connect writes no doing row, so it pushes no DOING to anyone."""
+    _, alice, _ = _sit(cn)
     bob = "bob"
-    here.upsert(cn, "unit", bob, "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "doing", jid, _desk_id(cn, bob))
+    here.upsert(cn, "unit", bob, "builder", token_hash="b" * 64)
     notified: list[tuple[str, dict]] = []
 
     def capture(room, payload, row=None):  # row: #832 settle key
@@ -247,10 +220,7 @@ def test_note_connect_pushes_doing(cn) -> None:
         mp.setattr(push.HUB, "rooms", {desk(alice): {object()}, desk(bob): {object()}})
         mp.setattr(push.HUB, "notify", capture)
         here.note_connect(cn, alice)
-    rooms = [room for room, _ in notified]
-    assert rooms == [desk(bob)], rooms
-    assert notified[0][1]["hint"] == "DOING"
-    check_frame(notified[0][1])
+    assert [p for _, p in notified if p.get("hint") == "DOING"] == []
 
 def test_dispatch_ignores_ping_and_doing() -> None:
     assert dispatch_hint("alice", {"type": "heartbeat", "id": 0, "hint": "PING"}) == "skip"

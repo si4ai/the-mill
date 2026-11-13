@@ -89,7 +89,7 @@ def test_floor_scope_lan_mail_fp(cn, monkeypatch) -> None:
     seed_names(cn, ("fpdemo", "roster"), ("lanfp", "desk"))
     from agent_coord.server.records import join as rec_join
 
-    rec_join.upsert(cn, "fpdemo", "lanfp", "", "a" * 64, "present")
+    rec_join.upsert(cn, "fpdemo", "lanfp", "", "a" * 64)
     rec_join.set_lan_ip(cn, "lanfp", "203.0.113.50")
     rec_mail.insert(cn, "fpdemo", "lanfp", "lanfp", "lan letter")
 
@@ -120,7 +120,7 @@ def test_floor_scope_role_mail_and_agents(cn, monkeypatch) -> None:
     from agent_coord.server.records import member as rec_member
 
     rec_member.put(cn, "fprole", "rolefp", kind="roster")
-    rec_join.upsert(cn, "fprole", "rolefp", "", "c" * 64, "present")
+    rec_join.upsert(cn, "fprole", "rolefp", "", "c" * 64)
     rec_mail.insert(cn, "fprole", "rolefp", "rolefp", "role letter")
     cold = floor_scope(cn, "role", "fprole", parts=["mail", "agents"])
     assert any("role letter" in str(m.get("body") or "") for m in cold["mailbox"])

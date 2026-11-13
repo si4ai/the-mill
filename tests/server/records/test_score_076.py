@@ -21,7 +21,7 @@ def _seat(cn, *desks: str) -> None:
     from agent_coord.server.records import join as rec_join
 
     for d in desks:
-        rec_join.upsert(cn, "Office", d, "", token_hash("seat-" + d), None)
+        rec_join.upsert(cn, "Office", d, "", token_hash("seat-" + d))
     cn.commit()
 
 

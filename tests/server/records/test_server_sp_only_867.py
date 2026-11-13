@@ -157,14 +157,12 @@ def test_pass_keeps_evidence_on_ship_and_done_and_drops_it_on_back(cn):
     assert "evidence" not in _read(cn, "e867-a")
 
 
-def test_pass_evidence_over_2000_chars_is_refused_and_changes_nothing(cn):
+def test_pass_long_evidence_is_kept_whole(cn):
+    """Card 1207 (the owner, 2026-11-13): evidence is todo.meta.evidence and is not capped."""
     book, _ = _card(cn, "e867-b")
     rpc._h_claim(book, {"need": "e867-b"}, "unit", VOL)
-    with pytest.raises(CoordError, match="evidence"):
-        rpc._h_pass(book, {"need": "e867-b", "evidence": "x" * 2001}, "unit", VOL)
-    from agent_coord.server.records import todo as rec_todo
-
-    assert rec_todo.find(cn, "unit", "e867-b")["status"] == "claimed"
+    got = rpc._h_pass(book, {"need": "e867-b", "evidence": "x" * 5000}, "unit", VOL)
+    assert got["status"] == "shipped" and got["evidence"] == "x" * 5000
 
 
 def test_card_carries_done_when_and_only_the_asker_changes_it(cn):

@@ -142,7 +142,6 @@ def test_meta_only_event_still_accepts(locked) -> None:
 def test_dispatch_ws_drops_stream_bodies(locked, monkeypatch) -> None:
     mod, stored = locked
     monkeypatch.setattr(mod, "_note_doing", lambda *a, **k: None)
-    monkeypatch.setattr(mod, "_doing_text", lambda *a, **k: "")
     book = MagicMock()
     book._cn = object()
     out = mod.dispatch_ws(book, "builder", "tw.event", _event_body(**_STREAM_BODIES))
@@ -155,7 +154,6 @@ def test_dispatch_ws_drops_stream_bodies(locked, monkeypatch) -> None:
 def test_dispatch_ws_accepts_tw_event(locked, monkeypatch) -> None:
     mod, stored = locked
     monkeypatch.setattr(mod, "_note_doing", lambda *a, **k: None)
-    monkeypatch.setattr(mod, "_doing_text", lambda *a, **k: "")
     book = MagicMock()
     book._cn = object()
     out = mod.dispatch_ws(book, "builder", "tw.event", _event_body())

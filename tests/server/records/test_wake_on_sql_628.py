@@ -17,7 +17,7 @@ KEY = "fx628-key-0123456789"
 
 def test_wake_on_round_trip(cn):
     seed_names(cn, ("fx628", "roster"), ("fx628-d1", "desk"))
-    rec_join.upsert(cn, "fx628", "fx628-d1", "", token_hash("seat-fx628"), None)
+    rec_join.upsert(cn, "fx628", "fx628-d1", "", token_hash("seat-fx628"))
     cn.commit()
     rec_join.wake_arm(cn, "fx628-d1", URL, KEY)
     assert rec_join.wake_state(cn, "fx628-d1")["wake_on"] == "addressed"

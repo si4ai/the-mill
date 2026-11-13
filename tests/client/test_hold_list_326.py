@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_coord.client import outbound
-from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
 
 
@@ -28,9 +27,13 @@ def test_bare_hold_is_the_list(_me):
     assert "resource" not in body
 
 
-def test_bare_hold_with_doing_is_refused(_me):
-    with pytest.raises(CoordError, match="--doing needs a resource"):
-        outbound.body_from_args(_args(doing="x"))
+def test_hold_has_no_doing_flag(_me):
+    # Card 1207: hold only does hold; the parser refuses --doing and the body never carries it.
+    from agent_coord.__main__ import _build_parser
+
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["hold", "a.md", "--doing", "x"])
+    assert "doing" not in outbound.body_from_args(_args(resource="a.md", doing="x"))
 
 
 def test_hold_with_resource_still_acquires(_me):

@@ -23,7 +23,7 @@ ME = "d853-me"
 @pytest.fixture()
 def book(cn):
     seed_names(cn, (R, "roster"), (ME, "desk"))
-    rec_join.upsert(cn, R, ME, "builder", token_hash=token_hash("tok-853"), doing="present")
+    rec_join.upsert(cn, R, ME, "builder", token_hash=token_hash("tok-853"))
     return cn
 
 

@@ -35,6 +35,7 @@ def test_null_heartbeat_on_session_and_floor(monkeypatch) -> None:
             {"part": "desk", "desk": "c235", "heartbeat": None, "cur_id": None, "cur_text": ""}
         ],
     )
+    monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
     monkeypatch.setattr(
         "agent_coord.server.records.floor.rec_join.select",
         lambda cn, project: [row],

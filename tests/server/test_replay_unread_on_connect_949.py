@@ -147,24 +147,20 @@ def test_leave_rings_when_mailbox_unread_and_push_empty(office) -> None:
     assert _posts(office)[-1]["id"] == 80
 
 
-@pytest.mark.parametrize("pickup", ["read", "mark", "doing"])
+@pytest.mark.parametrize("pickup", ["read", "mark"])  # card 1207: a doing never picks up a letter
 def test_picked_up_mail_never_rings_even_with_stale_push(office, pickup):
     from agent_coord.server.records import opened
 
     assert _letter(office, 90) == "missed"
-    # Run the real pickup query against mail_to/doing, translating placeholders only.
+    # Run the real pickup query against mail_to, translating placeholders only.
     db = sqlite3.connect(":memory:")
     db.executescript("""
         CREATE TABLE name (id INTEGER, type TEXT, name TEXT, deleted TEXT, trashed TEXT);
         INSERT INTO name VALUES (1, 'desk', 'away', NULL, NULL);
         CREATE TABLE mail_to (type TEXT, id INTEGER, desk_id INTEGER, opened TEXT);
         INSERT INTO mail_to VALUES ('mail', 90, 1, NULL);
-        CREATE TABLE doing (desk_id INTEGER, on_type TEXT, on_id INTEGER, act TEXT);
     """)
-    if pickup == "doing":
-        db.execute("INSERT INTO doing VALUES (1, 'mail', 90, 'focus')")
-    else:
-        db.execute("UPDATE mail_to SET opened='read'")
+    db.execute("UPDATE mail_to SET opened='read'")
 
     class Cursor:
         def __init__(self):

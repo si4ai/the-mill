@@ -29,7 +29,7 @@ def _admin():
 
 def _seat(cn, desk: str, seat: str) -> str:
     seed_names(cn, ("fx608", "roster"), (desk, "desk"))
-    rec_join.upsert(cn, "fx608", desk, "", token_hash(seat), None)
+    rec_join.upsert(cn, "fx608", desk, "", token_hash(seat))
     cn.commit()
     digest = token_hash(seat)
     assert rec_join.desk_for_token_hash(cn, digest) == desk

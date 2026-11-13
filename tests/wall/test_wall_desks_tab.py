@@ -4,9 +4,10 @@
 The top tabs are DESKS (default), TODO, MAIL, PRIORITIES, SCORE, COLLAB. DESKS rows come
 from default/session/desks-rows.js, run here in Node on reads shaped like the live routes:
 GET /api/v1/doing?all=1 views, GET /api/pov?part=desks rows (card 1191), the labels read
-(top 3 per desk) and Office score rows. Old letters use card 1192's n_over_day / oldest_at;
-an older office server without them, and fields not served yet (card 1193 scope, card 1194
-doing time), hide their element. The degrade tests strip them and check nothing is made up.
+(top 3 per desk) and Office score rows. Card 1207: a doing view is n live doings (tw runs) and
+doings [{id, created, text, state, state_at, card}], newest first; there is no waiting-on-it
+count, no seat text and no self-reported doing. Fields not served yet (card 1193 scope) hide
+their element. The degrade tests strip them and check nothing is made up.
 """
 from __future__ import annotations
 
@@ -135,36 +136,29 @@ process.stdout.write(JSON.stringify({
 """
 
 
-def _letters(n, over=None, oldest=None):
-    L = {"n": n, "newest": []}
-    if over is not None:
-        L["n_over_day"] = over
-    if oldest is not None:
-        L["oldest_at"] = oldest
-    return {"letters": L, "cards": {"n": 0, "newest": []}}
+def _view(owner, *runs):
+    """A card 1207 doing view: n and doings (newest first). runs: (id, created ISO UTC, text, state, card)."""
+    doings = [{"id": i, "created": c, "text": t, "state": st, "state_at": c, "card": card} for i, c, t, st, card in runs]
+    return {"owner": owner, "n": len(doings), "doings": doings}
 
 
 def _ctx(**over) -> dict:
     ctx = {
         "now": NOW,
         "live": [
-            {"owner": "scout", "state": "idle", "seat": ""},
-            {"owner": "builder", "state": "working", "seat": ""},
-            {"owner": "validator", "state": "working", "seat": ""},
-            {"owner": "gardener", "state": "working", "seat": ""},
-            {"owner": "wall-ui", "state": "working", "seat": ""},
+            {"owner": "scout", "state": "idle"},
+            {"owner": "builder", "state": "working"},
+            {"owner": "validator", "state": "working"},
+            {"owner": "gardener", "state": "working"},
+            {"owner": "wall-ui", "state": "working"},
         ],
         "doing": {
-            "builder": {"owner": "builder", "doing": "filing the stations route", "on": "mail-6035", "age": "47m",
-                        "waiting_on_it": _letters(83, 2, "2026-11-10 14:10:00")},
-            "gardener": {"owner": "gardener", "doing": "rewriting the label playbook", "on": "todo-1190", "age": "1h 08m",
-                         "waiting_on_it": _letters(2, 1, "2026-11-11 19:00:00")},
-            "validator": {"owner": "validator", "doing": "reviewing PR 424", "on": "todo-1188", "age": "22m",
-                          "waiting_on_it": _letters(4, 0, "2026-11-12 18:10:00")},
-            "wall-ui": {"owner": "wall-ui", "doing": "building DESKS", "on": "todo-1192", "age": "1h 12m",
-                        "waiting_on_it": _letters(3, 0, "2026-11-12 12:00:00")},
-            "scout": {"owner": "scout", "doing": "", "idle": "3h 12m", "last": {"doing": "swept the tree", "on": ""},
-                      "waiting_on_it": _letters(0, 0, "")},
+            "builder": _view("builder", (41, "2026-11-13T02:13:00Z", "filing the stations route", "started", 1191),
+                             (40, "2026-11-13T01:00:00Z", "", "waiting", None)),
+            "gardener": _view("gardener", (42, "2026-11-13T01:52:00Z", "rewriting the label playbook", "started", 1190)),
+            "validator": _view("validator", (43, "2026-11-13T02:38:00Z", "reviewing PR 424", "started", 1188)),
+            "wall-ui": _view("wall-ui", (44, "2026-11-13T01:48:00Z", "", "started", None)),
+            "scout": _view("scout"),
         },
         "stations": [
             {"name": "builder", "connected": True, "last_connected": "2026-11-13T00:58:12Z",
@@ -219,21 +213,20 @@ def _line(html: str, desk: str) -> str:
     return html[start:min(ends)] if ends else html[start:]
 
 
-def test_urgency_puts_old_letters_then_failed_runs_then_waiting_then_working_first():
+def test_urgency_puts_failed_runs_then_working_first():
     got = _run(_ctx())
-    # builder 2 over a day, gardener 1 over a day, validator last run failed, wall-ui 3 waiting, scout idle.
-    assert got["connected"] == ["builder", "gardener", "validator", "wall-ui", "scout"]
+    # validator's last run failed; gardener and wall-ui work (by name); builder has a run waiting; scout is idle.
+    assert got["connected"] == ["validator", "gardener", "wall-ui", "builder", "scout"]
+    assert got["model"]["connected"][3]["state"] == "waiting"
 
 
 def test_working_desks_lead_an_idle_desk_that_needs_attention():
-    # scout is idle but has 5 letters over a day and a failed last run: it still sits below every working desk.
-    doing = _ctx()["doing"]
-    doing["scout"] = dict(doing["scout"], waiting_on_it=_letters(9, 5, "2026-11-09 10:00:00"))
+    # scout is idle but its last run failed: it still sits below every working desk.
     kpis = _ctx()["kpis"] + [{"kpi": "doing.task.last_run", "owner": "scout", "value": "failed"}]
-    got = _run(_ctx(doing=doing, kpis=kpis))
-    assert got["connected"] == ["builder", "gardener", "validator", "wall-ui", "scout"]
-    # Its old letters and failed run still show in the Needs attention block.
-    assert {a["kind"] for a in got["attention"] if a["desk"] == "scout"} == {"letter", "score"}
+    got = _run(_ctx(kpis=kpis))
+    assert got["connected"] == ["validator", "gardener", "wall-ui", "builder", "scout"]
+    # Its failed run still shows in the Needs attention block.
+    assert {a["kind"] for a in got["attention"] if a["desk"] == "scout"} == {"score"}
 
 
 def test_my_desk_leads_urgency():
@@ -266,13 +259,17 @@ def test_row_leads_with_doing_time_then_top_three_priorities_one_based():
     got = _run(_ctx())
     row = _line(got["html"], "builder")
     assert row.index('class="desk-time"') < row.index('class="desk-text"') < row.index('class="desk-prios"')
-    assert ">47m<" in row
+    assert ">47m ago<" in row  # the newest live doing started 47m ago
     ranks = re.findall(r'<span class="rank" title="ord (\d+)">#(\d+)</span>', row)
     assert ranks == [("0", "1"), ("1", "2"), ("2", "3")]
     assert "fourth is not shown" not in row
-    assert 'data-doing-go="mail-6035"' in row
-    assert "83 letters waiting \u00b7 2 over a day" in row
-    assert "oldest since 11-10 14:10" in row
+    assert 'data-doing-go="todo-1191"' in row
+    assert "filing the stations route" in row
+    assert "letters waiting" not in row and "nothing waiting" not in row  # card 1207: no waiting-on-it count
+    # a live run in state waiting paints the desk waiting, as the strip and score counts do
+    assert 'class="here-state">waiting<' in row
+    # a run with no text reads as the count of live doings
+    assert "1 doing<" in _line(got["html"], "wall-ui")
     assert "Last run <b>active</b>" in row
     assert "no priorities set" in _line(got["html"], "validator")
 
@@ -284,28 +281,16 @@ def test_sections_are_open_with_no_dropdowns():
 
 def test_needs_attention_lists_real_facts_only():
     att = _run(_ctx())["attention"]
-    assert {"desk": "builder", "kind": "letter", "text": "2 letters waiting over a day, oldest since 11-10 14:10"} in att
     assert {"desk": "validator", "kind": "score", "text": "Last run failed"} in att
     assert {"desk": "gardener", "kind": "prio", "text": "#1 todo-1088 overdue 2d"} in att
     assert not any(a["desk"] in ("wall-ui", "scout") for a in att)
 
 
-def _strip_1192(ctx: dict) -> dict:
-    for v in ctx["doing"].values():
-        L = v["waiting_on_it"]["letters"]
-        L.pop("n_over_day", None)
-        L.pop("oldest_at", None)
-    return ctx
-
-
-def test_degrade_without_card_1192_fields():
-    got = _run(_strip_1192(_ctx()))
-    html = got["html"]
-    assert "over a day" not in html
-    assert "oldest since" not in html
+def test_no_waiting_on_it_row_or_letter_attention():
+    # card 1207 (wall-ui, 2026-11-13): waiting_on_it is gone; the row and Needs attention never say it.
+    got = _run(_ctx())
+    assert "letters waiting" not in got["html"] and "nothing waiting" not in got["html"]
     assert not [a for a in got["attention"] if a["kind"] == "letter"]
-    assert got["connected"][:2] == ["validator", "builder"]
-    assert "83 letters waiting</span>" in _line(html, "builder")
 
 
 def test_degrade_without_labels_scores_stations_or_doing_view():
@@ -316,7 +301,7 @@ def test_degrade_without_labels_scores_stations_or_doing_view():
     assert "Disconnected" not in html and got["away"] == []
     bare = _run(_ctx(doing=None, live=[{"owner": "builder", "state": "working", "seat": "seat text"}]))
     row = _line(bare["html"], "builder")
-    assert "seat text" in row
+    assert "seat text" not in row  # card 1207: no self-reported doing text, ever
     assert 'class="desk-time"' not in row
     assert "waiting" not in row
 

@@ -1,5 +1,7 @@
 # Doing focus, waiting, and end vs the 0.8.5 code (card 925)
 
+**History since card 1207 (0.8.15):** the code this model reads is gone. There is no `--doing`, no `--waiting-on`, no focus, clear or finish row and no `seat.doing_id`; a doing is one tw run, written only by tw, and many may be live. `anchors.json` markers point at removed SQL, so `check_anchors.py` fails until the model is redone for tw runs.
+
 **0.8.6 target, per builder:** doing comes only from tw (970); a desk may run several tw tasks at once (`MaxTasks=2`, `Doing-target.cfg`); `GuardSupersede=FALSE` drops D6. Current ce115f8 stays `MaxTasks=1` + `GuardSupersede=TRUE` (`Doing.cfg`). 1017/1018 are per task. `verify/spin/doing.pml` on main still models the 0.8.0 single `seat.doing_id` lock-order story; this package carries the concurrent-tw target.
 
 The mill is middleware; the CLI is its API. This check prioritises liveness and

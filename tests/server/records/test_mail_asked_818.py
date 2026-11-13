@@ -6,8 +6,7 @@
     only as a room member (the parent's other recipients and the room cast);
     reply --to-desk asks every desk it names. The same split the wakes use
     (#627 room_only), now stored;
-(c) `mill connected` counts only unhandled letters the desk was asked on as
-    waiting on it; a copy never does;
+(c) card 1207: `mill connected` no longer lists letters waiting on a desk (waiting_on_it is gone);
 (d) on an existing book `migrate.ensure()` adds the column: old rows are
     asked unless the stored wake for that letter and desk (wake,
     wake_reason room) says the desk got it as a room member; a second ensure
@@ -20,7 +19,7 @@ import pytest
 from agent_coord.install import migrate
 from agent_coord.server.records.db import rows_done, scalar_done
 from tests.server.records.conftest import seed_names
-from tests.server.records.test_doing_flag_818 import World, _dispatch
+from tests.server.records.test_doing_only_tw_1207 import World, _dispatch
 
 pytestmark = pytest.mark.sql
 
@@ -37,7 +36,7 @@ def w(cn, tmp_path_factory):
 
     seed_names(cn, (R, "roster"), ("the-mill", "roster"), (ME, "desk"), (PEER, "desk"), (THIRD, "desk"))
     for d in (ME, PEER, THIRD):
-        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        here.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     mp = pytest.MonkeyPatch()
     world = World(cn, tmp_path_factory.mktemp("d818a"))
     mp.setenv("AGENT_COORD_MILL_HOME", str(tmp_path_factory.mktemp("d818ahome")))
@@ -73,11 +72,6 @@ def _reply(w, mid, desk, tos=()) -> int:
     for t in tos:
         argv += ["--to-desk", t]
     return int(w.ok(argv + ["--body-file", str(w.body)], desk=desk)["id"])
-
-
-def _waiting_ids(w, desk=ME) -> tuple[list[str], int]:
-    view = w.me(desk)
-    return [x["id"] for x in view["waiting_on_it"]["letters"]["newest"]], view["waiting_on_it"]["letters"]["n"]
 
 
 # (a) send -----------------------------------------------------------------------
@@ -123,22 +117,6 @@ def test_wake_reason_and_stored_flag_agree(w):
     )
     wake = {str(r["name"]): (0 if r["why"] == "room" else 1) for r in rows}
     assert wake == _asked(w.cn, r1)
-
-
-# (c) connected ------------------------------------------------------------------
-
-def test_connected_counts_only_letters_the_desk_was_asked_on(w):
-    root = _send(w, [ME, THIRD])
-    copy = _reply(w, root, THIRD)  # ME is copied
-    ids, n = _waiting_ids(w)
-    assert f"mail-{root}" in ids
-    # The copy is newer than root; before #818 D1 it led the list.
-    assert f"mail-{copy}" not in ids
-    # Asking the desk counts; the copy above it still does not.
-    asked = _reply(w, copy, PEER, tos=[ME])
-    ids2, n2 = _waiting_ids(w)
-    assert ids2[0] == f"mail-{asked}" and f"mail-{copy}" not in ids2
-    assert n2 == n + 1
 
 
 # (d) migration ------------------------------------------------------------------
@@ -202,28 +180,3 @@ def test_a_run_killed_after_the_column_was_added_converges(w):
     assert "mail_to.asked_backfill" in out["applied"]
     assert _asked(w.cn, copy) == {PEER: 1, ME: 0}
     assert int(scalar_done(w.cn, "SELECT COUNT(*) FROM mail_to WHERE asked IS NULL")) == 0
-
-
-# (e) the Wall reads it -------------------------------------------------------------
-
-from tests.server.records.test_doing_routes_818 import _get, wall  # noqa: E402,F401
-
-
-def test_waiting_letters_carry_asked_in_connected_and_the_wall_route(w, wall):  # noqa: F811
-    mid = _send(w, [ME], desk=PEER)
-    letters = w.me(ME)["waiting_on_it"]["letters"]["newest"]
-    mine = [x for x in letters if x["id"] == f"mail-{mid}"]
-    assert mine and mine[0]["asked"] is True
-    assert all(x["asked"] is True for x in letters)  # a copy never waits, so every listed letter was asked
-    code, got = _get(wall, f"/api/v1/doing?desk={ME}")
-    assert code == 200, got
-    route = got[0]["waiting_on_it"]["letters"]["newest"]
-    assert all(set(x) == {"id", "from", "age", "asked"} for x in route)
-    # age can tick 0s to 1s between connected and wall snapshots; compare stable fields only
-    assert all(
-        isinstance(x["age"], str) and x["age"][:-1].isdigit() and x["age"].endswith("s")
-        for x in route
-    )
-    assert [{k: x[k] for k in ("id", "from", "asked")} for x in route] == [
-        {k: x[k] for k in ("id", "from", "asked")} for x in letters
-    ]

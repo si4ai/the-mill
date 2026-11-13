@@ -135,17 +135,12 @@ def test_mail_insert_sp_letter_allocates_id() -> None:
 
 # ---- NULL roster on join reset / hold release ----
 
-def test_join_reset_keeps_activity_roster(cn) -> None:
+def test_join_reset_writes_no_doing_row(cn) -> None:
+    """Card 1207: reset ends live tw runs as cleared; it never writes a doing row of its own."""
     seed_names(cn, ("wg_jp", "roster"), ("wg_jd", "desk"))
-    jid = int(here.upsert(cn, "wg_jp", "wg_jd", "", "a" * 64, "busy")[0]["id"])
-    proj = _id(cn, "roster", "wg_jp")
-    _exec(cn, "UPDATE activity SET roster_id=%s WHERE type='doing' AND id=%s", (proj, jid))
+    did = int(here.upsert(cn, "wg_jp", "wg_jd", "", "a" * 64)[0]["desk_id"])
     here.reset(cn, "wg_jp", "wg_jd")
-    # #818: reset ends the doing with a new empty entry; it keeps the roster.
-    cur = scalar(cn, "SELECT MAX(id) FROM doing WHERE desk_id=(SELECT desk_id FROM doing WHERE id=%s)", (jid,))
-    assert int(cur) > jid
-    assert scalar(cn, "SELECT roster_id FROM activity WHERE type='doing' AND id=%s", (cur,)) == proj
-    assert scalar(cn, "SELECT roster_id FROM activity WHERE type='doing' AND id=%s", (jid,)) == proj
+    assert int(scalar(cn, "SELECT COUNT(*) FROM doing WHERE desk_id=%s", (did,))) == 0
 
 def test_hold_release_keeps_activity_roster(cn) -> None:
     seed_names(cn, ("wg_hp", "roster"), ("wg_hd", "desk"))
@@ -164,7 +159,7 @@ def _retire_raw(cn, kind: str, name: str) -> None:
 
 def test_reclaim_desk_with_dead_seat_ok(cn) -> None:
     seed_names(cn, ("wg_rcp", "roster"), ("wg_rc_dead", "desk"))
-    here.upsert(cn, "wg_rcp", "wg_rc_dead", "", "b" * 64, "")
+    here.upsert(cn, "wg_rcp", "wg_rc_dead", "", "b" * 64)
     here.reset(cn, "wg_rcp", "wg_rc_dead")
     _retire_raw(cn, "desk", "wg_rc_dead")
     out = rec_name.reclaim(cn, "wg_rc_dead", "desk", by=admin_desk(cn))
@@ -172,7 +167,7 @@ def test_reclaim_desk_with_dead_seat_ok(cn) -> None:
 
 def test_reclaim_desk_with_live_seat_blocked(cn) -> None:
     seed_names(cn, ("wg_rcl", "roster"), ("wg_rc_live", "desk"))
-    here.upsert(cn, "wg_rcl", "wg_rc_live", "", "c" * 64, "")
+    here.upsert(cn, "wg_rcl", "wg_rc_live", "", "c" * 64)
     _retire_raw(cn, "desk", "wg_rc_live")
     with pytest.raises(Exception) as ei:
         rec_name.reclaim(cn, "wg_rc_live", "desk", by=admin_desk(cn))
@@ -180,7 +175,7 @@ def test_reclaim_desk_with_live_seat_blocked(cn) -> None:
 
 def test_reclaim_role_blocked_only_by_live_member(cn) -> None:
     seed_names(cn, ("wg_rcr_p", "roster"), ("wg_rcr", "roster"), ("wg_rcr_m", "desk"))
-    here.upsert(cn, "wg_rcr_p", "wg_rcr_m", "", "f" * 64, "")
+    here.upsert(cn, "wg_rcr_p", "wg_rcr_m", "", "f" * 64)
     _exec(
         cn,
         "INSERT IGNORE INTO member (name_id, desk_id) VALUES (%s, %s)",
@@ -195,7 +190,7 @@ def test_reclaim_role_blocked_only_by_live_member(cn) -> None:
 
 def test_reclaim_unrelated_live_seat_does_not_block(cn) -> None:
     seed_names(cn, ("wg_rcu_p", "roster"), ("wg_rcu_live", "desk"), ("wg_rcu_name", "label"))
-    here.upsert(cn, "wg_rcu_p", "wg_rcu_live", "", "9" * 64, "")
+    here.upsert(cn, "wg_rcu_p", "wg_rcu_live", "", "9" * 64)
     _retire_raw(cn, "label", "wg_rcu_name")
     out = rec_name.reclaim(cn, "wg_rcu_name", "label", by=admin_desk(cn))
     assert out[0]["op"] == "reclaimed"

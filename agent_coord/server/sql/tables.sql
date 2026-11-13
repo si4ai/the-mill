@@ -3,8 +3,8 @@
 -- name, seat, member, activity, label, tree, watcher, mail, mail_to, tree_read, todo,
 -- doing, hold, score, score_point, score_evidence, wake, transition, transition_edge, human, human_desk, human_member, mill_invite, mill_invite_join, activity_history.
 -- activity_history (card 1133): the old text of a mail or card body, one row per replace.
--- No new table (the owner, 2026-10-26): doing is the history of card and hold moves, and seat.doing_id
--- names a desk's focus. activity.act and doing.act share one list (BETA-CHANGES.md, "The act list").
+-- card 1207: card and hold moves are transition rows (card 1022); a doing row is one tw.exe run (no seat pointer).
+-- activity.act uses the act list (BETA-CHANGES.md, "The act list"); doing has no act.
 -- Order: name, then seat (the desk kind table), then main's order.
 -- Platform follows the payloads. label and tree reference activity, so they sit under it.
 -- charset: utf8mb4 names/prose; ascii_bin hashes and invite keys.
@@ -21,7 +21,7 @@
 --
 -- 0.8.0. Three rules place every relation (owner rules; reads far outnumber writes). All three are main's:
 --   [row]   a field on the row that owns the fact; a reference to one of several kinds is the composite
---           (type ENUM, id), as on main's activity, label, tree and doing.on_*/waiting_*.
+--           (type ENUM, id), as on main's activity, label and tree.
 --   [tree]  nested set (Celko lft/rgt, as on main): plans and mail rooms/threads, one lft/rgt line per tree name.
 --   [label] label rank (as on main): ord 0 pinned, 65535 unplaced; a desk's focus list is a label.
 --
@@ -107,16 +107,12 @@ CREATE TABLE IF NOT EXISTS seat (
   lan_ip          VARCHAR(45) CHARACTER SET ascii COLLATE ascii_bin NULL,
   time_connect    DATETIME(6) NULL,
   time_disconnect DATETIME(6) NULL,
-  -- 0.8.0 (the owner, 2026-10-26): the desk's focus, its newest focus row (act focus or clear; never a move row).
-  -- NULL until the desk's first doing row. fk_seat_doing is added after doing (the two tables reference each other).
-  doing_id        BIGINT UNSIGNED NULL,
   -- card 1163: the label that is this desk's focus list. The label string cannot equal the desk name.
   -- Commands and card labels still address that list by the desk name. NULL until the list exists.
   focus_label_id  BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY idx_desk (desk_id),
   UNIQUE KEY idx_focus_label (focus_label_id),
-  KEY idx_doing (doing_id, desk_id),
   KEY idx_lan_updated (lan_ip, updated),
   KEY idx_token_hash (token_hash),
   -- RESTRICT (#96): a seat is history. Reset/disconnect stamp the row; a name delete must not wipe it.
@@ -149,7 +145,7 @@ CREATE TABLE IF NOT EXISTS activity (
   deleted     DATETIME(6)       NULL,
   desk_id          BIGINT UNSIGNED       NULL,   -- 0.8.0: NULL = the office itself (main wrote roster id 2, Admin, here)
   roster_id   BIGINT UNSIGNED       NOT NULL DEFAULT 1,
-  -- 0.8.0 (the owner, 2026-10-26): the item's latest move; desk_id is who made it. Same list as doing.act.
+  -- 0.8.0 (the owner, 2026-10-26): the item's latest move; desk_id is who made it (the act list).
   act              ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'create',
   bytes            INT UNSIGNED NULL,
   PRIMARY KEY (type, id),
@@ -284,6 +280,8 @@ CREATE TABLE IF NOT EXISTS todo (
   claimed_at      DATETIME(6)   NULL,
   -- card 1133: body is the card text (the old JSON body's detail); meta is the rest of that JSON (slug, progress,
   -- eta_at, started_at, aliases, ...), never card state (status, volunteer, claimed_at stay in their columns).
+  -- card 1207: meta.evidence is the newest ship/done evidence (server-owned, not a length-capped field); a pass
+  -- --back removes it. MILL_TODO_DOC leaves it out of the card document.
   -- meta NULL = a row the 1133 migration has not split yet. body_updated / body_updater_id: the last write that
   -- changed the text (a note or mill_body_replace); NULL = never edited (created and creator_id stand).
   body            VARCHAR(4096) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
@@ -329,16 +327,12 @@ CREATE TABLE IF NOT EXISTS activity_history (
   CONSTRAINT fk_history_replaced_by FOREIGN KEY (replaced_by) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- #818: what a desk is doing. Append-only: one row per entry, never overwritten.
--- The desk's current doing is its newest row. on_* is the activity the entry
--- is about (any type but doing); waiting_* is what it is blocked on (#822:
--- a desk, letter, card or hold, plus the reason) as fields on this one row.
--- No edge or link table: who is blocked on a desk is a read (mill_doing_now).
--- 0.8.0 (the owner, 2026-10-26): doing is also the history of card and hold moves. act names the row: focus or clear
--- is the desk's own focus (seat.doing_id names the newest); any other act is a move of the on_* item by desk_id,
--- with peer_id the second desk of the move (the new volunteer of an assign, the previous one of a take-over).
--- A move's from-state is the previous move row on the same item (idx_on, in id order). Card evidence is doing.evidence
--- (VARCHAR(2000), move rows only; focus/clear/finish keep it NULL; the owner, 2026-10-26 ~2:33 AM PDT).
+-- card 1207 (the owner, 2026-11-13): a doing row is one tw.exe (TaskWrapper) run, written only by mill_doing_task.
+-- It is never a desk's own statement. The row is the start; every later state and the end are transition rows
+-- (activity_type doing), so a desk's current doings are its rows with no terminal transition (finished, failed,
+-- stale, cleared). A desk may run many at once: there is no single current doing and no seat pointer.
+-- Card and hold moves, a card rename and a name's trash, restore or purge are not doing rows. Ship and done
+-- evidence is the card's todo.meta.evidence. A task's card is the card in its tw_start transition meta.
 CREATE TABLE IF NOT EXISTS doing (
   type          ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'doing',
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -346,29 +340,13 @@ CREATE TABLE IF NOT EXISTS doing (
   desk_id       BIGINT UNSIGNED NOT NULL,
   roster_id     BIGINT UNSIGNED NOT NULL DEFAULT 1,
   text          VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  on_type       ENUM('mail','todo','hold','score') NULL,
-  on_id         BIGINT UNSIGNED NULL,
-  waiting_type  ENUM('mail','todo','hold','desk') NULL,
-  waiting_id    BIGINT UNSIGNED NULL,
-  waiting_why   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
-  act           ENUM('create','send','reply','note','park','claim','unclaim','assign','unpark','ship','done','back','hold','drop','focus','clear','finish','score','retire','reclaim','remove','delete','restore','purge','rename','ring','task','replace') NOT NULL DEFAULT 'focus',
-  peer_id       BIGINT UNSIGNED NULL,   -- 0.8.0: the second desk of a move; not waiting_* (that is what a focus is blocked on)
-  evidence      VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,  -- 0.8.0: ship/done evidence; NULL on focus/clear/finish
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk_created (desk_id, created),
-  KEY idx_on (on_type, on_id, id),   -- 0.8.0: an item's moves in id order, no filesort
   KEY idx_roster (roster_id),
-  KEY idx_peer (peer_id),
-  UNIQUE KEY idx_id_desk (id, desk_id),   -- 0.8.0: target of seat.fk_seat_doing (the desk's own row)
   CONSTRAINT fk_doing_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT fk_doing_peer FOREIGN KEY (peer_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT chk_doing_evidence CHECK (evidence IS NULL OR act NOT IN ('focus', 'clear', 'finish'))
+  CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
--- 0.8.0 (the owner, 2026-10-26): seat.doing_id names the desk's own focus row; the composite FK keeps it on that desk.
-ALTER TABLE seat ADD CONSTRAINT fk_seat_doing FOREIGN KEY (doing_id, desk_id) REFERENCES doing (id, desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- One lock per resource. desk_id NULL means free. Release nulls desk_id; the row stays.
 CREATE TABLE IF NOT EXISTS hold (
@@ -643,6 +621,9 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('wake','unread_owed','lease_live','wake_fail'),
   ('wake','unread_owed','lease_live','wake_sent'),
   ('wake','unread_owed','lost_unread','wake_lost');
+-- Card 1207: card rename (T16), once a doing row.
+INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
+  ('todo','any','same','rename');
 
 CREATE TABLE IF NOT EXISTS human (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

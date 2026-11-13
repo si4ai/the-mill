@@ -64,7 +64,7 @@ def admin_desk(cn, name: str = ADMIN_DESK) -> str:
     from agent_coord.client.tokens import token_hash
     from agent_coord.server.records import join as rec_join
 
-    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
+    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name))
     return make_admin(cn, name)
 
 

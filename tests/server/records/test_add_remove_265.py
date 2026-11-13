@@ -58,7 +58,7 @@ def office(cn):
                ("ar_a", "desk"), ("ar_b", "desk"), ("ar_c", "desk"), ("ar_d", "desk"), ("ar_e", "desk"))
     # 0.8.0: watcher.desk_id FKs to seat; every desk in the fixture needs a seat.
     for d in ("ar_a", "ar_b", "ar_c", "ar_d", "ar_e"):
-        rec_join.upsert(cn, R, d, "", token_hash("ar-" + d), None)
+        rec_join.upsert(cn, R, d, "", token_hash("ar-" + d))
     cn.commit()
     rec_member.put(cn, "ar_r", "ar_c", "roster")
     rec_member.put(cn, "ar_r", "ar_d", "roster")

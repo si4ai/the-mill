@@ -27,10 +27,10 @@ def test_blank_evidence_is_omitted():
     assert "evidence" not in body
 
 
-def test_evidence_over_2000_is_refused():
-    args = _build_parser().parse_args(["pass", "unit", "n1", "--evidence", "x" * 2001])
-    with pytest.raises(CoordError, match="nothing changed"):
-        body_from_args(args)
+def test_long_evidence_is_sent_whole():
+    """Card 1207 (the owner, 2026-11-13): evidence is todo.meta.evidence, a JSON key, and is not capped."""
+    args = _build_parser().parse_args(["pass", "unit", "n1", "--evidence", "x" * 5000])
+    assert body_from_args(args)["evidence"] == "x" * 5000
 
 
 def test_back_sends_evidence_for_the_server_to_drop():

@@ -170,7 +170,10 @@
   function scoreWaiting(d) {
     var n = 0;
     ((d && (d.agents || d.live_agents)) || []).forEach(function (a) {
-      if (a && String(a.waiting_on || "").trim()) n++;
+      /* Card 1207: a desk waits when a live tw run of its is in state waiting (a.doings or d.doing[owner]). */
+      var v = a && d.doing ? d.doing[a.owner] : null;
+      var tasks = (a && a.doings) || (v && v.doings) || [];
+      if (tasks.some(function (t) { return t && t.state === "waiting"; })) n++;
     });
     return n;
   }
@@ -282,23 +285,15 @@
   function scoreDoingTaskSanitizeRow(row) {
     /* Show only contracted fields; drop privacy keys even if a feed leaks them. */
     if (!row || typeof row !== "object") return null;
+    /* Card 1207 (wall-ui shape): a doings[] row is id, created, text, state, state_at, card. */
     var out = {
-      act: "task",
+      id: row.id == null ? null : row.id,
+      created: String(row.created || ""),
+      text: String(row.text || ""),
       state: String(row.state || "").trim(),
-      join_key: String(row.join_key || "").trim(),
-      waiting_on: "",
-      card: ""
+      state_at: String(row.state_at || ""),
+      card: row.card == null ? null : row.card
     };
-    if (row.waiting_on != null && String(row.waiting_on).trim()) {
-      out.waiting_on = typeof row.waiting_on === "object"
-        ? String((row.waiting_on.on || row.waiting_on.why || "")).trim()
-        : String(row.waiting_on).trim();
-    } else if (row.cause != null && String(row.cause).trim()) {
-      /* cause name only (e.g. pattern), never a watch pattern string */
-      out.waiting_on = String(row.cause).trim();
-    }
-    if (row.card != null && String(row.card).trim()) out.card = String(row.card).trim();
-    else if (row.on != null && String(row.on).trim()) out.card = String(row.on).trim();
     return out;
   }
   function scoreDoingTaskLiveRows(list) {
@@ -308,7 +303,7 @@
       if (!row || !scoreDoingTaskRowVisible(row)) return;
       out.push(row);
     });
-    return out.slice(0, 8);
+    return out.slice(0, typeof WALL_DOINGS_CAP === "number" ? WALL_DOINGS_CAP : 20);
   }
   var DOING_TASK_LAST_DONE_KEYS = ["end_reason", "dwell_active_ms", "dwell_idle_ms"];
   /* Per-score timestamps only. Never treat dwell_idle_ms (or other leaf values) as a clock. */

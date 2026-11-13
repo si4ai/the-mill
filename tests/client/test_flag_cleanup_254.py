@@ -10,7 +10,6 @@ import pytest
 
 from agent_coord.__main__ import _build_parser, main
 from agent_coord.client import outbound
-from agent_coord.helpers.errors import CoordError
 
 
 def _exit2(argv: list[str]) -> None:
@@ -91,10 +90,6 @@ def test_254_hold_without_resource_is_the_list() -> None:
     # #326: bare hold lists every lock, like --peek alone.
     outbound._guard_args("hold", "hold", _hold_args())
     outbound._guard_args("hold", "hold", _hold_args(resource="   "))
-    with pytest.raises(CoordError, match="--doing needs a resource"):
-        outbound._guard_args("hold", "hold", _hold_args(doing="x"))
-    with pytest.raises(CoordError, match="--doing needs a resource"):
-        outbound._guard_args("hold", "hold", _hold_args(peek=True, doing="x"))
     outbound._guard_args("hold", "hold", _hold_args(peek=True))
     outbound._guard_args("hold", "hold", _hold_args(resource="a.md"))
 

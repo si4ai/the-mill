@@ -30,7 +30,7 @@ OUT = "d842-out"
 def book(cn):
     seed_names(cn, (R, "roster"), (GONE, "desk"), (DEAD, "desk"), (OTHER, "desk"), (OUT, "desk"))
     for d in (GONE, DEAD, OTHER, OUT):
-        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     for desk, res in (
         (GONE, "h842/a"), (GONE, "h842/b"), (DEAD, "h842/c"), (OTHER, "h842/d"), (OUT, "h842/e"),
     ):

@@ -32,7 +32,7 @@ OTHER = "d882-other"
 def book(cn):
     seed_names(cn, (R, "roster"), (LIVE, "desk"), (OTHER, "desk"))
     for d in (LIVE, OTHER):
-        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d), doing="present")
+        rec_join.upsert(cn, R, d, "builder", token_hash=token_hash("tok-" + d))
     assert int(rec_hold.upsert(cn, R, LIVE, "h882/lock")[0]["ok"]) == 1
     return cn
 
@@ -72,7 +72,7 @@ def test_after_retire_hold_is_refused(cn) -> None:
     # Own setup: do not reuse the reset desk from the other test (token cleared).
     seed_names(cn, (R, "roster"), ("d882-ret", "desk"))
     desk = "d882-ret"
-    rec_join.upsert(cn, R, desk, "builder", token_hash=token_hash("tok-ret"), doing="present")
+    rec_join.upsert(cn, R, desk, "builder", token_hash=token_hash("tok-ret"))
     assert int(rec_hold.upsert(cn, R, desk, "h882/ret")[0]["ok"]) == 1
     rec_name.retire(cn, desk, "desk", by=admin_desk(cn))
     with pytest.raises(mysql.connector.Error) as ei:

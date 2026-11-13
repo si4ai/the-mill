@@ -135,7 +135,6 @@ def mint_seat(
     desk: str,
     project: str = "the-mill",
     created_by: str = "",
-    doing: str = "invited",
     mill_url: str | None = None,
 ) -> dict[str, Any]:
     """Mint one agent seat + welcome invite URL. Book stores token_hash only."""
@@ -146,7 +145,7 @@ def mint_seat(
     proj = (project or "").strip() or "the-mill"
     seat = mint_seat_secret()
     digest = token_hash(seat)
-    rows = rec_join.upsert(cn, proj, who, "", digest, (doing or "invited")[:64])
+    rows = rec_join.upsert(cn, proj, who, "", digest)
     got = rows[0] if rows else {}
     registered = _stored_desk(str(got.get("owner") or who))
     try:

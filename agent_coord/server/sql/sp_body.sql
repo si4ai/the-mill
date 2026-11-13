@@ -8,13 +8,15 @@
 DROP FUNCTION IF EXISTS MILL_TODO_DOC;
 DROP FUNCTION IF EXISTS MILL_BODY_TEXT;
 DROP FUNCTION IF EXISTS MILL_BODY_META;
+DROP FUNCTION IF EXISTS MILL_TODO_EVIDENCE;
 DROP PROCEDURE IF EXISTS mill_body_replace;
 DROP PROCEDURE IF EXISTS mill_body_history;
 
 DELIMITER //
 
 -- The card document: meta with the text as its detail. meta NULL is a row the 1133 migration has not split
--- yet, whose body is still the whole document.
+-- yet, whose body is still the whole document. Card 1207: meta.evidence is not part of the document (readers get
+-- it from MILL_TODO_EVIDENCE), so a write that sends the document back never carries it or spends card room on it.
 CREATE FUNCTION MILL_TODO_DOC(p_body VARCHAR(4096), p_meta JSON)
   RETURNS TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
   DETERMINISTIC
@@ -23,7 +25,20 @@ BEGIN
   IF p_meta IS NULL THEN
     RETURN p_body;
   END IF;
-  RETURN CAST(JSON_SET(p_meta, '$.detail', IFNULL(p_body, '')) AS CHAR CHARACTER SET utf8mb4);
+  RETURN CAST(JSON_SET(JSON_REMOVE(p_meta, '$.evidence'), '$.detail', IFNULL(p_body, '')) AS CHAR CHARACTER SET utf8mb4);
+END //
+
+-- Card 1207: the card's newest ship/done evidence (todo.meta.evidence), NULL when none. Not length-capped.
+CREATE FUNCTION MILL_TODO_EVIDENCE(p_meta JSON)
+  RETURNS LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
+  DETERMINISTIC
+  NO SQL
+BEGIN
+  IF p_meta IS NULL OR JSON_TYPE(JSON_EXTRACT(p_meta, '$.evidence')) IS NULL
+     OR JSON_TYPE(JSON_EXTRACT(p_meta, '$.evidence')) <> 'STRING' THEN
+    RETURN NULL;
+  END IF;
+  RETURN JSON_UNQUOTE(JSON_EXTRACT(p_meta, '$.evidence'));
 END //
 
 -- The text of a card document: its detail string, unescaped. A body that is not a JSON object is all text.
@@ -48,7 +63,8 @@ BEGIN
   END;
 END //
 
--- The meta of a card document: every key but detail. A body that is not a JSON object has empty meta.
+-- The meta of a card document: every key but detail and evidence (card 1207: evidence is server-owned, set only by
+-- a ship or done in mill_todo_write). A body that is not a JSON object has empty meta.
 CREATE FUNCTION MILL_BODY_META(p_doc VARCHAR(4096))
   RETURNS JSON
   DETERMINISTIC
@@ -63,7 +79,7 @@ BEGIN
   IF JSON_TYPE(CAST(p_doc AS JSON)) <> 'OBJECT' THEN
     RETURN JSON_OBJECT();
   END IF;
-  RETURN JSON_REMOVE(CAST(p_doc AS JSON), '$.detail');
+  RETURN JSON_REMOVE(CAST(p_doc AS JSON), '$.detail', '$.evidence');
 END //
 
 -- Replace the text of a letter or a card (the replace-body command, card 1125). One transaction under the item lock:
