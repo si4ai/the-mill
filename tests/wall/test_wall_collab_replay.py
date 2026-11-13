@@ -734,3 +734,100 @@ console.log(JSON.stringify({{
     view = (RD / "rd-view.js").read_text(encoding="utf-8")
     assert 'ovBtn(-1, "Previous 100")' in view and 'ovBtn(1, "Next 100")' in view
     assert "disabled" in view
+
+
+def test_doing_spans_use_row_times_open_at_playhead_and_are_deterministic():
+    got = run()
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+const now = {got['nowMs']};
+const data = {json.dumps(OFFICE)};
+const b = R.base(data, {{rosters: ['Office'], range: '7d'}}, now);
+const rep = R.collabReplay(b, {{count: 300}});
+const t50 = Date.parse('2026-11-13T04:20:00Z');
+const t51 = Date.parse('2026-11-13T04:34:00Z');
+const start50 = Date.parse('2026-11-13T04:05:00Z');
+const start51 = Date.parse('2026-11-13T04:33:00Z');
+function find(spans, key) {{ return spans.find(s => s.key === key) || null; }}
+const atNow = R.replayDoingSpans(rep, now, 'desks');
+const at50 = R.replayDoingSpans(rep, t50, 'desks');
+const at51 = R.replayDoingSpans(rep, t51, 'desks');
+const act = R.replayDoingSpans(rep, now, 'activity');
+const same = JSON.stringify(R.replayDoingSpans(rep, now, 'desks').map(s => [s.key, s.start, s.end, s.open, s.pos0, s.pos1, s.lane, s.rowIndex]))
+         === JSON.stringify(R.replayDoingSpans(rep, now, 'desks').map(s => [s.key, s.start, s.end, s.open, s.pos0, s.pos1, s.lane, s.rowIndex]));
+const evAt = R.replayDoingEnd({{endedAt: 1000, endedBy: 'finished'}}, 2000);
+const evOpen = R.replayDoingEnd({{}}, null);
+const evEndedUnknown = R.replayDoingEnd({{ended: true, endedBy: 'cleared'}}, null);
+console.log(JSON.stringify({{
+  nNow: atNow.length,
+  s50: find(atNow, 'focus-50'), s51: find(atNow, 'focus-51'),
+  during50: find(at50, 'focus-50'), during51: find(at50, 'focus-51'),
+  after51: find(at51, 'focus-51'),
+  start50, start51,
+  actLane: act.every(s => s.lane === 'doing'),
+  actDesks: act.map(s => s.desk).sort(),
+  same,
+  evAt, evOpen, evEndedUnknown
+}}));
+"""
+    out = _node(script)
+    s50, s51 = out["s50"], out["s51"]
+    assert s50 and s50["start"] == out["start50"] and s50["end"] == out["start51"], "end is the next doing on the desk"
+    assert s50["open"] is False
+    assert s51["start"] == out["start51"] and s51["end"] is None and s51["open"] is True, "open span has no end"
+    assert s51["pos0"] == 0, "an open doing ends at the playhead"
+    during = out["during50"]
+    assert during and during["open"] is True and during["pos0"] == 0, "still current at the playhead, even if a later end is known"
+    assert out["during51"] is None, "a later doing has not started yet"
+    assert out["after51"] and out["after51"]["open"] is True and out["after51"]["pos0"] == 0
+    assert out["actLane"] is True and "builder" in out["actDesks"]
+    assert out["same"] is True
+    assert out["evAt"] == {"end": 1000, "open": False, "how": "finished"}
+    assert out["evOpen"] == {"end": None, "open": True, "how": ""}
+    assert out["evEndedUnknown"] == {"end": None, "open": False, "how": "cleared"}, "ended with no time and no next row: no invented end"
+    css = (RD / "rd.css").read_text(encoding="utf-8")
+    assert "rd-rp-doing" in css and "rd-dir-tb .rd-rp-doing" in css
+    app = (RD / "rd-app.js").read_text(encoding="utf-8")
+    assert "function drawDoingSpans" in app and "scaleY(" in app and "scaleX(" in app
+    assert "rd-rp-playing" in app
+    view = (RD / "rd-view.js").read_text(encoding="utf-8")
+    assert '"ongoing"' in view and "rd-rp-tip-span" in view
+
+
+def test_panning_the_window_keeps_connection_lines_for_in_window_transitions():
+    got = run()
+    model = str(RD / "rd-model.js")
+    script = f"""
+require({model!r});
+const R = WallRd;
+const now = {got['nowMs']};
+const data = {json.dumps(OFFICE)};
+const b = R.base(data, {{rosters: ['Office'], range: '7d'}}, now);
+const live = R.collabReplay(b, {{count: 300}});
+const liveLinks = R.replayItemsAt(live, live.until, 400, 'desks').links;
+const end = Date.parse('2026-11-13T04:32:00Z');
+const past = R.collabReplay(b, {{count: 100, end}});
+const atEnd = R.replayItemsAt(past, past.until, 400, 'desks').links;
+const mid = (past.since + past.until) / 2;
+const atMid = R.replayItemsAt(past, mid, 400, 'desks').links;
+console.log(JSON.stringify({{
+  liveIds: liveLinks.map(l => l.id),
+  livePos: Object.fromEntries(liveLinks.map(l => [l.id, l.pos])),
+  pastKeys: past.rows.map(r => r.key),
+  pastIds: atEnd.map(l => l.id),
+  pastPos: Object.fromEntries(atEnd.map(l => [l.id, l.pos])),
+  midIds: atMid.map(l => l.id)
+}}));
+"""
+    out = _node(script)
+    assert "mail-100>builder>validator" in out["liveIds"]
+    assert out["livePos"]["move-3>builder>validator"] > 0.08, "older in-window transitions still get a line"
+    assert "move-3>builder>validator" in out["liveIds"]
+    assert "mail-100" in out["pastKeys"] and "move-3" in out["pastKeys"]
+    assert "mail-100>builder>validator" in out["pastIds"], "after a pan, lines for transitions in the new window are present"
+    assert "move-3>builder>validator" in out["pastIds"]
+    assert out["pastPos"]["move-3>builder>validator"] > 0.08
+    model_js = (RD / "rd-model.js").read_text(encoding="utf-8")
+    assert "pos < REPLAY_LINK_AGE" not in model_js

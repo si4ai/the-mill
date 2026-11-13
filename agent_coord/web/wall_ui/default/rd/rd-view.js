@@ -523,15 +523,29 @@
     add(roles.waiting, st.waiting);
     return bits.length ? '<div class="rd-rp-tip-desks">' + bits.join(arrow ? "" : " ") + "</div>" : "";
   }
-  function replayTip(row, now) {
+  function replayTip(row, now, span) {
     if (!row) return "";
     var word = KIND_WORD[row.kind] || row.kind || "";
     var title = tipTitle(row);
     var when = localWhen(row.at), rel = row.at != null && now != null ? R.ago(now - row.at) : "";
     var time = when || rel ? '<div class="rd-rp-tip-time">' + (when ? "<time>" + h(when) + "</time>" : "") + (when && rel ? " \u00b7 " : "") + (rel ? h(rel) : "") + "</div>" : "";
     var tags = tagsHtml(row.tags, 8);
+    var spanHtml = "";
+    if (span && span.start != null) {
+      var started = localWhen(span.start);
+      var ended = span.open ? "ongoing" : (span.end != null ? localWhen(span.end) : "");
+      var dms = span.open && now != null ? now - span.start : (span.end != null ? span.end - span.start : null);
+      var length = dms != null ? (R.msText ? R.msText(dms) : "") : "";
+      spanHtml = '<div class="rd-rp-tip-span">' +
+        (started ? "<time>" + h(started) + "</time>" : "") +
+        (started && ended ? " \u00b7 " : "") +
+        (span.open ? h("ongoing") : (ended ? "<time>" + h(ended) + "</time>" : "")) +
+        (length ? " \u00b7 " + h(length) : "") +
+        "</div>";
+      if (span.item || row.item) spanHtml += '<div class="rd-rp-tip-on">' + h(span.item || row.item) + "</div>";
+    }
     return '<div class="rd-rp-tip-k k-' + h(row.kind) + '"><i class="rd-rp-swatch" aria-hidden="true"></i>' + h(word) + "</div>" +
-      (title ? '<div class="rd-rp-tip-title">' + h(title) + "</div>" : "") + time + tipDesks(row) +
+      (title ? '<div class="rd-rp-tip-title">' + h(title) + "</div>" : "") + time + spanHtml + tipDesks(row) +
       (tags ? '<div class="rd-rp-tip-tags">' + tags + "</div>" : "");
   }
   function replayLaneTip(opts) {

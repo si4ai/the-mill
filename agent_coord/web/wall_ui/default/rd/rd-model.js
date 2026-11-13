@@ -966,7 +966,8 @@
           return;
         }
         push({ key: "focus-" + r.id, item: str(r.on), at: utc(r.at), kind: "doing", act: wd ? "wait" : "focus", actor: str(r.desk) || desk, roster: str(r.roster),
-          peers: wd ? [wd] : [], text: wd ? (str(r.waiting_on.why) || firstLine(r.doing, 120)) : firstLine(r.doing, 120) });
+          peers: wd ? [wd] : [], text: wd ? (str(r.waiting_on.why) || firstLine(r.doing, 120)) : firstLine(r.doing, 120),
+          ended: !!(r.ended || r.ended_by || r.ended_at), endedBy: str(r.ended_by), endedAt: utc(r.ended_at) });
       });
     });
     /* The activity table: each item's latest move, where no letter or move row above has it. */
@@ -1318,7 +1319,10 @@
       if (activity) items.push({ id: r.key, key: r.key, kind: r.kind, lane: r.kind, pos: pos, row: r });
       else {
         r.stateLanes.forEach(function (lane) { items.push({ id: r.key + "@" + lane, key: r.key, kind: r.kind, lane: lane, pos: pos, row: r }); });
-        if (pos < REPLAY_LINK_AGE) r.flows.forEach(function (f) { links.push({ id: r.key + ">" + f.from + ">" + f.to, kind: r.kind, from: f.from, to: f.to, pos: pos, fade: 1 - pos / REPLAY_LINK_AGE }); });
+        /* Links follow every in-window transition, the same as ticks, so a pan
+         * of the overview still shows the desk-to-desk connections in that slice.
+         * A gentle fade with age keeps older lines quieter, but never drops them. */
+        r.flows.forEach(function (f) { links.push({ id: r.key + ">" + f.from + ">" + f.to, kind: r.kind, from: f.from, to: f.to, pos: pos, fade: Math.max(0.4, 1 - pos * 0.45) }); });
       }
     }
     return { items: items, links: links };
@@ -1677,10 +1681,72 @@
     });
     return out;
   }
+
+  /* Doing duration: GET /api/v1/doing/history sends ended (bool) and
+   * ended_by ("finished" | "cleared" | "newer" | null). It does not send
+   * ended_at: the SQL computes that time, but the rpc uses it only to
+   * pick ended_by and then drops it. The trail cache keeps ended_at when
+   * a row has it.
+   * Start is the focus row's at. End is:
+   *   1. ended_at on the row, when present (utc).
+   *   2. Else the next focus/doing row on the same desk (a newer doing
+   *      replaces; this is also how a "newer" end is timed).
+   *   3. Else if the row is not ended (no ended flag, no ended_by): the
+   *      span is open and runs to the playhead.
+   *   4. Else ended is true but no timestamp and no next row: the end
+   *      time was not sent, so we do not invent one; the start tick
+   *      stays and there is no span.
+   * Wait-on-hold focus rows are kind "hold", not doing, and have no span. */
+  function replayDoingEnd(row, nextAt) {
+    if (row.endedAt != null) return { end: row.endedAt, open: false, how: row.endedBy || "" };
+    if (nextAt != null) return { end: nextAt, open: false, how: row.endedBy || "newer" };
+    if (!row.ended && !row.endedBy) return { end: null, open: true, how: "" };
+    return { end: null, open: false, how: row.endedBy || "ended" };
+  }
+  function replayDoingSpans(rep, t, view) {
+    var activity = view === "activity", ms = Math.max(1, rep.ms || 1), byDesk = {}, spans = [];
+    (rep.pool || []).forEach(function (r) {
+      if (r.kind !== "doing" || r.at == null) return;
+      var desk = r.actor || r.lane || "";
+      (byDesk[desk] = byDesk[desk] || []).push(r);
+    });
+    Object.keys(byDesk).forEach(function (desk) {
+      var list = byDesk[desk].slice().sort(function (a, b) { return a.at - b.at || (a.key < b.key ? -1 : 1); });
+      list.forEach(function (r, i) {
+        var ev = replayDoingEnd(r, list[i + 1] ? list[i + 1].at : null);
+        if (!ev.open && ev.end == null) return;
+        if (t < r.at) return;
+        var endDraw = ev.open || ev.end == null || ev.end > t ? t : ev.end;
+        if (endDraw <= r.at || endDraw <= t - ms) return;
+        var lo = Math.max(0, (t - endDraw) / ms), hi = Math.min(1, (t - r.at) / ms);
+        if (!(hi > lo)) return;
+        spans.push({
+          id: "doing-span-" + r.key, key: r.key, lane: activity ? "doing" : (r.lane || desk),
+          desk: desk, row: r, start: r.at, end: ev.open ? null : ev.end,
+          open: !!(ev.open || (ev.end != null && ev.end > t)), how: ev.how,
+          text: r.text || "", item: r.item || "", pos0: lo, pos1: hi
+        });
+      });
+    });
+    /* Stack overlapping spans on a lane. One desk should not overlap; the
+     * activity view places every desk on the doing lane, so they often do. */
+    var byLane = {};
+    spans.forEach(function (s) { (byLane[s.lane] = byLane[s.lane] || []).push(s); });
+    Object.keys(byLane).forEach(function (lane) {
+      var ends = [];
+      byLane[lane].sort(function (a, b) { return a.pos0 - b.pos0 || a.pos1 - b.pos1; }).forEach(function (s) {
+        var row = 0;
+        for (; row < ends.length; row++) if (s.pos0 >= ends[row] - 1e-6) break;
+        ends[row] = s.pos1;
+        s.rowIndex = row;
+      });
+    });
+    return spans;
+  }
   global.WallRd = {
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayItems: replayItems, replayStateAt: replayStateAt,
-    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_AGE: REPLAY_LINK_AGE, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice()

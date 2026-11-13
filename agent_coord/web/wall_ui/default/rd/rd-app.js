@@ -405,6 +405,7 @@
     if (sec) {
       var past = rp.playing || rp.t != null || rep.live === false;
       sec.classList.toggle("rd-rp-past", past);
+      sec.classList.toggle("rd-rp-playing", !!rp.playing);
       if (past) {
         var memo = {};
         sec.querySelectorAll(".rd-pill[data-rd-desk]").forEach(function (el) {
@@ -446,7 +447,7 @@
     svg.setAttribute("class", "rd-rp-links");
     svg.setAttribute("aria-hidden", "true");
     field.appendChild(svg);
-    rp.st = { el: st, field: field, lanes: lanes, locks: "", waits: "", items: {}, geo: null, svg: svg, links: "" };
+    rp.st = { el: st, field: field, lanes: lanes, locks: "", waits: "", items: {}, spans: {}, geo: null, svg: svg, links: "" };
     return rp.st;
   }
   /* Each lane's place in the field: its centre across the flow, and where along the flow its
@@ -593,7 +594,7 @@
     } else {
       row = el.rdRow;
       if (!row) return false;
-      html = V.replayTip(row, rpNow());
+      html = V.replayTip(row, rpNow(), el.rdSpan || null);
     }
     if (!html) return false;
     tip.innerHTML = html;
@@ -732,6 +733,9 @@
       });
       pitch[id] = Math.max(40, rows * (xh + 4) + 8);
     });
+    if (S.doingNeed) Object.keys(S.doingNeed).forEach(function (id) {
+      pitch[id] = Math.max(pitch[id] || 40, S.doingNeed[id]);
+    });
     applyLanePitch(S, ax, pitch);
     return pack;
   }
@@ -811,9 +815,15 @@
   }
   function drawItems(S, rep, t) {
     var g = rpGeom(S), ax = g.ax, got = R.replayItemsAt(rep, t, RP_ITEMS, rp.view), seen = {};
+    var spans = R.replayDoingSpans ? R.replayDoingSpans(rep, t, rp.view) : [];
+    S.doingNeed = {};
+    spans.forEach(function (sp) {
+      S.doingNeed[sp.lane] = Math.max(S.doingNeed[sp.lane] || 40, ((sp.rowIndex || 0) + 1) * 8 + 20);
+    });
     var mode = (rp.clusters && rp.clusters[rp.view]) === "spread" ? "spread" : "group";
     if (mode === "spread") drawSpreadItems(S, rep, t, ax, got, seen);
     else drawGroupItems(S, rep, t, ax, got, seen);
+    drawDoingSpans(S, ax, spans);
     Object.keys(S.items).forEach(function (id) {
       if (seen[id]) return;
       var el = S.items[id];
@@ -897,6 +907,48 @@
         pill.style.removeProperty("--rd-k-ant");
         pill.removeAttribute("data-rp-ant");
       }
+    });
+  }
+  var DOING_BAR = 6, DOING_GAP = 2;
+  function doingBarEl(span) {
+    var el = document.createElement("span");
+    el.className = "rd-rp-item rd-rp-doing" + (span.open ? " is-open" : "");
+    el.setAttribute("data-rp-tip", "doing");
+    el.tabIndex = 0;
+    el.rdRow = span.row;
+    el.rdSpan = span;
+    el.setAttribute("aria-label", "doing" + (span.text ? ", " + span.text : "") + (span.open ? ", ongoing" : ""));
+    return el;
+  }
+  function drawDoingSpans(S, ax, spans) {
+    S.spans = S.spans || {};
+    var seen = {}, g = rpGeom(S), maxRow = {};
+    (spans || []).forEach(function (sp) { maxRow[sp.lane] = Math.max(maxRow[sp.lane] || 0, sp.rowIndex || 0); });
+    (spans || []).forEach(function (sp) {
+      var L = g.lanes[sp.lane], el = S.spans[sp.id];
+      if (!L) return;
+      if (!el) { el = S.spans[sp.id] = doingBarEl(sp); S.field.appendChild(el); }
+      else {
+        el.rdRow = sp.row; el.rdSpan = sp;
+        el.classList.toggle("is-open", !!sp.open);
+      }
+      seen[sp.id] = 1;
+      el.hidden = false;
+      var x0 = L.start + sp.pos0 * L.len, x1 = L.start + sp.pos1 * L.len;
+      var w = Math.max(1, x1 - x0);
+      var n = (maxRow[sp.lane] || 0) + 1, stackH = n * (DOING_BAR + DOING_GAP) - DOING_GAP;
+      var y = L.cross - stackH / 2 + (sp.rowIndex || 0) * (DOING_BAR + DOING_GAP);
+      var tf = ax.main === "x"
+        ? "translate(" + x0.toFixed(1) + "px," + y.toFixed(1) + "px) scaleX(" + w.toFixed(1) + ")"
+        : "translate(" + y.toFixed(1) + "px," + x0.toFixed(1) + "px) scaleY(" + w.toFixed(1) + ")";
+      if (el.rdTf !== tf) { el.style.transform = tf; el.rdTf = tf; }
+      if (el.rdOp !== "1") { el.style.opacity = "1"; el.rdOp = "1"; }
+    });
+    Object.keys(S.spans).forEach(function (id) {
+      if (seen[id]) return;
+      var el = S.spans[id];
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      delete S.spans[id];
     });
   }
   /* Picked up: a quiet ring on the receiver. Pill scale is owned by
@@ -1133,7 +1185,8 @@
   function trailPut(c, r) {
     if (!r || r.id == null || c.byId[r.id]) return;
     c.byId[r.id] = { id: r.id, desk: r.desk, at: r.at, doing: String(r.doing || "").slice(0, 160), on: r.on, act: r.act,
-      waiting_on: r.waiting_on || undefined, ended_at: r.ended_at || undefined, ended_by: r.ended_by || undefined, peer: r.peer || undefined };
+      waiting_on: r.waiting_on || undefined, ended: r.ended != null ? !!r.ended : undefined,
+      ended_at: r.ended_at || undefined, ended_by: r.ended_by || undefined, peer: r.peer || undefined };
     c.n++;
     var t = Date.parse(String(r.at).replace(" ", "T") + "Z");
     if (!isNaN(t) && (c.oldest == null || t < c.oldest)) c.oldest = t;
