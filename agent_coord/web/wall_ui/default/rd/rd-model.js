@@ -898,11 +898,11 @@
   function rangeText(r) { return r === "today" ? "today" : r === "30d" ? "last 30 days" : "last 7 days"; }
   function hero(b, tab, m) {
     var R = rosterText(b.scope);
-    if (tab === "todo" && m) return { lead: plural(m.open, "open card") + " on " + R + ".", rest: "Grouped by state across the roster. The desk is a chip on each card." };
-    if (tab === "mail" && m) return { lead: plural(m.waiting, "letter") + " waiting on " + R + ", " + rangeText(b.scope.range) + ".", rest: "Grouped by who they wait on, oldest first." };
-    if (tab === "priorities" && m) return { lead: plural(m.lists, "ranked list") + " on this scope.", rest: "One column per desk. Ranks are 1-based; the stored ord is on hover." };
+    if (tab === "todo" && m) return { lead: plural(m.open, "open card") + " on " + R + ".", rest: "Kanban, list and tree are the same cards: parked, open, claimed, shipped, done." };
+    if (tab === "mail" && m) return { lead: plural(m.waiting, "letter") + " waiting on " + R + ".", rest: "Rooms is each conversation with its thread and party; Letters is every letter, newest first." };
+    if (tab === "priorities" && m) return { lead: plural(m.lists, "ranked list") + " on this scope.", rest: "Each desk\u2019s ranked list." };
     if (tab === "score" && m) return { lead: plural(m.off, "score") + " off target on " + R + ".", rest: "Grouped by impact. Desks are rows inside each group. Platform scores only." };
-    if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Shared work on " + R + ": promises, rooms and card trees, grouped by kind." };
+    if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Between is a letter, a card or a promise between two desks; Timeline is activity by minute, hour or day." };
     if (tab === "desks" && m) {
       return { lead: plural(m.connected.length, "desk") + " connected, " + m.away.length + " disconnected on " + R + ".",
         rest: "Most active first." };

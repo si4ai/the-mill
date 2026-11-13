@@ -542,7 +542,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 
 
 /* ---- shared tab bodies (roster-collated) ---- */
-#rd .rd-pane[hidden] { display: none !important; }
+#rd .rd-pane[hidden], #rd .rd-host[hidden] { display: none !important; }
 #rd .rd-pane-scope {
   color: var(--dim); font-size: 11px; letter-spacing: 0; font-weight: 400;
 }
@@ -702,18 +702,18 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-tab-groups { grid-auto-rows: max-content; align-content: start; }
 
 /* time range: a small switch in the head of each tab it cuts */
-#rd .rd-pane-head .rd-time-range {
+#rd .rd-pane-head .rd-time-range, #rd .rd-view-switch {
   display: inline-flex; gap: 0; margin: 0;
   border: 1px solid var(--edge); border-radius: 2px; overflow: hidden;
 }
-#rd .rd-time-range button {
+#rd .rd-time-range button, #rd .rd-view-switch button {
   background: transparent; color: var(--dim);
   border: 0; border-right: 1px solid var(--edge);
   font: inherit; font-size: 11px; letter-spacing: .06em;
   padding: .15rem .45rem; cursor: pointer;
 }
-#rd .rd-time-range button:last-child { border-right: 0; }
-#rd .rd-time-range button.on { background: rgba(228,181,106,.16); color: var(--amber); font-weight: 650; }
+#rd .rd-time-range button:last-child, #rd .rd-view-switch button:last-child { border-right: 0; }
+#rd .rd-time-range button.on, #rd .rd-view-switch button.on { background: rgba(228,181,106,.16); color: var(--amber); font-weight: 650; }
 /* the tab's platform scores; off target is the only attention mark */
 #rd .rd-tab-scores {
   display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .35rem;
@@ -722,3 +722,25 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-tab-scores .rd-score-chip { font-size: 11px; }
 #rd .rd-tab-scores .rd-score-chip.ok { color: var(--dim); }
 #rd .rd-tab-scores .rd-tgt { color: var(--dim); font-weight: 400; }
+
+/* ---- hosted panes: TODO, MAIL, COLLAB, PRIORITIES are the Wall's own panes, moved in here ---- */
+#rd .rd-host {
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+#rd .rd-host-head { flex: 0 0 auto; }
+#rd .rd-host-body {
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+/* Wide: kanban, list and tree side by side over the same cards. */
+#rd #pane-todo.rd-todo-all .pane-body {
+  display: grid; gap: 8px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+}
+#rd #pane-todo.rd-todo-all #jobs-kanban { display: grid !important; min-height: 0; }
+#rd #pane-todo.rd-todo-all #jobs-list { display: block !important; min-height: 0; }
+#rd #pane-todo.rd-todo-all #jobs-outline { display: flex !important; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; }
+#rd #pane-todo.rd-todo-all #todo-done-span { display: inline-flex !important; }

@@ -355,8 +355,9 @@
     priorities: "one column per desk \u00b7 ranks are 1-based, ord on hover", score: "grouped by impact \u00b7 desks are rows \u00b7 platform scores only",
     collab: "grouped by kind: what blocks someone, promises, rooms, trees"
   };
-  /* The time range lives on the tabs it cuts (DESKS, MAIL, SCORE, COLLAB), one per tab. */
-  var TIMED = { desks: 1, mail: 1, score: 1, collab: 1 };
+  /* The time range lives on the tabs it cuts. TODO, MAIL and COLLAB keep their own time
+   * controls (done span, plan window, activity grain) inside the pane they host. */
+  var TIMED = { desks: 1, score: 1 };
   function rangeHtml(range) {
     return '<span class="rd-time-range" role="group" aria-label="Time range">' + R.RANGES.map(function (k) {
       return '<button type="button" data-rd-range="' + k + '"' + (k === range ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (k === "today" ? "Today" : k) + "</button>";
@@ -371,9 +372,19 @@
       "<h2>" + label + "</h2>" + (extra || "") + (timed ? rangeHtml(sc.range) : "") + (scope ? '<span class="rd-pane-scope">' + h(scope) + "</span>" : "") + "</div>";
   }
 
+  /* The head over a tab that hosts its full pane: the scope, and the pane's own view switch. */
+  function hostHead(tab, base, views, on, allWide) {
+    var sw = views && views.length ? '<span class="rd-view-switch" role="group" aria-label="View">' + views.map(function (v) {
+      var cur = v.key === on;
+      return '<button type="button" data-rd-view="' + h(v.key) + '"' + (cur ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + h(v.label) + "</button>";
+    }).join("") + "</span>" : "";
+    var note = allWide ? '<span class="rd-pane-scope">Kanban, list and tree side by side \u00b7 picking a card shows it in all three</span>' : "";
+    return '<div class="rd-pane-head rd-host-head"><span class="rd-pane-scope">' + h(base.scope.label) + "</span>" + (allWide ? "" : sw) + note + "</div>";
+  }
+
   global.WallRdView = {
     h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
-    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead,
+    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead,
     todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";

@@ -7329,6 +7329,25 @@
         }
       }
     });
+    /* The redesigned TODO shows kanban, list and tree side by side on a wide screen. A card
+     * picked in one is the card open in all three: the tree moves to the plan that holds it. */
+    function wallLinkTodoViews() {
+      const id = String(_todoDetailId || "");
+      if (!id || !window._floor) return id;
+      const trees = Array.isArray(window._floor.trees) ? window._floor.trees : [];
+      trees.forEach(function (t, ti) {
+        const nodes = t && Array.isArray(t.nodes) ? t.nodes : [];
+        const hit = nodes.some(function (n) { return n && String(n.id) === id && String(n.type || "").toLowerCase() === "todo"; });
+        if (hit && !_todoTreeCard.endsWith(":" + id)) {
+          _todoTreePlan = String((t && (t.name || t.id)) || ("t" + ti));
+          _todoTreeCard = "todo:" + id;
+          _todoTreeChainOpen = true;
+        }
+      });
+      try { board(window._floor); paintPlan(window._floor); } catch (eLink) {}
+      return id;
+    }
+    window.WallLegacy = Object.assign(window.WallLegacy || {}, { linkTodo: wallLinkTodoViews });
     /* HELP_BOX component: one pattern, different copy slots */
     window._helpBoxes = window._helpBoxes || {};
     /* WALL_UI_LIB_POPUP: thin wrapper -> wallMountHelpBox */
@@ -7861,10 +7880,13 @@
           if (nestHash && savedTab && !savedIsTodo) start = savedTab;
           else if (!start) start = savedTab || "session";
           if (start === "scorecards") start = "score"; /* SCORE_BOOT_FIX */
-          if (window.WallRdApp && window.WallRdApp.keepsHash(start)) showTab("session");
+          /* The redesigned shell hosts TODO, MAIL, COLLAB and PRIORITIES; open the pane it shows. */
+          if (window.WallRdApp && window.WallRdApp.keepsHash(start)) showTab(window.WallRdApp.legacyTab ? window.WallRdApp.legacyTab() : "session");
           else if (["desks", "session", "jobs", "plan", "trees", "nest", "backlog", "board", "issues", "mail", "wire", "stations", "leases", "watch", "score", "guide", "glossary", "admin", "floor", "priorities"].includes(start)) showTab(start);
           else showTab("session");
         }
+        window.WallLegacy = Object.assign(window.WallLegacy || {}, { started: true });
+        if (window.WallRdApp && window.WallRdApp.repaint) window.WallRdApp.repaint();
         tick(true);
         wallStartFloorPoll();
       });

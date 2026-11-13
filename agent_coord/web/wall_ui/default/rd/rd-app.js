@@ -3,8 +3,10 @@
  * Reads are plain GETs on the routes the Wall already uses. Each tab asks only for what it
  * paints; the strip counts fill in as the reads land. Scope is the station or roster picked on
  * the Wall's own left rail (boot.js calls railPick). The time range sits on the tabs it cuts.
- * The old panes (GUIDE, GLOSSARY, ADMIN, WIRE) still open from More; on those hashes the old
- * shell shows and this one steps aside. */
+ * TODO, MAIL, COLLAB and PRIORITIES host the Wall's own full panes (every view, filter and
+ * click they had); this shell moves the pane in beside the strip and drives its view switch.
+ * The other old panes (GUIDE, GLOSSARY, ADMIN, WIRE) still open from More; on those hashes
+ * the old shell shows and this one steps aside. */
 (function () {
   "use strict";
   var R = window.WallRd, V = window.WallRdView;
@@ -19,11 +21,10 @@
   };
   var NEEDS = {
     desks: ["labels", "scores", "todos", "holds", "mail", "events"],
-    todo: ["todos", "labels", "mail"],
-    mail: ["mail"],
-    priorities: ["labels", "todos"],
+    /* The hosted panes read their own data through boot.js; the strip counts come from fetchCounts. */
+    todo: [], mail: [], priorities: [],
     score: ["scores", "runs"],
-    collab: ["holds", "mail", "rooms", "trees"]
+    collab: []
   };
   var ROUTE = {
     agents: "/api/v1/agents?project=%R&limit=500",
@@ -45,8 +46,19 @@
     scores: function (j) { return j.kpis; }, holds: function (j) { return j.locks; }, rooms: function (j) { return j.trees; },
     trees: function (j) { return j.trees; }, events: function (j) { return j.events; }, runs: function (j) { return j.rows; }
   };
+  /* Tabs that host the Wall's own pane. views: the pane's view switch; attr: the old button
+   * that switches it (TODO switches through setJobsView). */
+  var HOSTED = {
+    todo: { pane: "pane-todo", legacy: "jobs", views: [{ key: "board", label: "Kanban" }, { key: "list", label: "List" }, { key: "nest", label: "Tree" }] },
+    mail: { pane: "pane-mail", legacy: "mail", attr: "data-mail-view", views: [{ key: "rooms", label: "Rooms" }, { key: "letters", label: "Letters" }] },
+    collab: { pane: "pane-floor", legacy: "floor", attr: "data-floor-mode", views: [{ key: "map", label: "Between" }, { key: "timeline", label: "Timeline" }] },
+    priorities: { pane: "pane-priorities", legacy: "priorities", views: [] }
+  };
+  /* Wide enough for kanban, list and tree side by side. */
+  var WIDE_Q = "(min-width: 1600px)";
+  var TODO_VIEW_KEY = "rd-todo-view";
   /* Card 1193: these reads take ?window=1d|7d|30d on the tab that shows a time range. */
-  var WINDOWED = { desks: ["agents"], mail: ["mail"], score: ["scores"], collab: ["holds", "rooms"] };
+  var WINDOWED = { desks: ["agents"], score: ["scores"] };
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
   var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab";
@@ -209,6 +221,82 @@
     tag = tag || "div";
     return "<" + tag + ' class="' + cls + '" data-rd-scroll="' + name + '">' + html + "</" + tag + ">";
   }
+  /* ---- hosted panes ---- */
+  var homes = {}, todoMode = "";
+  function legacy() { return window.WallLegacy || null; }
+  function isWide() { return !!(window.matchMedia && window.matchMedia(WIDE_Q).matches); }
+  function savedTodoView() {
+    var v = load(TODO_VIEW_KEY, "board");
+    return v === "list" || v === "nest" ? v : "board";
+  }
+  function hostPane(tab) {
+    var cfg = HOSTED[tab], el = cfg && document.getElementById(cfg.pane), slot = root.querySelector(".rd-host-body");
+    if (!el || !slot || el.parentNode === slot) return el;
+    if (!homes[cfg.pane]) homes[cfg.pane] = { parent: el.parentNode, next: el.nextSibling };
+    slot.appendChild(el);
+    return el;
+  }
+  /* Back where boot.js put them, for the old shell's own hashes. */
+  function unhostAll() {
+    Object.keys(homes).forEach(function (id) {
+      var el = document.getElementById(id), home = homes[id];
+      if (!el || !home.parent) return;
+      if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(el, home.next);
+      else home.parent.appendChild(el);
+    });
+    homes = {};
+    todoMode = "";
+  }
+  function legacyTab() { return HOSTED[state.tab] ? HOSTED[state.tab].legacy : "session"; }
+  /* Have boot.js paint and poll the pane on show (it owns the data for the hosted panes). */
+  function syncLegacy() {
+    var W = legacy();
+    if (!W || !W.started || !W.showTab) return;
+    var cfg = HOSTED[state.tab];
+    var want = document.getElementById(cfg ? cfg.pane : "pane-session");
+    if (want && !want.classList.contains("on")) W.showTab(legacyTab());
+  }
+  function syncTodoMode(el) {
+    var W = legacy();
+    if (!W || !W.started || !W.setJobsView || !el) return;
+    var all = isWide(), mode = all ? "all" : savedTodoView();
+    el.classList.toggle("rd-todo-all", all);
+    if (mode === todoMode) return;
+    todoMode = mode;
+    W.setJobsView(all ? "nest" : mode);
+  }
+  function viewOn(tab) {
+    if (tab === "todo") return savedTodoView();
+    var cfg = HOSTED[tab], on = cfg.attr ? document.querySelector("[" + cfg.attr + "].on") : null;
+    return on ? on.getAttribute(cfg.attr) : (cfg.views[0] && cfg.views[0].key);
+  }
+  function paintHosted(b) {
+    var t = state.tab, cfg = HOSTED[t];
+    root.querySelector(".rd-pane").hidden = true;
+    root.querySelector(".rd-host").hidden = false;
+    var el = hostPane(t);
+    syncLegacy();
+    if (t === "todo") syncTodoMode(el);
+    var all = t === "todo" && isWide();
+    setHtml(root.querySelector(".rd-host-head"), V.hostHead(t, b, cfg.views, viewOn(t), all), "host");
+    root.setAttribute("data-rd-host", t);
+  }
+  /* A card picked in one TODO view: open it in the other two and bring it into sight there. */
+  function linkTodo(from) {
+    var W = legacy();
+    if (!W || !W.linkTodo) return;
+    var id = W.linkTodo();
+    if (!id) return;
+    (window.requestAnimationFrame || setTimeout)(function () {
+      [["jobs-kanban", '[data-todo-id="' + id + '"]'], ["jobs-list", '[data-todo-id="' + id + '"]'], ["jobs-outline", '.todo-tree-card[data-id="' + id + '"]']].forEach(function (p) {
+        var box = document.getElementById(p[0]);
+        if (!box || box === from) return;
+        var hit = box.querySelector(p[1]);
+        if (hit && hit.scrollIntoView) hit.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    });
+  }
+
   function paint() {
     if (state.legacy) return;
     var now = Date.now();
@@ -216,8 +304,13 @@
     var m = models(b);
     setHtml(root.querySelector(".rd-strip"), V.strip(R.strip(b, m), state.tab), "strip");
     setHtml(root.querySelector(".rd-hero"), V.hero(R.hero(b, state.tab, m[state.tab])), "hero");
-    var pane = root.querySelector(".rd-pane");
     var t = state.tab, html;
+    if (HOSTED[t]) { paintHosted(b); return; }
+    root.removeAttribute("data-rd-host");
+    root.querySelector(".rd-host").hidden = true;
+    var pane = root.querySelector(".rd-pane");
+    pane.hidden = false;
+    syncLegacy();
     if (t === "desks") {
       var dm = m.desks;
       state.sel.desks = dm.selected;
@@ -245,6 +338,7 @@
   function hashName() { return String(location.hash || "").replace(/^#/, "").trim().toLowerCase(); }
   function setLegacy(on) {
     state.legacy = on;
+    if (on) unhostAll();
     document.body.classList.toggle("rd-on", !on);
     document.body.classList.toggle("rd-legacy", on);
   }
@@ -286,6 +380,23 @@
       return;
     }
     if ((el = closest(t, "[data-rd-back]"))) { state.phoneDesk = false; paint(); return; }
+    if ((el = closest(t, "[data-rd-view]"))) {
+      var v = el.getAttribute("data-rd-view"), cfg = HOSTED[state.tab];
+      if (state.tab === "todo") { save(TODO_VIEW_KEY, v); todoMode = ""; }
+      else if (cfg && cfg.attr) {
+        var btn = document.querySelector("[" + cfg.attr + '="' + v + '"]');
+        if (btn && btn !== el) btn.click();
+      }
+      last.host = null;
+      paint();
+      return;
+    }
+    if (state.tab === "todo" && isWide() && (el = closest(t, "#pane-todo [data-todo-id], #pane-todo .todo-tree-card"))) {
+      var from = closest(el, "#jobs-kanban, #jobs-list, #jobs-outline");
+      /* After boot.js's own click opened the card. */
+      setTimeout(function () { linkTodo(from); }, 0);
+      return;
+    }
     if ((el = closest(t, "[data-rd-go]"))) {
       ev.preventDefault();
       var tab = el.getAttribute("data-rd-go"), sel = el.getAttribute("data-rd-sel");
@@ -318,7 +429,8 @@
   function skeleton() {
     root.innerHTML = '<div class="rd-shell-main"><div class="rd-glance-band"><div class="rd-glance-status"><div class="rd-strip" role="tablist" aria-label="Office tabs"></div>' +
       '<div class="rd-hero" aria-live="polite"></div></div></div>' +
-      '<div class="rd-main"><div class="rd-pane"></div></div></div>';
+      '<div class="rd-main"><div class="rd-pane"></div>' +
+      '<div class="rd-host" hidden><div class="rd-host-head"></div><div class="rd-host-body"></div></div></div></div>';
   }
   window.WallRdApp = {
     /* boot.js leaves these hashes to this shell, so it does not rewrite #todo to #session. */
@@ -326,7 +438,9 @@
       var n = String(name || "").replace(/^#/, "").toLowerCase();
       return !state.legacy && has(ALIAS, n);
     },
-    repaint: function () { last = {}; paint(); },
+    repaint: function () { last = {}; todoMode = ""; paint(); },
+    /* boot.js: the old pane to open at start, so a hosted tab is live on first paint. */
+    legacyTab: legacyTab,
     /* boot.js: the station or roster picked on the left rail changed. */
     railPick: function (pick) {
       var next = pick && pick.kind && pick.id ? { kind: String(pick.kind), id: String(pick.id) } : null;
@@ -356,4 +470,8 @@
     fetchCore().then(function () { return fetchTab(state.tab); });
   }, 15000);
   setInterval(function () { if (!state.legacy && document.visibilityState !== "hidden") paintSoon(); }, 30000);
+  if (window.matchMedia) {
+    var wq = window.matchMedia(WIDE_Q), onWide = function () { todoMode = ""; last.host = null; paintSoon(); };
+    if (wq.addEventListener) wq.addEventListener("change", onWide); else if (wq.addListener) wq.addListener(onWide);
+  }
 })();
