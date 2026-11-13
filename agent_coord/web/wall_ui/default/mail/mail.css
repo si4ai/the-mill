@@ -161,6 +161,38 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* Overflow: one line that runs on over the columns to its right, cut at the
+       table's right edge, so the table still fits the screen with no sideways
+       scroll. Beats the wrap's overflow:hidden !important; wrap and clip stay
+       as they are. */
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] {
+      width: 100% !important;
+      table-layout: fixed !important;
+      contain: paint;
+    }
+    body[data-text-mode="overflow"] #pane-mail .tbl-wrap:not(.cell-wrap) td {
+      white-space: nowrap !important;
+      overflow: visible !important;
+      text-overflow: clip;
+    }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td > .mail-cell {
+      position: relative;
+      display: inline-block;
+      background: var(--bg);
+      padding-right: .45rem;
+    }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] tbody tr:hover td > .mail-cell {
+      background: color-mix(in srgb, var(--ink) 7%, var(--bg));
+    }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(1) > .mail-cell { z-index: 9; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(2) > .mail-cell { z-index: 8; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(3) > .mail-cell { z-index: 7; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(4) > .mail-cell { z-index: 6; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(5) > .mail-cell { z-index: 5; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(6) > .mail-cell { z-index: 4; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(7) > .mail-cell { z-index: 3; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(8) > .mail-cell { z-index: 2; }
+    body[data-text-mode="overflow"] #pane-mail table[data-table="mail"] td:nth-child(n+9) > .mail-cell { z-index: 1; }
     .mail-col .rail-h {
       font-size: 10px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase;
       margin: 0 0 .35rem;

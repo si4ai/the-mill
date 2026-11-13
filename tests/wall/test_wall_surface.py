@@ -48,7 +48,7 @@ HTML_PINS = {
     "boot.js": "wow375",
     "tabs.js": "wow346",
     "board.css": "wow362",
-    "lazy.js": "wow375",
+    "lazy.js": "wow376",
     "desks-rows.js": "wow349",
     "shell.css": "wow362",
     "data.js": "wow362",
@@ -61,7 +61,7 @@ LAZY_PINS = (
     "/glossary/glossary.js?v=wow285",
     "/floor/map-paint.js?v=wow320",
     "/admin/invite.js?v=wow334",
-    "/mail/mail-paint.js?v=wow322",
+    "/mail/mail-paint.js?v=wow376",
     "/score/score-paint.js?v=wow342",
     "/score/score-impact.js?v=wow342",
     "/floor/floor-paint.js?v=wow323",
@@ -77,9 +77,9 @@ LAZY_PINS = (
     "/mail/mail.js?v=wow285",
     "/score/score.js?v=wow328",
     "/todo/todo.js?v=wow375",
-    "/mail/mail.css?v=wow318",
+    "/mail/mail.css?v=wow376",
     "/score/score.css?v=wow342",
-    "/todo/todo.css?v=wow375",
+    "/todo/todo.css?v=wow376",
 )
 PERF_PIN = "/lib/perf.js?v=wow164"
 

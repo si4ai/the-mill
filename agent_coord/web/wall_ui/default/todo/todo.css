@@ -130,6 +130,9 @@
     body[data-text-mode="wrap"] #pane-todo .mail-col {
       white-space: normal; overflow: hidden;
     }
+    body[data-text-mode="overflow"] table {
+      contain: paint;
+    }
     body[data-text-mode="overflow"] table td,
     body[data-text-mode="overflow"] .card {
       white-space: nowrap; overflow: visible; text-overflow: clip;

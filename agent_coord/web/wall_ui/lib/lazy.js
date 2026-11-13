@@ -65,7 +65,7 @@
   var DOMAINS = {
     mail: {
       js: "/mail/mail.js?v=wow285",
-      css: "/mail/mail.css?v=wow318",
+      css: "/mail/mail.css?v=wow376",
       marker: "WALL_UI_DEFAULT_MAIL",
       modules: ["mailPaint"]
     },
@@ -77,7 +77,7 @@
     },
     todo: {
       js: "/todo/todo.js?v=wow375",
-      css: "/todo/todo.css?v=wow375",
+      css: "/todo/todo.css?v=wow376",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -111,7 +111,7 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow322",
+      js: "/mail/mail-paint.js?v=wow376",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
