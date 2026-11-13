@@ -4444,9 +4444,6 @@
       Object.keys(byName).forEach(function (name) { rows.push(byName[name]); });
       return rows;
     }
-    function hereAnyScoreMiss() {
-      return hereScoreRows().length > 0;
-    }
     function paintHereScores() {
       const el = document.getElementById("here-scores");
       if (!el) return;
@@ -4698,10 +4695,8 @@
         return;
       }
       const mine = String((typeof wallResolveDeskId === "function" ? wallResolveDeskId() : "") || "").trim();
-      const miss = hereAnyScoreMiss();
-      const rank = miss
-        ? { idle: 0, gone: 1, here: 2, waiting: 3, blocked: 4, working: 5 }
-        : { working: 0, waiting: 1, blocked: 2, here: 3, idle: 4, gone: 5 };
+      /* Working desks always lead; idle and gone sit last (no score-miss flip). */
+      const rank = { working: 0, waiting: 1, blocked: 2, here: 3, idle: 4, gone: 5 };
       const ordered = live.slice().sort((a, b) => {
         const ao = String(a.owner || "").trim();
         const bo = String(b.owner || "").trim();
