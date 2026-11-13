@@ -944,30 +944,15 @@ def _scope_strip(cn, kind: str, label: str) -> dict:
         cur.close()
 
 
-def _utc_iso(epoch: Any) -> str | None:
-    """Card 1191: a book epoch (UNIX_TIMESTAMP) as ISO 8601 UTC, seconds, e.g. 2026-11-13T01:05:07Z."""
-    from datetime import datetime, timezone
-
-    if epoch is None:
-        return None
-    try:
-        return datetime.fromtimestamp(int(float(epoch)), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    except (TypeError, ValueError, OverflowError, OSError):
-        return None
-
-
 def _recent(raw):
     if raw in (None, ""):
         return None
-    if not isinstance(raw, dict):
-        try:
-            raw = json.loads(raw)
-        except (TypeError, ValueError):
-            return None
-    if isinstance(raw, dict) and "at" in raw:
-        # card 1191: when the activity row last changed, ISO UTC (the SQL hands an epoch).
-        raw["at"] = _utc_iso(raw["at"])
-    return raw
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 _RECENT_ACTIVITY_EXPR = (
@@ -975,7 +960,6 @@ _RECENT_ACTIVITY_EXPR = (
     " 'type', ra.type, 'id', ra.id,"
     " 'roster_id', ra.roster_id,"
     " 'roster', aff.name, 'roster_type', aff.type,"
-    " 'at', UNIX_TIMESTAMP(ra.updated),"
     " 'thing', CASE ra.type"
     "   WHEN 'mail' THEN LEFT(ml.body, 80)"
     "   WHEN 'todo' THEN LEFT(td.body, 80)"
@@ -1603,13 +1587,17 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                     " OR j.time_connect >= j.time_disconnect)) AS connected,"
                                     " j.lan_ip, j.updated,"
                                     + _RECENT_ACTIVITY_EXPR
-                                    + ", UNIX_TIMESTAMP(j.time_connect), UNIX_TIMESTAMP(j.time_disconnect)"
-                                    " FROM name n"
+                                    + " FROM name n"
                                     " JOIN seat j ON j.desk_id = n.id"
                                     + _RECENT_ACTIVITY_JOINS.format(desk="n.id")
-                                    # card 1191: every station, whatever its age; the Wall filters.
-                                    # Retired desks and System (id 0, a seat that never connects) stay out.
-                                    + " WHERE n.deleted IS NULL AND n.type = %s AND n.id <> 0"
+                                    + " WHERE n.deleted IS NULL AND n.type = %s"
+                                    " AND ("
+                                    "   (j.time_connect IS NOT NULL AND (j.time_disconnect IS NULL"
+                                    "    OR j.time_connect >= j.time_disconnect))"
+                                    "   OR (j.time_disconnect IS NOT NULL"
+                                    "    AND j.time_disconnect >= mill_now() - INTERVAL 1 DAY"
+                                    "    AND (j.time_connect IS NULL OR j.time_disconnect > j.time_connect))"
+                                    " )"
                                     " ORDER BY (j.lan_ip IS NULL), j.lan_ip, j.updated DESC, n.name",
                                     (pov_type,),
                                 )
@@ -1617,15 +1605,11 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 for r in cur.fetchall():
                                     if not r or not r[0]:
                                         continue
-                                    # card 1191: last connection is the later of time_connect and
-                                    # time_disconnect (live: the session's connect), never seat.updated.
-                                    stamps = [x for x in (r[5], r[6]) if x is not None]
                                     rows.append({
                                         "name": _stored(str(r[0] or "")),
                                         "connected": bool(r[1]),
                                         "lan_ip": str(r[2] or ""),
                                         "updated": str(r[3] or ""),
-                                        "last_connected": _utc_iso(max(stamps)) if stamps else None,
                                         "recent_activity": _recent(r[4]),
                                     })
                             else:
@@ -1665,7 +1649,6 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                         "name": rec["name"],
                                         "connected": rec["connected"],
                                         "lan_ip": rec["lan_ip"],
-                                        "last_connected": rec["last_connected"],
                                         "recent_activity": rec.get("recent_activity"),
                                     })
                             body = _json({"part": part, "mine": mine, "rows": rows})
