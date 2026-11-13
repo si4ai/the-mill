@@ -350,10 +350,92 @@
     return split(cols, det, m.groups.length);
   }
 
+
+  /* ---- COLLAB replay ---- */
+  var KIND_WORD = { mail: "mail", todo: "card", hold: "promise", wake: "wake", doing: "doing", score: "score" };
+  /* One icon per activity kind: 12px inline SVG, stroked in the kind's colour. */
+  var KIND_SVG = {
+    mail: '<path d="M1.5 3h9v6h-9z M1.5 3l4.5 3.5 4.5-3.5"/>',
+    todo: '<path d="M2.5 1.5h7v9h-7z M4 4.5h4 M4 6.5h4 M4 8.5h2"/>',
+    hold: '<path d="M3 5.5h6v5h-6z M4.3 5.5v-1.6a1.7 1.7 0 0 1 3.4 0v1.6"/>',
+    wake: '<path d="M6 1.5v1.2 M2.2 3.2l.9.9 M9.8 3.2l-.9.9 M3.5 9.5h5 M4 9.5v-2.5a2 2 0 0 1 4 0v2.5"/>',
+    doing: '<path d="M6 1.8a4.2 4.2 0 1 1-4.2 4.2"/><path d="M1.8 3.2v2.8h2.8"/>',
+    score: '<circle cx="6" cy="6" r="3.2"/>'
+  };
+  function kindIcon(kind) {
+    return '<i class="rd-ki k-' + h(kind) + '" title="' + h(KIND_WORD[kind] || kind) + '"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">' + (KIND_SVG[kind] || KIND_SVG.score) + "</svg></i>";
+  }
+  function legendHtml() {
+    return '<span class="rd-rp-legend" aria-label="Kinds">' + ["mail", "todo", "hold", "wake", "doing", "score"].map(function (k) {
+      return '<span>' + kindIcon(k) + h(KIND_WORD[k]) + "</span>";
+    }).join("") + "</span>";
+  }
+  var WIN_WORD = { hour: "1 hour", day: "1 day", week: "1 week" };
+  function cloud(names) {
+    return '<span class="rd-cloud" title="' + h("outside this scope: " + names.join(", ")) + '"><i aria-hidden="true">\u2601</i>outside</span>';
+  }
+  function partHtml(p) {
+    var role = p.role ? ' data-party="' + p.role + '"' : "";
+    if (p.t === "score") return '<i class="rd-sdot' + (p.off ? " off" : " on") + '" title="' + (p.off ? "off target" : "on target") + '"></i>';
+    if (p.t === "desk") return '<button type="button"' + role + ' class="rd-pill st-' + h(p.state || "idle") + '" data-rd-desk="' + h(p.name) + '" title="' + h(p.name + ", " + (p.state || "idle")) + '">' + h(p.name) + "</button>";
+    if (p.t === "human") return '<span' + role + ' class="rd-pill rd-human" title="the person at this office"><i aria-hidden="true">\u263a</i>' + h(p.name) + "</span>";
+    if (p.t === "cloud") return cloud(p.names || [p.name]).replace("<span ", "<span" + role + " ");
+    if (p.t === "item") { var it = R.itemOf(p.key); return it ? '<a class="rd-on-item" href="#' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-go="' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-sel="' + h(it.key) + '">' + h(p.v) + "</a>" : "<span>" + h(p.v) + "</span>"; }
+    if (p.t === "move") return '<span class="rd-move">' + (p.from ? '<span class="rd-st">' + h(p.from) + '</span><span class="rd-arrow" aria-label="to">\u2192</span>' : '<span class="rd-arrow" aria-label="now">\u2192</span>') + '<span class="rd-st to st-' + h(p.to.toLowerCase()) + '">' + h(p.to) + "</span></span>";
+    if (p.t === "quote") return '<span class="rd-q">' + h(p.v) + "</span>";
+    if (p.t === "flag") return flag(p.v, "older");
+    return "<span>" + h(p.v) + "</span>";
+  }
+  function replayRow(r, fresh) {
+    var read = r.read && r.read.length ? '<span class="rd-dim" title="' + h("opened by " + r.read.join(", ")) + '">opened</span>' : "";
+    return '<li class="rd-rp-row k-' + h(r.kind) + (r.outside ? " cross" : "") + (fresh ? " rd-fx-in" : "") + '" data-rp="' + h(r.key) + '" data-k="' + h(r.kind) + '" data-act="' + h(r.act) + '" data-dir="' + h(r.dir || "out") + '">' +
+      '<time>' + h(clock(r.at)) + "</time>" + kindIcon(r.kind) +
+      '<span class="rd-rp-s">' + r.parts.map(partHtml).join(" ") + read + "</span></li>";
+  }
+  function replayRows(rows, fresh) {
+    return rows.map(function (r) { return replayRow(r, fresh && fresh[r.key]); }).join("");
+  }
+  function speedText(win, speed) {
+    var s = Math.round(R.REPLAY_PLAY_MS / 1000 / (speed || 1));
+    return (WIN_WORD[win] || win) + " in " + (s >= 60 && s % 60 === 0 ? (s / 60) + " min" : s + "s");
+  }
+  function blockingHtml(rows) {
+    if (rows == null) return "";
+    return '<section class="rd-block"><h3>BLOCKING SOMEONE NOW <span class="rd-sub">oldest first</span></h3>' + (rows.length ? "<ul>" + rows.map(function (r) {
+      var head = r.kind === "wait" ? partHtml(r.me) + " <span>is waiting on</span> " + (r.on ? partHtml(r.on) : "")
+        : r.kind === "unread" ? "<span>" + h(r.title.replace(/ waiting on .*$/, "")) + " waiting on</span> " + partHtml(r.me)
+        : "<span>promise</span> <code>" + h(r.title) + "</code> <span>held by</span> " + partHtml(r.me);
+      return "<li>" + head + (r.note ? " " + flag(r.note, r.kind === "unread" ? "older" : "hot") : "") + "</li>";
+    }).join("") + "</ul>" : empty("Nothing is blocking anyone.")) + "</section>";
+  }
+  /* The replay shell. The playhead, the scrubber and the rows are drawn by rd-app as it plays. */
+  function replayHtml(rep, blocking, ui) {
+    var wins = ["auto", "hour", "day", "week"].map(function (w) {
+      var on = w === rep.want, n = w === "auto" ? null : rep.counts[w];
+      return '<button type="button" data-rp-win="' + w + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') +
+        (n != null ? ' title="' + h(plural(n, "row") + " in the last " + WIN_WORD[w]) + '"' : ' title="the shortest window with enough to watch"') + ">" +
+        (w === "auto" ? "Auto" + (rep.want === "auto" ? " \u00b7 " + rep.window : "") : w.charAt(0).toUpperCase() + w.slice(1)) + "</button>";
+    }).join("");
+    var speeds = R.REPLAY_SPEEDS.map(function (x) {
+      return '<button type="button" data-rp-speed="' + x + '"' + (x === ui.speed ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (x === 0.25 ? "\u00bc" : x === 0.5 ? "\u00bd" : x) + "x</button>";
+    }).join("");
+    return blockingHtml(blocking) +
+      '<section class="rd-replay"><div class="rd-rp-bar">' +
+      '<button type="button" class="rd-rp-play" data-rp-play="1" aria-label="Play">\u25b6</button>' +
+      '<button type="button" class="rd-rp-play" data-rp-step="1" aria-label="Next event" title="Step to the next event">\u23ed</button>' +
+      '<input type="range" class="rd-rp-scrub" data-rp-scrub="1" min="0" max="1000" value="1000" aria-label="Replay position">' +
+      '<span class="rd-rp-clock" data-rp-clock="1"></span>' +
+      '<span class="rd-time-range" role="group" aria-label="Replay window">' + wins + "</span>" +
+      '<span class="rd-time-range" role="group" aria-label="Replay speed">' + speeds + "</span>" +
+      '<span class="rd-rp-rate" data-rp-rate="1">' + h(speedText(rep.window, ui.speed)) + "</span>" + legendHtml() +
+      '<span class="rd-pane-scope">' + h(plural(rep.rows.length, "row")) + "</span></div>" +
+      (rep.known ? '<ol class="rd-rp-list" data-rp-list="1" data-rd-scroll="replay"></ol>' : '<div class="rd-loading">Loading COLLAB\u2026</div>') + "</section>";
+  }
+
   var SCOPE_TEXT = {
     desks: "", todo: "grouped by state across the roster", mail: "grouped by who they wait on, oldest first",
     priorities: "one column per desk \u00b7 ranks are 1-based, ord on hover", score: "grouped by impact \u00b7 desks are rows \u00b7 platform scores only",
-    collab: "grouped by kind: what blocks someone, promises, rooms, trees"
+    collab: "the focused desks\u2019 activity, replayed"
   };
   /* The time range lives on the tabs it cuts. TODO, MAIL and COLLAB keep their own time
    * controls (done span, plan window, activity grain) inside the pane they host. */
@@ -373,19 +455,23 @@
   }
 
   /* The head over a tab that hosts its full pane: the scope, and the pane's own view switch. */
-  function hostHead(tab, base, views, on, allWide) {
-    var sw = views && views.length ? '<span class="rd-view-switch" role="group" aria-label="View">' + views.map(function (v) {
+  function viewSwitch(views, on) {
+    return views && views.length ? '<span class="rd-view-switch" role="group" aria-label="View">' + views.map(function (v) {
       var cur = v.key === on;
       return '<button type="button" data-rd-view="' + h(v.key) + '"' + (cur ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + h(v.label) + "</button>";
     }).join("") + "</span>" : "";
+  }
+  function hostHead(tab, base, views, on, allWide) {
+    var sw = viewSwitch(views, on);
     var note = allWide ? '<span class="rd-pane-scope">Kanban, list and tree side by side \u00b7 picking a card shows it in all three</span>' : "";
     return '<div class="rd-pane-head rd-host-head"><span class="rd-pane-scope">' + h(base.scope.label) + "</span>" + (allWide ? "" : sw) + note + "</div>";
   }
 
   global.WallRdView = {
     h: h, strip: stripHtml, hero: heroHtml, timed: function (tab) { return !!TIMED[tab]; },
-    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead,
-    todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml
+    desksList: desksListHtml, deskDetail: deskDetailHtml, feed: feedHtml, tabScores: tabScoresHtml, paneHead: paneHead, hostHead: hostHead, viewSwitch: viewSwitch,
+    todo: todoHtml, mail: mailHtml, priorities: prioritiesHtml, score: scoreHtml, collab: collabHtml,
+    replay: replayHtml, replayRows: replayRows, speedText: speedText
   };
   global.WALL_UI_DEFAULT_RD_VIEW = "WALL_UI_DEFAULT_RD_VIEW";
 })(typeof window !== "undefined" ? window : globalThis);

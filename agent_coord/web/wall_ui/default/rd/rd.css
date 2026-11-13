@@ -744,3 +744,73 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd #pane-todo.rd-todo-all #jobs-list { display: block !important; min-height: 0; }
 #rd #pane-todo.rd-todo-all #jobs-outline { display: flex !important; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; }
 #rd #pane-todo.rd-todo-all #todo-done-span { display: inline-flex !important; }
+
+/* ---- COLLAB replay: rows the playhead passes slide in; nothing moves on its own ---- */
+#rd .rd-collab-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; }
+#rd .rd-block h3, #rd .rd-replay h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .06em; }
+#rd .rd-block ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 9.5em; overflow: auto; }
+#rd .rd-block li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+#rd .rd-replay { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+#rd .rd-rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 8px; border-bottom: 1px solid var(--edge); }
+#rd .rd-rp-play { width: 32px; height: 28px; border: 1px solid var(--edge); border-radius: 6px; background: var(--panel); color: inherit; font-size: 14px; cursor: pointer; }
+#rd .rd-rp-scrub { flex: 1 1 180px; min-width: 120px; accent-color: var(--cyan); }
+#rd .rd-rp-clock { font-variant-numeric: tabular-nums; min-width: 9ch; color: var(--dim); font-size: 12px; }
+#rd .rd-rp-rate { font-size: 12px; color: var(--dim); }
+#rd .rd-rp-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1 1 auto; min-height: 0; contain: content; }
+#rd .rd-rp-row { position: relative; display: grid; grid-template-columns: 6ch 14px 1fr; align-items: center; gap: 8px; height: 32px; padding: 0 6px; border-bottom: 1px solid color-mix(in srgb, var(--edge) 35%, transparent); font-size: 13px; overflow: hidden; }
+#rd .rd-rp-row time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+#rd .rd-rp-row .rd-k { justify-self: start; font-size: 11px; padding: 0 5px; border: 1px solid var(--edge); border-radius: 4px; }
+#rd .rd-rp-row .rd-k.doing { color: var(--green); } #rd .rd-rp-row .rd-k.mail { color: var(--cyan); }
+#rd .rd-rp-row .rd-k.todo { color: var(--amber); } #rd .rd-rp-row .rd-k.hold { color: var(--mag); }
+#rd .rd-rp-s { display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#rd .rd-rp-s .rd-q { color: var(--dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#rd .rd-rp-empty { padding: 12px 6px; color: var(--dim); }
+#rd .rd-pill { display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; height: 20px; border-radius: 10px; border: 2px solid var(--edge); background: var(--panel); color: inherit; font: inherit; font-size: 12px; cursor: pointer; flex: 0 0 auto; }
+#rd .rd-pill.st-working { border-color: var(--green); }
+#rd .rd-pill.st-waiting { border-color: var(--amber); }
+#rd .rd-pill.st-idle { border-color: color-mix(in srgb, var(--dim) 55%, var(--edge)); }
+#rd .rd-pill.st-disconnected { opacity: .5; border-style: dashed; }
+#rd .rd-pill.rd-human { border-color: var(--mag); cursor: default; }
+#rd .rd-cloud { display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; height: 20px; border-radius: 10px; border: 1px dashed var(--edge); color: var(--dim); font-size: 12px; flex: 0 0 auto; }
+#rd .rd-cloud i, #rd .rd-human i { font-style: normal; }
+#rd .rd-move { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; flex: 0 0 auto; }
+#rd .rd-st { padding: 0 4px; border-radius: 3px; border: 1px solid var(--edge); }
+#rd .rd-st.to { border-color: var(--amber); color: var(--amber); }
+#rd .rd-st.st-done { border-color: var(--green); color: var(--green); }
+#rd .rd-arrow { display: inline-block; transform-origin: left center; }
+#rd .rd-rp-row.cross { background: color-mix(in srgb, var(--edge) 8%, transparent); }
+@keyframes rd-rp-in { from { transform: translateY(-100%); opacity: 0; background: color-mix(in srgb, var(--cyan) 28%, transparent); } 40% { opacity: 1; } to { transform: none; background: transparent; } }
+@keyframes rd-rp-arrow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes rd-rp-to { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+#rd .rd-rp-row.rd-fx-in { animation: rd-rp-in .6s ease-out both; }
+#rd .rd-rp-row.rd-fx-in .rd-arrow { animation: rd-rp-arrow .45s .15s ease-out both; }
+#rd .rd-rp-row.rd-fx-in .rd-st.to { animation: rd-rp-to .4s .35s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  #rd .rd-rp-row.rd-fx-in, #rd .rd-rp-row.rd-fx-in .rd-arrow, #rd .rd-rp-row.rd-fx-in .rd-st.to { animation: none; }
+}
+/* Timeline hosts the Wall's pane; the Between ring and its Desk/Workstation switch are gone. */
+#rd[data-rd-host="collab"] #floor-agg, #rd[data-rd-host="collab"] #floor-legend, #rd[data-rd-host="collab"] #floor-note, #rd[data-rd-host="collab"] #floor-map { display: none !important; }
+/* In the past the ring is the desk's recorded state at the playhead (data-st), not its state now. */
+#rd .rd-rp-past .rd-pill[data-st] { border-style: solid; opacity: 1; transition: border-color .3s, opacity .3s; }
+#rd .rd-rp-past .rd-pill[data-st="unknown"] { border-color: var(--edge); }
+#rd .rd-rp-past .rd-pill[data-st="working"] { border-color: var(--green); }
+#rd .rd-rp-past .rd-pill[data-st="waiting"] { border-color: var(--amber); }
+#rd .rd-rp-past .rd-pill[data-st="idle"] { border-color: color-mix(in srgb, var(--dim) 55%, var(--edge)); }
+#rd .rd-rp-past .rd-pill[data-st="disconnected"] { opacity: .5; border-style: dashed; }
+@media (prefers-reduced-motion: reduce) { #rd .rd-rp-past .rd-pill[data-st] { transition: none; } }
+
+/* The six activity kinds: one icon each, in the kind's colour. */
+#rd .rd-ki { display: inline-flex; width: 12px; height: 12px; color: var(--dim); }
+#rd .rd-ki svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#rd .rd-ki.k-mail { color: var(--cyan); } #rd .rd-ki.k-todo { color: var(--amber); } #rd .rd-ki.k-hold { color: var(--mag); }
+#rd .rd-ki.k-wake { color: #f07178; } #rd .rd-ki.k-doing { color: var(--green); } #rd .rd-ki.k-score { color: #7eb8f0; }
+#rd .rd-ki.rd-ghost { position: absolute; pointer-events: none; z-index: 2; }
+#rd .rd-rp-legend { display: inline-flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--dim); }
+#rd .rd-rp-legend > span { display: inline-flex; align-items: center; gap: 3px; }
+#rd .rd-sdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--green); }
+#rd .rd-sdot.off { background: #f07178; }
+#rd .rd-pill.rd-contest { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 70%, transparent); }
+#rd .rd-ki.rd-lock-wait { filter: grayscale(.6); }
+#rd .rd-rp-past .rd-pill[data-st] { position: relative; }
+#rd .rd-rp-past .rd-pill[data-st]::after { content: ""; position: absolute; left: 6px; bottom: -3px; height: 2px; width: calc((100% - 12px) * var(--dw, 0)); background: var(--green); border-radius: 1px; }
+#rd .rd-rp-past .rd-pill[data-st="waiting"]::after { background: var(--amber); }
