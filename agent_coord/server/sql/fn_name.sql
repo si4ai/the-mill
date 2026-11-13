@@ -4,7 +4,7 @@
 --   Admin mints through sp_name_mint. A new desk gets its seat row (token NULL) with its name: every
 --   desk column FKs to seat (desk_id), the desk kind table. Plans (tree) and resources (res) mint as on main.
 -- Reads use MILL_NAME_GET. Creates use MILL_NAME_PUT.
--- A name is (type, bare string). id is the primary key. idx_type is UNIQUE (type, name).
+-- A name is (type, bare string). id is the primary key. idx_name is UNIQUE (name).
 -- Deleted names stay unique; retired names SIGNAL on get and put.
 
 DROP FUNCTION IF EXISTS MILL_NAME;
@@ -63,6 +63,7 @@ CREATE FUNCTION MILL_NAME_PUT(p_type VARCHAR(16), p_name VARCHAR(64)) RETURNS BI
   MODIFIES SQL DATA
 BEGIN
   DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_typ VARCHAR(16);
   DECLARE v_del DATETIME(6);
   DECLARE v_dup INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
@@ -91,15 +92,21 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill create roster NAME --yes)';
   END IF;
+  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+  END IF;
   INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name));
   IF v_dup = 1 THEN
-    SELECT id, deleted INTO v_id, v_del
+    SELECT id, type, deleted INTO v_id, v_typ, v_del
       FROM name
-     WHERE type = p_type AND name = TRIM(p_name)
+     WHERE name = TRIM(p_name)
      LIMIT 1;
     IF v_id IS NULL THEN
       SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'name insert lost a race';
+    END IF;
+    IF v_typ <> p_type THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
     END IF;
     IF v_del IS NOT NULL THEN
       SIGNAL SQLSTATE '45000'

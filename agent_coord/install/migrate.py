@@ -1385,9 +1385,22 @@ def _triggers_080(cur) -> int:
     return n
 
 
+def _book_is_1163(cn) -> bool:
+    """Card 1163 shape: one unique name string, and the kind columns are gone."""
+    cur = cn.cursor()
+    try:
+        return _index_exists(cur, "name", "idx_name") and not _column_exists(cur, "member", "name_kind")
+    finally:
+        cur.close()
+
+
 def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None) -> list[str]:
     """0.8.0 schema on a main book (migrate_080.sql). Preflight first: refuse (Migrate080Refused) before any
-    change; nothing pending is a no-op ([]). stop_after ends the run after that step, as a kill would (tests)."""
+    change; nothing pending is a no-op ([]). stop_after ends the run after that step, as a kill would (tests).
+    A book already on the card 1163 shape is left alone: migrate_080.sql is not rewritten, and its preflight
+    would otherwise treat the dropped kind columns as work still to do."""
+    if _book_is_1163(cn):
+        return []
     if stop_after is not None and stop_after not in STEPS_080:
         raise ValueError(f"unknown 0.8.0 step: {stop_after}")
     if not _is_main_book(cn):
@@ -1415,7 +1428,13 @@ def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None)
     for step in STEPS_080:
         if step == "triggers":
             _helpers_080(cn, create=False)
-            n = _timed_080(cn, step, _triggers_080, timings)
+
+            def _triggers_1163(cur) -> int:
+                # The focus trigger reads seat.focus_label_id. The column is not in migrate_080.sql.
+                _ensure_focus_label_column(cur)
+                return _triggers_080(cur)
+
+            n = _timed_080(cn, step, _triggers_1163, timings)
             cn.commit()
         else:
             def run(cur, step=step) -> int:
@@ -1992,6 +2011,327 @@ def apply_history_1133(cn) -> list[str]:
         cur.close()
 
 
+class Migrate1163Refused(RuntimeError):
+    """Card 1163 stopped before changing the book. A name type is wrong, or a suffix will not fit."""
+
+
+# Letter 5758. The highest rank keeps the bare name. Each lower rank takes the next free name-N.
+NAME_RANK_1163 = ("res", "desk", "roster", "tree", "label")
+
+# Pointers that must name one type. seat.desk_id was already a plain id; the others lose their kind column.
+_NAME_POINTERS_1163 = (
+    ("seat", "desk_id", "desk"),
+    ("member", "name_id", "roster"),
+    ("human_member", "name_id", "roster"),
+    ("activity", "roster_id", "roster"),
+    ("mail", "roster_id", "roster"),
+    ("todo", "roster_id", "roster"),
+    ("doing", "roster_id", "roster"),
+    ("score", "roster_id", "roster"),
+    ("label", "name_id", "label"),
+    ("tree", "name_id", "tree"),
+    ("tree_read", "tree_id", "tree"),
+    ("hold", "resource_id", "res"),
+)
+
+# (table, kind column, index that held it, columns of that index after the drop, ADD statement, fk, fk statement)
+_RESHAPE_1163 = (
+    ("member", "name_kind", "PRIMARY", ("name_id", "desk_id"),
+     "ALTER TABLE member ADD PRIMARY KEY (name_id, desk_id)",
+     "fk_member_name",
+     "ALTER TABLE member ADD CONSTRAINT fk_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("human_member", "name_kind", "idx_role", ("name_id", "human_id"),
+     "ALTER TABLE human_member ADD KEY idx_role (name_id, human_id)",
+     "fk_human_member_name",
+     "ALTER TABLE human_member ADD CONSTRAINT fk_human_member_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE CASCADE"),
+    ("activity", "roster_kind", "idx_roster", ("roster_id", "type", "updated"),
+     "ALTER TABLE activity ADD KEY idx_roster (roster_id, type, updated)",
+     "fk_activity_roster",
+     "ALTER TABLE activity ADD CONSTRAINT fk_activity_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("mail", "roster_kind", "idx_mail_roster", ("roster_id",),
+     "ALTER TABLE mail ADD KEY idx_mail_roster (roster_id)",
+     "fk_mail_roster",
+     "ALTER TABLE mail ADD CONSTRAINT fk_mail_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("todo", "roster_kind", "idx_roster", ("roster_id", "status", "updated"),
+     "ALTER TABLE todo ADD KEY idx_roster (roster_id, status, updated)",
+     "fk_todo_roster",
+     "ALTER TABLE todo ADD CONSTRAINT fk_todo_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("doing", "roster_kind", "idx_roster", ("roster_id",),
+     "ALTER TABLE doing ADD KEY idx_roster (roster_id)",
+     "fk_doing_roster",
+     "ALTER TABLE doing ADD CONSTRAINT fk_doing_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("score", "roster_kind", "idx_score_who", ("roster_id", "desk_key", "kpi"),
+     "ALTER TABLE score ADD UNIQUE KEY idx_score_who (roster_id, desk_key, kpi)",
+     "fk_score_roster",
+     "ALTER TABLE score ADD CONSTRAINT fk_score_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("label", "name_kind", "idx_label_ord", ("name_id", "ord", "created"),
+     "ALTER TABLE label ADD KEY idx_label_ord (name_id, ord, created)",
+     "fk_label_name",
+     "ALTER TABLE label ADD CONSTRAINT fk_label_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("tree", "name_kind", "PRIMARY", ("name_id", "type", "id"),
+     "ALTER TABLE tree ADD PRIMARY KEY (name_id, type, id)",
+     "fk_tree_name",
+     "ALTER TABLE tree ADD CONSTRAINT fk_tree_name FOREIGN KEY (name_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("tree_read", "tree_kind", "idx_tree", ("tree_id",),
+     "ALTER TABLE tree_read ADD KEY idx_tree (tree_id)",
+     "fk_tree_read_tree",
+     "ALTER TABLE tree_read ADD CONSTRAINT fk_tree_read_tree FOREIGN KEY (tree_id) REFERENCES name (id) ON DELETE RESTRICT"),
+    ("hold", "resource_kind", "idx_hold", ("resource_id",),
+     "ALTER TABLE hold ADD UNIQUE KEY idx_hold (resource_id)",
+     "fk_hold_res",
+     "ALTER TABLE hold ADD CONSTRAINT fk_hold_res FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT"),
+)
+
+
+def free_name_suffix(base: str, taken) -> str:
+    """Next shell-safe base-N that taken(candidate) says is free. taken is a callable."""
+    n = 1
+    while True:
+        candidate = f"{base}-{n}"
+        if len(candidate) > 64:
+            raise Migrate1163Refused(f"name suffix exceeds 64 characters: {base}")
+        if not taken(candidate):
+            return candidate
+        n += 1
+
+
+def _index_cols(cur, table: str, name: str) -> list[str]:
+    cur.execute(
+        "SELECT COLUMN_NAME FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s "
+        "ORDER BY SEQ_IN_INDEX",
+        (table, name),
+    )
+    return [r[0] for r in cur.fetchall()]
+
+
+def _fk_exists(cur, table: str, name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND CONSTRAINT_NAME = %s "
+        "AND CONSTRAINT_TYPE = 'FOREIGN KEY' LIMIT 1",
+        (table, name),
+    )
+    return cur.fetchone() is not None
+
+
+def _drop_fk(cur, table: str, name: str) -> None:
+    if _fk_exists(cur, table, name):
+        cur.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{name}`")
+
+
+def _name_taken(cur, candidate: str) -> bool:
+    """True when any row holds the string, retired and trashed included."""
+    cur.execute("SELECT 1 FROM name WHERE name = %s LIMIT 1", (candidate,))
+    return cur.fetchone() is not None
+
+
+def _trigger_statement(text: str, name: str) -> str:
+    """One CREATE TRIGGER body from tables.sql, without the client delimiter."""
+    key = f"CREATE TRIGGER {name}"
+    start = text.index(key)
+    end = text.index("END //", start)
+    return text[start:end].rstrip() + "\nEND"
+
+
+def _install_name_fixed(cur) -> None:
+    """Replace name_fixed so the collision step can rename a retired row."""
+    text = (sql_dir() / "tables.sql").read_text(encoding="utf-8-sig")
+    cur.execute("DROP TRIGGER IF EXISTS name_fixed")
+    cur.execute(_trigger_statement(text, "name_fixed"))
+
+
+def _ensure_focus_label_column(cur) -> None:
+    """seat.focus_label_id, the desk's focus list. Present on a fresh book already."""
+    if not _table_exists(cur, "seat"):
+        return
+    if not _column_exists(cur, "seat", "focus_label_id"):
+        after = " AFTER doing_id" if _column_exists(cur, "seat", "doing_id") else ""
+        cur.execute("ALTER TABLE seat ADD COLUMN focus_label_id BIGINT UNSIGNED NULL" + after)
+    if _index_cols(cur, "seat", "idx_focus_label") != ["focus_label_id"]:
+        _drop_index_if(cur, "seat", "idx_focus_label")
+        cur.execute("ALTER TABLE seat ADD UNIQUE KEY idx_focus_label (focus_label_id)")
+    if not _fk_exists(cur, "seat", "fk_seat_focus_label"):
+        cur.execute(
+            "ALTER TABLE seat ADD CONSTRAINT fk_seat_focus_label "
+            "FOREIGN KEY (focus_label_id) REFERENCES name (id) ON DELETE RESTRICT"
+        )
+
+
+def _link_focus_labels(cur) -> None:
+    """A live label that still shares a live desk's string is that desk's focus list.
+
+    Called before the collision rename, while the two strings still match.
+    A retired or trashed label is renamed with every other loser and is not the list.
+    """
+    if not _column_exists(cur, "seat", "focus_label_id"):
+        return
+    live = "l.deleted IS NULL"
+    if _column_exists(cur, "name", "trashed"):
+        live += " AND l.trashed IS NULL"
+    cur.execute(
+        "UPDATE seat s "
+        "JOIN name d ON d.id = s.desk_id AND d.type = 'desk' AND d.deleted IS NULL "
+        "JOIN name l ON l.type = 'label' AND l.name = d.name AND " + live + " "
+        "SET s.focus_label_id = l.id "
+        "WHERE s.focus_label_id IS NULL"
+    )
+
+
+def _rename_name_collisions(cur) -> int:
+    """Highest rank keeps the bare string. Each lower row takes the next free name-N."""
+    cur.execute("SELECT name FROM name GROUP BY name HAVING COUNT(*) > 1")
+    groups = [r[0] for r in cur.fetchall()]
+    renamed = 0
+    order = ", ".join(f"'{t}'" for t in NAME_RANK_1163)
+    for bare in groups:
+        cur.execute(
+            f"SELECT id, type, name FROM name WHERE name = %s ORDER BY FIELD(type, {order}), id",
+            (bare,),
+        )
+        rows = cur.fetchall()
+        for nid, typ, nm in rows[1:]:
+            if typ == "res":
+                raise Migrate1163Refused("refusing to rename a res name")
+            candidate = free_name_suffix(str(nm), lambda c: _name_taken(cur, c))
+            cur.execute("UPDATE name SET name = %s WHERE id = %s", (candidate, nid))
+            renamed += 1
+    return renamed
+
+
+def _preflight_name_types(cur) -> None:
+    bad = []
+    for table, column, kind in _NAME_POINTERS_1163:
+        if not _table_exists(cur, table) or not _column_exists(cur, table, column):
+            continue
+        cur.execute(
+            f"SELECT COUNT(*) FROM `{table}` t JOIN name n ON n.id = t.`{column}` WHERE n.type <> %s",
+            (kind,),
+        )
+        n = int(cur.fetchone()[0])
+        if n:
+            bad.append(f"{table}.{column} has {n} {kind} mismatch")
+    if bad:
+        raise Migrate1163Refused("; ".join(bad))
+
+
+def _drop_index_if(cur, table: str, name: str) -> None:
+    cols = _index_cols(cur, table, name)
+    if not cols:
+        return
+    if name == "PRIMARY":
+        cur.execute(f"ALTER TABLE `{table}` DROP PRIMARY KEY")
+    else:
+        cur.execute(f"ALTER TABLE `{table}` DROP INDEX `{name}`")
+
+
+def _reshape_1163(cur) -> None:
+    for table, _column, index_name, _want, _ddl, fk, _fk_ddl in _RESHAPE_1163:
+        _drop_fk(cur, table, fk)
+    if _index_exists(cur, "name", "idx_type"):
+        cur.execute("ALTER TABLE name DROP INDEX idx_type")
+    if _index_exists(cur, "name", "idx_id_type"):
+        cur.execute("ALTER TABLE name DROP INDEX idx_id_type")
+    if _index_cols(cur, "name", "idx_name") != ["name"]:
+        _drop_index_if(cur, "name", "idx_name")
+        cur.execute("ALTER TABLE name ADD UNIQUE KEY idx_name (name)")
+    for table, column, index_name, want, ddl, fk, fk_ddl in _RESHAPE_1163:
+        if _column_exists(cur, table, column):
+            _drop_kind_checks(cur, table, column)
+            cols = _index_cols(cur, table, index_name)
+            if column in cols:
+                _drop_index_if(cur, table, index_name)
+            cur.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+        if _index_cols(cur, table, index_name) != list(want):
+            _drop_index_if(cur, table, index_name)
+            cur.execute(ddl)
+        if not _fk_exists(cur, table, fk):
+            cur.execute(fk_ddl)
+
+
+def name_type_trigger_sql(text: str) -> list[tuple[str, str]]:
+    """The card 1163 triggers between the markers. Leading comments are not part of the statement."""
+    start = text.index("-- card 1163 name-type triggers BEGIN")
+    end = text.index("-- card 1163 name-type triggers END")
+    out: list[tuple[str, str]] = []
+    for part in text[start:end].split("//"):
+        lines: list[str] = []
+        started = False
+        for line in part.splitlines():
+            if not started:
+                if not line.strip().upper().startswith("CREATE TRIGGER"):
+                    continue
+                started = True
+            lines.append(line)
+        stmt = "\n".join(lines).strip()
+        if not stmt.upper().startswith("CREATE TRIGGER"):
+            continue
+        out.append((stmt.split()[2], stmt))
+    return out
+
+
+def _install_name_type_triggers(cur) -> int:
+    found = name_type_trigger_sql((sql_dir() / "tables.sql").read_text(encoding="utf-8-sig"))
+    if len(found) != 26:
+        raise Migrate1163Refused(f"expected 26 name-type triggers, parsed {len(found)}")
+    for name, stmt in found:
+        cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
+        cur.execute(stmt)
+    return len(found)
+
+
+def _drop_kind_checks(cur, table: str, column: str) -> None:
+    """Drop a CHECK that names the kind column. DROP COLUMN does not always take it."""
+    cur.execute(
+        "SELECT c.CONSTRAINT_NAME, c.CHECK_CLAUSE "
+        "FROM information_schema.CHECK_CONSTRAINTS c "
+        "JOIN information_schema.TABLE_CONSTRAINTS t "
+        "ON t.CONSTRAINT_SCHEMA = c.CONSTRAINT_SCHEMA AND t.CONSTRAINT_NAME = c.CONSTRAINT_NAME "
+        "WHERE c.CONSTRAINT_SCHEMA = DATABASE() AND t.TABLE_NAME = %s AND t.CONSTRAINT_TYPE = 'CHECK'",
+        (table,),
+    )
+    for name, clause in cur.fetchall():
+        if column in (clause or "").replace("`", ""):
+            cur.execute(f"ALTER TABLE `{table}` DROP CHECK `{name}`")
+
+
+def apply_1163(cn) -> list[str]:
+    """One name string in the office. Plain id pointers, type triggers, collision suffixes.
+
+    Idempotent. migrate_080.sql is not changed. A wrong name.type on an existing pointer
+    refuses the run; name.type is not rewritten.
+    """
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "name"):
+            return []
+        already = _book_is_1163(cn)
+        _preflight_name_types(cur)
+        # The trigger on an older book refuses a retired rename. Install the flag form first.
+        _install_name_fixed(cur)
+        _ensure_focus_label_column(cur)
+        renamed = 0
+        if not already:
+            _link_focus_labels(cur)
+            cur.execute("SET @mill_allow_retired_rename = 1")
+            try:
+                renamed = _rename_name_collisions(cur)
+            finally:
+                cur.execute("SET @mill_allow_retired_rename = NULL")
+            _reshape_1163(cur)
+            cur.execute("ALTER TABLE name AUTO_INCREMENT = 100")
+        _install_name_type_triggers(cur)
+        cn.commit()
+        if already:
+            return []
+        return [f"migrate_1163:renamed({renamed})"]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
 def ensure(cn) -> dict[str, Any]:
     """The one migration entry: tables, then routines, then the stamp of this
     pack's SQL digest (#614). mill install and mill install sql --apply call it."""
@@ -2072,6 +2412,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_wake_cause_id_idx(cn))
             if did_1022:
                 applied.extend(reload_routines(cn))
+            applied.extend(apply_1163(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])

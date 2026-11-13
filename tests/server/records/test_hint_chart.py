@@ -138,12 +138,12 @@ def test_label_create_does_not_push_a_name_hint(cn) -> None:
         mp.setattr(push.HUB, "notify", capture)
         rpc._h_label_name(
             Book(cn),
-            {"verb": "label", "slug": "chart", "confirm": "chart", "yes": True},
+            {"verb": "label", "slug": "chart-label", "confirm": "chart-label", "yes": True},
             project,
             "alice",
         )
     assert notified == []
-    nid = int(name.get(cn, "chart", "label"))
+    nid = int(name.get(cn, "chart-label", "label"))
     assert nid
     with pytest.raises(Exception):
         watchers.set_hint(cn, "name", nid, _desk_id(cn, alice), "slug")

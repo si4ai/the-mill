@@ -60,6 +60,7 @@ paths = [
   "tests/install/test_migrate_080_book.py",
   "tests/install/test_migrate_1059_watcher_name.py",
   "tests/install/test_migrate_1133_history.py",
+  "tests/install/test_migrate_1163_retired.py",
   "tests/install/test_regression_rows_not_skipped_663.py",
   "tests/install/test_schema_invariants_868.py",
   "tests/install/test_sql_marker_guard_794.py",

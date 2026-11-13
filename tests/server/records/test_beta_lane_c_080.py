@@ -168,7 +168,7 @@ def test_the_database_refuses_a_non_roster_office(cn):
     (did,) = seed_names(cn, ("lc_fk_desk", "desk"))
     cur = cn.cursor()
     try:
-        with pytest.raises(Exception, match="1452|foreign key"):
+        with pytest.raises(Exception, match="1452|foreign key|must name a roster"):
             cur.execute("INSERT INTO score (desk_id, roster_id, kpi) VALUES (NULL, %s, 'lc.fk')", (did,))
     finally:
         cn.rollback()

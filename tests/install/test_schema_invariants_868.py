@@ -45,10 +45,12 @@ ID_TYPE_OK = {
     ("mill_invite_join", "key_id"): "an invite key string",
     ("mill_invite_join", "party_id"): "FINDING F1",
 }
-# Kind tables (owner rule 2026-10-25): a name kind gets its own table only if the thing has its own data. seat is the
-# desk kind (one FK to name, kind id = name.id); roster, label, tree and res have no data of their own, so their
-# columns reference name with a kind-checked composite FK (col, <x>_kind) -> name (id, type) (F168).
-KIND_REF_TO_NAME = {("seat", "desk_id"): "the desk kind"}
+# Kind tables (owner rule 2026-10-25, card 1163): a name kind gets its own table only if the thing has its own data.
+# seat is the desk kind. focus_label_id is that desk's focus list. Every pointer to name is a plain id.
+KIND_REF_TO_NAME = {
+    ("seat", "desk_id"): "the desk kind",
+    ("seat", "focus_label_id"): "the desk focus list",
+}
 NAME_REF_NO_OWN_DATA = {("label", "name_id"), ("tree", "name_id"), ("tree_read", "tree_id"), ("hold", "resource_id"),
                         ("member", "name_id"), ("activity", "roster_id"), ("mail", "roster_id"), ("todo", "roster_id"),
                         ("doing", "roster_id"), ("score", "roster_id"), ("human_member", "name_id")}
@@ -125,8 +127,8 @@ def _fks(cn, db):
 def test_only_kind_tables_reference_name(book):
     cn, db = book
     to_name = {(t, c.split(",")[0]): r for t, _fk, c, rt, r in _fks(cn, db) if rt == "name"}
-    bad_shape = {k: r for k, r in to_name.items() if r != ("id" if k in KIND_REF_TO_NAME else "id,type")}
-    assert not bad_shape, f"seat references name (id); the kind-checked columns name (id, type) (F168): {bad_shape}"
+    bad_shape = {k: r for k, r in to_name.items() if r != "id"}
+    assert not bad_shape, f"every pointer to name is a plain id (card 1163): {bad_shape}"
     assert set(KIND_REF_TO_NAME) <= set(to_name), f"each kind table links to name: {sorted(to_name)}"
     bad = sorted(set(to_name) - set(KIND_REF_TO_NAME) - NAME_REF_NO_OWN_DATA)
     assert not bad, f"only seat and the kinds with no data of their own reference name: {bad}"
@@ -154,7 +156,7 @@ def test_no_name_history_table(book):
                          " AND TABLE_NAME = 'name_event'", (db,))
     uniq = _rows(cn, "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
                      " WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'name' AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", (db,))
-    assert sorted(uniq) == [("PRIMARY", "id"), ("idx_id_type", "id,type"), ("idx_type", "type,name")], uniq
+    assert sorted(uniq) == [("PRIMARY", "id"), ("idx_name", "name")], uniq
 
 
 def test_app_grant_is_execute_only(book):
@@ -216,24 +218,52 @@ def test_no_roster_table_and_roster_columns_reference_name(book):
     assert not [k for k, v in got.items() if v[0] == "roster"], "nothing references a roster table"
 
 
-# The owner (2026-10-25, approved review file): the eleven single-kind name references (twelve until the vote table
-# was dropped, 2026-10-26) are kind-checked. Each has a
-# plain `<x>_kind` ENUM pinned by DEFAULT and CHECK, and its FK is (col, <x>_kind) -> name (id, type), keeping the
-# constraint name and ON DELETE rule. name carries UNIQUE idx_id_type (id, type) as the FK target. Desk columns keep
-# referencing seat (desk_id) (F168).
+# Card 1163: the eleven single-kind name references are a plain id FK to name (id). The type is a BEFORE INSERT
+# and BEFORE UPDATE trigger. seat.desk_id is the desk pointer. seat.focus_label_id is the focus-list pointer.
+# Constraint names and ON DELETE rules stay.
+# A wrong type is MySQL 1644. A missing id is still the foreign key, MySQL 1452 (F168).
 KIND_FKS = {
-    ("member", "fk_member_name"): ("name_id", "name_kind", "roster", "RESTRICT"),
-    ("human_member", "fk_human_member_name"): ("name_id", "name_kind", "roster", "CASCADE"),
-    ("activity", "fk_activity_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("mail", "fk_mail_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("todo", "fk_todo_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("doing", "fk_doing_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("score", "fk_score_roster"): ("roster_id", "roster_kind", "roster", "RESTRICT"),
-    ("tree", "fk_tree_name"): ("name_id", "name_kind", "tree", "RESTRICT"),
-    ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree_kind", "tree", "RESTRICT"),
-    ("label", "fk_label_name"): ("name_id", "name_kind", "label", "RESTRICT"),
-    ("hold", "fk_hold_res"): ("resource_id", "resource_kind", "res", "RESTRICT"),
+    ("member", "fk_member_name"): ("name_id", "roster", "RESTRICT"),
+    ("human_member", "fk_human_member_name"): ("name_id", "roster", "CASCADE"),
+    ("activity", "fk_activity_roster"): ("roster_id", "roster", "RESTRICT"),
+    ("mail", "fk_mail_roster"): ("roster_id", "roster", "RESTRICT"),
+    ("todo", "fk_todo_roster"): ("roster_id", "roster", "RESTRICT"),
+    ("doing", "fk_doing_roster"): ("roster_id", "roster", "RESTRICT"),
+    ("score", "fk_score_roster"): ("roster_id", "roster", "RESTRICT"),
+    ("tree", "fk_tree_name"): ("name_id", "tree", "RESTRICT"),
+    ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree", "RESTRICT"),
+    ("label", "fk_label_name"): ("name_id", "label", "RESTRICT"),
+    ("hold", "fk_hold_res"): ("resource_id", "res", "RESTRICT"),
 }
+# (trigger, table, event, message)
+TYPE_TRIGGERS = (
+    ("seat_desk_type_ins", "seat", "INSERT", "seat.desk_id must name a desk"),
+    ("seat_desk_type_upd", "seat", "UPDATE", "seat.desk_id must name a desk"),
+    ("seat_focus_type_ins", "seat", "INSERT", "seat.focus_label_id must name a label"),
+    ("seat_focus_type_upd", "seat", "UPDATE", "seat.focus_label_id must name a label"),
+    ("member_roster_type_ins", "member", "INSERT", "member.name_id must name a roster"),
+    ("member_roster_type_upd", "member", "UPDATE", "member.name_id must name a roster"),
+    ("human_member_roster_type_ins", "human_member", "INSERT", "human_member.name_id must name a roster"),
+    ("human_member_roster_type_upd", "human_member", "UPDATE", "human_member.name_id must name a roster"),
+    ("activity_roster_type_ins", "activity", "INSERT", "activity.roster_id must name a roster"),
+    ("activity_roster_type_upd", "activity", "UPDATE", "activity.roster_id must name a roster"),
+    ("mail_roster_type_ins", "mail", "INSERT", "mail.roster_id must name a roster"),
+    ("mail_roster_type_upd", "mail", "UPDATE", "mail.roster_id must name a roster"),
+    ("todo_roster_type_ins", "todo", "INSERT", "todo.roster_id must name a roster"),
+    ("todo_roster_type_upd", "todo", "UPDATE", "todo.roster_id must name a roster"),
+    ("doing_roster_type_ins", "doing", "INSERT", "doing.roster_id must name a roster"),
+    ("doing_roster_type_upd", "doing", "UPDATE", "doing.roster_id must name a roster"),
+    ("score_roster_type_ins", "score", "INSERT", "score.roster_id must name a roster"),
+    ("score_roster_type_upd", "score", "UPDATE", "score.roster_id must name a roster"),
+    ("label_name_type_ins", "label", "INSERT", "label.name_id must name a label"),
+    ("label_name_type_upd", "label", "UPDATE", "label.name_id must name a label"),
+    ("tree_name_type_ins", "tree", "INSERT", "tree.name_id must name a tree"),
+    ("tree_name_type_upd", "tree", "UPDATE", "tree.name_id must name a tree"),
+    ("tree_read_type_ins", "tree_read", "INSERT", "tree_read.tree_id must name a tree"),
+    ("tree_read_type_upd", "tree_read", "UPDATE", "tree_read.tree_id must name a tree"),
+    ("hold_res_type_ins", "hold", "INSERT", "hold.resource_id must name a res"),
+    ("hold_res_type_upd", "hold", "UPDATE", "hold.resource_id must name a res"),
+)
 KINDS = ("desk", "roster", "label", "tree", "res")
 
 
@@ -257,32 +287,50 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
                 " WHERE k.TABLE_SCHEMA = %s AND k.REFERENCED_TABLE_NAME = 'name'"
                 " GROUP BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.DELETE_RULE", (db,)):
         got[(t, fk)] = (cols, rt, rcols, rule)
-    want = {key: (f"{c},{kc}", "name", "id,type", rule) for key, (c, kc, _k, rule) in KIND_FKS.items()}
+    want = {key: (c, "name", "id", rule) for key, (c, _k, rule) in KIND_FKS.items()}
     want[("seat", "fk_seat_desk")] = ("desk_id", "name", "id", "RESTRICT")
+    want[("seat", "fk_seat_focus_label")] = ("focus_label_id", "name", "id", "RESTRICT")
     assert got == want, f"FKs to name: {sorted(set(got.items()) ^ set(want.items()))}"
-    cols = {(t, c): (ty, dflt, nul) for t, c, ty, dflt, nul in _rows(
-        cn, "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT, IS_NULLABLE FROM information_schema.COLUMNS"
-            " WHERE TABLE_SCHEMA = %s AND COLUMN_NAME LIKE '%%\\_kind'", (db,))}
-    enum = "enum(" + ",".join(f"'{k}'" for k in KINDS) + ")"
-    assert cols == {(t, kc): (enum, k, "NO") for (t, _fk), (_c, kc, k, _r) in KIND_FKS.items()}, cols
-    checks = {(t, cc.replace("`", "").replace("_utf8mb4", "").replace("\\'", "'")) for t, cc in _rows(
-        cn, "SELECT t.TABLE_NAME, c.CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS c JOIN"
-            " information_schema.TABLE_CONSTRAINTS t ON t.CONSTRAINT_SCHEMA = c.CONSTRAINT_SCHEMA"
-            " AND t.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.CONSTRAINT_SCHEMA = %s AND c.CHECK_CLAUSE LIKE '%%\\_kind%%'",
-        (db,))}
-    assert checks == {(t, f"({kc} = '{k}')") for (t, _fk), (_c, kc, k, _r) in KIND_FKS.items()}, checks
+    kind_cols = _rows(cn, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS"
+                          " WHERE TABLE_SCHEMA = %s AND COLUMN_NAME LIKE '%%\\_kind'", (db,))
+    assert kind_cols == [], kind_cols
     uniq = _rows(cn, "SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS"
                      " WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'name' AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", (db,))
-    assert ("idx_id_type", "id,type") in uniq, uniq
+    assert ("idx_name", "name") in uniq, uniq
+    assert not any(n in ("idx_type", "idx_id_type") for n, _c in uniq), uniq
+    names = [t[0] for t in TYPE_TRIGGERS]
+    marks = ",".join(["%s"] * len(names))
+    got_tr = {n: (table, event, timing, stmt) for n, table, event, timing, stmt in _rows(
+        cn, "SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, EVENT_MANIPULATION, ACTION_TIMING, ACTION_STATEMENT"
+            f" FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME IN ({marks})",
+        (db, *names))}
+    bad_tr = []
+    for name, table, event, msg in TYPE_TRIGGERS:
+        have = got_tr.get(name)
+        if have is None:
+            bad_tr.append((name, None, msg))
+            continue
+        got_table, got_event, timing, stmt = have
+        if (got_table, got_event, timing) != (table, event, "BEFORE") or msg not in (stmt or ""):
+            bad_tr.append((name, have, msg))
+    assert not bad_tr, bad_tr
+    assert len(got_tr) == 26
+
+
+def _signal_ok(exc) -> bool:
+    return exc.errno == 1644 and "must name a" in str(exc)
 
 
 def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
-    # One name of each kind; each of the eleven columns takes its own kind and refuses the other four (FK, 1452).
+    # One name of each kind. Each pointer takes its own type and refuses the others (trigger, 1644).
+    # A missing id is the foreign key (1452). seat.desk_id is included. The setup desk is already seated,
+    # so the right-type seat insert uses a second desk.
     import mysql.connector
 
-    cn, db = book
+    cn, _db = book
     ids = {k: _one(cn, "INSERT INTO name (type, name) VALUES (%s, %s)", (k, f"kchk-{k}")) for k in KINDS}
     desk = ids["desk"]
+    second = _one(cn, "INSERT INTO name (type, name) VALUES ('desk', 'kchk-desk-2')")
     _one(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (desk,))
     human = _one(cn, "INSERT INTO human (bearer_hash) VALUES (%s)", ("k" * 64,))
     mail = _one(cn, "INSERT INTO mail (desk_id, roster_id, body) VALUES (%s, 1, 'kchk')", (desk,))
@@ -301,23 +349,104 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "label": ("INSERT INTO label (type, id, name_id) VALUES ('mail', %s, %s)", lambda x: (mail, x)),
         "hold": ("INSERT INTO hold (desk_id, resource_id) VALUES (%s, %s)", lambda x: (desk, x)),
     }
+    updates = {
+        "member": ("UPDATE member SET name_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
+        "human_member": ("UPDATE human_member SET name_id = %s WHERE human_id = %s", lambda x: (x, human)),
+        "activity": ("UPDATE activity SET roster_id = %s WHERE type = 'todo' AND id = 990001", lambda x: (x,)),
+        "mail": ("UPDATE mail SET roster_id = %s WHERE body = 'k'", lambda x: (x,)),
+        "todo": ("UPDATE todo SET roster_id = %s WHERE creator_id = %s", lambda x: (x, desk)),
+        "doing": ("UPDATE doing SET roster_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
+        "score": ("UPDATE score SET roster_id = %s WHERE kpi = 'kchk'", lambda x: (x,)),
+        "tree": ("UPDATE tree SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),
+        "tree_read": ("UPDATE tree_read SET tree_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
+        "label": ("UPDATE label SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),
+        "hold": ("UPDATE hold SET resource_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
+    }
     assert set(writes) == {t for t, _fk in KIND_FKS}
-    wrong_ok, right_refused = [], []
-    for (table, _fk), (_c, _kc, kind, _r) in KIND_FKS.items():
+    wrong_ok, right_refused, update_bad = [], [], []
+    for (table, _fk), (_c, kind, _r) in KIND_FKS.items():
         sql, args = writes[table]
+        upd, uargs = updates[table]
+        other = next(k for k in KINDS if k != kind)
         for k in KINDS:
             cn.start_transaction()
             try:
                 _one(cn, sql, args(ids[k]))
                 if k != kind:
                     wrong_ok.append((table, k))
+                else:
+                    try:
+                        _one(cn, upd, uargs(ids[other]))
+                        update_bad.append((table, "accepted"))
+                    except mysql.connector.Error as exc:
+                        if not _signal_ok(exc):
+                            update_bad.append((table, exc.errno, str(exc)[:120]))
             except mysql.connector.Error as exc:
-                if k == kind or exc.errno != 1452:
-                    right_refused.append((table, k, exc.errno, str(exc)[:120]))
+                if k == kind or not _signal_ok(exc):
+                    right_refused.append((table, k, getattr(exc, "errno", None), str(exc)[:120]))
             finally:
                 cn.rollback()
-    assert not right_refused, f"a right-kind id (or a wrong kind with an error other than FK 1452): {right_refused}"
-    assert not wrong_ok, f"a wrong-kind name id was accepted: {wrong_ok}"
+    cn.start_transaction()
+    try:
+        _one(cn, "INSERT INTO member (name_id, desk_id) VALUES (%s, %s)", (999999999, desk))
+        missing = "member accepted a missing name id"
+    except mysql.connector.Error as exc:
+        missing = None if exc.errno == 1452 else (exc.errno, str(exc)[:120])
+    finally:
+        cn.rollback()
+    seat_bad = []
+    for k in KINDS:
+        if k == "desk":
+            continue
+        cn.start_transaction()
+        try:
+            _one(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (ids[k],))
+            seat_bad.append((k, "accepted"))
+        except mysql.connector.Error as exc:
+            if not _signal_ok(exc):
+                seat_bad.append((k, exc.errno, str(exc)[:120]))
+        finally:
+            cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (second,))
+        _one(cn, "UPDATE seat SET desk_id = %s WHERE desk_id = %s", (ids["roster"], second))
+        seat_bad.append(("update", "accepted"))
+    except mysql.connector.Error as exc:
+        if not _signal_ok(exc):
+            seat_bad.append(("update", exc.errno, str(exc)[:120]))
+    finally:
+        cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "UPDATE seat SET focus_label_id = %s WHERE desk_id = %s", (ids["roster"], desk))
+        seat_bad.append(("focus", "accepted"))
+    except mysql.connector.Error as exc:
+        if not _signal_ok(exc):
+            seat_bad.append(("focus", exc.errno, str(exc)[:120]))
+    finally:
+        cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "UPDATE seat SET focus_label_id = %s WHERE desk_id = %s", (ids["label"], desk))
+    except mysql.connector.Error as exc:
+        seat_bad.append(("focus-label", exc.errno, str(exc)[:120]))
+    finally:
+        cn.rollback()
+    cn.start_transaction()
+    try:
+        _one(cn, "INSERT INTO seat (desk_id) VALUES (%s)", (999999999,))
+        seat_missing = "seat accepted a missing name id"
+    except mysql.connector.Error as exc:
+        seat_missing = None if exc.errno == 1452 else (exc.errno, str(exc)[:120])
+    finally:
+        cn.rollback()
+    assert not right_refused, f"a right type was refused, or a wrong type was not signal 1644: {right_refused}"
+    assert not wrong_ok, f"a wrong-type name id was accepted: {wrong_ok}"
+    assert not update_bad, f"an update to a wrong type was not signal 1644: {update_bad}"
+    assert missing is None, missing
+    assert not seat_bad, seat_bad
+    assert seat_missing is None, seat_missing
 
 
 def _declared_keys():

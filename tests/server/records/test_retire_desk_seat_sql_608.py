@@ -66,8 +66,11 @@ def test_admin_retire_clears_the_seat(cn):
 
 def test_retiring_a_label_named_like_a_desk_keeps_the_seat(cn):
     digest = _seat(cn, "fx608-d3", "seat-608-d3")
-    seed_names(cn, ("fx608-d3", "label"))
-    catalog.retire(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d3", "confirm": "fx608-d3", "yes": True, "name_type": "label"})
+    with pytest.raises(Exception) as e:
+        seed_names(cn, ("fx608-d3", "label"))
+    assert "name in use" in str(e.value)
+    with pytest.raises(Exception):
+        catalog.retire(cn, admin_desk(cn, "admin-desk"), {"slug": "fx608-d3", "confirm": "fx608-d3", "yes": True, "name_type": "label"})
     cn.commit()
     assert rec_join.token_matches(cn, "fx608-d3", digest)
 

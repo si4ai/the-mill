@@ -129,6 +129,8 @@ BEGIN
   IF v_name IS NULL THEN
     -- 0.8.0: a parent touch is the office's (desk NULL): a desk column holds a seat, never roster id 1.
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
+    -- The tree insert locks name(id). Hold the plan before that shared check.
+    SELECT id INTO v_lock FROM name WHERE id = v_name FOR UPDATE;
     CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, NULL, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
@@ -516,7 +518,7 @@ BEGIN
          t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
-         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
+         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(IFNULL((SELECT fdn.name FROM seat fs JOIN name fdn ON fdn.id = fs.desk_id AND fdn.deleted IS NULL WHERE fs.focus_label_id = ln.id LIMIT 1), ln.name)) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,
@@ -568,7 +570,7 @@ BEGIN
          t.status, t.assigned_id, MILL_TODO_DOC(t.body, t.meta) AS body,
          an.name AS roster, an.type AS roster_type, cn.name AS creator, cn.type AS creator_type, sn.name AS assigned, sn.type AS assigned_type, un.name AS updated_by, un.type AS updated_by_type,
          tr.tree_id, trn.name AS tree,
-         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(ln.name) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
+         (SELECT CONCAT('[', GROUP_CONCAT(JSON_QUOTE(IFNULL((SELECT fdn.name FROM seat fs JOIN name fdn ON fdn.id = fs.desk_id AND fdn.deleted IS NULL WHERE fs.focus_label_id = ln.id LIMIT 1), ln.name)) ORDER BY l.ord, ln.name SEPARATOR ','), ']')
             FROM label l JOIN name ln ON ln.id = l.name_id
            WHERE l.type = 'todo' AND l.id = t.id) AS labels,
          t.done_when,

@@ -134,7 +134,7 @@ def test_human_member_blocks_purge(cn) -> None:
         )
         hid = cur.lastrowid
         cur.execute(
-            "INSERT INTO human_member (human_id, name_id, name_kind) VALUES (%s,%s,'roster')",
+            "INSERT INTO human_member (human_id, name_id) VALUES (%s,%s)",
             (hid, int(rid)),
         )
         cn.commit()

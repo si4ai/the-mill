@@ -6,6 +6,8 @@ label rank), the name restore, trust in the procedures, a measured lab result, o
 **proposed, needs the owner**. A diff to `tables.sql` or `beta_ddl.sql` must update this file, or
 `docs/requirements/schema-design.md` for a design change (test F160). Design: `docs/requirements/schema-design.md`.
 
+Card 1163 (office human, 2026-11-12): `name` is UNIQUE on `name` alone (`idx_name`), retired and trashed rows included. `idx_type` and `idx_id_type` are gone. The eleven `*_kind` columns are gone. Each foreign key to `name` is a plain id, and a BEFORE INSERT / BEFORE UPDATE trigger requires the type, including `seat.desk_id` (desk) and `seat.focus_label_id` (label). `name_fixed` still refuses a type or id change. It also refuses a retired rename unless the collision step sets `@mill_allow_retired_rename`. `seat.focus_label_id` is the desk's focus list; commands still address it by the desk name. Rows below that describe the 0.8.0 kind columns are the shape this card replaced.
+
 Header note (card 906 / F195): the tables.sql and beta_ddl.sql headers no longer claim a read-committed isolation level. Join reads `name.deleted` under `FOR UPDATE` (see schema-design.md section 10); nothing sets a session level.
 
 Rows 1-46 (rows 1, 2, 5, 6, 12, 18, 25 and 36 withdrawn; rows 29, 31-34 removed by the owner on 2026-10-26; row 40

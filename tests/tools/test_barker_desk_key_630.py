@@ -3,7 +3,7 @@
 The POST's `roster` follows the seat rule (the desk's one roster other than
 Office, else Office), so a desk on several rosters reports Office while its
 letters carry another roster. ROSTER/DESK is not predictable; DESK is, because
-desk names are unique within an office (one `name` row per type and name)."""
+desk names are unique within an office (one `name` row for the string)."""
 from __future__ import annotations
 
 import re
@@ -19,7 +19,7 @@ def test_desk_names_are_unique_per_office():
     t = TABLES.read_text(encoding="utf-8")
     m = re.search(r"CREATE TABLE IF NOT EXISTS name \((.*?)\) ENGINE", t, re.S)
     assert m, "name table"
-    assert "UNIQUE KEY idx_type (type, name)" in m.group(1)
+    assert "UNIQUE KEY idx_name (name)" in m.group(1)
 
 
 def test_the_map_is_keyed_by_desk_alone():

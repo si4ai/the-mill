@@ -143,6 +143,7 @@ BEGIN
   DECLARE v_have CHAR(64);
   DECLARE v_text VARCHAR(512);
   DECLARE v_del DATETIME(6);
+  DECLARE v_lock BIGINT UNSIGNED;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -193,11 +194,14 @@ BEGIN
   IF v_id IS NULL OR (p_doing IS NOT NULL AND v_text <> LEFT(p_doing, 512)) THEN
     CALL mill_doing_insert(v_desk, 1, p_doing, v_ts, v_id);
   END IF;
+  -- The member insert locks name(id). Hold that roster first, then count the new member.
+  SELECT id INTO v_lock FROM name WHERE id = 1 FOR UPDATE;
   INSERT IGNORE INTO member (name_id, desk_id) VALUES (1, v_desk);
   IF ROW_COUNT() = 1 THEN
     UPDATE name SET n = n + 1 WHERE id = 1;
   END IF;
   IF v_proj IS NOT NULL AND v_proj <> 1 AND v_proj <> 2 THEN
+    SELECT id INTO v_lock FROM name WHERE id = v_proj FOR UPDATE;
     INSERT IGNORE INTO member (name_id, desk_id) VALUES (v_proj, v_desk);
     IF ROW_COUNT() = 1 THEN
       UPDATE name SET n = n + 1 WHERE id = v_proj;
@@ -208,6 +212,7 @@ BEGIN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Admin is not granted by join';
     END IF;
     SET @v_role := MILL_NAME_PUT('roster', p_role);
+    SELECT id INTO v_lock FROM name WHERE id = @v_role FOR UPDATE;
     INSERT IGNORE INTO member (name_id, desk_id) VALUES (@v_role, v_desk);
     IF ROW_COUNT() = 1 THEN
       UPDATE name SET n = n + 1 WHERE id = @v_role;

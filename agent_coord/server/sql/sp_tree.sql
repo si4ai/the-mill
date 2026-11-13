@@ -88,6 +88,8 @@ BEGIN
   END IF;
   IF v_name IS NULL THEN
     SET v_name = MILL_NAME_PUT('tree', LOWER(HEX(RANDOM_BYTES(5))));
+    -- The tree insert locks name(id). Hold the plan before that shared check.
+    SELECT id INTO v_name FROM name WHERE id = v_name FOR UPDATE;
     CALL mill_activity_put(p_parent_type, p_parent_id, v_ts, 1, NULL, NULL, NULL);
     INSERT INTO tree (name_id, type, id, lft, rgt)
     VALUES (v_name, p_parent_type, p_parent_id, 1, 2);
