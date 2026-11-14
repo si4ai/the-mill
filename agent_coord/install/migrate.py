@@ -515,7 +515,7 @@ _FK_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
     ("hold", "fk_hold_desk", "desk_id", "name", "id", "RESTRICT"),
     ("hold", "fk_hold_res", "resource_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_roster", "roster_id", "name", "id", "RESTRICT"),
-    ("score", "fk_score_desk", "desk_id", "name", "id", "RESTRICT"),
+    ("score", "fk_score_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
     ("wake", "fk_wake_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
 )
 
@@ -542,6 +542,9 @@ def _ensure_fk_rules(cn) -> list[str]:
     try:
         for table, name, col, ref, ref_col, rule in _FK_RULES:
             if not _table_exists(cur, table):
+                continue
+            # Card 1214 drops score.roster_id. Do not add fk_score_roster back.
+            if any(not _column_exists(cur, table, c.strip()) for c in col.split(",")):
                 continue
             have = _fk_delete_rule(cur, table, name)
             if have == rule or (rule == "RESTRICT" and have == "NO ACTION"):
@@ -958,13 +961,13 @@ def _ensure_score_series(cn) -> list[str]:
     cur = cn.cursor()
     try:
         if _table_exists(cur, "score"):
-            if not _column_exists(cur, "score", "better"):
+            if _column_exists(cur, "score", "note") and not _column_exists(cur, "score", "better"):
                 cur.execute(
                     "ALTER TABLE score ADD COLUMN better ENUM('up','down') NOT NULL DEFAULT 'up'"
                     " AFTER note"
                 )
                 applied.append("score.better")
-            if not _column_exists(cur, "score", "unit"):
+            if _column_exists(cur, "score", "better") and not _column_exists(cur, "score", "unit"):
                 cur.execute(
                     "ALTER TABLE score ADD COLUMN unit VARCHAR(16) CHARACTER SET utf8mb4"
                     " COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '' AFTER better"
@@ -1001,6 +1004,9 @@ def _ensure_score_one_name(cn) -> list[str]:
     cur = cn.cursor()
     try:
         if not (_table_exists(cur, "score") and _table_exists(cur, "score_point")):
+            return applied
+        # Card 1214: a score has no roster column. This step is the old desk-versus-roster merge.
+        if not _column_exists(cur, "score", "roster_id"):
             return applied
         # 0.8.0: a roster-owned score is desk NULL (migrate_080 step desk_null), never desk = roster.
         if _column_exists(cur, "score", "desk_key"):
@@ -1399,9 +1405,17 @@ def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None)
     """0.8.0 schema on a main book (migrate_080.sql). Preflight first: refuse (Migrate080Refused) before any
     change; nothing pending is a no-op ([]). stop_after ends the run after that step, as a kill would (tests).
     A book already on the card 1163 shape is left alone: migrate_080.sql is not rewritten, and its preflight
-    would otherwise treat the dropped kind columns as work still to do."""
+    would otherwise treat the dropped kind columns as work still to do.
+    Card 1214 removes score.roster_id. migrate_080.sql would rebuild idx_score_who on that column, so a book
+    that already took 1214 is left alone too."""
     if _book_is_1163(cn):
         return []
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "score") and not _column_exists(cur, "score", "roster_id"):
+            return []
+    finally:
+        cur.close()
     if stop_after is not None and stop_after not in STEPS_080:
         raise ValueError(f"unknown 0.8.0 step: {stop_after}")
     if not _is_main_book(cn):
@@ -2247,6 +2261,10 @@ def _reshape_1163(cur) -> None:
             if column in cols:
                 _drop_index_if(cur, table, index_name)
             cur.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+        # Card 1214 drops score.roster_id and score.desk_key. Do not put that
+        # index back once those columns are gone.
+        if any(not _column_exists(cur, table, col) for col in want):
+            continue
         if _index_cols(cur, table, index_name) != list(want):
             _drop_index_if(cur, table, index_name)
             cur.execute(ddl)
@@ -2277,8 +2295,8 @@ def name_type_trigger_sql(text: str) -> list[tuple[str, str]]:
 
 def _install_name_type_triggers(cur) -> int:
     found = name_type_trigger_sql((sql_dir() / "tables.sql").read_text(encoding="utf-8-sig"))
-    if len(found) != 26:
-        raise Migrate1163Refused(f"expected 26 name-type triggers, parsed {len(found)}")
+    if len(found) != 24:
+        raise Migrate1163Refused(f"expected 24 name-type triggers, parsed {len(found)}")
     for name, stmt in found:
         cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
         cur.execute(stmt)
@@ -2416,16 +2434,269 @@ def apply_1212(cn) -> list[str]:
             return []
         cur.execute(
             "CREATE TABLE score_view ("
-            " kpi VARCHAR(64) NOT NULL,"
+            " score_id BIGINT UNSIGNED NOT NULL,"
             " viewer_id BIGINT UNSIGNED NOT NULL,"
             " n INT UNSIGNED NOT NULL DEFAULT 0,"
             " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
-            " PRIMARY KEY (kpi, viewer_id),"
-            " KEY idx_viewer (viewer_id, last_seen)"
+            " PRIMARY KEY (score_id, viewer_id),"
+            " KEY idx_viewer (viewer_id, last_seen),"
+            " CONSTRAINT fk_score_view_score FOREIGN KEY (score_id) REFERENCES score (id)"
+            " ON DELETE RESTRICT ON UPDATE CASCADE"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
         )
         cn.commit()
         return ["migrate_1212:score_view"]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def _drop_score_triggers(cur) -> list[str]:
+    """The retired roster triggers still name score.roster_id. A fresh script drops them. An upgrade must too."""
+    cur.execute(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS "
+        "WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME IN "
+        "('score_roster_type_ins', 'score_roster_type_upd')"
+    )
+    names = [str(r[0]) for r in cur.fetchall()]
+    for name in names:
+        cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
+    return [f"migrate_1214:dropped trigger {name}" for name in names]
+
+
+def _delete_score_row(cur, sid: int) -> None:
+    """Remove one score and the rows that hang on it. The activity row goes with the score."""
+    if _table_exists(cur, "score_evidence"):
+        cur.execute("DELETE FROM score_evidence WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "score_point"):
+        cur.execute("DELETE FROM score_point WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "score_view") and _column_exists(cur, "score_view", "score_id"):
+        cur.execute("DELETE FROM score_view WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "watcher"):
+        cur.execute("DELETE FROM watcher WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "transition"):
+        cur.execute(
+            "DELETE FROM transition WHERE activity_type = 'score' AND activity_id = %s",
+            (sid,),
+        )
+    if _table_exists(cur, "tree"):
+        cur.execute("DELETE FROM tree WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "label"):
+        cur.execute("DELETE FROM label WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "activity"):
+        cur.execute("DELETE FROM activity WHERE type = 'score' AND id = %s", (sid,))
+    cur.execute("DELETE FROM score WHERE id = %s", (sid,))
+
+
+def _merge_score_row(cur, loser: int, keeper: int) -> int:
+    """Move points and evidence onto the keeper. A timestamp the keeper already has is dropped."""
+    dropped_slots = 0
+    if _table_exists(cur, "score_evidence"):
+        cur.execute(
+            "SELECT COUNT(*) FROM score_evidence e "
+            "JOIN score_evidence k ON k.score_id = %s AND k.`timestamp` = e.`timestamp` "
+            "WHERE e.score_id = %s",
+            (keeper, loser),
+        )
+        dropped_slots = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute(
+            "DELETE e FROM score_evidence e "
+            "JOIN score_evidence k ON k.score_id = %s AND k.`timestamp` = e.`timestamp` "
+            "WHERE e.score_id = %s",
+            (keeper, loser),
+        )
+        cur.execute(
+            "UPDATE score_evidence SET score_id = %s WHERE score_id = %s",
+            (keeper, loser),
+        )
+    if _table_exists(cur, "score_point"):
+        cur.execute(
+            "UPDATE score_point SET score_id = %s WHERE score_id = %s",
+            (keeper, loser),
+        )
+    _delete_score_row(cur, loser)
+    return dropped_slots
+
+
+def _activity_desk_matches(cur, sid: int, desk_id: int) -> bool:
+    """True when there is no activity row, or that row already names this desk.
+
+    An activity row with an empty desk is not filled in. The series is dropped instead.
+    """
+    if not _table_exists(cur, "activity"):
+        return True
+    cur.execute(
+        "SELECT desk_id FROM activity WHERE type = 'score' AND id = %s",
+        (sid,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return True
+    return row[0] is not None and int(row[0]) == int(desk_id)
+
+
+def _report_non_numeric_values(cur) -> list[str]:
+    """score.value was text. A word cannot become a point, so it is dropped and named."""
+    if not _column_exists(cur, "score", "value"):
+        return []
+    cur.execute(
+        "SELECT id, kpi, `value` FROM score "
+        "WHERE `value` IS NOT NULL AND `value` <> '' "
+        "AND `value` NOT REGEXP '^-?[0-9]+([.][0-9]+)?$'"
+    )
+    notes = []
+    for sid, kpi, val in cur.fetchall():
+        text = str(val).replace("\n", " ").replace("\r", " ")[:80]
+        notes.append(f"migrate_1214:dropped value id={int(sid)} kpi={kpi} text={text}")
+    return notes
+
+
+def _seat_holds(cur, desk_id: int) -> bool:
+    if not _table_exists(cur, "seat"):
+        return True
+    cur.execute("SELECT 1 FROM seat WHERE desk_id = %s", (desk_id,))
+    return cur.fetchone() is not None
+
+
+def _cleanup_score_rows(cur) -> list[str]:
+    """One desk and one kpi. Keep a series whose points name one desk. Report every series that cannot."""
+    notes: list[str] = []
+    cur.execute("SELECT id, kpi FROM score WHERE desk_id IS NULL")
+    pending = [(int(r[0]), str(r[1] or "")) for r in cur.fetchall()]
+    for sid, kpi in pending:
+        desks: list[int] = []
+        n_pt = 0
+        if _table_exists(cur, "score_point"):
+            cur.execute(
+                "SELECT DISTINCT desk_id FROM score_point WHERE score_id = %s AND desk_id IS NOT NULL",
+                (sid,),
+            )
+            desks = [int(r[0]) for r in cur.fetchall()]
+            cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (sid,))
+            n_pt = int((cur.fetchone() or (0,))[0] or 0)
+        if len(desks) == 1 and _seat_holds(cur, desks[0]) and _activity_desk_matches(cur, sid, desks[0]):
+            cur.execute(
+                "SELECT id FROM score WHERE desk_id = %s AND kpi = %s AND id <> %s LIMIT 1",
+                (desks[0], kpi, sid),
+            )
+            other = cur.fetchone()
+            if other:
+                slots = _merge_score_row(cur, sid, int(other[0]))
+                notes.append(
+                    f"migrate_1214:merged id={sid} into={int(other[0])} kpi={kpi} "
+                    f"desk={desks[0]} evidence_slots_dropped={slots}"
+                )
+            else:
+                cur.execute("UPDATE score SET desk_id = %s WHERE id = %s", (desks[0], sid))
+                notes.append(f"migrate_1214:attached id={sid} kpi={kpi} desk={desks[0]} points={n_pt}")
+            continue
+        if len(desks) == 1 and _seat_holds(cur, desks[0]):
+            reason = "activity-desk"
+        elif len(desks) == 1:
+            reason = "no-seat"
+        elif len(desks) == 0:
+            reason = "no-desk"
+        else:
+            reason = "many-desks"
+        who = ",".join(str(d) for d in desks) or "-"
+        notes.append(
+            f"migrate_1214:dropped id={sid} kpi={kpi} reason={reason} points={n_pt} desks={who}"
+        )
+        _delete_score_row(cur, sid)
+    cur.execute(
+        "SELECT desk_id, kpi FROM score WHERE desk_id IS NOT NULL GROUP BY desk_id, kpi HAVING COUNT(*) > 1"
+    )
+    groups = [(int(r[0]), str(r[1] or "")) for r in cur.fetchall()]
+    for desk, kpi in groups:
+        cur.execute(
+            "SELECT id FROM score WHERE desk_id = %s AND kpi = %s ORDER BY updated DESC, id DESC",
+            (desk, kpi),
+        )
+        ids = [int(r[0]) for r in cur.fetchall()]
+        keeper = ids[0]
+        for loser in ids[1:]:
+            slots = _merge_score_row(cur, loser, keeper)
+            notes.append(
+                f"migrate_1214:merged id={loser} into={keeper} kpi={kpi} "
+                f"desk={desk} evidence_slots_dropped={slots}"
+            )
+    return notes
+
+
+def apply_1214(cn) -> list[str]:
+    """Card 1214: a score is one desk and one kpi. meta holds the markup. Views point at score.id.
+
+    A series with no desk is kept when its points name one desk. Anything else is removed and named
+    in the returned lines, so an upgrade says what it could not keep.
+    """
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "score"):
+            return []
+        notes = _drop_score_triggers(cur)
+        changed = bool(notes)
+        if _column_exists(cur, "score", "roster_id"):
+            if not _column_exists(cur, "score", "meta"):
+                cur.execute("ALTER TABLE score ADD COLUMN meta JSON NULL")
+            sets = []
+            for key, col in (("target", "target"), ("better", "better"), ("unit", "unit")):
+                if _column_exists(cur, "score", col):
+                    sets.append(f"'$.{key}', `{col}`")
+            if sets:
+                cur.execute(
+                    "UPDATE score SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), "
+                    + ", ".join(sets) + ")"
+                )
+            notes.extend(_report_non_numeric_values(cur))
+            notes.extend(_cleanup_score_rows(cur))
+            _drop_fk(cur, "score", "fk_score_roster")
+            # The old key has no ON UPDATE CASCADE (desk_key blocked it). Drop it before
+            # the column change, then put back the same key the other kind tables use.
+            _drop_fk(cur, "score", "fk_score_desk")
+            if _index_exists(cur, "score", "idx_score_who"):
+                cur.execute("ALTER TABLE score DROP INDEX idx_score_who")
+            if _index_exists(cur, "score", "idx_desk"):
+                cur.execute("ALTER TABLE score DROP INDEX idx_desk")
+            for col in ("desk_key", "value", "target", "note", "better", "unit", "roster_id"):
+                if _column_exists(cur, "score", col):
+                    cur.execute(f"ALTER TABLE score DROP COLUMN `{col}`")
+            cur.execute("ALTER TABLE score MODIFY desk_id BIGINT UNSIGNED NOT NULL")
+            if not _index_exists(cur, "score", "idx_desk_kpi"):
+                cur.execute("ALTER TABLE score ADD UNIQUE KEY idx_desk_kpi (desk_id, kpi)")
+            cur.execute(
+                "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
+                " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"
+            )
+            changed = True
+        elif _index_exists(cur, "score", "idx_desk") and _index_exists(cur, "score", "idx_desk_kpi"):
+            _drop_fk(cur, "score", "fk_score_desk")
+            cur.execute("ALTER TABLE score DROP INDEX idx_desk")
+            cur.execute(
+                "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
+                " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"
+            )
+            changed = True
+        if _table_exists(cur, "score_view") and _column_exists(cur, "score_view", "kpi"):
+            cur.execute("DROP TABLE score_view")
+            cur.execute(
+                "CREATE TABLE score_view ("
+                " score_id BIGINT UNSIGNED NOT NULL,"
+                " viewer_id BIGINT UNSIGNED NOT NULL,"
+                " n INT UNSIGNED NOT NULL DEFAULT 0,"
+                " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
+                " PRIMARY KEY (score_id, viewer_id),"
+                " KEY idx_viewer (viewer_id, last_seen),"
+                " CONSTRAINT fk_score_view_score FOREIGN KEY (score_id) REFERENCES score (id)"
+                " ON DELETE RESTRICT ON UPDATE CASCADE"
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+            )
+            changed = True
+        cn.commit()
+        if changed:
+            notes.append("migrate_1214:score")
+        return notes
     except Exception:
         cn.rollback()
         raise
@@ -2679,7 +2950,17 @@ def apply_1200(cn) -> list[str]:
         if cascaded and flagged:
             return []
         blob = (sql_dir() / "migrations.sql").read_text(encoding="utf-8-sig")
+        score_roster = _column_exists(cur, "score", "roster_id")
         for stmt in split_script(blob):
+            low = stmt.lower()
+            if not score_roster and "fk_score_roster" in low:
+                continue
+            if "drop index" in low and "idx_score_who" in low and not _index_exists(cur, "score", "idx_score_who"):
+                continue
+            if "drop column" in low and "desk_key" in low and not _column_exists(cur, "score", "desk_key"):
+                continue
+            if "drop foreign key" in low and "fk_score_desk" in low and not _fk_exists(cur, "score", "fk_score_desk"):
+                continue
             try:
                 cur.execute(stmt)
             except Exception as exc:
@@ -2815,6 +3096,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             # card 1207: after the routine reload (mill_doing_anchor, MILL_FX_META) and the 1022 edges.
             applied.extend(apply_1207(cn))
             applied.extend(apply_1212(cn))
+            applied.extend(apply_1214(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])

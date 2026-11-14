@@ -289,6 +289,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_1200(cn)
     migrate.apply_1207(cn)  # card 1207: moves to transition, evidence to todo.meta, doing.evidence dropped
     migrate.apply_1212(cn)
+    migrate.apply_1214(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -380,7 +381,7 @@ def test_ids_rows_and_transforms(main_book):
     cn = main_book
 
     untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue",
-                                     "label"}  # name: System id 0; push_queue folded (1022); label: card 1207 below
+                                     "label", "score_point", "score_evidence"}  # name: System id 0; push_queue folded (1022); label: card 1207; points and evidence of a desk-less score go with card 1214
     for t in sorted(untouched):
         assert after[t] == before[t], t
     # card 1207: a label on a doing row goes with that row's activity row (fk_label_activity CASCADE); the rest stay.
@@ -426,6 +427,13 @@ def test_ids_rows_and_transforms(main_book):
     pq_n = len(_rows_as_dicts(before, "push_queue"))
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
+        if t == "score":
+            # A score that already named a desk stays. A score with no desk stays only when
+            # its points name one desk, and then that desk is on the row.
+            already = {r["id"] for r in b if r.get("desk_id") in desk_ids}
+            assert already <= {r["id"] for r in a}
+            assert all(r.get("desk_id") in desk_ids for r in a)
+            continue
         if t == "activity":
             wake_after = [r for r in a if r["type"] == "wake"]
             a = [r for r in a if r["type"] != "wake"]
@@ -435,6 +443,10 @@ def test_ids_rows_and_transforms(main_book):
             # card 1207: a doing row's activity row goes with it unless a transition or tree node names it.
             kept_doing = {r["id"] for r in a if r["type"] == "doing"}
             b = [r for r in b if r["type"] != "doing" or r["id"] in kept_doing]
+            # card 1214: a score that cannot be kept takes its activity row with it.
+            kept_scores = {r["id"] for r in _rows_as_dicts(after, "score")}
+            b = [r for r in b if r["type"] != "score" or r["id"] in kept_scores]
+            a = [r for r in a if r["type"] != "score" or r["id"] in kept_scores]
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -442,8 +454,24 @@ def test_ids_rows_and_transforms(main_book):
             keep = {k: v for k, v in rb.items() if k not in ("desk_id", "weight", "n")}
             assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
     assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_key <> IFNULL(desk_id, 0)") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 3 + 8 * 3
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 0
+    # Points on a score that already named a desk stay on that score. Evidence does too.
+    # A merge can move the other points onto the surviving score.
+    kept_scores = {r[after["score"][0].index("id")] for r in after["score"][1]}
+    desk_score_ids = {
+        r["id"] for r in _rows_as_dicts(before, "score") if r.get("desk_id") in desk_ids
+    }
+    for child in ("score_point", "score_evidence"):
+        bcols, brows = before[child]
+        assert after[child][0] == bcols, child
+        sid_i = bcols.index("score_id")
+        arows = after[child][1]
+        assert all(r[sid_i] in kept_scores for r in arows), child
+        if child == "score_evidence":
+            assert list(arows) == [r for r in brows if r[sid_i] in kept_scores], child
+        else:
+            stable = [r for r in brows if r[sid_i] in desk_score_ids]
+            assert [r for r in arows if r[sid_i] in desk_score_ids] == stable
 
     # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")
@@ -522,6 +550,93 @@ def _routines(cn):
                   " FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() ORDER BY 1, 2")
 
 
+def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
+    """An upgraded office keeps a one-desk series, finishes a name collision, and says what it dropped."""
+    from agent_coord.install import migrate
+
+    seeded = seed(main_book)
+    migrate.apply_080(main_book)
+    desk_a, desk_b = seeded["desks"][0], seeded["desks"][1]
+    roster_b = seeded["rosters"][0]
+    cur = main_book.cursor()
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_ins BEFORE INSERT ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_upd BEFORE UPDATE ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "INSERT INTO score (desk_id, roster_id, kpi, `value`) VALUES "
+        "(NULL, 1, 'one-desk', ''), (NULL, 1, 'no-desk', ''), (NULL, 1, 'many-desks', ''), "
+        "(NULL, 1, 'empty-activity', ''), (%s, 1, 'word', 'good'), "
+        "(%s, 1, 'same-name', ''), (%s, %s, 'same-name', '')",
+        (desk_a, desk_a, desk_a, roster_b),
+    )
+    cur.execute(
+        "SELECT id, kpi FROM score WHERE kpi IN "
+        "('one-desk', 'no-desk', 'many-desks', 'same-name', 'empty-activity', 'word')"
+    )
+    ids = {}
+    for i, kpi in cur.fetchall():
+        ids.setdefault(kpi, int(i))
+    cur.executemany(
+        "INSERT INTO score_point (score_id, desk_id, value) VALUES (%s, %s, %s)",
+        [
+            (ids["one-desk"], desk_a, 1),
+            (ids["one-desk"], desk_a, 2),
+            (ids["many-desks"], desk_a, 1),
+            (ids["many-desks"], desk_b, 2),
+            (ids["empty-activity"], desk_a, 4),
+            (ids["same-name"], desk_a, 3),
+        ],
+    )
+    cur.execute(
+        "INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('score', %s, NULL, 1)",
+        (ids["empty-activity"],),
+    )
+    main_book.commit()
+    cur.close()
+    applied = migrate.apply_1214(main_book)
+    text = "\n".join(applied)
+    assert "migrate_1214:dropped trigger score_roster_type_ins" in text
+    assert "migrate_1214:dropped trigger score_roster_type_upd" in text
+    assert f"migrate_1214:attached id={ids['one-desk']} kpi=one-desk desk={desk_a} points=2" in text
+    assert f"reason=no-desk" in text and f"id={ids['no-desk']}" in text
+    assert f"reason=many-desks" in text and f"id={ids['many-desks']}" in text
+    assert f"reason=activity-desk" in text and f"id={ids['empty-activity']}" in text
+    assert f"migrate_1214:dropped value id={ids['word']} kpi=word text=good" in text
+    assert "kpi=same-name" in text and "migrate_1214:merged" in text
+    cur = main_book.cursor()
+    cur.execute(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() "
+        "AND TRIGGER_NAME IN ('score_roster_type_ins', 'score_roster_type_upd')"
+    )
+    assert cur.fetchall() == []
+    cur.execute("SELECT desk_id FROM score WHERE id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == desk_a
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["word"],))
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["empty-activity"],))
+    assert cur.fetchone()[0] == 0
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == 2
+    cur.execute("SELECT COUNT(*) FROM score WHERE kpi = 'same-name'")
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT id FROM score WHERE kpi = 'same-name'")
+    kept = int(cur.fetchone()[0])
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (kept,))
+    assert cur.fetchone()[0] == 1
+    cur.execute(
+        "INSERT INTO score (desk_id, kpi) VALUES (%s, 'after-upgrade')",
+        (desk_a,),
+    )
+    main_book.commit()
+    cur.close()
+    assert migrate.apply_1214(main_book) == []
+
+
 def test_second_run_is_a_no_op(main_book):
     from agent_coord.install import migrate
     from tests.beta_book import schema_snapshot
@@ -560,7 +675,8 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
             continue  # push_queue folded away after 1022
         # card 1207: the 0.8.0 move rows (one per card) moved on to transition.
         # card 1207: doing keeps only tw runs (none here) and a label on a doing row goes with it.
-        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher", "name", "activity", "doing", "label"), t
+        assert len(after[t][1]) == len(before[t][1]) or t in (
+            "seat", "watcher", "name", "activity", "doing", "label", "score", "score_point", "score_evidence"), t
     assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
     assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == len(
         before["todo"][1])

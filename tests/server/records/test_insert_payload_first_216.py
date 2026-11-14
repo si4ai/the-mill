@@ -117,12 +117,7 @@ def test_fresh_book_has_no_payload_fks(cn) -> None:
         assert _fk(cn, table, name), name
     assert _n(cn, "SELECT @@FOREIGN_KEY_CHECKS") == 1
     # seeded system scores still have their timeline rows
-    assert _n(cn, "SELECT COUNT(*) FROM score WHERE kpi IN ('mill-wall.ticks','mill-desk.idle_verbs','mill-desk.hint_drop')") == 3
-    assert _n(
-        cn,
-        "SELECT COUNT(*) FROM score s JOIN activity a ON a.type='score' AND a.id=s.id"
-        " WHERE s.kpi IN ('mill-wall.ticks','mill-desk.idle_verbs','mill-desk.hint_drop')",
-    ) == 3
+    assert _n(cn, "SELECT COUNT(*) FROM score WHERE kpi IN ('mill-wall.ticks','mill-desk.idle_verbs','mill-desk.hint_drop')") == 0
 
 # ---- inserts ----
 

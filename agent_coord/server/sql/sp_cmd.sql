@@ -165,7 +165,7 @@ BEGIN
     DECLARE EXIT HANDLER FOR 1213, 1205 BEGIN SET @mill_req_tx = v_saved; RESIGNAL; END;
     SET @mill_req_tx = 1;
     SELECT roster_id INTO v_rid FROM todo WHERE id = p_card;
-    CALL mill_card_score_event(v_rid, 'claimed', NULL, NULL, NULL, NULL, NULL);
+    CALL mill_card_score_event(v_rid, p_desk, 'claimed', NULL, NULL, NULL, NULL, NULL);
     SET @mill_req_tx = v_saved;
   END;
   SELECT p_card AS card, 'claimed' AS status, NULLIF(v_held, '') AS prior_volunteer;
@@ -324,7 +324,7 @@ BEGIN
     SET @mill_req_tx = 1;
     IF @mill_card_score_kind IS NOT NULL THEN
       CALL mill_card_score_event(
-        @mill_card_score_rid, @mill_card_score_kind,
+        @mill_card_score_rid, p_desk, @mill_card_score_kind,
         @mill_card_score_lead, @mill_card_score_eta,
         @mill_card_score_actual, @mill_card_score_doing,
         @mill_card_score_now

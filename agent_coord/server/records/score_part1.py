@@ -1,8 +1,8 @@
 """Card 1212: part 1 attention scores, one read, roster rollup, no wakes.
 
 GET /api/pov?part=scores&window=7d is the Wall read. It does not record a view.
-A desk read passes viewer= and writes one score_view row per score (count and
-last_seen), still with no hint and no wake.
+A desk read passes viewer= and, when that desk already has a score row, writes
+one score_view for it. A read does not create a score. No hint and no wake.
 """
 from __future__ import annotations
 
@@ -186,21 +186,7 @@ def _desk_scores(cn, desk_id: int, window: str, active: set[int]) -> list[dict]:
 
 
 def _ensure_view_table(cn) -> None:
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS score_view ("
-            " kpi VARCHAR(64) NOT NULL,"
-            " viewer_id BIGINT UNSIGNED NOT NULL,"
-            " n INT UNSIGNED NOT NULL DEFAULT 0,"
-            " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
-            " PRIMARY KEY (kpi, viewer_id),"
-            " KEY idx_viewer (viewer_id, last_seen)"
-            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
-        )
-        cn.commit()
-    finally:
-        cur.close()
+    return None
 
 
 def read_scores(cn, window: str = "7d", viewer: str | None = None) -> dict[str, Any]:
@@ -241,22 +227,34 @@ def read_scores(cn, window: str = "7d", viewer: str | None = None) -> dict[str, 
                 median = ordered[len(ordered) // 2]
             row["rollup"] = {"median": median, "n_active": n_active, "window": window}
     if viewer:
-        _record_views(cn, viewer, SCORE_NAMES)
+        _record_views(cn, viewer, [int(d["id"]) for d in desks if int(d["id"]) in active], SCORE_NAMES)
     return {"window": window, "desks": out_desks, "unviewed": _unviewed(cn, window)}
 
 
-def _record_views(cn, viewer: str, names: tuple[str, ...]) -> None:
+def _record_views(cn, viewer: str, desk_ids: list[int], names: tuple[str, ...]) -> None:
+    """Count a view of a score that already exists. A read does not create a score."""
+    if not desk_ids or not names:
+        return
     rows = _rows(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (viewer,))
     if not rows:
         return
     vid = int(rows[0]["id"])
+    desk_marks = ",".join(["%s"] * len(desk_ids))
+    name_marks = ",".join(["%s"] * len(names))
+    found = _rows(
+        cn,
+        "SELECT id FROM score WHERE desk_id IN (" + desk_marks + ") AND kpi IN (" + name_marks + ")",
+        tuple(desk_ids) + tuple(names),
+    )
+    if not found:
+        return
     cur = cn.cursor()
     try:
-        for name in names:
+        for row in found:
             cur.execute(
-                "INSERT INTO score_view (kpi, viewer_id, n, last_seen) VALUES (%s, %s, 1, NOW()) "
+                "INSERT INTO score_view (score_id, viewer_id, n, last_seen) VALUES (%s, %s, 1, NOW()) "
                 "ON DUPLICATE KEY UPDATE n = n + 1, last_seen = NOW()",
-                (name, vid),
+                (int(row["id"]), vid),
             )
         cn.commit()
     finally:
@@ -267,7 +265,9 @@ def _unviewed(cn, window: str) -> list[str]:
     span = _window_sql(window)
     try:
         seen = {str(r["kpi"]) for r in _rows(
-            cn, "SELECT DISTINCT kpi FROM score_view WHERE last_seen >= NOW() - " + span
+            cn,
+            "SELECT DISTINCT s.kpi FROM score_view v JOIN score s ON s.id = v.score_id "
+            "WHERE v.last_seen >= NOW() - " + span,
         )}
     except Exception:
         seen = set()

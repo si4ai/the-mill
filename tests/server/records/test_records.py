@@ -159,12 +159,25 @@ def test_score_upsert_value(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (kid,)) is not None
 
 def test_floor_office_kpis(cn) -> None:
+    from agent_coord.client.tokens import token_hash
+    from agent_coord.server.records import join as rec_join
     from agent_coord.server.records.floor import floor as rec_floor
+    from tests.server.records.conftest import seed_member, seed_names
 
+    seed_names(cn, ("the-mill", "roster"), ("a", "desk"))
+    seed_member(cn, "the-mill", "a")
+    rec_join.upsert(cn, "the-mill", "a", "", token_hash("seat-floor-a"))
     cur = cn.cursor()
     cur.execute(
-        "UPDATE score SET value='7' "
-        "WHERE roster_id=1 AND desk_id IS NULL AND kpi='mill-wall.ticks'"
+        "INSERT INTO score (desk_id, kpi, meta) "
+        "SELECT id, 'mill-wall.ticks', JSON_OBJECT('target', '0') FROM name "
+        "WHERE type='desk' AND name='a' "
+        "ON DUPLICATE KEY UPDATE meta = JSON_OBJECT('target', '0')"
+    )
+    cur.execute(
+        "INSERT INTO score_point (score_id, desk_id, value, note) "
+        "SELECT s.id, s.desk_id, 7, '' FROM score s JOIN name n ON n.id = s.desk_id "
+        "WHERE n.name='a' AND s.kpi='mill-wall.ticks'"
     )
     cn.commit()
     cur.close()

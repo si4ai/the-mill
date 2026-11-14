@@ -77,7 +77,8 @@ def _score_row(cn, rid: int) -> dict[str, Any] | None:
             " COALESCE((SELECT pn.name FROM score_point sp JOIN name pn ON pn.id = sp.desk_id"
             " WHERE sp.score_id = s.id ORDER BY sp.id LIMIT 1), dn.name) AS maker"
             " FROM score s"
-            " LEFT JOIN name an ON an.id = s.roster_id"
+            " LEFT JOIN activity act ON act.type = 'score' AND act.id = s.id"
+            " LEFT JOIN name an ON an.id = act.roster_id"
             " LEFT JOIN name dn ON dn.id = s.desk_id"
             " WHERE s.id = %s",
             (rid,),

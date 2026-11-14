@@ -10,6 +10,8 @@ Card 1163 (office human, 2026-11-12): `name` is UNIQUE on `name` alone (`idx_nam
 
 Card 1212 (office human, 2026-11-13): `score_view` is one row per score per viewer desk, a count and a last-seen time. A wall read does not write it. A desk read increments it and does not wake.
 
+Card 1214 (office human, 2026-11-14): a score is one desk and one kpi. `roster_id`, `desk_key`, `value`, `target`, `note`, `better`, and `unit` are gone. `desk_id` is required. The unique key is `(desk_id, kpi)`. `meta` is JSON markup and is not searched. The latest number and remark are the newest `score_point`. `fk_score_desk` is ON UPDATE CASCADE now that `desk_key` is gone. `score_view` is `(score_id, viewer_id)` and references `score`. The score roster triggers are gone. Office rows are not seeded.
+
 Card 1200 (office human, 2026-11-13): every foreign key keeps its ON DELETE rule and gains ON UPDATE CASCADE, including `fk_seat_doing`. `fk_score_desk` does not: `score.desk_id` feeds the stored `desk_key`, and MySQL refuses ON UPDATE CASCADE on that column. `migrations.sql` is the step for a book that already exists. `mill_import_bearer_salts` copies this book's desk `token_hash` values onto an uploaded book, matched by unique desk name.
 
 Header note (card 906 / F195): the tables.sql and beta_ddl.sql headers no longer claim a read-committed isolation level. Join reads `name.deleted` under `FOR UPDATE` (see schema-design.md section 10); nothing sets a session level.

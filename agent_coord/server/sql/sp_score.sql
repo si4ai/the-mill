@@ -48,19 +48,24 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: that desk has no seat in this office';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_proj AND desk_id = v_desk AND kpi = p_kpi
+    WHERE desk_id = v_desk AND kpi = p_kpi
     LIMIT 1;
   IF v_id IS NULL THEN
-    INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-    VALUES (v_ts, v_desk, v_proj, IFNULL(p_kpi, ''), IFNULL(p_value, ''), IFNULL(p_target, ''), IFNULL(p_note, ''));
+    INSERT INTO score (updated, desk_id, kpi, meta)
+    VALUES (v_ts, v_desk, IFNULL(p_kpi, ''),
+            JSON_OBJECT('target', IFNULL(p_target, ''), 'reading', IFNULL(p_value, '')));
     SET v_id = LAST_INSERT_ID();
   ELSE
     UPDATE score
       SET updated = v_ts,
-          value = IFNULL(p_value, value),
-          target = IFNULL(p_target, target),
-          note = IFNULL(p_note, note)
+          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.reading', IF(p_value IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reading')), p_value))
       WHERE id = v_id;
+  END IF;
+  IF p_value REGEXP '^-?[0-9]+([.][0-9]+)?$' THEN
+    INSERT INTO score_point (score_id, created, desk_id, value, note)
+    VALUES (v_id, v_ts, v_desk, CAST(p_value AS DOUBLE), IFNULL(p_note, ''));
   END IF;
   CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   -- F2: soft-deleted score on upsert revives. Clear activity.deleted here only
@@ -77,6 +82,7 @@ END //
 -- here: roster_id = Office (id 1), desk_id NULL, the rows Glance reads. No watcher.
 -- The kind-checked FK on score.roster_id holds Office as a roster, so no guard reads it.
 CREATE PROCEDURE mill_score_admin_upsert(
+  IN p_desk   VARCHAR(64),
   IN p_kpi    VARCHAR(64),
   IN p_value  VARCHAR(64),
   IN p_target VARCHAR(64),
@@ -85,6 +91,7 @@ CREATE PROCEDURE mill_score_admin_upsert(
 BEGIN
   DECLARE v_ts DATETIME(6);
   DECLARE v_id BIGINT UNSIGNED;
+  DECLARE v_desk BIGINT UNSIGNED;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_id = NULL;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -96,22 +103,29 @@ BEGIN
   IF p_kpi IS NULL OR CHAR_LENGTH(p_kpi) = 0 THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'kpi required';
   END IF;
+  SET v_desk = MILL_NAME_GET('desk', p_desk);
+  IF v_desk IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: desk required';
+  END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = 1 AND desk_id IS NULL AND kpi = p_kpi
+    WHERE desk_id = v_desk AND kpi = p_kpi
     LIMIT 1;
   IF v_id IS NULL THEN
-    INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-    VALUES (v_ts, NULL, 1, p_kpi, IFNULL(p_value, ''), IFNULL(p_target, ''), IFNULL(p_note, ''));
+    INSERT INTO score (updated, desk_id, kpi, meta)
+    VALUES (v_ts, v_desk, p_kpi, JSON_OBJECT('target', IFNULL(p_target, '')));
     SET v_id = LAST_INSERT_ID();
   ELSE
     UPDATE score
       SET updated = v_ts,
-          value = IFNULL(p_value, value),
-          target = IFNULL(p_target, target),
-          note = IFNULL(p_note, note)
+          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target))
       WHERE id = v_id;
   END IF;
-  CALL mill_activity_put('score', v_id, v_ts, NULL, 1, 'score', NULL);
+  IF p_value REGEXP '^-?[0-9]+([.][0-9]+)?$' THEN
+    INSERT INTO score_point (score_id, created, desk_id, value, note)
+    VALUES (v_id, v_ts, v_desk, CAST(p_value AS DOUBLE), IFNULL(p_note, ''));
+  END IF;
+  CALL mill_activity_put('score', v_id, v_ts, v_desk, 1, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
@@ -155,13 +169,19 @@ CREATE PROCEDURE mill_score_select(IN p_project VARCHAR(64))
 BEGIN
   DECLARE v_proj BIGINT UNSIGNED;
   SET v_proj = MILL_NAME_GET('roster', p_project);
-  SELECT s.type, s.id, s.created, s.updated, s.desk_id, s.roster_id, s.kpi,
-         s.value, s.target, s.note,
+  SELECT s.type, s.id, s.created, s.updated, s.desk_id, m.name_id AS roster_id, s.kpi,
+         CAST(lp.value AS CHAR) AS value,
+         JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) AS target,
+         lp.note AS note,
          dn.name AS desk, dn.type AS desk_type, an.name AS roster, an.type AS roster_type
   FROM score s
+  JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
   LEFT JOIN name dn ON dn.id = s.desk_id
-  LEFT JOIN name an ON an.id = s.roster_id
-  WHERE v_proj IS NOT NULL AND s.roster_id = v_proj
+  LEFT JOIN name an ON an.id = m.name_id
+  LEFT JOIN score_point lp ON lp.id = (
+    SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id
+    ORDER BY p2.created DESC, p2.id DESC LIMIT 1)
+  WHERE v_proj IS NOT NULL
   ORDER BY s.updated DESC;
 END //
 
@@ -237,29 +257,27 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_proj AND desk_id IS NULL AND kpi = p_kpi
+    WHERE desk_id = v_desk AND kpi = p_kpi
     LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
-    INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
-    VALUES (v_ts, NULL, v_proj, p_kpi, '', IFNULL(p_target, ''),
-            '', IFNULL(p_better, 'up'), IFNULL(p_unit, ''));
+    INSERT INTO score (updated, desk_id, kpi, meta)
+    VALUES (v_ts, v_desk, p_kpi,
+            JSON_OBJECT('target', IFNULL(p_target, ''),
+                        'better', IFNULL(p_better, 'up'),
+                        'unit', IFNULL(p_unit, '')));
     SET v_id = LAST_INSERT_ID();
   ELSE
     UPDATE score
       SET updated = v_ts,
-          target = IFNULL(p_target, target),
-          better = IFNULL(p_better, better),
-          unit = IFNULL(p_unit, unit)
+          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.better', IF(p_better IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.better')), p_better),
+                          '$.unit', IF(p_unit IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.unit')), p_unit))
       WHERE id = v_id;
   END IF;
   INSERT INTO score_point (score_id, created, desk_id, value, note)
   VALUES (v_id, v_at, v_desk, p_value, IFNULL(p_note, ''));
   SET v_pt = LAST_INSERT_ID();
-  UPDATE score s
-    JOIN (SELECT sp.value, sp.note FROM score_point sp
-           WHERE sp.score_id = v_id ORDER BY sp.created DESC, sp.id DESC LIMIT 1) n
-      SET s.value = LEFT(CAST(n.value AS CHAR), 64), s.note = n.note
-    WHERE s.id = v_id;
   CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
   UPDATE activity SET deleted = NULL, updated = v_ts
    WHERE type = 'score' AND id = v_id AND deleted IS NOT NULL;
@@ -310,19 +328,22 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
   SELECT id INTO v_id FROM score
-    WHERE roster_id = v_proj AND desk_id IS NULL AND kpi = p_kpi
+    WHERE desk_id = v_desk AND kpi = p_kpi
     LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
-    INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
-    VALUES (v_ts, NULL, v_proj, p_kpi, '', IFNULL(p_target, ''), '',
-            IFNULL(p_better, 'up'), IFNULL(p_unit, ''));
+    INSERT INTO score (updated, desk_id, kpi, meta)
+    VALUES (v_ts, v_desk, p_kpi,
+            JSON_OBJECT('target', IFNULL(p_target, ''),
+                        'better', IFNULL(p_better, 'up'),
+                        'unit', IFNULL(p_unit, '')));
     SET v_id = LAST_INSERT_ID();
   ELSE
     UPDATE score
       SET updated = v_ts,
-          target = IFNULL(p_target, target),
-          better = IFNULL(p_better, better),
-          unit = IFNULL(p_unit, unit)
+          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.better', IF(p_better IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.better')), p_better),
+                          '$.unit', IF(p_unit IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.unit')), p_unit))
       WHERE id = v_id;
   END IF;
   CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
@@ -365,11 +386,10 @@ BEGIN
   SELECT id INTO v_id FROM seat WHERE desk_id = v_desk FOR UPDATE;
   SET v_id = NULL;
   SELECT s.id, s.desk_id INTO v_id, v_owner FROM score s
+    JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
     JOIN activity a ON a.type = 'score' AND a.id = s.id AND a.deleted IS NULL
-   WHERE s.roster_id = v_proj AND s.kpi = p_kpi
-     AND (s.desk_id IS NULL OR s.value <> ''
-          OR EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id))
-   ORDER BY (s.desk_id IS NULL) DESC, s.updated DESC
+   WHERE s.kpi = p_kpi
+   ORDER BY s.updated DESC
    LIMIT 1 FOR UPDATE;
   IF v_id IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score: no such score on this roster';
@@ -411,18 +431,29 @@ BEGIN
   END IF;
   IF IFNULL(p_kpi, '') <> '' THEN
     SELECT s.id INTO v_id FROM score s
+      JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
       LEFT JOIN activity a ON a.type = 'score' AND a.id = s.id
-     WHERE s.roster_id = v_proj AND s.kpi = p_kpi AND a.deleted IS NULL
-       AND (s.desk_id IS NULL OR s.value <> ''
-            OR EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id))
-     ORDER BY (s.desk_id IS NULL) DESC, s.updated DESC
+     WHERE s.kpi = p_kpi AND a.deleted IS NULL
+       AND (
+         EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id)
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')), '') <> ''
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')), '') <> ''
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit')), '') <> ''
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')), '') <> ''
+       )
+     ORDER BY s.updated DESC
      LIMIT 1;
-    SELECT s.id, s.kpi, s.value AS latest, s.target, s.better, s.unit, s.updated,
-           IFNULL(dn.name, rn.name) AS owner, p.id AS point_id, p.value AS v, p.created AS at,
+    SELECT s.id, s.kpi,
+           (SELECT CAST(sp.value AS CHAR) FROM score_point sp WHERE sp.score_id = s.id
+             ORDER BY sp.created DESC, sp.id DESC LIMIT 1) AS latest,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) AS target,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')) AS better,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit')) AS unit,
+           s.updated,
+           dn.name AS owner, p.id AS point_id, p.value AS v, p.created AS at,
            p.note, pn.name AS desk
       FROM score s
       LEFT JOIN name dn ON dn.id = s.desk_id
-      LEFT JOIN name rn ON rn.id = s.roster_id
       LEFT JOIN (SELECT sp.score_id, sp.id, sp.value, sp.created, sp.note, sp.desk_id
                    FROM score_point sp
                   WHERE sp.score_id = v_id
@@ -432,20 +463,27 @@ BEGIN
      WHERE v_id IS NOT NULL AND s.id = v_id
      ORDER BY p.created DESC, p.id DESC;
   ELSE
-    SELECT s.id, s.kpi, s.value AS latest, s.target, s.better, s.unit, s.updated,
-           IFNULL(dn.name, rn.name) AS owner, p.id AS point_id, p.value AS v, p.created AS at,
+    SELECT s.id, s.kpi,
+           (SELECT CAST(sp.value AS CHAR) FROM score_point sp WHERE sp.score_id = s.id
+             ORDER BY sp.created DESC, sp.id DESC LIMIT 1) AS latest,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) AS target,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')) AS better,
+           JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit')) AS unit,
+           s.updated,
+           dn.name AS owner, p.id AS point_id, p.value AS v, p.created AS at,
            p.note, pn.name AS desk
       FROM score s
+      JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
       LEFT JOIN activity a ON a.type = 'score' AND a.id = s.id
       LEFT JOIN name dn ON dn.id = s.desk_id
-      LEFT JOIN name rn ON rn.id = s.roster_id
       LEFT JOIN (SELECT sp.score_id, sp.id, sp.value, sp.created, sp.note, sp.desk_id,
                         ROW_NUMBER() OVER (PARTITION BY sp.score_id ORDER BY sp.created DESC, sp.id DESC) AS rn
                    FROM score_point sp
-                   JOIN score s2 ON s2.id = sp.score_id AND s2.roster_id = v_proj) p
+                   JOIN score s2 ON s2.id = sp.score_id
+                   JOIN member m2 ON m2.desk_id = s2.desk_id AND m2.name_id = v_proj) p
              ON p.score_id = s.id AND p.rn <= v_n
       LEFT JOIN name pn ON pn.id = p.desk_id
-     WHERE s.roster_id = v_proj AND a.deleted IS NULL
+     WHERE a.deleted IS NULL
      ORDER BY s.kpi, s.id, p.created DESC, p.id DESC;
   END IF;
 END //
@@ -536,20 +574,20 @@ BEGIN
   IF v_desk IS NOT NULL AND p_verb IS NOT NULL AND CHAR_LENGTH(p_verb) > 0 THEN
     SET v_id = (
       SELECT id FROM score
-       WHERE roster_id = v_proj AND desk_id = v_desk AND kpi = 'system'
+       WHERE desk_id = v_desk AND kpi = 'system'
        LIMIT 1
     );
     IF v_id IS NULL THEN
-      INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
+      INSERT INTO score (updated, desk_id, kpi, meta)
       VALUES (
-        v_ts, v_desk, v_proj, 'system', '0', '',
-        'verb count, host milliseconds, mail and todo bytes'
+        v_ts, v_desk, 'system',
+        JSON_OBJECT('note', 'verb count, host milliseconds, mail and todo bytes')
       );
       IF v_dup = 1 THEN
         SET v_dup = 0;
         SET v_id = (
           SELECT id FROM score
-           WHERE roster_id = v_proj AND desk_id = v_desk AND kpi = 'system'
+           WHERE desk_id = v_desk AND kpi = 'system'
            LIMIT 1
         );
       ELSE
@@ -600,15 +638,15 @@ BEGIN
     VALUES (v_id, v_day, v_day_new, DATE(v_now)) AS new
     ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
     UPDATE score
-       SET value = JSON_UNQUOTE(JSON_EXTRACT(v_day_new, '$.n')),
+       SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.n', JSON_EXTRACT(v_day_new, '$.n')),
            updated = v_ts
      WHERE id = v_id;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
--- One office score, kpi wall, hung on Office. Not a desk: desk_id NULL (beta 0.8.0).
--- Each wall /api route is a key: n calls and total host milliseconds.
+-- Evidence for an existing wall score. A score needs a desk, so this does not create one.
+-- Each wall route is a key: n calls and total host milliseconds.
 CREATE PROCEDURE mill_wall_event(
   IN p_route VARCHAR(64),
   IN p_ms    INT,
@@ -629,6 +667,7 @@ BEGIN
   DECLARE v_len INT;
   DECLARE v_msg VARCHAR(128);
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -638,45 +677,28 @@ BEGIN
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
   IF p_route IS NOT NULL AND CHAR_LENGTH(p_route) > 0 THEN
-    SET v_id = (
-      SELECT id FROM score
-       WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'wall'
-       LIMIT 1
-    );
-    IF v_id IS NULL THEN
-      INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-      VALUES (v_ts, NULL, 1, 'wall', '0', '', 'wall route count and host milliseconds');
-      IF v_dup = 1 THEN
-        SET v_dup = 0;
-        SET v_id = (
-          SELECT id FROM score
-           WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'wall'
-           LIMIT 1
-        );
-      ELSE
-        SET v_id = LAST_INSERT_ID();
-        CALL mill_activity_put('score', v_id, v_ts, NULL, 1, NULL, NULL);
-      END IF;
-    END IF;
+    SET v_id = NULL;
+    SELECT id INTO v_id FROM score
+     WHERE kpi = 'wall' AND desk_id IS NOT NULL
+     ORDER BY updated DESC
+     LIMIT 1;
+    IF v_id IS NOT NULL THEN
     SET v_hour = STR_TO_DATE(
       CONCAT('1970-01-01 ', LPAD(HOUR(v_now), 2, '0'), ':00:00'),
       '%Y-%m-%d %H:%i:%s'
     );
     SET v_day = CAST(DATE(v_now) AS DATETIME);
-    SET v_taken = (
-      SELECT taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-    );
-    SET v_hour_old = (
-      SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-    );
+    SET v_taken = NULL;
+    SELECT taken INTO v_taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour;
+    SET v_hour_old = NULL;
+    SELECT value INTO v_hour_old FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour;
     IF v_hour_old IS NULL OR v_taken IS NULL OR v_taken <> DATE(v_now) THEN
       SET v_hour_new = MILL_SCORE_DOC_ADD(NULL, p_route, p_ms, 0, 0);
     ELSE
       SET v_hour_new = MILL_SCORE_DOC_ADD(v_hour_old, p_route, p_ms, 0, 0);
     END IF;
-    SET v_day_old = (
-      SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day
-    );
+    SET v_day_old = NULL;
+    SELECT value INTO v_day_old FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day;
     SET v_day_new = MILL_SCORE_DOC_ADD(v_day_old, p_route, p_ms, 0, 0);
     SET v_len = GREATEST(
       LENGTH(CAST(v_hour_new AS CHAR)),
@@ -686,16 +708,17 @@ BEGIN
       SET v_msg = LEFT(CONCAT('score history exceeds 4096 bytes: ', v_len), 128);
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
     END IF;
+    UPDATE score
+       SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.n', JSON_EXTRACT(v_day_new, '$.n')),
+           updated = v_ts
+     WHERE id = v_id;
     INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
     VALUES (v_id, v_hour, v_hour_new, DATE(v_now)) AS new
     ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
     INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
     VALUES (v_id, v_day, v_day_new, DATE(v_now)) AS new
     ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
-    UPDATE score
-       SET value = JSON_UNQUOTE(JSON_EXTRACT(v_day_new, '$.n')),
-           updated = v_ts
-     WHERE id = v_id;
+    END IF;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
@@ -760,6 +783,7 @@ END //
 
 CREATE PROCEDURE mill_card_score_event(
   IN p_roster_id  BIGINT UNSIGNED,
+  IN p_desk       BIGINT UNSIGNED,
   IN p_kind       VARCHAR(16),
   IN p_lead_min   INT,
   IN p_eta_min    INT,
@@ -784,6 +808,7 @@ BEGIN
   DECLARE v_own INT DEFAULT 0;
   DECLARE v_fail INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
   -- Soft: swallow so a card move never fails for score. Never ROLLBACK the
   -- caller's @mill_req_tx; only end a transaction this call started.
   DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_fail = 1;
@@ -799,29 +824,27 @@ BEGIN
     END IF;
     SET v_ts = MILL_NOW();
     SET v_now = IFNULL(p_now, v_ts);
-    SET v_id = (
-      SELECT id FROM score
-       WHERE roster_id = p_roster_id AND desk_id IS NULL AND kpi = 'cards'
-       LIMIT 1
-    );
-    IF v_fail = 0 AND v_id IS NULL THEN
-      INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note, better, unit)
+    SET v_id = NULL;
+    SELECT id INTO v_id FROM score
+     WHERE desk_id = p_desk AND kpi = 'cards'
+     LIMIT 1;
+    IF v_fail = 0 AND v_id IS NULL AND p_desk IS NOT NULL THEN
+      INSERT INTO score (updated, desk_id, kpi, meta)
       VALUES (
-        v_ts, NULL, p_roster_id, 'cards', '0', '',
-        'cards claimed/started/passed/shipped per day; lead, eta vs actual, doing minutes',
-        'up', 'cards/day'
+        v_ts, p_desk, 'cards',
+        JSON_OBJECT('better', 'up', 'unit', 'cards/day',
+                    'note', 'cards claimed, started, passed and shipped')
       );
       IF v_dup = 1 THEN
         SET v_dup = 0;
-        SET v_id = (
-          SELECT id FROM score
-           WHERE roster_id = p_roster_id AND desk_id IS NULL AND kpi = 'cards'
-           LIMIT 1
-        );
+        SET v_id = NULL;
+        SELECT id INTO v_id FROM score
+         WHERE desk_id = p_desk AND kpi = 'cards'
+         LIMIT 1;
       ELSE
         SET v_id = LAST_INSERT_ID();
         IF v_fail = 0 THEN
-          CALL mill_activity_put('score', v_id, v_ts, NULL, p_roster_id, NULL, NULL);
+          CALL mill_activity_put('score', v_id, v_ts, p_desk, p_roster_id, NULL, NULL);
         END IF;
       END IF;
     END IF;
@@ -831,20 +854,20 @@ BEGIN
         '%Y-%m-%d %H:%i:%s'
       );
       SET v_day = CAST(DATE(v_now) AS DATETIME);
-      SET v_taken = (
-        SELECT taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-      );
-      SET v_hour_old = (
-        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-      );
+      SET v_taken = NULL;
+      SELECT taken INTO v_taken FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_hour;
+      SET v_hour_old = NULL;
+      SELECT value INTO v_hour_old FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_hour;
       IF v_hour_old IS NULL OR v_taken IS NULL OR v_taken <> DATE(v_now) THEN
         SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(NULL, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       ELSE
         SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(v_hour_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       END IF;
-      SET v_day_old = (
-        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day
-      );
+      SET v_day_old = NULL;
+      SELECT value INTO v_day_old FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_day;
       SET v_day_new = MILL_CARD_SCORE_DOC_ADD(v_day_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       SET v_len = GREATEST(
         LENGTH(CAST(v_hour_new AS CHAR)),
@@ -859,7 +882,7 @@ BEGIN
         ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
         SET v_ship = CAST(IFNULL(JSON_UNQUOTE(JSON_EXTRACT(v_day_new, '$.shipped')), '0') AS SIGNED);
         UPDATE score
-           SET value = LEFT(CAST(v_ship AS CHAR), 64),
+           SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.n', v_ship),
                updated = v_ts
          WHERE id = v_id;
       END IF;

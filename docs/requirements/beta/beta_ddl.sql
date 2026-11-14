@@ -365,39 +365,34 @@ CREATE TABLE IF NOT EXISTS hold (
   CONSTRAINT fk_hold_res  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- card 1212: one row per score per viewer desk. A wall read does not write this.
-CREATE TABLE IF NOT EXISTS score_view (
-  kpi        VARCHAR(64) NOT NULL,
-  viewer_id  BIGINT UNSIGNED NOT NULL,
-  n          INT UNSIGNED NOT NULL DEFAULT 0,
-  last_seen  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (kpi, viewer_id),
-  KEY idx_viewer (viewer_id, last_seen)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
+-- One score is one desk and one kpi. The row is an activity.
+-- meta holds markup such as target, better, and unit. It is not searched.
+-- The latest number and remark are the newest score_point, not columns here.
+-- measure names that used to be seeded here: mill-wall.ticks, mill-desk.idle_verbs, mill-desk.hint_drop.
 CREATE TABLE IF NOT EXISTS score (
   type        ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'score',
   id          BIGINT UNSIGNED        NOT NULL AUTO_INCREMENT,
   created     DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated     DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  desk_id          BIGINT UNSIGNED        NULL,   -- BETA: NULL = an office-wide score (main wrote roster id 2, Admin, here)
-  -- Card roster required. No DEFAULT: a missed insert must fail.
-  roster_id   BIGINT UNSIGNED        NOT NULL,
-  kpi              VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  value            VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  target           VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  note             VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  -- 0.7.5 series: which way is better, and the unit shown with each point.
-  better      ENUM('up','down') NOT NULL DEFAULT 'up',
-  unit        VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  desk_id     BIGINT UNSIGNED        NOT NULL,
+  kpi         VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
+  meta        JSON                   NULL,
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
-  desk_key    BIGINT UNSIGNED AS (IFNULL(desk_id, 0)) STORED,   -- BETA: one office-wide row per kpi (NULL is not unique)
-  UNIQUE KEY idx_score_who (roster_id, desk_key, kpi),
-  KEY idx_desk (desk_id),
-  CONSTRAINT fk_score_roster FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE,
-  -- card 1200: no ON UPDATE CASCADE. desk_id feeds stored desk_key, and MySQL refuses the cascade.
-  CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT
+  UNIQUE KEY idx_desk_kpi (desk_id, kpi),
+  CONSTRAINT fk_score_desk FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- One row per score per viewer desk. A wall read does not write this.
+-- score_id is the score. viewer_id is the desk that opened it.
+CREATE TABLE IF NOT EXISTS score_view (
+  score_id   BIGINT UNSIGNED NOT NULL,
+  viewer_id  BIGINT UNSIGNED NOT NULL,
+  n          INT UNSIGNED NOT NULL DEFAULT 0,
+  last_seen  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (score_id, viewer_id),
+  KEY idx_viewer (viewer_id, last_seen),
+  CONSTRAINT fk_score_view_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 0.7.5: one numeric point of a score series (#288 step 1). The score row is the
@@ -433,28 +428,8 @@ CREATE TABLE IF NOT EXISTS score_evidence (
   CONSTRAINT fk_score_evidence_score FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- Waste readings filled from the debug logs. kpi is the label string, not a name row. Target 0.
--- desk_id NULL (BETA: the office; main used 2, Admin). roster_id = Office. activity row matches score.id.
--- System SCORE is one row per desk (kpi system). Its evidence document holds verb counts, milliseconds, and mail and todo bytes.
-INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-SELECT CURRENT_TIMESTAMP(6), NULL, 1, 'mill-wall.ticks', '', '0',
-       'server complexity: api.mill.heartbeat per desk-hour while sitting; target 0'
-  FROM DUAL
- WHERE NOT EXISTS (SELECT 1 FROM score WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'mill-wall.ticks');
-INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-SELECT CURRENT_TIMESTAMP(6), NULL, 1, 'mill-desk.idle_verbs', '', '0',
-       'prompt complexity: mill inbox/todo per desk-hour with no HINT; target 0'
-  FROM DUAL
- WHERE NOT EXISTS (SELECT 1 FROM score WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'mill-desk.idle_verbs');
-INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note)
-SELECT CURRENT_TIMESTAMP(6), NULL, 1, 'mill-desk.hint_drop', '', '0',
-       'sit FIFO overflow: mill-perf op=ws.recv drop=1 in window; target 0'
-  FROM DUAL
- WHERE NOT EXISTS (SELECT 1 FROM score WHERE roster_id = 1 AND desk_id IS NULL AND kpi = 'mill-desk.hint_drop');
-INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act, bytes)
-SELECT 'score', s.id, s.created, s.updated, s.desk_id, s.roster_id, 'create', NULL
-FROM score s
-WHERE s.kpi IN ('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop');
+-- A score needs a desk, so the old office rows are not seeded here.
+-- A system score is one row per desk (kpi system). Its evidence document holds verb counts.
 
 -- One human. They hold the bearer. The host stores only the hash.
 -- directory_sub is the directory or IAM subject, when that door is on.
@@ -965,28 +940,6 @@ BEGIN
   SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
   IF v_type IS NOT NULL AND v_type <> 'roster' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'doing.roster_id must name a roster';
-  END IF;
-END //
-
-CREATE TRIGGER score_roster_type_ins BEFORE INSERT ON score
-FOR EACH ROW
-BEGIN
-  DECLARE v_type VARCHAR(16);
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
-  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
-  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score.roster_id must name a roster';
-  END IF;
-END //
-
-CREATE TRIGGER score_roster_type_upd BEFORE UPDATE ON score
-FOR EACH ROW
-BEGIN
-  DECLARE v_type VARCHAR(16);
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_type = NULL;
-  SELECT type INTO v_type FROM name WHERE id = NEW.roster_id;
-  IF v_type IS NOT NULL AND v_type <> 'roster' THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'score.roster_id must name a roster';
   END IF;
 END //
 

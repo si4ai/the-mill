@@ -98,7 +98,7 @@ def desk(cn, monkeypatch):
                 cur.close()
 
         def scores():
-            return rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s ORDER BY kpi", (name,))
+            return rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s ORDER BY s.kpi", (name,))
 
         def reconcile(live):
             return rpc._h_tw_reconcile(SimpleNamespace(_cn=cn), {"live": live}, "Office", name)

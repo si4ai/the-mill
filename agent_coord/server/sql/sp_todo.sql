@@ -305,7 +305,7 @@ BEGIN
        AND JSON_EXTRACT(CAST(IFNULL(NULLIF(p_body, ''), '{}') AS JSON), '$.started_at') IS NOT NULL
        AND (v_old_doc IS NULL OR v_old_doc = ''
             OR JSON_EXTRACT(CAST(IFNULL(NULLIF(v_old_doc, ''), '{}') AS JSON), '$.started_at') IS NULL) THEN
-      CALL mill_card_score_event(v_proj, 'started', NULL, NULL, NULL, NULL, v_ts);
+      CALL mill_card_score_event(v_proj, v_desk, 'started', NULL, NULL, NULL, NULL, v_ts);
     END IF;
     SET @mill_req_tx = v_saved;
   END;

@@ -618,7 +618,7 @@ def measure_book(cn) -> dict[str, int]:
     out: dict[str, int] = {}
     try:
         cur.execute(
-            "SELECT s.kpi FROM score s WHERE s.roster_id=1"
+            "SELECT s.kpi FROM score s JOIN member m ON m.desk_id = s.desk_id WHERE m.name_id=1"
         )
         wanted = {r[0] for r in cur.fetchall() if r and r[0] in BOOK_SQL}
         for kpi in wanted:
@@ -762,7 +762,7 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
         try:
             cur = cn.cursor()
             try:
-                cur.execute("SELECT s.kpi FROM score s WHERE s.roster_id=1")
+                cur.execute("SELECT s.kpi FROM score s JOIN member m ON m.desk_id = s.desk_id WHERE m.name_id=1")
                 wanted = {r[0] for r in cur.fetchall() if r and r[0] in BOOK_PERF}
             finally:
                 cur.close()
@@ -797,21 +797,8 @@ def publish(counts: dict[str, Any]) -> dict[str, Any]:
 
 
 def _publish_sql(cn, counts: dict[str, Any]) -> None:
-    """Last resort: update the existing office rows (roster id 1, desk NULL; #722, beta 0.8.0)."""
-    cur = cn.cursor()
-    try:
-        for kpi in (KPI_TICKS, KPI_IDLE, KPI_DROP):
-            if kpi not in counts or counts.get(kpi) is None:
-                continue
-            val = str(int(counts[kpi]))
-            cur.execute(
-                "UPDATE score SET value=%s, target=%s, updated=CURRENT_TIMESTAMP(6) "
-                "WHERE kpi=%s AND roster_id=1 AND desk_id IS NULL",
-                (val, TARGET, kpi),
-            )
-        cn.commit()
-    finally:
-        cur.close()
+    """A score needs a desk. This fallback has none, so it does not write a row."""
+    return None
 
 
 def tick(*, dest: Path | None = None, window_s: int = WINDOW_S) -> dict[str, Any]:

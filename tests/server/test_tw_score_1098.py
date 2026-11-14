@@ -49,7 +49,7 @@ def task(cn, monkeypatch):
     def last_run():
         got = rows(
             cn,
-            "SELECT value FROM score JOIN name ON name.id=score.desk_id"
+            "SELECT JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id"
             " WHERE name.name=%s AND kpi='doing.task.last_run'",
             (desk,),
         )

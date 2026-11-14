@@ -121,9 +121,13 @@ def test_score_upsert_revives_soft_deleted(cn) -> None:
     out = score.upsert(cn, "srv_proj", "srv_desk", "kpi_revive", "9", "10", "revived")[0]
     assert int(out["id"]) == sid
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is None
-    assert scalar(cn, "SELECT value FROM score WHERE id=%s", (sid,)) == "9"
-    assert scalar(cn, "SELECT target FROM score WHERE id=%s", (sid,)) == "10"
-    assert scalar(cn, "SELECT note FROM score WHERE id=%s", (sid,)) == "revived"
+    assert scalar(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reading')) FROM score WHERE id=%s", (sid,)) == "9"
+    assert scalar(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')) FROM score WHERE id=%s", (sid,)) == "10"
+    assert scalar(
+        cn,
+        "SELECT note FROM score_point WHERE score_id=%s ORDER BY id DESC LIMIT 1",
+        (sid,),
+    ) == "revived"
     assert scalar(cn, "SELECT COUNT(*) FROM score_evidence WHERE score_id=%s", (sid,)) == 1
     # mill_activity_put alone must not clear deleted (mail/todo safety): re-stamp, put, still deleted
     _exec(
@@ -135,7 +139,7 @@ def test_score_upsert_revives_soft_deleted(cn) -> None:
         cn,
         "CALL mill_activity_put('score', %s, MILL_NOW(), "
         "(SELECT desk_id FROM score WHERE id=%s), "
-        "(SELECT roster_id FROM score WHERE id=%s), NULL, NULL)",
+        "(SELECT roster_id FROM activity WHERE type='score' AND id=%s), NULL, NULL)",
         (sid, sid, sid),
     )
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is not None

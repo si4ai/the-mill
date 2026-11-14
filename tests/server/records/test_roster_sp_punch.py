@@ -97,12 +97,15 @@ def test_mail_list_filters_letter_only(cn) -> None:
     assert orphan not in ids2
 
 def test_todo_score_delete_read_card(cn) -> None:
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, ("affil_del", "roster"), ("affil_del_d", "desk"))
+    seed_member(cn, "affil_del", "affil_del_d")
     tid = int(todo.insert(cn, "affil_del", "affil_del_d", "open", "card")[0]["id"])
     sid = int(score.upsert(cn, "affil_del", "affil_del_d", "k", "1", "", "")[0]["id"])
     office = scalar(cn, "SELECT id FROM name WHERE type = 'roster' AND name='Office'")
     t_aff = scalar(cn, "SELECT roster_id FROM todo WHERE id=%s", (tid,))
-    s_aff = scalar(cn, "SELECT roster_id FROM score WHERE id=%s", (sid,))
+    s_aff = scalar(cn, "SELECT m.name_id FROM member m JOIN score s ON s.desk_id = m.desk_id WHERE s.id=%s", (sid,))
     cur = cn.cursor()
     cur.execute(
         "UPDATE activity SET roster_id=%s WHERE type='todo' AND id=%s",
