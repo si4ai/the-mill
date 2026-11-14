@@ -80,13 +80,31 @@ def test_scores_skip_inactive_and_wall_reads_do_not_count():
         assert wall["desks"][0]["scores"][0]["rollup"]["median"] is None
 
         cur = cn.cursor()
+        cur.execute("SELECT COUNT(*) FROM score")
+        assert cur.fetchone()[0] == 0
         cur.execute("SELECT COUNT(*) FROM score_view")
         assert cur.fetchone()[0] == 0
         cur.close()
         read_scores(cn, "7d", viewer="desk-a")
+        cur = cn.cursor()
+        cur.execute("SELECT COUNT(*) FROM score")
+        assert cur.fetchone()[0] == 0, "a read must not create a score for the viewer"
+        cur.execute(
+            "INSERT INTO score (desk_id, kpi) VALUES (%s, 'oldest_unread_ask_age_ms')",
+            (ids["desk-a"],),
+        )
+        cn.commit()
+        cur.close()
+        read_scores(cn, "7d", viewer="desk-a")
         read_scores(cn, "7d", viewer="desk-a")
         cur = cn.cursor()
-        cur.execute("SELECT n FROM score_view WHERE viewer_id=%s LIMIT 1", (ids["desk-a"],))
+        cur.execute("SELECT COUNT(*) FROM score")
+        assert cur.fetchone()[0] == 1
+        cur.execute(
+            "SELECT n FROM score_view v JOIN score s ON s.id = v.score_id "
+            "WHERE v.viewer_id=%s AND s.kpi='oldest_unread_ask_age_ms'",
+            (ids["desk-a"],),
+        )
         assert cur.fetchone()[0] == 2
         cur.close()
     finally:

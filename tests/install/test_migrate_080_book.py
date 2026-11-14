@@ -441,6 +441,10 @@ def test_ids_rows_and_transforms(main_book):
             # card 1207: a doing row's activity row goes with it unless a transition or tree node names it.
             kept_doing = {r["id"] for r in a if r["type"] == "doing"}
             b = [r for r in b if r["type"] != "doing" or r["id"] in kept_doing]
+            # card 1214: a score that cannot be kept takes its activity row with it.
+            kept_scores = {r["id"] for r in _rows_as_dicts(after, "score")}
+            b = [r for r in b if r["type"] != "score" or r["id"] in kept_scores]
+            a = [r for r in a if r["type"] != "score" or r["id"] in kept_scores]
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -532,6 +536,76 @@ def _checksums(cn):
 def _routines(cn):
     return _q(cn, "SELECT ROUTINE_TYPE, ROUTINE_NAME, SHA2(IFNULL(ROUTINE_DEFINITION, ''), 256)"
                   " FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() ORDER BY 1, 2")
+
+
+def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
+    """An upgraded office keeps a one-desk series, finishes a name collision, and says what it dropped."""
+    from agent_coord.install import migrate
+
+    seeded = seed(main_book)
+    migrate.apply_080(main_book)
+    desk_a, desk_b = seeded["desks"][0], seeded["desks"][1]
+    roster_b = seeded["rosters"][0]
+    cur = main_book.cursor()
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_ins BEFORE INSERT ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_upd BEFORE UPDATE ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "INSERT INTO score (desk_id, roster_id, kpi) VALUES (NULL, 1, 'one-desk'), "
+        "(NULL, 1, 'no-desk'), (NULL, 1, 'many-desks'), "
+        "(%s, 1, 'same-name'), (%s, %s, 'same-name')",
+        (desk_a, desk_a, roster_b),
+    )
+    cur.execute("SELECT id, kpi FROM score WHERE kpi IN ('one-desk', 'no-desk', 'many-desks', 'same-name')")
+    ids = {kpi: int(i) for i, kpi in cur.fetchall()}
+    cur.executemany(
+        "INSERT INTO score_point (score_id, desk_id, value) VALUES (%s, %s, %s)",
+        [
+            (ids["one-desk"], desk_a, 1),
+            (ids["one-desk"], desk_a, 2),
+            (ids["many-desks"], desk_a, 1),
+            (ids["many-desks"], desk_b, 2),
+            (ids["same-name"], desk_a, 3),
+        ],
+    )
+    main_book.commit()
+    cur.close()
+    applied = migrate.apply_1214(main_book)
+    text = "\n".join(applied)
+    assert "migrate_1214:dropped trigger score_roster_type_ins" in text
+    assert "migrate_1214:dropped trigger score_roster_type_upd" in text
+    assert f"migrate_1214:attached id={ids['one-desk']} kpi=one-desk desk={desk_a} points=2" in text
+    assert f"reason=no-desk" in text and f"id={ids['no-desk']}" in text
+    assert f"reason=many-desks" in text and f"id={ids['many-desks']}" in text
+    assert "kpi=same-name" in text and "migrate_1214:merged" in text
+    cur = main_book.cursor()
+    cur.execute(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() "
+        "AND TRIGGER_NAME IN ('score_roster_type_ins', 'score_roster_type_upd')"
+    )
+    assert cur.fetchall() == []
+    cur.execute("SELECT desk_id FROM score WHERE id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == desk_a
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == 2
+    cur.execute("SELECT COUNT(*) FROM score WHERE kpi = 'same-name'")
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT id FROM score WHERE kpi = 'same-name'")
+    kept = int(cur.fetchone()[0])
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (kept,))
+    assert cur.fetchone()[0] == 1
+    cur.execute(
+        "INSERT INTO score (desk_id, kpi) VALUES (%s, 'after-upgrade')",
+        (desk_a,),
+    )
+    main_book.commit()
+    cur.close()
+    assert migrate.apply_1214(main_book) == []
 
 
 def test_second_run_is_a_no_op(main_book):

@@ -2453,13 +2453,155 @@ def apply_1212(cn) -> list[str]:
         cur.close()
 
 
+def _drop_score_triggers(cur) -> list[str]:
+    """The retired roster triggers still name score.roster_id. A fresh script drops them. An upgrade must too."""
+    cur.execute(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS "
+        "WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME IN "
+        "('score_roster_type_ins', 'score_roster_type_upd')"
+    )
+    names = [str(r[0]) for r in cur.fetchall()]
+    for name in names:
+        cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
+    return [f"migrate_1214:dropped trigger {name}" for name in names]
+
+
+def _delete_score_row(cur, sid: int) -> None:
+    """Remove one score and the rows that hang on it. The activity row goes with the score."""
+    if _table_exists(cur, "score_evidence"):
+        cur.execute("DELETE FROM score_evidence WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "score_point"):
+        cur.execute("DELETE FROM score_point WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "score_view") and _column_exists(cur, "score_view", "score_id"):
+        cur.execute("DELETE FROM score_view WHERE score_id = %s", (sid,))
+    if _table_exists(cur, "watcher"):
+        cur.execute("DELETE FROM watcher WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "transition"):
+        cur.execute(
+            "DELETE FROM transition WHERE activity_type = 'score' AND activity_id = %s",
+            (sid,),
+        )
+    if _table_exists(cur, "tree"):
+        cur.execute("DELETE FROM tree WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "label"):
+        cur.execute("DELETE FROM label WHERE type = 'score' AND id = %s", (sid,))
+    if _table_exists(cur, "activity"):
+        cur.execute("DELETE FROM activity WHERE type = 'score' AND id = %s", (sid,))
+    cur.execute("DELETE FROM score WHERE id = %s", (sid,))
+
+
+def _merge_score_row(cur, loser: int, keeper: int) -> int:
+    """Move points and evidence onto the keeper. A timestamp the keeper already has is dropped."""
+    dropped_slots = 0
+    if _table_exists(cur, "score_evidence"):
+        cur.execute(
+            "SELECT COUNT(*) FROM score_evidence e "
+            "JOIN score_evidence k ON k.score_id = %s AND k.`timestamp` = e.`timestamp` "
+            "WHERE e.score_id = %s",
+            (keeper, loser),
+        )
+        dropped_slots = int((cur.fetchone() or (0,))[0] or 0)
+        cur.execute(
+            "DELETE e FROM score_evidence e "
+            "JOIN score_evidence k ON k.score_id = %s AND k.`timestamp` = e.`timestamp` "
+            "WHERE e.score_id = %s",
+            (keeper, loser),
+        )
+        cur.execute(
+            "UPDATE score_evidence SET score_id = %s WHERE score_id = %s",
+            (keeper, loser),
+        )
+    if _table_exists(cur, "score_point"):
+        cur.execute(
+            "UPDATE score_point SET score_id = %s WHERE score_id = %s",
+            (keeper, loser),
+        )
+    _delete_score_row(cur, loser)
+    return dropped_slots
+
+
+def _seat_holds(cur, desk_id: int) -> bool:
+    if not _table_exists(cur, "seat"):
+        return True
+    cur.execute("SELECT 1 FROM seat WHERE desk_id = %s", (desk_id,))
+    return cur.fetchone() is not None
+
+
+def _cleanup_score_rows(cur) -> list[str]:
+    """One desk and one kpi. Keep a series whose points name one desk. Report every series that cannot."""
+    notes: list[str] = []
+    cur.execute("SELECT id, kpi FROM score WHERE desk_id IS NULL")
+    pending = [(int(r[0]), str(r[1] or "")) for r in cur.fetchall()]
+    for sid, kpi in pending:
+        desks: list[int] = []
+        n_pt = 0
+        if _table_exists(cur, "score_point"):
+            cur.execute(
+                "SELECT DISTINCT desk_id FROM score_point WHERE score_id = %s AND desk_id IS NOT NULL",
+                (sid,),
+            )
+            desks = [int(r[0]) for r in cur.fetchall()]
+            cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (sid,))
+            n_pt = int((cur.fetchone() or (0,))[0] or 0)
+        if len(desks) == 1 and _seat_holds(cur, desks[0]):
+            cur.execute(
+                "SELECT id FROM score WHERE desk_id = %s AND kpi = %s AND id <> %s LIMIT 1",
+                (desks[0], kpi, sid),
+            )
+            other = cur.fetchone()
+            if other:
+                slots = _merge_score_row(cur, sid, int(other[0]))
+                notes.append(
+                    f"migrate_1214:merged id={sid} into={int(other[0])} kpi={kpi} "
+                    f"desk={desks[0]} evidence_slots_dropped={slots}"
+                )
+            else:
+                cur.execute("UPDATE score SET desk_id = %s WHERE id = %s", (desks[0], sid))
+                notes.append(f"migrate_1214:attached id={sid} kpi={kpi} desk={desks[0]} points={n_pt}")
+            continue
+        if len(desks) == 1:
+            reason = "no-seat"
+        elif len(desks) == 0:
+            reason = "no-desk"
+        else:
+            reason = "many-desks"
+        who = ",".join(str(d) for d in desks) or "-"
+        notes.append(
+            f"migrate_1214:dropped id={sid} kpi={kpi} reason={reason} points={n_pt} desks={who}"
+        )
+        _delete_score_row(cur, sid)
+    cur.execute(
+        "SELECT desk_id, kpi FROM score WHERE desk_id IS NOT NULL GROUP BY desk_id, kpi HAVING COUNT(*) > 1"
+    )
+    groups = [(int(r[0]), str(r[1] or "")) for r in cur.fetchall()]
+    for desk, kpi in groups:
+        cur.execute(
+            "SELECT id FROM score WHERE desk_id = %s AND kpi = %s ORDER BY updated DESC, id DESC",
+            (desk, kpi),
+        )
+        ids = [int(r[0]) for r in cur.fetchall()]
+        keeper = ids[0]
+        for loser in ids[1:]:
+            slots = _merge_score_row(cur, loser, keeper)
+            notes.append(
+                f"migrate_1214:merged id={loser} into={keeper} kpi={kpi} "
+                f"desk={desk} evidence_slots_dropped={slots}"
+            )
+    return notes
+
+
 def apply_1214(cn) -> list[str]:
-    """Card 1214: a score is one desk and one kpi. meta holds the markup. Views point at score.id."""
+    """Card 1214: a score is one desk and one kpi. meta holds the markup. Views point at score.id.
+
+    A series with no desk is kept when its points name one desk. Anything else is removed and named
+    in the returned lines, so an upgrade says what it could not keep.
+    """
     cur = cn.cursor()
     try:
         if not _table_exists(cur, "score"):
             return []
-        changed = False
+        notes = _drop_score_triggers(cur)
+        changed = bool(notes)
         if _column_exists(cur, "score", "roster_id"):
             if not _column_exists(cur, "score", "meta"):
                 cur.execute("ALTER TABLE score ADD COLUMN meta JSON NULL")
@@ -2472,15 +2614,7 @@ def apply_1214(cn) -> list[str]:
                     "UPDATE score SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), "
                     + ", ".join(sets) + ")"
                 )
-            if _table_exists(cur, "score_evidence"):
-                cur.execute(
-                    "DELETE e FROM score_evidence e JOIN score s ON s.id = e.score_id WHERE s.desk_id IS NULL"
-                )
-            if _table_exists(cur, "score_point"):
-                cur.execute(
-                    "DELETE p FROM score_point p JOIN score s ON s.id = p.score_id WHERE s.desk_id IS NULL"
-                )
-            cur.execute("DELETE FROM score WHERE desk_id IS NULL")
+            notes.extend(_cleanup_score_rows(cur))
             _drop_fk(cur, "score", "fk_score_roster")
             if _index_exists(cur, "score", "idx_score_who"):
                 cur.execute("ALTER TABLE score DROP INDEX idx_score_who")
@@ -2524,7 +2658,9 @@ def apply_1214(cn) -> list[str]:
             )
             changed = True
         cn.commit()
-        return ["migrate_1214:score"] if changed else []
+        if changed:
+            notes.append("migrate_1214:score")
+        return notes
     except Exception:
         cn.rollback()
         raise
