@@ -66,11 +66,13 @@
   var WINDOW_Q = { today: "1d", "7d": "7d", "30d": "30d" };
   var FRESH_MS = { agents: 20000, names: 300000, todos: 30000, mail: 30000, labels: 60000, scores: 30000, holds: 30000, rooms: 120000, trees: 120000, events: 30000, runs: 60000 };
   var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-", RP_CLUSTER_KEY = "rd-replay-cluster-";
+  /* Score tab: which area groups the reader opened or shut ({mail: true, cards: false}). */
+  var SCORE_OPEN_KEY = "rd-score-open";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, replay: null, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
   var gotAt = {}, inflight = {};
-  var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false };
+  var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false, scoreOpen: loadScoreOpen() };
 
   function load(k, d) { try { var v = localStorage.getItem(k); return v == null || v === "" ? d : v; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
@@ -79,6 +81,11 @@
     var p = null;
     try { p = JSON.parse(sessionStorage.getItem("mill-rail-pick") || "null"); } catch (e) { p = null; }
     return p && p.kind && p.id ? { kind: String(p.kind), id: String(p.id) } : null;
+  }
+  function loadScoreOpen() {
+    var o = {};
+    try { o = JSON.parse(localStorage.getItem(SCORE_OPEN_KEY) || "{}") || {}; } catch (e) { o = {}; }
+    return o && typeof o === "object" && !Array.isArray(o) ? o : {};
   }
   function loadRange() {
     var r = {};
@@ -272,7 +279,7 @@
     m.todo = R.todo(b, { selected: state.sel.todo });
     m.mail = R.mail(b, { selected: state.sel.mail });
     m.priorities = R.priorities(b, { selected: state.sel.priorities });
-    m.score = R.score(b, { selected: state.sel.score, sortCol: state.scoreSort && state.scoreSort.col, sortDir: state.scoreSort && state.scoreSort.dir });
+    m.score = R.score(b, { selected: state.sel.score, sortCol: state.scoreSort && state.scoreSort.col, sortDir: state.scoreSort && state.scoreSort.dir, open: state.scoreOpen });
     m.collab = R.collab(b, { selected: state.sel.collab });
     return m;
   }
@@ -1471,6 +1478,16 @@
       scopeChanged();
       return;
     }
+    if ((el = closest(t, "[data-rd-score-area]"))) {
+      var area = el.getAttribute("data-rd-score-area");
+      state.scoreOpen[area] = el.getAttribute("aria-expanded") !== "true";
+      save(SCORE_OPEN_KEY, JSON.stringify(state.scoreOpen));
+      last.pane = null;
+      paint();
+      var back = root.querySelector('.rd-sc-table [data-rd-score-area="' + area + '"]');
+      if (back && el.tagName === "TH" && back.focus) back.focus();
+      return;
+    }
     if ((el = closest(t, "[data-rd-score-sort]"))) {
       var col = el.getAttribute("data-rd-score-sort");
       if (state.scoreSort && state.scoreSort.col === col) state.scoreSort.dir = state.scoreSort.dir === "desc" ? "asc" : "desc";
@@ -1541,7 +1558,13 @@
     if ((el = closest(t, "[data-rd-pick]"))) { state.sel[state.tab] = el.getAttribute("data-rd-pick"); paint(); }
   });
   root.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter" && ev.target && ev.target.getAttribute && ev.target.getAttribute("data-rd-pick")) ev.target.click();
+    var tg = ev.target;
+    if (!tg || !tg.getAttribute) return;
+    if (ev.key === "Enter" && tg.getAttribute("data-rd-pick")) tg.click();
+    else if ((ev.key === "Enter" || ev.key === " ") && tg.tagName !== "BUTTON" && (tg.getAttribute("data-rd-score-area") || tg.getAttribute("data-rd-score-sort"))) {
+      ev.preventDefault();
+      tg.click();
+    }
   });
 
   /* ---- start ---- */

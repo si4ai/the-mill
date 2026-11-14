@@ -1,6 +1,7 @@
-"""Score tab matrix: age from the anchor, median tint, a null reason, and sort."""
+"""Score tab matrix: age from the anchor, median tint, a null reason, sort, and area groups."""
 from __future__ import annotations
 
+import ast
 import json
 import shutil
 import subprocess
@@ -8,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
-RD = Path(__file__).resolve().parents[2] / "agent_coord" / "web" / "wall_ui" / "default" / "rd"
+REPO = Path(__file__).resolve().parents[2]
+RD = REPO / "agent_coord" / "web" / "wall_ui" / "default" / "rd"
+PART1_PY = REPO / "agent_coord" / "server" / "records" / "score_part1.py"
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node not installed")
 
@@ -57,6 +60,16 @@ console.log(JSON.stringify({
     hold: R.scoreArea('hold_open_age_ms'),
     other: R.scoreArea('brand_new_metric_n')
   },
+  groups: m && m.areas.map(a => ({ key: a.key, open: a.open, n: a.cols.length })),
+  shown: m && m.shown.map(s => s.summary ? '@' + s.area : s.col.name),
+  openDefault: m && m.openDefault,
+  byArea: m && m.rows.reduce((a, r) => {
+    a[r.desk] = {};
+    Object.keys(r.byArea).forEach(k => { const x = r.byArea[k]; a[r.desk][k] = [x.worse, x.far, x.filled, x.text, x.tint]; });
+    return a;
+  }, {}),
+  openMax: R.SCORE_OPEN_MAX,
+  areaOfName: (JSON.parse(process.argv[6] || '[]')).reduce((a, n) => { a[n] = R.scoreArea(n); return a; }, {}),
   utcMs: R.utc('2026-11-11 19:59:00'),
   html,
   head,
@@ -65,9 +78,10 @@ console.log(JSON.stringify({
 """
 
 
-def score(payload: dict, opts: dict | None = None, scope: dict | None = None) -> dict:
+def score(payload: dict, opts: dict | None = None, scope: dict | None = None, names: list | None = None) -> dict:
     out = subprocess.run(
-        [NODE, "-e", SCRIPT, "--", str(RD), json.dumps(payload), NOW, json.dumps(opts or {}), json.dumps(scope or {"rosters": ["Office"], "range": "7d", "label": "Office"})],
+        [NODE, "-e", SCRIPT, "--", str(RD), json.dumps(payload), NOW, json.dumps(opts or {}),
+         json.dumps(scope or {"rosters": ["Office"], "range": "7d", "label": "Office"}), json.dumps(names or [])],
         capture_output=True, text=True, check=False, timeout=30,
     )
     if out.returncode:
@@ -234,7 +248,7 @@ def test_labels_and_areas_cover_renames_and_unknowns():
     assert got["labels"]["unknown"] == "Brand new metric"
     assert got["areasOf"] == {"unread": "mail", "claimed": "cards", "hold": "holds", "other": "other"}
     area_keys = [a[0] for a in got["areas"]]
-    assert area_keys == ["mail", "cards", "holds"]
+    assert area_keys == ["mail", "cards", "holds", "wakes"]
     assert "oldest_unread_ask_age_ms" in got["areas"][0][1]
 
 
@@ -256,3 +270,136 @@ def test_detail_dedupes_items_and_view_is_csp_safe():
     assert "Today" not in got["head"]
     # hold items from builder are hold ids, mail items are letter ids
     assert "mail-11" in got["html"] and 'data-rd-go="mail"' in got["html"]
+
+
+# score part 1 (card 1212): the names GET /api/pov?part=scores serves, and the area each paints under.
+PART1 = {
+    "oldest_unread_ask_age_ms": "mail",
+    "unanswered_required_n": "mail",
+    "unanswered_fyi_n": "mail",
+    "ask_to_answer_ms": "mail",
+    "outgoing_unanswered_n": "mail",
+    "claimed_no_pass_age_ms": "cards",
+    "claimed_age_ms": "cards",
+    "claimed_claimant_inactive_n": "cards",
+    "claimed_past_eta_n": "cards",
+    "shipped_unaccepted_age_ms": "cards",
+    "hold_open_age_ms": "holds",
+    "force_taken_n": "holds",
+    "stale_share": "wakes",
+    "ended_no_pass_or_mail_n": "wakes",
+    "to_done_ms": "cards",
+    "stale_done_share": "wakes",
+    "hint_no_turn_n": "wakes",
+}
+
+
+def served_names() -> list[str]:
+    """SCORE_NAMES from the server when this tree has it, else the part 1 list above."""
+    if PART1_PY.exists():
+        for node in ast.walk(ast.parse(PART1_PY.read_text())):
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "SCORE_NAMES" for t in node.targets):
+                return [ast.literal_eval(e) for e in node.value.elts]
+    return list(PART1)
+
+
+def big(names: list[str], desks: int = 6) -> dict:
+    out = []
+    for i in range(desks):
+        rows = []
+        for j, n in enumerate(names):
+            if n.endswith("_ms"):
+                rows.append(entry(n, anchor_at=f"2026-11-1{1 + (i + j) % 3} 0{i}:00:00"))
+            elif n.endswith("_share"):
+                rows.append(entry(n, value=(i + 1) / 10, num=i + 1, den=10))
+            else:
+                rows.append(entry(n, value=(i * (j + 1)) % 7))
+        out.append({"desk": f"desk-{i}", "roster": "the-mill" if i < 3 else "garden", "scores": rows})
+    return {"window": "7d", "desks": out}
+
+
+def test_every_part1_name_has_a_real_area():
+    names = served_names()
+    assert len(names) >= 17
+    got = score(office(), names=names + ["brand_new_metric_n", "wake_lag_ms", "mail_bounce_n"])
+    for n in names:
+        assert got["areaOfName"][n] != "other", n
+        if n in PART1:
+            assert got["areaOfName"][n] == PART1[n], n
+    # an unseen name joins its prefix family, or other when it has none
+    assert got["areaOfName"]["brand_new_metric_n"] == "other"
+    assert got["areaOfName"]["wake_lag_ms"] == "wakes"
+    assert got["areaOfName"]["mail_bounce_n"] == "mail"
+
+
+def test_many_scores_open_collapsed_with_worse_counts():
+    names = served_names() + ["brand_new_metric_n"]
+    got = score(big(names))
+    assert len(got["cols"]) == len(names) > got["openMax"]
+    assert got["openDefault"] is False
+    keys = [g["key"] for g in got["groups"]]
+    assert keys == ["mail", "cards", "holds", "wakes", "other"]
+    assert all(g["open"] is False for g in got["groups"])
+    # shut: one summary column per area, nothing per score
+    assert got["shown"] == ["@mail", "@cards", "@holds", "@wakes", "@other"]
+    # the summary counts the cells tinted worse or far in that area
+    for desk, areas in got["byArea"].items():
+        for area, (worse, far, filled, text, tint) in areas.items():
+            mine = [c for k, c in got["cells"].items() if k.startswith(desk + "|") and k.split("|", 1)[1] in
+                    [n for n in names if (PART1.get(n) or ("other" if n == "brand_new_metric_n" else "wakes")) == area]]
+            assert worse == sum(1 for c in mine if c["tint"]), (desk, area)
+            assert far == sum(1 for c in mine if c["tint"] == "far")
+            assert text == (str(worse) if filled else "\u2014")
+            assert tint == ("far" if far else ("worse" if worse else ""))
+    html = got["html"]
+    assert html.count('data-rd-score-area="mail"') >= 1 + 6  # header + one summary cell per desk
+    assert 'aria-expanded="false"' in html and 'aria-expanded="true"' not in html
+    assert 'data-rd-score-sort="@cards"' in html
+    assert "data-rd-score-sort=\"oldest_unread_ask_age_ms\"" not in html
+    assert got["styleAttr"] == 0
+
+
+def test_one_group_expanded_from_saved_pick():
+    names = served_names()
+    got = score(big(names), opts={"open": {"cards": True}})
+    opened = {g["key"]: g["open"] for g in got["groups"]}
+    assert opened == {"mail": False, "cards": True, "holds": False, "wakes": False}
+    cards = [n for n in names if PART1[n] == "cards"]
+    assert got["shown"] == ["@mail"] + cards + ["@holds", "@wakes"]
+    html = got["html"]
+    assert 'colspan="%d" scope="colgroup"' % len(cards) in html
+    assert 'data-rd-score-area="cards" tabindex="0" role="button" aria-expanded="true"' in html
+    assert 'data-rd-score-sort="claimed_age_ms"' in html
+    # narrow cards group the same way: an open section lists its scores, shut ones only a count
+    assert 'class="rd-sc-card-area open' in html
+    assert "rd-sc-card-sec" in html
+
+
+def test_small_matrix_opens_and_saved_shut_wins():
+    got = score(office())
+    assert got["openDefault"] is True
+    assert all(g["open"] for g in got["groups"])
+    assert "@mail" not in got["shown"]
+    shut = score(office(), opts={"open": {"mail": False}})
+    assert shut["shown"][0] == "@mail"
+    assert "oldest_unread_ask_age_ms" not in shut["shown"]
+
+
+def test_unknown_name_falls_into_other_with_a_label():
+    payload = office()
+    for d in payload["desks"]:
+        d["scores"].append(entry("brand_new_metric_n", value=1))
+    got = score(payload)
+    other = [g for g in got["groups"] if g["key"] == "other"]
+    assert other and other[0]["n"] == 1
+    assert {c["name"]: c["label"] for c in got["cols"]}["brand_new_metric_n"] == "Brand new metric"
+
+
+def test_sort_by_area_summary():
+    names = served_names()
+    got = score(big(names), opts={"sortCol": "@mail", "sortDir": "desc"})
+    worse = [got["byArea"][d]["mail"][0] for _, d, _ in got["desks"]]
+    # rows sort inside each roster by the mail worse count
+    mill = [got["byArea"][d]["mail"][0] for r, d, _ in got["desks"] if r == "the-mill"]
+    assert mill == sorted(mill, reverse=True)
+    assert len(worse) == 6

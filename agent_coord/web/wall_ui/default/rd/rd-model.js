@@ -674,8 +674,21 @@
     stale_done_share: "Stale done share",
     hint_no_turn_n: "Hint with no turn"
   };
-  var SCORE_AREAS = ["mail", "cards", "holds", "other"];
-  var SCORE_AREA_LABEL = { mail: "Mail", cards: "Cards", holds: "Holds", other: "Other" };
+  /* Part 1 names (score_part1.SCORE_NAMES) by area. A name not listed falls to a prefix
+   * family, then to "other"; a new score lands in its group with no change here. */
+  var SCORE_AREAS = ["mail", "cards", "holds", "wakes", "other"];
+  var SCORE_AREA_LABEL = { mail: "Mail", cards: "Cards", holds: "Holds", wakes: "Wakes", other: "Other" };
+  var SCORE_AREA_OF = {
+    oldest_unread_ask_age_ms: "mail", unanswered_required_n: "mail", unanswered_fyi_n: "mail",
+    ask_to_answer_ms: "mail", outgoing_unanswered_n: "mail",
+    claimed_no_pass_age_ms: "cards", claimed_idle_age_ms: "cards", claimed_age_ms: "cards",
+    claimed_claimant_inactive_n: "cards", claimed_past_eta_n: "cards", shipped_unaccepted_age_ms: "cards",
+    to_done_ms: "cards",
+    hold_open_age_ms: "holds", force_taken_n: "holds",
+    stale_share: "wakes", stale_done_share: "wakes", hint_no_turn_n: "wakes", ended_no_pass_or_mail_n: "wakes"
+  };
+  /* More columns than this and every group opens collapsed until the reader expands one. */
+  var SCORE_OPEN_MAX = 8;
   function scoreLabel(name) {
     name = str(name);
     if (SCORE_LABELS[name]) return SCORE_LABELS[name];
@@ -684,9 +697,11 @@
   }
   function scoreArea(name) {
     name = str(name);
-    if (/^(oldest_unread|unanswered_|ask_to_|outgoing_|hint_)/.test(name)) return "mail";
-    if (/^(claimed_|shipped_|ended_|to_done|stale_)/.test(name)) return "cards";
+    if (Object.prototype.hasOwnProperty.call(SCORE_AREA_OF, name)) return SCORE_AREA_OF[name];
+    if (/^(oldest_unread|unanswered_|ask_|outgoing_|mail_|letter_)/.test(name)) return "mail";
+    if (/^(claimed_|shipped_|card_|todo_|to_done)/.test(name)) return "cards";
     if (/^(hold_|force_)/.test(name)) return "holds";
+    if (/^(stale_|wake_|hint_|ended_|turn_)/.test(name)) return "wakes";
     return "other";
   }
   function scoreKind(row) {
@@ -810,9 +825,20 @@
         window: (roll && roll.window) || payload.window || ""
       };
     });
+    /* open: the reader's saved pick per area, else all open when the matrix is small. */
+    var saved = opts.open && typeof opts.open === "object" ? opts.open : {};
+    var openDefault = cols.length <= SCORE_OPEN_MAX;
     var areas = SCORE_AREAS.map(function (key) {
-      return { key: key, label: SCORE_AREA_LABEL[key], cols: cols.filter(function (c) { return c.area === key; }) };
+      var list = cols.filter(function (c) { return c.area === key; });
+      var open = Object.prototype.hasOwnProperty.call(saved, key) ? !!saved[key] : openDefault;
+      return { key: key, label: SCORE_AREA_LABEL[key], cols: list, open: open, sortKey: "@" + key };
     }).filter(function (a) { return a.cols.length; });
+    /* Columns in painted order: an area's names when open, its one summary column when shut. */
+    var shown = [];
+    areas.forEach(function (a) {
+      if (a.open) a.cols.forEach(function (c) { shown.push({ area: a.key, col: c }); });
+      else shown.push({ area: a.key, summary: true });
+    });
     var colOf = {};
     cols.forEach(function (c) { colOf[c.name] = c; });
     var rows = byDesk.map(function (d) {
@@ -832,15 +858,33 @@
           cmp: cmp, median: c.median, medianText: c.medianText, n_active: c.n_active, window: c.window
         });
       });
-      return { desk: d.desk, roster: d.roster, worse: worse, cells: cells };
+      var byArea = {};
+      areas.forEach(function (a) {
+        var mine = cells.filter(function (x) { return x.area === a.key; });
+        var w = mine.filter(function (x) { return x.tint; }).length;
+        var far = mine.filter(function (x) { return x.tint === "far"; }).length;
+        var filled = mine.filter(function (x) { return !x.empty; }).length;
+        byArea[a.key] = {
+          key: d.desk + "|@" + a.key, area: a.key, label: a.label, worse: w, far: far, filled: filled, n: mine.length,
+          tint: far ? "far" : (w ? "worse" : ""), cmp: w,
+          text: filled ? String(w) : "\u2014", empty: !filled,
+          title: a.label + ": " + plural(w, "score") + " worse than median, " + filled + " of " + mine.length + " with a value" + (far ? " (" + far + " more than twice)" : "")
+        };
+      });
+      return { desk: d.desk, roster: d.roster, worse: worse, cells: cells, byArea: byArea };
     });
-    var sortCol = opts.sortCol && colOf[opts.sortCol] ? opts.sortCol : "";
+    var areaOf = {};
+    areas.forEach(function (a) { areaOf[a.sortKey] = a; });
+    var sortCol = opts.sortCol && (colOf[opts.sortCol] || areaOf[opts.sortCol]) ? opts.sortCol : "";
+    function sortVal(r) {
+      if (areaOf[sortCol]) return r.byArea[areaOf[sortCol].key].worse;
+      var x = r.cells.filter(function (y) { return y.name === sortCol; })[0];
+      return x && x.cmp != null ? x.cmp : null;
+    }
     var sortDir = opts.sortDir === "asc" ? "asc" : "desc";
     function cmpRows(a, c) {
       if (sortCol) {
-        var ac = a.cells.filter(function (x) { return x.name === sortCol; })[0];
-        var cc = c.cells.filter(function (x) { return x.name === sortCol; })[0];
-        var av = ac && ac.cmp != null ? ac.cmp : null, cv = cc && cc.cmp != null ? cc.cmp : null;
+        var av = sortVal(a), cv = sortVal(c);
         if (av == null && cv == null) return a.desk.localeCompare(c.desk);
         if (av == null) return 1;
         if (cv == null) return -1;
@@ -905,7 +949,7 @@
     return {
       window: payload.window || "",
       windows: SCORE_WINDOWS.slice(),
-      areas: areas, cols: cols, groups: groups, rows: rows,
+      areas: areas, cols: cols, shown: shown, groups: groups, rows: rows, openDefault: openDefault,
       off: off, selected: selected, detail: detail,
       sortCol: sortCol, sortDir: sortDir, n_active: nActive
     };
@@ -2139,7 +2183,7 @@
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayStateAt: replayStateAt,
     REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel, todoView: todoView,
-    scoreLabel: scoreLabel, scoreArea: scoreArea, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
+    scoreLabel: scoreLabel, scoreArea: scoreArea, SCORE_AREAS: SCORE_AREAS.slice(), SCORE_OPEN_MAX: SCORE_OPEN_MAX, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice(), SCORE_WINDOWS: SCORE_WINDOWS.slice()
   };

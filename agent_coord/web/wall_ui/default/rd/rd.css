@@ -1122,6 +1122,14 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   background: var(--shop);
 }
 #rd .rd-sc-table tr:last-child th, #rd .rd-sc-table tr:last-child td { border-bottom: 0; }
+/* Sticky frame: the desk column pins left, the two head rows (areas, then names with
+ * their medians) pin top. The wrap is the one scroller, so both stick inside the pane. */
+#rd .rd-sc-table thead th {
+  position: sticky;
+  z-index: 2;
+}
+#rd .rd-sc-areas th { top: 0; height: 1.75rem; box-sizing: border-box; }
+#rd .rd-sc-names th { top: 1.75rem; }
 #rd .rd-sc-corner, #rd .rd-sc-desk {
   text-align: left;
   position: sticky;
@@ -1131,6 +1139,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   font-weight: 650;
   box-shadow: 1px 0 0 color-mix(in srgb, var(--edge) 40%, transparent);
 }
+#rd .rd-sc-table thead .rd-sc-corner { z-index: 3; }
 #rd .rd-sc-areas th {
   text-align: center;
   color: var(--amber);
@@ -1139,6 +1148,41 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   text-transform: uppercase;
   font-weight: 700;
   background: var(--panel);
+}
+#rd .rd-sc-area[data-rd-score-area] { cursor: pointer; user-select: none; border-left: 1px solid color-mix(in srgb, var(--edge) 70%, transparent); }
+#rd .rd-sc-area[data-rd-score-area]:hover, #rd .rd-sc-area[data-rd-score-area]:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--amber) 55%, var(--edge));
+  outline-offset: -1px;
+}
+#rd .rd-sc-area .rd-sub { color: var(--dim); font-weight: 400; letter-spacing: 0; }
+#rd .rd-sc-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: .35rem;
+  vertical-align: middle;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform .12s ease;
+}
+#rd .open > .rd-sc-caret { transform: rotate(90deg); }
+#rd .rd-sc-sum { min-width: 3.4rem; text-align: center; }
+#rd th.rd-sc-sum .rd-sc-med { text-align: center; }
+#rd th.rd-sc-sum .rd-sc-name { text-align: center; color: var(--dim); font-weight: 600; text-transform: lowercase; }
+#rd td.rd-sc-sum { cursor: pointer; text-align: center; }
+#rd td.rd-sc-sum:hover, #rd td.rd-sc-sum:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--amber) 55%, var(--edge));
+  outline-offset: -1px;
+}
+#rd .rd-sc-worse {
+  margin-left: .35rem;
+  padding: 0 .3rem;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--st-forced) 28%, transparent);
 }
 #rd .rd-sc-col {
   cursor: pointer;
@@ -1166,6 +1210,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   margin-top: .1rem;
 }
 #rd .rd-sc-med .rd-sub { margin-left: .25rem; color: var(--dim); font-weight: 400; letter-spacing: 0; text-transform: none; }
+#rd .rd-sc-roster-h td { background: var(--well); }
 #rd .rd-sc-roster-h th {
   text-align: left;
   background: var(--well);
@@ -1243,6 +1288,30 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   border-radius: 2px;
 }
 #rd .rd-sc-card-row:first-of-type { border-top: 0; }
+#rd .rd-sc-card-area {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  width: 100%;
+  margin: .25rem 0 0;
+  padding: .3rem .25rem;
+  border: 0;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--amber);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+#rd .rd-sc-card-area .rd-sc-card-lbl { color: inherit; flex: 1 1 auto; }
+#rd .rd-sc-card-area .rd-sc-card-val { color: var(--ink); letter-spacing: 0; text-transform: none; font-weight: 650; }
+#rd .rd-sc-card-area.worse { background: color-mix(in srgb, var(--st-forced) 18%, var(--well)); }
+#rd .rd-sc-card-area.far { background: color-mix(in srgb, var(--st-failed) 18%, var(--well)); }
+#rd .rd-sc-card-sec { padding: .1rem 0 .15rem .9rem; }
 #rd .rd-sc-card-lbl { color: var(--dim); }
 #rd .rd-sc-card-val { font-variant-numeric: tabular-nums; font-weight: 650; }
 #rd .rd-sc-card-row.on { box-shadow: inset 0 0 0 1px var(--amber); }
@@ -1254,7 +1323,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
     align-items: stretch;
     overflow: hidden;
   }
-  #rd .rd-tab-split.score .rd-tab-groups { overflow: auto; min-height: 0; display: block; }
+  #rd .rd-tab-split.score .rd-tab-groups { overflow: hidden; min-height: 0; display: flex; flex-direction: column; align-items: stretch; }
+  #rd .rd-tab-split.score .rd-sc-table-wrap { flex: 0 1 auto; min-height: 0; }
   #rd .rd-tab-split.score .rd-tab-detail { display: block; }
 }
 @media (max-width: 899px) {
@@ -1267,4 +1337,5 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
     flex: 0 0 auto;
     max-height: 40vh;
   }
+  #rd .rd-tab-split.score .rd-tab-detail:empty { display: none; }
 }

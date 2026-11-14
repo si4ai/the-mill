@@ -309,36 +309,61 @@
     if (!m || !m.groups || !m.groups.length) {
       return split(groupCol("Scores", "0", empty("No attention scores on this scope yet.")), "", 1, "score");
     }
+    /* An area header toggles its group; shut, the group is one column counting worse cells. */
+    function areaToggle(a, tag, cls, extra) {
+      return "<" + tag + ' class="' + cls + (a.open ? " open" : "") + '" data-rd-score-area="' + h(a.key) + '" tabindex="0" role="button" aria-expanded="' + (a.open ? "true" : "false") + '"' + (extra || "") +
+        ' title="' + h((a.open ? "Collapse " : "Expand ") + a.label + " (" + plural(a.cols.length, "score") + ")") + '"><span class="rd-sc-caret" aria-hidden="true"></span>' + h(a.label) + ' <span class="rd-sub">' + h(String(a.cols.length)) + "</span></" + tag + ">";
+    }
     var headAreas = m.areas.map(function (a) {
-      return '<th class="rd-sc-area" colspan="' + a.cols.length + '">' + h(a.label) + "</th>";
+      return areaToggle(a, "th", "rd-sc-area", ' colspan="' + (a.open ? a.cols.length : 1) + '" scope="colgroup"');
     }).join("");
-    var headNames = m.areas.map(function (a) {
-      return a.cols.map(function (c) {
-        var on = m.sortCol === c.name;
-        var tip = c.medianText ? ("median " + c.medianText + " \u00b7 " + c.n_active + " active") : ("no median" + (c.n_active < 3 ? " (needs 3 active desks with a value)" : ""));
-        var sort = on ? (m.sortDir === "asc" ? "ascending" : "descending") : "none";
-        return '<th class="rd-sc-col' + (on ? " on" : "") + '" data-rd-score-sort="' + h(c.name) + '" title="' + h(tip) + '" aria-sort="' + sort + '"><span class="rd-sc-name">' + h(c.label) + '</span><span class="rd-sc-med">' + (c.medianText ? h(c.medianText) : "\u00a0") + '<span class="rd-sub"> n=' + h(String(c.n_active)) + "</span></span></th>";
-      }).join("");
+    function sortAttr(key) {
+      var on = m.sortCol === key;
+      return { on: on, attr: ' data-rd-score-sort="' + h(key) + '" tabindex="0" aria-sort="' + (on ? (m.sortDir === "asc" ? "ascending" : "descending") : "none") + '"' };
+    }
+    var areaBy = {};
+    m.areas.forEach(function (a) { areaBy[a.key] = a; });
+    var headNames = m.shown.map(function (s) {
+      if (s.summary) {
+        var a = areaBy[s.area], so = sortAttr(a.sortKey);
+        return '<th class="rd-sc-col rd-sc-sum' + (so.on ? " on" : "") + '"' + so.attr + ' title="' + h("worse than median across " + plural(a.cols.length, a.label.toLowerCase() + " score")) + '"><span class="rd-sc-name">worse</span><span class="rd-sc-med">of ' + h(String(a.cols.length)) + "</span></th>";
+      }
+      var c = s.col, sc = sortAttr(c.name);
+      var tip = c.medianText ? ("median " + c.medianText + " \u00b7 " + c.n_active + " active") : ("no median" + (c.n_active < 3 ? " (needs 3 active desks with a value)" : ""));
+      return '<th class="rd-sc-col' + (sc.on ? " on" : "") + '"' + sc.attr + ' title="' + h(c.label + " \u00b7 " + tip) + '"><span class="rd-sc-name">' + h(c.label) + '</span><span class="rd-sc-med">' + (c.medianText ? h(c.medianText) : "\u00a0") + '<span class="rd-sub"> n=' + h(String(c.n_active)) + "</span></span></th>";
     }).join("");
+    function cellTd(c) {
+      var cls = "rd-sc-cell" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "") + (c.empty ? " empty" : "");
+      return '<td class="' + cls + '" data-rd-pick="' + h(c.key) + '" tabindex="0" title="' + h(c.title || "") + '">' + h(c.text) + "</td>";
+    }
+    function sumTd(x) {
+      var cls = "rd-sc-cell rd-sc-sum" + (x.tint ? " " + x.tint : "") + (x.empty ? " empty" : (x.worse ? "" : " zero"));
+      return '<td class="' + cls + '" data-rd-score-area="' + h(x.area) + '" tabindex="0" role="button" aria-expanded="false" title="' + h(x.title + " \u00b7 click to expand") + '">' + h(x.text) + "</td>";
+    }
+    var nCols = m.shown.length;
     var body = m.groups.map(function (g) {
       var rows = g.rows.map(function (r) {
-        var tds = r.cells.map(function (c) {
-          var cls = "rd-sc-cell" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "") + (c.empty ? " empty" : "");
-          return '<td class="' + cls + '" data-rd-pick="' + h(c.key) + '" tabindex="0" title="' + h(c.title || "") + '">' + h(c.text) + "</td>";
-        }).join("");
-        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + h(r.desk) + "</th>" + tds + "</tr>";
+        var at = {};
+        r.cells.forEach(function (c) { at[c.name] = c; });
+        var tds = m.shown.map(function (s) { return s.summary ? sumTd(r.byArea[s.area]) : cellTd(at[s.col.name]); }).join("");
+        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + h(r.desk) + (r.worse ? ' <span class="rd-sc-worse" title="' + h(plural(r.worse, "score") + " worse than median") + '">' + h(String(r.worse)) + "</span>" : "") + "</th>" + tds + "</tr>";
       }).join("");
-      return '<tbody class="rd-sc-roster"><tr class="rd-sc-roster-h"><th colspan="' + (1 + m.cols.length) + '">' + h(g.label) + ' <span class="rd-sub">' + h(String(g.rows.length)) + "</span></th></tr>" + rows + "</tbody>";
+      return '<tbody class="rd-sc-roster"><tr class="rd-sc-roster-h"><th class="rd-sc-desk">' + h(g.label) + ' <span class="rd-sub">' + h(String(g.rows.length)) + '</span></th><td colspan="' + nCols + '"></td></tr>' + rows + "</tbody>";
     }).join("");
-    var table = '<div class="rd-sc-table-wrap"><table class="rd-sc-table"><thead><tr class="rd-sc-areas"><th class="rd-sc-corner"></th>' + headAreas + '</tr><tr class="rd-sc-names"><th class="rd-sc-corner">Desk</th>' + headNames + "</tr></thead>" + body + "</table></div>";
+    var table = '<div class="rd-sc-table-wrap" data-rd-scroll="score-matrix"><table class="rd-sc-table"><thead><tr class="rd-sc-areas"><th class="rd-sc-corner"></th>' + headAreas + '</tr><tr class="rd-sc-names"><th class="rd-sc-corner">Desk <span class="rd-sub">median</span></th>' + headNames + "</tr></thead>" + body + "</table></div>";
     var cards = '<div class="rd-sc-cards">' + m.groups.map(function (g) {
       return g.rows.map(function (r) {
-        var filled = r.cells.filter(function (c) { return !c.empty; });
-        var list = filled.map(function (c) {
-          var cls = "rd-sc-card-row" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "");
-          return '<button type="button" class="' + cls + '" data-rd-pick="' + h(c.key) + '" title="' + h(c.title || "") + '"><span class="rd-sc-card-lbl">' + h(c.label) + '</span><span class="rd-sc-card-val">' + h(c.text) + "</span></button>";
-        }).join("") || '<p class="rd-empty-line">No scores with a value.</p>';
-        return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + list + "</article>";
+        var secs = m.areas.map(function (a) {
+          var x = r.byArea[a.key];
+          var head = '<button type="button" class="rd-sc-card-area' + (a.open ? " open" : "") + (x.tint ? " " + x.tint : "") + '" data-rd-score-area="' + h(a.key) + '" aria-expanded="' + (a.open ? "true" : "false") + '" title="' + h(x.title) + '"><span class="rd-sc-caret" aria-hidden="true"></span><span class="rd-sc-card-lbl">' + h(a.label) + '</span><span class="rd-sc-card-val">' + h(x.empty ? "\u2014" : x.worse + " worse") + "</span></button>";
+          if (!a.open) return head;
+          var list = r.cells.filter(function (c) { return c.area === a.key && !c.empty; }).map(function (c) {
+            var cls = "rd-sc-card-row" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "");
+            return '<button type="button" class="' + cls + '" data-rd-pick="' + h(c.key) + '" title="' + h(c.title || "") + '"><span class="rd-sc-card-lbl">' + h(c.label) + '</span><span class="rd-sc-card-val">' + h(c.text) + "</span></button>";
+          }).join("") || '<p class="rd-empty-line">No scores with a value.</p>';
+          return head + '<div class="rd-sc-card-sec">' + list + "</div>";
+        }).join("");
+        return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
       }).join("");
     }).join("") + "</div>";
     var d = m.detail, det = "";
