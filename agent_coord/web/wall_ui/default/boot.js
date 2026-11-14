@@ -8070,7 +8070,7 @@
         tick(true);
         wallStartFloorPoll();
       });
-  
+
     /* ADMIN_INVITES */
     let adminLadder = localStorage.getItem("factory-admin-ladder") || "solo";
     function applyAdminLadder(name) {

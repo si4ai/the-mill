@@ -639,7 +639,7 @@
     #pane-admin .st-active { color: var(--green); }
     #pane-admin .st-expired { color: var(--amber); }
     #pane-admin .st-revoked { color: var(--dim); }
-    
+
 /* ADMIN_NETWORK: peer network options (HTTPS-only + LAN bind) */
 #pane-admin .admin-network dt { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
 #pane-admin .admin-network dd { margin: 0 0 .45rem; font-size: 12px; }
