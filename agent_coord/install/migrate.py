@@ -958,13 +958,13 @@ def _ensure_score_series(cn) -> list[str]:
     cur = cn.cursor()
     try:
         if _table_exists(cur, "score"):
-            if not _column_exists(cur, "score", "better"):
+            if _column_exists(cur, "score", "note") and not _column_exists(cur, "score", "better"):
                 cur.execute(
                     "ALTER TABLE score ADD COLUMN better ENUM('up','down') NOT NULL DEFAULT 'up'"
                     " AFTER note"
                 )
                 applied.append("score.better")
-            if not _column_exists(cur, "score", "unit"):
+            if _column_exists(cur, "score", "better") and not _column_exists(cur, "score", "unit"):
                 cur.execute(
                     "ALTER TABLE score ADD COLUMN unit VARCHAR(16) CHARACTER SET utf8mb4"
                     " COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '' AFTER better"
@@ -2277,8 +2277,8 @@ def name_type_trigger_sql(text: str) -> list[tuple[str, str]]:
 
 def _install_name_type_triggers(cur) -> int:
     found = name_type_trigger_sql((sql_dir() / "tables.sql").read_text(encoding="utf-8-sig"))
-    if len(found) != 26:
-        raise Migrate1163Refused(f"expected 26 name-type triggers, parsed {len(found)}")
+    if len(found) != 24:
+        raise Migrate1163Refused(f"expected 24 name-type triggers, parsed {len(found)}")
     for name, stmt in found:
         cur.execute(f"DROP TRIGGER IF EXISTS `{name}`")
         cur.execute(stmt)

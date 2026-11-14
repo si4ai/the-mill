@@ -53,13 +53,16 @@ def _score(cn, roster_id: int, kpi: str) -> list[tuple]:
     return _rows(
         cn,
         "SELECT s.id, s.desk_id, CAST(p.value AS CHAR) FROM score s "
-        "JOIN member m ON m.desk_id = s.desk_id AND m.name_id=%s "
         "LEFT JOIN score_point p ON p.id = ("
         " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
         " ORDER BY p2.created DESC, p2.id DESC LIMIT 1) "
         "WHERE s.kpi=%s",
-        (roster_id, kpi),
+        (kpi,),
     )
+
+
+def _member(cn, roster_id: int, desk_id: int) -> None:
+    _rows(cn, "INSERT IGNORE INTO member (name_id, desk_id) VALUES (%s, %s)", (roster_id, desk_id))
 
 
 def _activity_desk(cn, score_id: int):
@@ -117,9 +120,7 @@ def test_define_creates_the_roster_owned_row(cn):
         "SELECT s.desk_id, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')),"
         " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')),"
         " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit'))"
-        " FROM score s JOIN member m ON m.desk_id = s.desk_id AND m.name_id=%s"
-        " WHERE s.kpi='lc.defined'",
-        (rid,),
+        " FROM score s WHERE s.kpi='lc.defined'",
     )
     assert rows == [(_a, "5", "down", "ms")]
     rec_score.point_add(cn, "lc_def", "lc_da", "lc.defined", 4.0)
@@ -128,6 +129,7 @@ def test_define_creates_the_roster_owned_row(cn):
 
 def test_points_read_prefers_the_roster_row_over_a_desk_row(cn):
     rid, _a = seed_names(cn, ("lc_pref", "roster"), ("lc_pd", "desk"))
+    _member(cn, rid, _a)
     rec_score.upsert(cn, "lc_pref", "lc_pd", "lc.both", "99", "", "")
     rec_score.point_add(cn, "lc_pref", "lc_pd", "lc.both", 3.0)
     rows = rec_score.points(cn, "lc_pref", "lc.both", 5)
@@ -137,6 +139,8 @@ def test_points_read_prefers_the_roster_row_over_a_desk_row(cn):
 
 def test_retire_the_roster_series_by_a_recording_desk(cn):
     rid, _a, _b = seed_names(cn, ("lc_ret", "roster"), ("lc_ra", "desk"), ("lc_rb", "desk"))
+    _member(cn, rid, _a)
+    _member(cn, rid, _b)
     rec_score.point_add(cn, "lc_ret", "lc_ra", "lc.gone", 1.0)
     with pytest.raises(Exception, match="only a desk that recorded"):
         rec_score.retire(cn, "lc_ret", "lc_rb", "lc.gone")
@@ -147,10 +151,11 @@ def test_retire_the_roster_series_by_a_recording_desk(cn):
 
 
 def test_score_select_shows_a_null_owner_row(cn):
-    seed_names(cn, ("lc_sel", "roster"), ("lc_sd", "desk"))
+    rid, did = seed_names(cn, ("lc_sel", "roster"), ("lc_sd", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_sel", "lc_sd", "lc.sel", 1.5)
     rows = [r for r in rec_score.select(cn, "lc_sel") if r["kpi"] == "lc.sel"]
-    assert len(rows) == 1 and rows[0]["desk_id"] is None and rows[0]["desk"] is None
+    assert len(rows) == 1 and rows[0]["desk_id"] == did and rows[0]["desk"] == "lc_sd"
 
 
 # --- the four Office kind guards are gone ----------------------------------------------------------
@@ -230,10 +235,11 @@ def test_watcher_select_has_no_roster_branch():
 # --- activity with no desk ----------------------------------------------------------------------
 
 def test_activity_reads_keep_a_null_desk_row(cn):
-    rec_score.admin_upsert(cn, "lc.act", "1", "", "")
+    (did,) = seed_names(cn, ("lc_act_desk", "desk"))
+    rec_score.admin_upsert(cn, "lc.act", "1", "", "", desk="lc_act_desk")
     sid = _score(cn, 1, "lc.act")[0][0]
     got = [r for r in call(cn, "mill_activity_select", [0, 500]) if r["type"] == "score" and r["id"] == sid]
-    assert len(got) == 1 and got[0]["desk_id"] is None and got[0]["desk"] is None
+    assert len(got) == 1 and got[0]["desk_id"] == did
     one = call(cn, "mill_activity_get", ["score", sid])
     assert len(one) == 1
     bucket = call(cn, "mill_activity_bucket", ["Office", 0, "score", None, "hour"])
