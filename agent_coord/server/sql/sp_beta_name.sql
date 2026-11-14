@@ -393,8 +393,8 @@ BEGIN
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (cards); mill retire soft-deletes instead'; END IF;
     SELECT COUNT(*) INTO v_n FROM mail WHERE roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (letters); mill retire soft-deletes instead'; END IF;
-    SELECT COUNT(*) INTO v_n FROM score s
-      JOIN member m ON m.desk_id = s.desk_id WHERE m.name_id = v_id;
+    SELECT COUNT(*) INTO v_n FROM activity
+     WHERE type = 'score' AND roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (scores); mill retire soft-deletes instead'; END IF;
     SELECT COUNT(*) INTO v_n FROM doing WHERE roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (doing rows); mill retire soft-deletes instead'; END IF;

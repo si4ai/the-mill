@@ -160,7 +160,9 @@ def test_score_upsert_value(cn) -> None:
 
 def test_floor_office_kpis(cn) -> None:
     from agent_coord.server.records.floor import floor as rec_floor
+    from tests.server.records.conftest import seed_member
 
+    seed_member(cn, "the-mill", "a")
     cur = cn.cursor()
     cur.execute(
         "INSERT INTO score (desk_id, kpi, meta) "

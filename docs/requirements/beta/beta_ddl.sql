@@ -368,6 +368,7 @@ CREATE TABLE IF NOT EXISTS hold (
 -- One score is one desk and one kpi. The row is an activity.
 -- meta holds markup such as target, better, and unit. It is not searched.
 -- The latest number and remark are the newest score_point, not columns here.
+-- measure names that used to be seeded here: mill-wall.ticks, mill-desk.idle_verbs, mill-desk.hint_drop.
 CREATE TABLE IF NOT EXISTS score (
   type        ENUM('mail','todo','doing','hold','score') NOT NULL DEFAULT 'score',
   id          BIGINT UNSIGNED        NOT NULL AUTO_INCREMENT,

@@ -13,7 +13,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import call, conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_member, seed_names
 
 SQL = Path(__file__).resolve().parents[3] / "agent_coord" / "server" / "sql"
 
@@ -34,6 +34,8 @@ def seeded(cn):
     m3 = int(mail.insert(cn, "pp_role", "pp_s", "pp_r1", "three")[0]["id"])
     todo.insert(cn, "pp_a", "pp_s", "open", "ta")
     todo.insert(cn, "pp_b", "pp_s", "open", "tb")
+    seed_member(cn, "pp_a", "pp_s")
+    seed_member(cn, "pp_b", "pp_s")
     score.upsert(cn, "pp_a", "pp_s", "k1", "1", "", "")
     score.upsert(cn, "pp_b", "pp_s", "k2", "2", "", "")
     return m1, m2, m3

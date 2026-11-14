@@ -1002,6 +1002,9 @@ def _ensure_score_one_name(cn) -> list[str]:
     try:
         if not (_table_exists(cur, "score") and _table_exists(cur, "score_point")):
             return applied
+        # Card 1214: a score has no roster column. This step is the old desk-versus-roster merge.
+        if not _column_exists(cur, "score", "roster_id"):
+            return applied
         # 0.8.0: a roster-owned score is desk NULL (migrate_080 step desk_null), never desk = roster.
         if _column_exists(cur, "score", "desk_key"):
             return applied
@@ -1399,9 +1402,17 @@ def apply_080(cn, *, stop_after: str | None = None, timings: dict | None = None)
     """0.8.0 schema on a main book (migrate_080.sql). Preflight first: refuse (Migrate080Refused) before any
     change; nothing pending is a no-op ([]). stop_after ends the run after that step, as a kill would (tests).
     A book already on the card 1163 shape is left alone: migrate_080.sql is not rewritten, and its preflight
-    would otherwise treat the dropped kind columns as work still to do."""
+    would otherwise treat the dropped kind columns as work still to do.
+    Card 1214 removes score.roster_id. migrate_080.sql would rebuild idx_score_who on that column, so a book
+    that already took 1214 is left alone too."""
     if _book_is_1163(cn):
         return []
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "score") and not _column_exists(cur, "score", "roster_id"):
+            return []
+    finally:
+        cur.close()
     if stop_after is not None and stop_after not in STEPS_080:
         raise ValueError(f"unknown 0.8.0 step: {stop_after}")
     if not _is_main_book(cn):
@@ -2247,6 +2258,10 @@ def _reshape_1163(cur) -> None:
             if column in cols:
                 _drop_index_if(cur, table, index_name)
             cur.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+        # Card 1214 drops score.roster_id and score.desk_key. Do not put that
+        # index back once those columns are gone.
+        if any(not _column_exists(cur, table, col) for col in want):
+            continue
         if _index_cols(cur, table, index_name) != list(want):
             _drop_index_if(cur, table, index_name)
             cur.execute(ddl)
@@ -2472,7 +2487,19 @@ def apply_1214(cn) -> list[str]:
             cur.execute("ALTER TABLE score MODIFY desk_id BIGINT UNSIGNED NOT NULL")
             if not _index_exists(cur, "score", "idx_desk_kpi"):
                 cur.execute("ALTER TABLE score ADD UNIQUE KEY idx_desk_kpi (desk_id, kpi)")
+            # idx_desk is the 0.8.0 single-column key. The desk foreign key may be using it.
+            if _index_exists(cur, "score", "idx_desk"):
+                _drop_fk(cur, "score", "fk_score_desk")
+                cur.execute("ALTER TABLE score DROP INDEX idx_desk")
             _drop_fk(cur, "score", "fk_score_desk")
+            cur.execute(
+                "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
+                " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"
+            )
+            changed = True
+        elif _index_exists(cur, "score", "idx_desk") and _index_exists(cur, "score", "idx_desk_kpi"):
+            _drop_fk(cur, "score", "fk_score_desk")
+            cur.execute("ALTER TABLE score DROP INDEX idx_desk")
             cur.execute(
                 "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
                 " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"

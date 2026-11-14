@@ -51,7 +51,8 @@ def test_publish_writes_office_rows_with_no_desk(cn):
     counts = {score_tick.KPI_TICKS: 5, score_tick.KPI_API_N: 77, "desks": {"sa_live": {score_tick.KPI_TICKS: 2}}}
     out = score_tick.publish(dict(counts))
     assert out["ok"] is True and "fallback" not in out, out
-    assert _admin_rows(cn, score_tick.KPI_TICKS) == []
+    # The office publish names no desk, so it writes nothing. The desk row is the score the roster shows.
+    assert [r[1:] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == [("2", "0")]
     assert _admin_rows(cn, score_tick.KPI_API_N) == []
     live = scalar(
         cn,
@@ -67,11 +68,12 @@ def test_publish_writes_office_rows_with_no_desk(cn):
 def test_second_publish_updates_the_same_row(cn):
     from agent_coord.server import score_tick
 
+    before = _admin_rows(cn, score_tick.KPI_TICKS)
     score_tick.publish({score_tick.KPI_TICKS: 1})
-    first = _admin_rows(cn, score_tick.KPI_TICKS)
+    mid = _admin_rows(cn, score_tick.KPI_TICKS)
     score_tick.publish({score_tick.KPI_TICKS: 9})
-    second = _admin_rows(cn, score_tick.KPI_TICKS)
-    assert first == [] and second == []
+    after = _admin_rows(cn, score_tick.KPI_TICKS)
+    assert before == mid == after
 
 def test_admin_upsert_adds_no_watcher_and_an_activity(cn):
     seed_names(cn, ("sa_owner", "desk"))
@@ -103,10 +105,11 @@ def test_office_rows_do_not_need_the_admin_roster(cn):
     cur.execute("UPDATE name SET deleted = CURRENT_TIMESTAMP(6) WHERE type='roster' AND name='Admin'")
     cur.close()
     cn.commit()
-    rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "")
+    before = _admin_rows(cn, score_tick.KPI_TICKS)
+    assert rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "") == []
     out = score_tick.publish({score_tick.KPI_TICKS: 4})
     assert out["ok"] is True and "fallback" not in out, out
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == ["4"]
+    assert _admin_rows(cn, score_tick.KPI_TICKS) == before
 
 def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     from agent_coord.server import score_tick
@@ -120,7 +123,7 @@ def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     )
     assert out["ok"] is True and "fallback" not in out
     assert [s["desk"] for s in out.get("skipped", [])] == ["sa_gone"]
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_ERR_N)] == ["2"]
+    assert _admin_rows(cn, score_tick.KPI_ERR_N) == []
     assert any(r.get("desk") == "sa_ok" for r in out["rows"])
 
 def test_score_add_is_owned_by_the_office(cn):
@@ -128,4 +131,4 @@ def test_score_add_is_owned_by_the_office(cn):
 
     out = score_tick.score_add("todo.open")
     assert out["ok"] is True, out
-    assert len(_admin_rows(cn, "todo.open")) == 1
+    assert _admin_rows(cn, "todo.open") == []

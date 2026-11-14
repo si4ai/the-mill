@@ -34,7 +34,10 @@ def _add(cn, roster, desk, kpi, value, **kw):
 
 
 def test_two_desks_one_series_and_read(cn) -> None:
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, ("sp288", "roster"), ("spa", "desk"), ("spb", "desk"))
+    seed_member(cn, "sp288", "spa", "spb")
     book = _Book(cn)
     _add(
         cn,
@@ -72,11 +75,15 @@ def test_refused_value_stores_nothing(cn) -> None:
 
 
 def test_old_desk_row_still_reads_and_list_skips_deleted(cn) -> None:
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, ("sp288o", "roster"), ("spo", "desk"))
+    seed_member(cn, "sp288o", "spo")
     rec_score.upsert(cn, "sp288o", "spo", "legacy", "17", "20", "old row")
     cn.commit()
     one = rpc._h_score(_Book(cn), {"name": "legacy"}, "sp288o", "spo")
-    assert one["latest"] == 17 and one["gap"] == 3 and one["points"] == [] and one["owner"] == "spo"
+    assert one["latest"] == 17 and one["gap"] == 3 and one["owner"] == "spo"
+    assert one["points"] and one["points"][0]["v"] == 17
     rows = _add(cn, "sp288o", "spo", "fresh", 1)
     names = sorted(s["score"] for s in rpc._h_score(_Book(cn), {}, "sp288o", "spo")["scores"])
     assert names == ["fresh", "legacy"]
@@ -90,7 +97,10 @@ def test_old_desk_row_still_reads_and_list_skips_deleted(cn) -> None:
 def test_probe_delete_maker_is_the_first_recording_desk(cn) -> None:
     from agent_coord.server import probe_delete
 
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, ("t-288abcde", "roster"), ("spm", "desk"), ("spn", "desk"))
+    seed_member(cn, "t-288abcde", "spm", "spn")
     sid = int(_add(cn, "t-288abcde", "spm", "k", 1)[0]["id"])
     _add(cn, "t-288abcde", "spn", "k", 2)
     assert probe_delete.check(cn, "score", sid, "spm")["id"] == sid

@@ -181,12 +181,11 @@ def test_no_office_kind_guard_in_installed_routines(cn):
 
 
 def test_the_database_refuses_a_non_roster_office(cn):
-    # What the guards checked is now the kind-checked FK: roster_id 1 must be a roster.
-    (did,) = seed_names(cn, ("lc_fk_desk", "desk"))
+    # A score is one desk. A row with no desk is refused.
     cur = cn.cursor()
     try:
-        with pytest.raises(Exception, match="1452|foreign key|must name a roster"):
-            cur.execute("INSERT INTO score (desk_id, roster_id, kpi) VALUES (NULL, %s, 'lc.fk')", (did,))
+        with pytest.raises(Exception, match="1048|cannot be null|doesn't have a default"):
+            cur.execute("INSERT INTO score (desk_id, kpi) VALUES (NULL, 'lc.fk')")
     finally:
         cn.rollback()
         cur.close()
@@ -243,7 +242,7 @@ def test_activity_reads_keep_a_null_desk_row(cn):
     one = call(cn, "mill_activity_get", ["score", sid])
     assert len(one) == 1
     bucket = call(cn, "mill_activity_bucket", ["Office", 0, "score", None, "hour"])
-    assert any(r["desk_id"] is None for r in bucket)
+    assert any(r["desk_id"] == did for r in bucket)
 
 
 # --- python readers of office scores ------------------------------------------------------------
@@ -251,7 +250,9 @@ def test_activity_reads_keep_a_null_desk_row(cn):
 def test_glance_office_scores_read_the_null_owner_rows(cn):
     from agent_coord.server import glance
 
-    rec_score.admin_upsert(cn, "lc.glance_kpi", "4", "0", "")
+    (did,) = seed_names(cn, ("lc_glance_desk", "desk"))
+    _member(cn, 1, did)
+    rec_score.admin_upsert(cn, "lc.glance_kpi", "4", "0", "", desk="lc_glance_desk")
     cn.commit()
     got = glance._office_scores(cn)
     assert "lc.glance_kpi" in got and got["lc.glance_kpi"][0] == "4"
@@ -261,7 +262,7 @@ def test_score_tick_fallback_updates_the_null_owner_rows(cn):
     from agent_coord.server import score_tick
 
     score_tick._publish_sql(cn, {score_tick.KPI_TICKS: 11, score_tick.KPI_IDLE: 0, score_tick.KPI_DROP: 0})
-    assert [r[2] for r in _score(cn, 1, score_tick.KPI_TICKS)] == ["11"]
+    assert _score(cn, 1, score_tick.KPI_TICKS) == []
 
 
 def test_score_tick_publish_writes_office_rows_with_no_desk(cn, monkeypatch):
@@ -275,13 +276,15 @@ def test_score_tick_publish_writes_office_rows_with_no_desk(cn, monkeypatch):
     monkeypatch.setattr(records, "connect", lambda *a, **k: mysql.connector.connect(**{**conn_kwargs(), "database": db}))
     out = score_tick.publish({score_tick.KPI_TICKS: 6, score_tick.KPI_API_N: 9})
     assert out["ok"] is True and "fallback" not in out, out
-    assert _score(cn, 1, score_tick.KPI_API_N)[0][1:] == (None, "9")
+    assert _score(cn, 1, score_tick.KPI_API_N) == []
+    assert _score(cn, 1, score_tick.KPI_TICKS) == []
 
 
 def test_probe_delete_names_the_first_recorder_of_a_roster_series(cn):
     from agent_coord.server import probe_delete
 
-    rid, _a = seed_names(cn, ("lc_probe", "roster"), ("lc_probe_desk", "desk"))
+    rid, did = seed_names(cn, ("lc_probe", "roster"), ("lc_probe_desk", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_probe", "lc_probe_desk", "lc.probe", 1.0)
     sid = _score(cn, rid, "lc.probe")[0][0]
     row = probe_delete._score_row(cn, sid)
@@ -291,13 +294,14 @@ def test_probe_delete_names_the_first_recorder_of_a_roster_series(cn):
 def test_strip_misses_include_a_roster_series(cn, monkeypatch):
     from agent_coord.server import middleware
 
-    seed_names(cn, ("lc_miss", "roster"), ("lc_miss_desk", "desk"))
+    rid, did = seed_names(cn, ("lc_miss", "roster"), ("lc_miss_desk", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_miss", "lc_miss_desk", "lc.miss", 1.0, target="9")
     cn.commit()
     # The strip looks names up by SCOPE_PROJECT; point it at the roster kind for this read.
     monkeypatch.setattr(middleware, "SCOPE_PROJECT", "roster")
     got = middleware._scope_strip(cn, "roster", "lc_miss")
-    assert {"desk": "lc_miss", "kpi": "lc.miss"} in got["miss_rows"]
+    assert {"desk": "lc_miss_desk", "kpi": "lc.miss"} in got["miss_rows"]
 
 
 # --- live glance (F176; glance_cache removed) ---------------------------------------------------

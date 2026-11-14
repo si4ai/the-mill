@@ -381,7 +381,7 @@ def test_ids_rows_and_transforms(main_book):
     cn = main_book
 
     untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue",
-                                     "label"}  # name: System id 0; push_queue folded (1022); label: card 1207 below
+                                     "label", "score_point", "score_evidence"}  # name: System id 0; push_queue folded (1022); label: card 1207; points and evidence of a desk-less score go with card 1214
     for t in sorted(untouched):
         assert after[t] == before[t], t
     # card 1207: a label on a doing row goes with that row's activity row (fk_label_activity CASCADE); the rest stay.
@@ -449,6 +449,13 @@ def test_ids_rows_and_transforms(main_book):
             assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
     assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
     assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 0
+    # Card 1214 deletes a score that has no desk, and the points and evidence that hung on it.
+    kept_scores = {r[after["score"][0].index("id")] for r in after["score"][1]}
+    for child in ("score_point", "score_evidence"):
+        bcols, brows = before[child]
+        assert after[child][0] == bcols, child
+        sid_i = bcols.index("score_id")
+        assert list(after[child][1]) == [r for r in brows if r[sid_i] in kept_scores], child
 
     # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")
@@ -565,7 +572,8 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
             continue  # push_queue folded away after 1022
         # card 1207: the 0.8.0 move rows (one per card) moved on to transition.
         # card 1207: doing keeps only tw runs (none here) and a label on a doing row goes with it.
-        assert len(after[t][1]) == len(before[t][1]) or t in ("seat", "watcher", "name", "activity", "doing", "label"), t
+        assert len(after[t][1]) == len(before[t][1]) or t in (
+            "seat", "watcher", "name", "activity", "doing", "label", "score", "score_point", "score_evidence"), t
     assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
     assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == len(
         before["todo"][1])

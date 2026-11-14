@@ -51,7 +51,10 @@ def _cards_doc(cn, roster: str, stamp: str):
 
 
 def _open_claim(cn, need, asker="a955", vol="v955", roster="unit"):
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, (roster, "roster"), (asker, "desk"), (vol, "desk"))
+    seed_member(cn, roster, asker, vol)
     book = _Book(cn)
     rpc._h_open(book, {"need": need}, roster, asker)
     return book, asker, vol

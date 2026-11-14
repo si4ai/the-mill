@@ -433,6 +433,13 @@ BEGIN
       JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
       LEFT JOIN activity a ON a.type = 'score' AND a.id = s.id
      WHERE s.kpi = p_kpi AND a.deleted IS NULL
+       AND (
+         EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id)
+         OR JSON_EXTRACT(s.meta, '$.target') IS NOT NULL
+         OR JSON_EXTRACT(s.meta, '$.better') IS NOT NULL
+         OR JSON_EXTRACT(s.meta, '$.unit') IS NOT NULL
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')), '') <> ''
+       )
      ORDER BY s.updated DESC
      LIMIT 1;
     SELECT s.id, s.kpi,
@@ -637,8 +644,8 @@ BEGIN
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
 END //
 
--- One office score, kpi wall, hung on Office. Not a desk: desk_id NULL (beta 0.8.0).
--- Each wall /api route is a key: n calls and total host milliseconds.
+-- Evidence for an existing wall score. A score needs a desk, so this does not create one.
+-- Each wall route is a key: n calls and total host milliseconds.
 CREATE PROCEDURE mill_wall_event(
   IN p_route VARCHAR(64),
   IN p_ms    INT,
@@ -659,6 +666,7 @@ BEGIN
   DECLARE v_len INT;
   DECLARE v_msg VARCHAR(128);
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -668,32 +676,28 @@ BEGIN
   SET v_ts = MILL_NOW();
   SET v_now = IFNULL(p_now, v_ts);
   IF p_route IS NOT NULL AND CHAR_LENGTH(p_route) > 0 THEN
-    SET v_id = (
-      SELECT id FROM score
-       WHERE kpi = 'wall' AND desk_id IS NOT NULL
-       ORDER BY updated DESC
-       LIMIT 1
-    );
+    SET v_id = NULL;
+    SELECT id INTO v_id FROM score
+     WHERE kpi = 'wall' AND desk_id IS NOT NULL
+     ORDER BY updated DESC
+     LIMIT 1;
     IF v_id IS NOT NULL THEN
     SET v_hour = STR_TO_DATE(
       CONCAT('1970-01-01 ', LPAD(HOUR(v_now), 2, '0'), ':00:00'),
       '%Y-%m-%d %H:%i:%s'
     );
     SET v_day = CAST(DATE(v_now) AS DATETIME);
-    SET v_taken = (
-      SELECT taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-    );
-    SET v_hour_old = (
-      SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-    );
+    SET v_taken = NULL;
+    SELECT taken INTO v_taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour;
+    SET v_hour_old = NULL;
+    SELECT value INTO v_hour_old FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour;
     IF v_hour_old IS NULL OR v_taken IS NULL OR v_taken <> DATE(v_now) THEN
       SET v_hour_new = MILL_SCORE_DOC_ADD(NULL, p_route, p_ms, 0, 0);
     ELSE
       SET v_hour_new = MILL_SCORE_DOC_ADD(v_hour_old, p_route, p_ms, 0, 0);
     END IF;
-    SET v_day_old = (
-      SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day
-    );
+    SET v_day_old = NULL;
+    SELECT value INTO v_day_old FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day;
     SET v_day_new = MILL_SCORE_DOC_ADD(v_day_old, p_route, p_ms, 0, 0);
     SET v_len = GREATEST(
       LENGTH(CAST(v_hour_new AS CHAR)),
@@ -703,16 +707,16 @@ BEGIN
       SET v_msg = LEFT(CONCAT('score history exceeds 4096 bytes: ', v_len), 128);
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
     END IF;
+    UPDATE score
+       SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.n', JSON_EXTRACT(v_day_new, '$.n')),
+           updated = v_ts
+     WHERE id = v_id;
     INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
     VALUES (v_id, v_hour, v_hour_new, DATE(v_now)) AS new
     ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
     INSERT INTO score_evidence (score_id, `timestamp`, value, taken)
     VALUES (v_id, v_day, v_day_new, DATE(v_now)) AS new
     ON DUPLICATE KEY UPDATE value = new.value, taken = new.taken;
-    UPDATE score
-       SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.n', JSON_EXTRACT(v_day_new, '$.n')),
-           updated = v_ts
-     WHERE id = v_id;
     END IF;
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
