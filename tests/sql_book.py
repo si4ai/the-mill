@@ -140,22 +140,6 @@ def reseed(cn) -> None:
             "INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on) "
             "VALUES (0, NULL, 'polling', 'addressed')"
         )
-        for kpi, note in (
-            (
-                "mill-wall.ticks",
-                "server complexity: api.mill.heartbeat per desk-hour while sitting; target 0",
-            ),
-            (
-                "mill-desk.idle_verbs",
-                "prompt complexity: mill inbox/todo per desk-hour with no HINT; target 0",
-            ),
-            (
-                "mill-desk.hint_drop",
-                "sit FIFO overflow: mill-perf op=ws.recv drop=1 in window; target 0",
-            ),
-        ):
-            pass
-
         # card 1022: allowed edges (truncated clears them; reseed from Python Enums)
         from agent_coord.server.transition_enums import ALLOWED_TRANSITIONS
         cur.execute("DELETE FROM transition_edge")

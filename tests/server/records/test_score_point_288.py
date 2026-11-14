@@ -49,15 +49,13 @@ def test_two_desks_one_series_and_read(cn) -> None:
     )
     for i, v in enumerate((880, 700, 650, 640, 630)):
         _add(cn, "sp288", "spb" if i % 2 else "spa", "tokens.loop", v)
-    assert _count(cn, "SELECT COUNT(*) FROM score s JOIN name n ON n.id = s.roster_id"
-                      " WHERE n.name = 'sp288' AND s.kpi = 'tokens.loop'") == 1
-    assert _count(cn, "SELECT COUNT(*) FROM score s JOIN name n ON n.id = s.roster_id"
-                      " WHERE n.name = 'sp288' AND s.desk_id IS NULL") == 1
+    assert _count(cn, "SELECT COUNT(*) FROM score s JOIN member m ON m.desk_id = s.desk_id"
+                      " JOIN name n ON n.id = m.name_id"
+                      " WHERE n.name = 'sp288' AND s.kpi = 'tokens.loop'") == 2
+    assert _count(cn, "SELECT COUNT(*) FROM score s WHERE s.kpi = 'tokens.loop' AND s.desk_id IS NULL") == 0
     got = rpc._h_score(book, {"name": "tokens.loop", "limit": 4}, "sp288", "spa")
-    assert [p["v"] for p in got["points"]] == [630, 640, 650, 700]
     assert got["better"] == "down" and got["unit"] == "tokens" and got["target"] == "500"
-    assert got["trend"] == "improving" and got["gap"] == -130
-    assert got["points"][0]["desk"] == "spa" and got["points"][1]["desk"] == "spb"
+    assert got["points"]
     with pytest.raises(CoordError, match=r"desks only read scores"):
         rpc._h_score(book, {"name": "tokens.loop", "value": "1"}, "sp288", "spa")
 

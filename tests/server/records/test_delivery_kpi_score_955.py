@@ -34,11 +34,12 @@ def _loads(value):
 def _cards_doc(cn, roster: str, stamp: str):
     cur = cn.cursor(dictionary=True)
     cur.execute(
-        """SELECT e.value, s.value AS latest, s.id
+        """SELECT e.value, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.n')) AS latest, s.id
              FROM score s
-             JOIN name r ON r.id = s.roster_id AND r.name = %s
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = %s
              JOIN score_evidence e ON e.score_id = s.id
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` = %s""",
         (roster, stamp),
     )
@@ -68,8 +69,9 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
     cur.execute(
         """SELECT e.`timestamp` FROM score_evidence e
              JOIN score s ON s.id = e.score_id
-             JOIN name r ON r.id = s.roster_id AND r.name = 'unit'
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = 'unit'
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` >= '1970-01-01' AND e.`timestamp` < '1970-01-02'
             LIMIT 1"""
     )
@@ -77,8 +79,9 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
     cur.execute(
         """SELECT e.`timestamp` FROM score_evidence e
              JOIN score s ON s.id = e.score_id
-             JOIN name r ON r.id = s.roster_id AND r.name = 'unit'
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = 'unit'
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` >= '1970-01-02'
             ORDER BY e.`timestamp` DESC LIMIT 1"""
     )
