@@ -428,9 +428,11 @@ def test_ids_rows_and_transforms(main_book):
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
         if t == "score":
-            b = [r for r in b if r.get("desk_id") in desk_ids]
+            # A score that already named a desk stays. A score with no desk stays only when
+            # its points name one desk, and then that desk is on the row.
+            already = {r["id"] for r in b if r.get("desk_id") in desk_ids}
+            assert already <= {r["id"] for r in a}
             assert all(r.get("desk_id") in desk_ids for r in a)
-            assert len(a) == len(b), t
             continue
         if t == "activity":
             wake_after = [r for r in a if r["type"] == "wake"]
@@ -453,13 +455,23 @@ def test_ids_rows_and_transforms(main_book):
             assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
     assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
     assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 0
-    # Card 1214 deletes a score that has no desk, and the points and evidence that hung on it.
+    # Points on a score that already named a desk stay on that score. Evidence does too.
+    # A merge can move the other points onto the surviving score.
     kept_scores = {r[after["score"][0].index("id")] for r in after["score"][1]}
+    desk_score_ids = {
+        r["id"] for r in _rows_as_dicts(before, "score") if r.get("desk_id") in desk_ids
+    }
     for child in ("score_point", "score_evidence"):
         bcols, brows = before[child]
         assert after[child][0] == bcols, child
         sid_i = bcols.index("score_id")
-        assert list(after[child][1]) == [r for r in brows if r[sid_i] in kept_scores], child
+        arows = after[child][1]
+        assert all(r[sid_i] in kept_scores for r in arows), child
+        if child == "score_evidence":
+            assert list(arows) == [r for r in brows if r[sid_i] in kept_scores], child
+        else:
+            stable = [r for r in brows if r[sid_i] in desk_score_ids]
+            assert [r for r in arows if r[sid_i] in desk_score_ids] == stable
 
     # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")

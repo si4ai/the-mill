@@ -2616,19 +2616,19 @@ def apply_1214(cn) -> list[str]:
                 )
             notes.extend(_cleanup_score_rows(cur))
             _drop_fk(cur, "score", "fk_score_roster")
+            # The old key has no ON UPDATE CASCADE (desk_key blocked it). Drop it before
+            # the column change, then put back the same key the other kind tables use.
+            _drop_fk(cur, "score", "fk_score_desk")
             if _index_exists(cur, "score", "idx_score_who"):
                 cur.execute("ALTER TABLE score DROP INDEX idx_score_who")
+            if _index_exists(cur, "score", "idx_desk"):
+                cur.execute("ALTER TABLE score DROP INDEX idx_desk")
             for col in ("desk_key", "value", "target", "note", "better", "unit", "roster_id"):
                 if _column_exists(cur, "score", col):
                     cur.execute(f"ALTER TABLE score DROP COLUMN `{col}`")
             cur.execute("ALTER TABLE score MODIFY desk_id BIGINT UNSIGNED NOT NULL")
             if not _index_exists(cur, "score", "idx_desk_kpi"):
                 cur.execute("ALTER TABLE score ADD UNIQUE KEY idx_desk_kpi (desk_id, kpi)")
-            # idx_desk is the 0.8.0 single-column key. The desk foreign key may be using it.
-            if _index_exists(cur, "score", "idx_desk"):
-                _drop_fk(cur, "score", "fk_score_desk")
-                cur.execute("ALTER TABLE score DROP INDEX idx_desk")
-            _drop_fk(cur, "score", "fk_score_desk")
             cur.execute(
                 "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
                 " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"
