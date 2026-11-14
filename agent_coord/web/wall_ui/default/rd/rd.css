@@ -1316,6 +1316,54 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-sc-card-val { font-variant-numeric: tabular-nums; font-weight: 650; }
 #rd .rd-sc-card-row.on { box-shadow: inset 0 0 0 1px var(--amber); }
 
+#rd .rd-sc-subs { display: flex; gap: .25rem; flex: 0 0 auto; border-bottom: 1px solid var(--edge); }
+#rd .rd-sc-sub {
+  font: inherit; font-size: 12px; font-weight: 650; letter-spacing: .04em; color: var(--dim);
+  background: transparent; border: 0; border-bottom: 2px solid transparent; padding: .3rem .7rem; cursor: pointer;
+}
+#rd .rd-sc-sub.on { color: var(--amber); border-bottom-color: var(--amber); }
+#rd .rd-sc-sub:hover, #rd .rd-sc-sub:focus-visible { color: var(--ink); }
+#rd .rd-sc-sub .rd-sub { font-weight: 400; letter-spacing: 0; }
+#rd .rd-sc-bar { display: flex; flex-wrap: wrap; gap: .35rem; flex: 0 0 auto; }
+#rd .rd-sc-flag {
+  font: inherit; font-size: 11px; color: var(--dim); background: var(--well); cursor: pointer;
+  border: 1px solid var(--edge); border-radius: var(--radius, 2px); padding: .15rem .5rem;
+}
+#rd .rd-sc-flag:hover, #rd .rd-sc-flag:focus-visible, #rd .rd-sc-flag.open { color: var(--ink); }
+#rd .rd-sc-legend, #rd .rd-sc-older {
+  flex: 0 1 auto; min-height: 0; overflow: auto; font-size: 12px;
+  border: 1px solid var(--edge); border-radius: var(--radius, 2px); background: var(--shop); padding: .4rem .65rem .6rem;
+}
+#rd .rd-sc-legend { max-height: 45vh; flex-shrink: 0; }
+#rd .rd-sc-older { flex: 1 1 auto; }
+#rd .rd-sc-legend-lead { margin: 0 0 .35rem; color: var(--dim); }
+#rd .rd-sc-legend h4, #rd .rd-sc-older h4 { margin: .55rem 0 .2rem; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+#rd .rd-sc-legend h4 .rd-sub, #rd .rd-sc-older h4 .rd-sub { color: var(--dim); font-weight: 400; letter-spacing: 0; text-transform: none; }
+#rd .rd-sc-legend dl { margin: 0; display: grid; grid-template-columns: 13rem 1fr; gap: .15rem .8rem; }
+#rd .rd-sc-legend dt { font-weight: 650; color: var(--ink); }
+#rd .rd-sc-legend dd { margin: 0; color: var(--ink); }
+#rd .rd-sc-legend dd .rd-sub, #rd .rd-sc-legend dt .rd-sub { color: var(--dim); font-size: 11px; }
+#rd .rd-sc-fam { margin: 0 0 .2rem; color: var(--dim); }
+#rd .rd-sc-old {
+  display: grid; grid-template-columns: minmax(12rem, 22rem) 13rem 1fr; gap: .6rem; align-items: baseline;
+  padding: .12rem 0; border-top: 1px solid color-mix(in srgb, var(--edge) 55%, transparent);
+}
+#rd .rd-sc-old b { font-variant-numeric: tabular-nums; font-weight: 500; }
+#rd .rd-sc-old-lbl .rd-sub { color: var(--dim); font-size: 11px; }
+#rd .rd-sc-old.off b { color: var(--amber); }
+#rd .rd-sc-old.empty b { color: var(--dim); font-weight: 400; }
+#rd .rd-sc-old-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rd .rd-sc-old-note { color: var(--dim); min-width: 0; overflow-wrap: anywhere; }
+#rd .rd-sc-desc { margin: .3rem 0 .4rem; font-size: 12px; color: var(--ink); }
+#rd .rd-sc-better { color: var(--dim); }
+#rd .rd-sc-items { display: flex; flex-wrap: wrap; gap: .3rem .6rem; }
+#rd .rd-sc-items .rd-on-item { white-space: nowrap; }
+@media (max-width: 899px) {
+  #rd .rd-sc-old { grid-template-columns: 1fr max-content; }
+  #rd .rd-sc-old-note { grid-column: 1 / -1; }
+  #rd .rd-sc-legend dl { grid-template-columns: 1fr; }
+  #rd .rd-sc-legend dd { margin-bottom: .25rem; }
+}
 @media (min-width: 900px) {
   #rd .rd-tab-split.score {
     display: grid;
@@ -1326,6 +1374,8 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   #rd .rd-tab-split.score .rd-tab-groups { overflow: hidden; min-height: 0; display: flex; flex-direction: column; align-items: stretch; }
   #rd .rd-tab-split.score .rd-sc-table-wrap { flex: 0 1 auto; min-height: 0; }
   #rd .rd-tab-split.score .rd-tab-detail { display: block; }
+  #rd .rd-tab-split.score.older { grid-template-columns: minmax(0, 1fr); }
+  #rd .rd-tab-split.score.older .rd-tab-detail { display: none; }
 }
 @media (max-width: 899px) {
   #rd .rd-tab-split.score { display: flex; flex-direction: column; }

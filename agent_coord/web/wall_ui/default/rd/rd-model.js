@@ -654,26 +654,34 @@
   }
 
   /* ---- SCORE: part=scores matrix, desks as rows, names as columns ---- */
-  var SCORE_LABELS = {
-    oldest_unread_ask_age_ms: "Oldest unread ask",
-    unanswered_required_n: "Unanswered required",
-    unanswered_fyi_n: "Unanswered fyi",
-    ask_to_answer_ms: "Ask to answer",
-    outgoing_unanswered_n: "Outgoing unanswered",
-    claimed_no_pass_age_ms: "Claimed idle",
-    claimed_idle_age_ms: "Claimed idle",
-    claimed_age_ms: "Claimed age",
-    claimed_claimant_inactive_n: "Claimant inactive",
-    claimed_past_eta_n: "Past eta",
-    shipped_unaccepted_age_ms: "Shipped unaccepted",
-    hold_open_age_ms: "Open hold",
-    force_taken_n: "Force taken",
-    stale_share: "Stale share",
-    ended_no_pass_or_mail_n: "Ended without pass or mail",
-    to_done_ms: "To done",
-    stale_done_share: "Stale done share",
-    hint_no_turn_n: "Hint with no turn"
+  /* What each part 1 score measures, read from records/score_part1.py (card 1212). Lower is
+   * better for all 17. pending: part 1 always returns it empty, so the meaning is from its name. */
+  var SCORE_INFO = {
+    oldest_unread_ask_age_ms: { label: "Oldest unread ask", desc: "How long the oldest letter asking this desk for an answer (sent in the window) has sat unopened." },
+    unanswered_required_n: { label: "Unread asks", desc: "Letters asking this desk for an answer that it has not opened yet." },
+    unanswered_fyi_n: { label: "Unread receipt asks", desc: "Letters that only ask this desk for a read receipt and are still unopened." },
+    ask_to_answer_ms: { label: "Ask to answer", desc: "Time from an ask to this desk's answer.", pending: true },
+    outgoing_unanswered_n: { label: "Own asks unanswered", desc: "Asks this desk sent that nobody has answered.", pending: true },
+    claimed_no_pass_age_ms: { label: "Since last card edit", desc: "Time since this desk last edited any card it has claimed." },
+    claimed_idle_age_ms: { label: "Since last card edit", desc: "Time since this desk last edited any card it has claimed." },
+    claimed_age_ms: { label: "Oldest claim", desc: "How long ago this desk made its oldest card claim in the window." },
+    claimed_claimant_inactive_n: { label: "Claims by idle desks", desc: "Claimed cards whose claiming desk has gone inactive.", pending: true },
+    claimed_past_eta_n: { label: "Claims past eta", desc: "Claimed cards that are past their eta.", pending: true },
+    shipped_unaccepted_age_ms: { label: "Shipped, not accepted", desc: "How long a shipped card has waited for someone to accept it.", pending: true },
+    hold_open_age_ms: { label: "Oldest hold", desc: "How long since this desk's oldest hold was last touched." },
+    force_taken_n: { label: "Holds forced", desc: "Force-take events on holds recorded for this desk, all time (not only the window)." },
+    stale_share: { label: "Stale wakes", desc: "Share of this desk's finished wakes in the window that went stale: stale / (stale + done + expired)." },
+    ended_no_pass_or_mail_n: { label: "Ended silently", desc: "Runs that ended with no pass and no mail.", pending: true },
+    to_done_ms: { label: "To done", desc: "Time for a card to reach done.", pending: true },
+    stale_done_share: { label: "Stale wakes (done)", desc: "Part 1 computes this with the same formula as Stale wakes, so the two match." },
+    hint_no_turn_n: { label: "Hints with no turn", desc: "Hints sent to this desk that did not lead to a turn.", pending: true }
   };
+  var SCORE_REASON = { none: "nothing to measure", "new": "not built yet", inactive: "desk inactive in this window", empty: "no finished wakes in this window" };
+  function scoreInfo(name) {
+    var i = SCORE_INFO[str(name)];
+    return { label: scoreLabel(name), desc: i ? i.desc : "", better: "lower", pending: !!(i && i.pending) };
+  }
+  function scoreReason(r) { r = str(r); return SCORE_REASON[r] || r; }
   /* Part 1 names (score_part1.SCORE_NAMES) by area. A name not listed falls to a prefix
    * family, then to "other"; a new score lands in its group with no change here. */
   var SCORE_AREAS = ["mail", "cards", "holds", "wakes", "other"];
@@ -691,7 +699,7 @@
   var SCORE_OPEN_MAX = 8;
   function scoreLabel(name) {
     name = str(name);
-    if (SCORE_LABELS[name]) return SCORE_LABELS[name];
+    if (SCORE_INFO[name]) return SCORE_INFO[name].label;
     var s = name.replace(/_(ms|n|share)$/, "").replace(/_/g, " ").trim();
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : name;
   }
@@ -752,16 +760,17 @@
     var kind = scoreKind(row);
     var hasAnchor = !!(row && row.anchor_at);
     var hasVal = row && row.value != null && row.value !== "";
-    if (!hasAnchor && !hasVal && !(kind === "share" && row && row.den != null)) {
-      return { text: "\u2014", empty: true, zero: false, reason: str(row && row.reason) };
+    if (!hasAnchor && !hasVal && !(kind === "share" && row && row.den)) {
+      var why = str(row && row.reason) || (kind === "share" && row && row.den === 0 ? "empty" : "");
+      return { text: "\u2014", empty: true, zero: false, reason: scoreReason(why) };
     }
     if (kind === "age") {
       var ms = scoreComparable(row, now);
       return { text: ms == null ? "\u2014" : dur(ms), empty: ms == null, zero: ms === 0, reason: str(row && row.reason) };
     }
     if (kind === "share") {
-      if (row.num != null && row.den != null) {
-        return { text: String(row.num) + "/" + String(row.den), empty: false, zero: Number(row.num) === 0, reason: str(row.reason) };
+      if (row.num != null && row.den) {
+        return { text: scoreMedianText("share", Number(row.num) / Number(row.den)), empty: false, zero: Number(row.num) === 0, reason: str(row.reason) };
       }
       if (!hasVal) return { text: "\u2014", empty: true, zero: false, reason: str(row.reason) };
       return { text: String(row.value), empty: false, zero: Number(row.value) === 0, reason: str(row.reason) };
@@ -782,6 +791,71 @@
     var rosters = sc.rosters || [];
     if (!rosters.length || (rosters.length === 1 && rosters[0] === "Office")) return true;
     return rosters.indexOf(roster) >= 0;
+  }
+  /* The older stored scores (GET /api/v1/scores): still served. The Older subtab lists every
+   * row, valued or not, so the owner can judge which are worth keeping. The meaning is the
+   * family's line plus the server's own note on the row. */
+  var OLDER_FAMILY = [
+    { key: "sitting", label: "Quiet while sitting", re: /^(mill-desk\.|mill-wall\.ticks$)/, desc: "Per-desk checks written while a desk sits; each is a count with a target of 0 (lower is better)." },
+    { key: "doing", label: "Doing", re: /^doing\./, desc: "The desk's last doing run: how long it was active, idle or waiting, and how it ended." },
+    { key: "wakes", label: "Wakes", re: /^mill-office\.|wake/, desc: "Office wake counts, such as wakes that found nothing to do." },
+    { key: "system", label: "System", re: /^(system|wall|mill-wall\.|agent_kpi$)/, desc: "Platform rows: commands and routes the server ran, and agent bookkeeping." },
+    { key: "cards", label: "Cards", re: /^(cards|open-cards|todo\.|card\.)/, desc: "Card counts and card flow times." },
+    { key: "runs", label: "Runs and experiments", re: /./, desc: "Scores written by benchmark runs, studies and probes; the name says which run." }
+  ];
+  /* Plain meanings for older names the server leaves without a note. */
+  var OLDER_DESC = {
+    "doing.task.dwell_active_ms": "How long the desk's last doing run was active.",
+    "doing.task.dwell_idle_ms": "How long the desk's last doing run sat idle.",
+    "doing.task.dwell_waiting_ms": "How long the desk's last doing run waited on something.",
+    "doing.task.end_reason": "How the desk's last doing run ended.",
+    "doing.task.wait_by_cause": "What the desk's last doing run waited on, by cause.",
+    "doing.task.last_run": "When the desk's last doing run happened.",
+    system: "The server's own command and route rows for a desk.",
+    agent_kpi: "Bookkeeping row an agent writes for its own scores."
+  };
+  /* An older score whose meaning a part 1 score now covers. */
+  var OLDER_REPLACED = {
+    "hold.force_taken_n": "force_taken_n", "hold-force-taken": "force_taken_n",
+    "todo.claimed_age_ms": "claimed_age_ms", "open-cards-claimed-age": "claimed_age_ms",
+    "mail.never_answered_n": "unanswered_required_n", "never-answered": "unanswered_required_n",
+    "mail.wake_to_answer_ms": "ask_to_answer_ms", "wake-to-answer": "ask_to_answer_ms",
+    "todo.ship_to_done_ms": "to_done_ms", "open-cards-ship-to-done": "to_done_ms"
+  };
+  function scoreOlder(b) {
+    if (!b.kpis) return null;
+    /* One row per score name: how many desks carry it, how many have a value, how many miss. */
+    var fam = OLDER_FAMILY.map(function (f) { return { key: f.key, label: f.label, desc: f.desc, rows: [], off: 0, byName: {} }; });
+    var total = 0, seen = {}, names = 0;
+    b.kpis.forEach(function (k) {
+      var name = str(k.kpi), owner = str(k.owner), v = str(k.value);
+      if (!name) return;
+      var id = k.id != null ? String(k.id) : name + "|" + owner;
+      if (seen[id]) return;
+      seen[id] = 1;
+      var i = 0;
+      while (i < OLDER_FAMILY.length - 1 && !OLDER_FAMILY[i].re.test(name)) i++;
+      var off = v !== "" && kpiMiss(v, k.target);
+      var f = fam[i], row = f.byName[name];
+      if (!row) {
+        var rp = OLDER_REPLACED[name];
+        row = f.byName[name] = { kpi: name, label: kpiLabel(name), n: 0, valued: 0, off: 0, values: [], desks: [], target: str(k.target), note: "", replaced: rp ? scoreLabel(rp) : "" };
+        f.rows.push(row);
+        names++;
+      }
+      row.n++;
+      if (owner && row.desks.indexOf(owner) < 0) row.desks.push(owner);
+      if (!row.note && str(k.note)) row.note = str(k.note);
+      if (!row.note && OLDER_DESC[name]) row.note = OLDER_DESC[name];
+      if (v !== "") { row.valued++; if (row.values.length < 3) row.values.push((owner ? owner + " " : "") + scoreText(name, v)); }
+      if (off) { row.off++; f.off++; }
+      total++;
+    });
+    fam.forEach(function (f) {
+      delete f.byName;
+      f.rows.sort(function (a, c) { return (c.off - a.off) || (c.valued - a.valued) || a.label.localeCompare(c.label); });
+    });
+    return { n: total, names: names, families: fam.filter(function (f) { return f.rows.length; }) };
   }
   function score(b, opts) {
     opts = opts || {};
@@ -815,18 +889,34 @@
       byDesk.forEach(function (d) { if (!sample && d.map[name]) sample = d.map[name]; });
       var kind = scoreKind(sample || { name: name });
       var series = byDesk.map(function (d) { return scoreComparable(d.map[name], now); });
-      var median = nActive >= 3 ? scoreMedian(series) : null;
+      /* The median is over desks with a value (an age with no anchor has nothing waiting). */
+      var nVal = series.filter(function (v) { return v != null; }).length;
+      var median = nVal >= 3 ? scoreMedian(series) : null;
       var roll = sample && sample.rollup ? sample.rollup : null;
       var serverN = roll && roll.n_active != null ? Number(roll.n_active) : nActive;
+      var info = scoreInfo(name);
       return {
-        name: name, label: scoreLabel(name), kind: kind, area: scoreArea(name),
+        name: name, label: info.label, desc: info.desc, better: info.better, pending: info.pending, kind: kind, area: scoreArea(name),
         median: median, medianText: scoreMedianText(kind, median),
-        n_active: nActive, served_n: serverN,
+        n_active: nVal, n_desks: nActive, served_n: serverN,
         window: (roll && roll.window) || payload.window || ""
       };
     });
-    /* open: the reader's saved pick per area, else all open when the matrix is small. */
+    /* open: the reader's saved pick per area, else all open when the matrix is small.
+     * "_empty", "_quiet", "_legend", "_older" are the reader's other toggles, all shut by default. */
     var saved = opts.open && typeof opts.open === "object" ? opts.open : {};
+    /* Empty columns show by default (the owner wants to see every score); quiet desks hide. */
+    var flags = { empty: saved._empty == null ? true : !!saved._empty, quiet: !!saved._quiet, legend: !!saved._legend };
+    var sub = opts.sub === "older" ? "older" : "new";
+    /* A column with no value on any desk (or not built yet) hides until the reader asks for it. */
+    var allCols = cols;
+    var hasVal = {};
+    byDesk.forEach(function (d) {
+      allCols.forEach(function (c) { if (!scoreDisplay(d.map[c.name] || { name: c.name }, now).empty) hasVal[c.name] = 1; });
+    });
+    allCols.forEach(function (c) { c.blank = !hasVal[c.name]; });
+    var emptyCols = allCols.filter(function (c) { return c.blank; });
+    cols = flags.empty ? allCols : allCols.filter(function (c) { return !c.blank; });
     var openDefault = cols.length <= SCORE_OPEN_MAX;
     var areas = SCORE_AREAS.map(function (key) {
       var list = cols.filter(function (c) { return c.area === key; });
@@ -849,7 +939,7 @@
         var cmp = scoreComparable(raw, now);
         var tint = disp.empty ? "" : scoreTint(cmp, c.median);
         if (tint) worse++;
-        var title = disp.empty && disp.reason ? disp.reason : (disp.empty ? "" : (c.label + ": " + disp.text));
+        var title = c.label + ": " + (disp.empty ? (disp.reason || "no value") : disp.text) + (c.desc ? "\n" + c.desc + " Lower is better." : "");
         cells.push({
           key: d.desk + "|" + c.name, name: c.name, label: c.label, kind: c.kind, area: c.area,
           text: disp.text, empty: disp.empty, zero: disp.zero, tint: tint, title: title,
@@ -871,8 +961,13 @@
           title: a.label + ": " + plural(w, "score") + " worse than median, " + filled + " of " + mine.length + " with a value" + (far ? " (" + far + " more than twice)" : "")
         };
       });
-      return { desk: d.desk, roster: d.roster, worse: worse, cells: cells, byArea: byArea };
+      /* quiet: nothing worse than the median and no nonzero value anywhere. */
+      var quiet = !worse && cells.every(function (x) { return x.empty || x.zero; });
+      return { desk: d.desk, roster: d.roster, worse: worse, quiet: quiet, cells: cells, byArea: byArea };
     });
+    var quietN = rows.filter(function (r) { return r.quiet; }).length;
+    var allRows = rows;
+    if (!flags.quiet) rows = rows.filter(function (r) { return !r.quiet; });
     var areaOf = {};
     areas.forEach(function (a) { areaOf[a.sortKey] = a; });
     var sortCol = opts.sortCol && (colOf[opts.sortCol] || areaOf[opts.sortCol]) ? opts.sortCol : "";
@@ -933,9 +1028,10 @@
             var anchorMs = cell.anchor_at ? utc(cell.anchor_at) : null;
             detail = {
               key: cell.key, name: cell.name, label: cell.label, area: cell.area, kind: cell.kind,
+              desc: colOf[cell.name] ? colOf[cell.name].desc : "", better: "lower", pending: !!(colOf[cell.name] && colOf[cell.name].pending),
               desk: r.desk, roster: r.roster, text: cell.text, empty: cell.empty, zero: cell.zero,
               tint: cell.tint, reason: cell.reason, value: cell.value,
-              anchor_at: cell.anchor_at, anchorMs: anchorMs, ageText: (cell.kind === "age" && cell.cmp != null) ? dur(cell.cmp) : "",
+              anchor_at: cell.anchor_at, anchorMs: anchorMs,
               num: cell.num, den: cell.den, median: cell.median, medianText: cell.medianText,
               n_active: cell.n_active, window: cell.window,
               items: ids.map(function (id) {
@@ -950,6 +1046,11 @@
       window: payload.window || "",
       windows: SCORE_WINDOWS.slice(),
       areas: areas, cols: cols, shown: shown, groups: groups, rows: rows, openDefault: openDefault,
+      flags: flags, emptyCols: emptyCols, quietN: quietN, allRows: allRows.length,
+      legend: SCORE_AREAS.map(function (key) {
+        return { key: key, label: SCORE_AREA_LABEL[key], cols: allCols.filter(function (c) { return c.area === key; }) };
+      }).filter(function (a) { return a.cols.length; }),
+      older: scoreOlder(b), sub: sub,
       off: off, selected: selected, detail: detail,
       sortCol: sortCol, sortDir: sortDir, n_active: nActive
     };
@@ -2183,7 +2284,7 @@
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayStateAt: replayStateAt,
     REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel, todoView: todoView,
-    scoreLabel: scoreLabel, scoreArea: scoreArea, SCORE_AREAS: SCORE_AREAS.slice(), SCORE_OPEN_MAX: SCORE_OPEN_MAX, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
+    scoreLabel: scoreLabel, scoreInfo: scoreInfo, scoreReason: scoreReason, scoreOlder: scoreOlder, scoreArea: scoreArea, SCORE_AREAS: SCORE_AREAS.slice(), SCORE_OPEN_MAX: SCORE_OPEN_MAX, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
     SORTS: SORTS.slice(), RANGES: RANGES.slice(), SCORE_WINDOWS: SCORE_WINDOWS.slice()
   };

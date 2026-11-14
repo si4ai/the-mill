@@ -279,7 +279,7 @@
     m.todo = R.todo(b, { selected: state.sel.todo });
     m.mail = R.mail(b, { selected: state.sel.mail });
     m.priorities = R.priorities(b, { selected: state.sel.priorities });
-    m.score = R.score(b, { selected: state.sel.score, sortCol: state.scoreSort && state.scoreSort.col, sortDir: state.scoreSort && state.scoreSort.dir, open: state.scoreOpen });
+    m.score = R.score(b, { selected: state.sel.score, sortCol: state.scoreSort && state.scoreSort.col, sortDir: state.scoreSort && state.scoreSort.dir, open: state.scoreOpen, sub: state.scoreOpen._sub });
     m.collab = R.collab(b, { selected: state.sel.collab });
     return m;
   }
@@ -1486,6 +1486,13 @@
       paint();
       var back = root.querySelector('.rd-sc-table [data-rd-score-area="' + area + '"]');
       if (back && el.tagName === "TH" && back.focus) back.focus();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-score-sub]"))) {
+      state.scoreOpen._sub = el.getAttribute("data-rd-score-sub") === "older" ? "older" : "new";
+      save(SCORE_OPEN_KEY, JSON.stringify(state.scoreOpen));
+      last.pane = null;
+      paint();
       return;
     }
     if ((el = closest(t, "[data-rd-score-sort]"))) {

@@ -179,13 +179,14 @@ def test_null_reason_is_a_quiet_dash():
     cell = got["cells"]["wall-ui|hold_open_age_ms"]
     assert cell["text"] == "\u2014"
     assert cell["empty"] is True
-    assert cell["title"] == "none"
-    assert cell["reason"] == "none"
+    assert cell["title"].startswith("Oldest hold: nothing to measure")
+    assert "Lower is better." in cell["title"]
+    assert cell["reason"] == "nothing to measure"
     assert cell["tint"] == ""
     assert "\u2014" in got["html"]
     # gardener's claimed idle is also empty with a reason
     idle = got["cells"]["gardener|claimed_no_pass_age_ms"]
-    assert idle["text"] == "\u2014" and idle["title"] == "inactive"
+    assert idle["text"] == "\u2014" and idle["reason"] == "desk inactive in this window"
 
 
 def test_zero_is_faint_and_not_tinted():
@@ -212,7 +213,7 @@ def test_median_tint_worse_and_far():
     assert got["cells"]["gardener|unanswered_required_n"]["tint"] == ""  # at
     assert got["cells"]["builder|unanswered_required_n"]["tint"] == ""
     # shares: 0.8, 0.2, 0.1, 0.5 -> sorted 0.1,0.2,0.5,0.8 mid=0.5. 0.8 is worse, not far (2x is 1.0)
-    assert got["cells"]["wall-ui|stale_share"]["text"] == "8/10"
+    assert got["cells"]["wall-ui|stale_share"]["text"] == "80%"
     assert got["cells"]["wall-ui|stale_share"]["tint"] == "worse"
     assert got["cells"]["scout|stale_share"]["tint"] == ""
     # no colour when the median is missing: a lone desk
@@ -244,7 +245,7 @@ def test_desks_sort_by_worse_count_then_column():
 
 def test_labels_and_areas_cover_renames_and_unknowns():
     got = score(office())
-    assert got["labels"]["idle"] == got["labels"]["noPass"] == "Claimed idle"
+    assert got["labels"]["idle"] == got["labels"]["noPass"] == "Since last card edit"
     assert got["labels"]["unknown"] == "Brand new metric"
     assert got["areasOf"] == {"unread": "mail", "claimed": "cards", "hold": "holds", "other": "other"}
     area_keys = [a[0] for a in got["areas"]]
@@ -258,7 +259,8 @@ def test_detail_dedupes_items_and_view_is_csp_safe():
     assert d["label"] == "Oldest unread ask"
     assert d["desk"] == "wall-ui"
     assert d["text"] == "2d 4h"
-    assert d["ageText"] == "2d 4h"
+    assert d["desc"].startswith("How long the oldest letter asking this desk")
+    assert d["better"] == "lower"
     assert d["anchorMs"] == 1794427140000
     assert [it["id"] for it in d["items"]] == ["11", "12"]
     assert d["items"][0]["tab"] == "mail" and d["items"][0]["sel"] == "mail-11"

@@ -329,8 +329,8 @@
         return '<th class="rd-sc-col rd-sc-sum' + (so.on ? " on" : "") + '"' + so.attr + ' title="' + h("worse than median across " + plural(a.cols.length, a.label.toLowerCase() + " score")) + '"><span class="rd-sc-name">worse</span><span class="rd-sc-med">of ' + h(String(a.cols.length)) + "</span></th>";
       }
       var c = s.col, sc = sortAttr(c.name);
-      var tip = c.medianText ? ("median " + c.medianText + " \u00b7 " + c.n_active + " active") : ("no median" + (c.n_active < 3 ? " (needs 3 active desks with a value)" : ""));
-      return '<th class="rd-sc-col' + (sc.on ? " on" : "") + '"' + sc.attr + ' title="' + h(c.label + " \u00b7 " + tip) + '"><span class="rd-sc-name">' + h(c.label) + '</span><span class="rd-sc-med">' + (c.medianText ? h(c.medianText) : "\u00a0") + '<span class="rd-sub"> n=' + h(String(c.n_active)) + "</span></span></th>";
+      var tip = c.medianText ? ("median " + c.medianText + " over " + c.n_active + " desks with a value") : ("no median" + (c.n_active < 3 ? " (needs 3 desks with a value)" : ""));
+      return '<th class="rd-sc-col' + (sc.on ? " on" : "") + '"' + sc.attr + ' title="' + h(c.label + ": " + (c.desc ? c.desc + " " : "") + "Lower is better.\n" + tip + (c.pending ? "\nNot built yet: the server returns it empty." : "")) + '"><span class="rd-sc-name">' + h(c.label) + '</span><span class="rd-sc-med">' + (c.medianText ? h(c.medianText) : "\u00a0") + '<span class="rd-sub"> n=' + h(String(c.n_active)) + "</span></span></th>";
     }).join("");
     function cellTd(c) {
       var cls = "rd-sc-cell" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "") + (c.empty ? " empty" : "");
@@ -366,23 +366,55 @@
         return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
       }).join("");
     }).join("") + "</div>";
+    function flagBtn(key, on, text, tip) {
+      return '<button type="button" class="rd-sc-flag' + (on ? " open" : "") + '" data-rd-score-area="_' + key + '" aria-expanded="' + (on ? "true" : "false") + '" title="' + h(tip) + '"><span class="rd-sc-caret" aria-hidden="true"></span>' + h(text) + "</button>";
+    }
+    var f = m.flags || {};
+    var nOld = m.older ? m.older.n : 0;
+    var subs = '<div class="rd-sc-subs" role="tablist" aria-label="Score feeds">' + [["new", "New", plural(m.cols.length + ((f.empty || !m.emptyCols) ? 0 : m.emptyCols.length), "score") + " (part 1)", "Part 1 attention scores, per desk (GET /api/pov?part=scores)"], ["older", "Older", (m.older ? plural(m.older.names, "score") : "0 scores"), "The stored scores from before part 1, still served (GET /api/v1/scores)"]].map(function (t) {
+      var on = m.sub === t[0];
+      return '<button type="button" role="tab" class="rd-sc-sub' + (on ? " on" : "") + '" data-rd-score-sub="' + t[0] + '" aria-selected="' + (on ? "true" : "false") + '" title="' + h(t[3]) + '">' + h(t[1]) + ' <span class="rd-sub">' + h(t[2]) + "</span></button>";
+    }).join("") + "</div>";
+    var bar = '<div class="rd-sc-bar">' + flagBtn("legend", f.legend, "What these mean", "Every score, what it measures, and which way is better") +
+      (m.emptyCols && m.emptyCols.length ? flagBtn("empty", f.empty, (f.empty ? "Hide " : "Show ") + plural(m.emptyCols.length, "empty score"), "Scores with no value on any desk, most not built yet") : "") +
+      (m.quietN ? flagBtn("quiet", f.quiet, (f.quiet ? "Hide " : "Show ") + plural(m.quietN, "quiet desk"), "Desks with nothing worse than the median and no nonzero value") : "") +
+      "</div>";
+    var legend = !f.legend ? "" : '<div class="rd-sc-legend" data-rd-scroll="score-legend"><p class="rd-sc-legend-lead">Every score is per desk, over the window picked above, and lower is better. A cell tints when it is worse than the median of the desks that have a value.</p>' +
+      m.legend.map(function (a) {
+        return "<h4>" + h(a.label) + '</h4><dl>' + a.cols.map(function (c) {
+          return "<dt>" + h(c.label) + (c.pending ? ' <span class="rd-sub">not built yet</span>' : "") + "</dt><dd>" + h(c.desc || "No description yet.") + ' <span class="rd-sub">' + h(c.name) + "</span></dd>";
+        }).join("") + "</dl>";
+      }).join("") + "</div>";
+    if (m.sub === "older") {
+      var o = m.older;
+      var body2 = !o || !o.n ? empty("No older scores on this scope.") : '<p class="rd-sc-legend-lead">Every stored score from before part 1 (GET /api/v1/scores, first ' + h(String(o.n)) + ' rows), one line per score, valued or not, so you can judge which to keep. The meaning is the family line plus the server\'s own note. Hover a line for its desks.</p>' +
+        o.families.map(function (fm) {
+          return "<h4>" + h(fm.label) + ' <span class="rd-sub">' + h(plural(fm.rows.length, "score")) + (fm.off ? " \u00b7 " + fm.off + " off target" : "") + '</span></h4><p class="rd-sc-fam">' + h(fm.desc) + "</p>" + fm.rows.map(function (k) {
+            var meaning = (k.replaced ? "Replaced by " + k.replaced + " (part 1). " : "") + (k.note || "No note from the server.");
+            var count = k.valued + " of " + k.n + " with a value" + (k.off ? " \u00b7 " + k.off + " off target" : "") + (k.target !== "" ? " \u00b7 target " + k.target : "");
+            return '<div class="rd-sc-old' + (k.off ? " off" : "") + (k.valued ? "" : " empty") + '" title="' + h(k.kpi + (k.desks.length ? "\n" + k.desks.join(", ") : "")) + '"><span class="rd-sc-old-lbl">' + h(k.label) + ' <span class="rd-sub">' + h(k.kpi) + '</span></span><b>' + h(count) + '</b><span class="rd-sc-old-note">' + h(meaning) + (k.values.length ? ' <span class="rd-sub">e.g. ' + h(k.values.join(", ")) + "</span>" : "") + "</span></div>";
+          }).join("");
+        }).join("");
+      return split(subs + '<div class="rd-sc-older" data-rd-scroll="score-older">' + body2 + "</div>", "", 1, "score older");
+    }
     var d = m.detail, det = "";
     if (d) {
       var facts = [deskChip(d.desk)].concat(
         d.roster ? [chip(d.roster, "roster")] : [],
         ["<span>" + h(d.text) + "</span>"],
-        d.kind === "age" && d.anchorMs != null ? ['<span title="anchor">' + h(localWhen(d.anchorMs) + (d.ageText ? " \u00b7 " + d.ageText : "")) + "</span>"] : [],
+        d.kind === "age" && d.anchorMs != null ? ['<span title="anchor">since ' + h(localWhen(d.anchorMs)) + "</span>"] : [],
         d.num != null && d.den != null ? ["<span>" + h(String(d.num) + "/" + String(d.den)) + "</span>"] : [],
         d.medianText ? ["<span>median " + h(d.medianText) + (d.n_active != null ? " \u00b7 n=" + h(String(d.n_active)) : "") + "</span>"] : ['<span title="no median">no median' + (d.n_active != null ? " \u00b7 n=" + h(String(d.n_active)) : "") + "</span>"],
-        d.reason ? ["<span>" + h(d.reason) + "</span>"] : []
+        d.empty && d.reason ? ["<span>" + h(d.reason) + "</span>"] : []
       ).join("");
-      var items = d.items && d.items.length ? '<h3>ITEMS <span class="rd-sub">' + h(String(d.items.length)) + "</span></h3>" + d.items.map(function (it) {
-        return '<div class="rd-feed-row"><a class="rd-on-item" href="#' + h(it.tab) + '" data-rd-go="' + h(it.tab) + '" data-rd-sel="' + h(it.sel) + '">' + h(it.text) + "</a></div>";
-      }).join("") : "";
+      var items = d.items && d.items.length ? '<h3>ITEMS <span class="rd-sub">' + h(String(d.items.length)) + (d.items.length >= 5 ? " (first 5)" : "") + '</span></h3><div class="rd-sc-items">' + d.items.map(function (it) {
+        return '<a class="rd-on-item" href="#' + h(it.tab) + '" data-rd-go="' + h(it.tab) + '" data-rd-sel="' + h(it.sel) + '">' + h(it.text) + "</a>";
+      }).join("") + "</div>" : "";
       det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + h(d.desk) + "</div>" +
+        (d.desc ? '<p class="rd-sc-desc">' + h(d.desc) + ' <span class="rd-sc-better">Lower is better.</span></p>' : "") +
         '<div class="rd-detail-facts">' + facts + "</div>" + items;
     }
-    return split(table + cards, det, 1, "score");
+    return split(subs + bar + legend + table + cards, det, 1, "score");
   }
   function collabHtml(m) {
     var cols = m.groups.map(function (g) {
