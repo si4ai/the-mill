@@ -35,6 +35,10 @@
       }
       document.documentElement.setAttribute("data-theme-pref", p);
       document.documentElement.setAttribute("data-theme", resolved);
+      var pal = "soft";
+      try { pal = localStorage.getItem("wall-palette") || "soft"; } catch (eP) { pal = "soft"; }
+      if (pal !== "extreme" && pal !== "cooler" && pal !== "warmer" && pal !== "high-contrast") pal = "soft";
+      document.documentElement.setAttribute("data-palette", pal);
     } catch (e) {}
   }
 

@@ -9,14 +9,15 @@
   <title>The Mill</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <!-- WALL_UI_LIB_THEME: default CSS vars (fonts/sizes/headings); Cut6 DB css_vars HOLD -->
-  <script src="/shell-early.js?v=wow283" data-wall-early="all"></script>
-  <link rel="stylesheet" href="/lib/theme.css?v=wow165">
+  <script src="/shell-early.js?v=wow377" data-wall-early="all"></script>
+  <link rel="stylesheet" href="/lib/theme.css?v=wow377">
   <!-- Instant shell: critical chrome only; full board.css loads async (Wave 1 / #40). -->
-  <link rel="stylesheet" href="/shell.css?v=wow345">
+  <link rel="stylesheet" href="/shell.css?v=wow362">
   <link rel="stylesheet" href="/welcome.css?v=wow282">
-  <link id="board-css" rel="stylesheet" href="/board.css?v=wow347" media="print">
+  <link rel="stylesheet" href="/rd/rd.css?v=wow380">
+  <link id="board-css" rel="stylesheet" href="/board.css?v=wow362" media="print">
   <script src="/lib/board-css.js?v=wow281"></script>
-  <noscript><link rel="stylesheet" href="/board.css?v=wow347"></noscript>
+  <noscript><link rel="stylesheet" href="/board.css?v=wow362"></noscript>
 </head>
 <body>
   <div id="wall-refresh-banner" role="status" aria-live="polite">
@@ -41,6 +42,14 @@
           <button type="button" data-theme-pref="auto">auto</button>
           <button type="button" data-theme-pref="dark">dark</button>
           <button type="button" data-theme-pref="light">light</button>
+        </div>
+        <div class="theme-pref" id="palette-pref" role="group" aria-label="Palette">
+          <span class="lbl">PALETTE</span>
+          <button type="button" data-palette="soft">soft</button>
+          <button type="button" data-palette="extreme">extreme</button>
+          <button type="button" data-palette="cooler">cooler</button>
+          <button type="button" data-palette="warmer">warmer</button>
+          <button type="button" data-palette="high-contrast">high-contrast</button>
         </div>
       </div>
     </div>
@@ -89,6 +98,7 @@
   <div id="shell">
   <aside id="rail" aria-label="Office, rosters, views">
     <button type="button" id="rail-toggle" title="Narrow or expand the rail" aria-expanded="true">"</button>
+    <span id="rail-sort" class="rail-sort" role="group" aria-label="Order stations and rosters"><button type="button" data-rail-sort="recent" class="on" aria-pressed="true" title="Stations: live, then latest connection. Rosters: by name.">Recent</button><button type="button" data-rail-sort="size" aria-pressed="false" title="Most desks first">Size</button><button type="button" data-rail-sort="az" aria-pressed="false" title="By name">A-Z</button></span>
     <div id="rail-book" class="rail-book" aria-label="Stations and rosters">
       <div><span class="rail-lbl">Stations</span><div id="rail-desks"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div></div>
       <div><span class="rail-lbl">Roster</span><div id="rail-roster"><div class="wall-loading" role="status" aria-live="polite" data-wall-loading="1"><span class="wall-loading-spin" aria-hidden="true"></span><span class="wall-loading-ico" aria-hidden="true">&#x231B;</span><span class="wall-loading-lbl">Loading...</span></div></div></div>
@@ -102,6 +112,7 @@
     <button type="button" data-tab="floor" title="Activity between desks">COLLAB</button>
 </nav>
   </aside>
+  <div id="rd" class="rd" aria-label="Office wall"></div>
   <div class="shell-main">
   <div class="glance-band">
   <div class="ticker-row">
@@ -112,7 +123,7 @@
   <div class="glance-status">
   <div class="strip-stack">
   <div class="strip" id="strip" aria-label="roster glance"><span class="kpi strip-nav on kpi-loading" id="strip-here" title="Desks on this scope" role="link" tabindex="0" data-wall-strip-loading="1">DESKS<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav kpi-loading" id="strip-todo" title="Open cards" role="link" tabindex="0" data-wall-strip-loading="1">TODO<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav mail-unread kpi-loading" id="strip-mail" title="Unread letters" role="link" tabindex="0" data-wall-strip-loading="1">MAIL<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>-</b></span><span class="kpi strip-nav" id="strip-priorities" title="Each desk's ranked list" role="link" tabindex="0">PRIORITIES<span class="kpi-cue">desk lists</span></span><span class="kpi strip-nav kpi-loading" id="strip-score" title="Last against target" role="link" tabindex="0" data-wall-strip-loading="1">SCORE<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span><span class="kpi strip-nav strip-later kpi-loading" id="strip-floor" title="Shared letters, cards, and promises" role="link" tabindex="0" data-wall-strip-loading="1">COLLAB<span class="kpi-load" aria-hidden="true"><span class="wall-loading-spin"></span><span class="wall-loading-ico">&#x231B;</span></span><b>...</b></span></div>
-  
+
   <div class="subnav page-views is-later" id="subnav" aria-label="Views of the highlighted box">
     <div class="subnav-set" data-for="session">
       <span class="session-mode" role="group" aria-label="Now, Promise, History, or Watch">
@@ -294,8 +305,8 @@
             <input type="search" id="trees-q" placeholder="title / status / who" autocomplete="off" spellcheck="false" title="Filter plans by title, status, or who. The path to a hit stays visible.">
           </label>
           <span class="wall-filter" id="trees-collapse-chrome" role="group" aria-label="Expand or collapse nest">
-            <button type="button" data-trees-collapse="expand" title="Show what sits under the open card">Expand</button>
-            <button type="button" data-trees-collapse="collapse" title="Show only the first column of the chain">Collapse</button>
+            <button type="button" data-trees-collapse="expand" title="Open every branch of this tree">Expand</button>
+            <button type="button" data-trees-collapse="collapse" title="Fold every branch of this tree">Collapse</button>
           </span>
         </span>
         </div>
@@ -309,9 +320,9 @@
         <div class="help-body">
           <ul>
             <li><b>TODO</b> is the work: parked, open, claimed, shipped, done. On Board, drag a column edge. The mark on the heading collapses that column.</li>
-            <li><b>Board | List | Plan:</b> Board is the five columns. List is the same cards, one line each. Plan is the plans, then the boxes left to right for what sits under what. The selected card sits on the same line as the cards above it. Drag the chart sideways. The wheel scrolls it.</li>
-            <li><b>Status chips:</b> lit means the card is full. Click a status to shrink those cards to the word. Plan keeps the arrow. Board and List keep the link to the card above. Click again for the title. The open card stays full.</li>
-            <li><b>Card:</b> the box is the short heading. Click it and that card opens, and so does every card above it: the full doing line, the longer note, who asked, and who holds it.</li>
+            <li><b>Kanban | List, and Tree:</b> Kanban is the five columns. List is the same cards as a table, one row each: click a heading to sort, pick a desk or a state to filter. Tree is its own view: the trees first, then one tree as an outline, each card under the card it sits under. The +/- folds a branch.</li>
+            <li><b>Status chips:</b> lit means the card is full. Click a status to shrink those Kanban cards to the word. Click again for the title. The open card stays full.</li>
+            <li><b>Card:</b> click a card, a row or a tree line (or press Enter on it) and it opens: the longer note, who asked, and who holds it.</li>
           </ul>
         </div>
       </aside>
@@ -589,7 +600,7 @@
           <p>The boxes under the header <b>are</b> the office. Click one. The selected box gets a border; the pane below is that view. There is no second tab bar.</p>
           <div class="guide-rows">
             <div class="guide-row"><span class="k">DESKS</span><span class="what">Desks on this scope, connected first, then the ones away. Open a desk for their cards, letters, a promise when they hold a file, and the diary.</span></div>
-            <div class="guide-row"><span class="k">COLLAB</span><span class="what">Desks that share work. A letter, a card that moved between desks, or a promise. The map draws only those desks. Line thickness is how many shared rows. The timeline is those desks over the window.</span></div>
+            <div class="guide-row"><span class="k">COLLAB</span><span class="what">The desks' activity, replayed: letters, card moves and promises of the desks on the picked roster or station, played back over a rolling hour, day or week in two minutes. Desks keeps the desks fixed in one line and sends each activity straight out from its desk; the arrow button turns either subtab from left to right to top to bottom, and each remembers its choice; drag the density chart to slide the window anywhere in the record. Each activity carries its labels, trees, watchers and roster as small chips; a line joins two desks only when a transition moved the activity between them. Activity draws one heart-monitor line per desk. A desk off that pick shows as a cloud.</span></div>
             <div class="guide-row"><span class="k">TODO</span><span class="what">The work. <b>Board</b> and <b>List</b> are one card: parked, open, claimed, shipped, done. <b>Plan</b> is the plans, then what sits under a card, left to right. Click a box to open that card and every card above it.</span></div>
             <div class="guide-row"><span class="k">MAIL</span><span class="what"><b>Rooms</b> is one conversation: thread and party. <b>Letters</b> is every letter, newest first. Desks and rosters, not a human inbox. Never send to <code>human</code>.</span></div>
             <div class="guide-row"><span class="k">SCORE</span><span class="what">Last vs target. The boxes beside the rail choose the-mill or Office scores. Off target also sits in the ticker. You do not type Last.</span></div>
@@ -664,9 +675,9 @@
       <li><button type="button" class="jump" data-tab="mail" data-hi="sec-mail"><b>MAIL</b></button> - Rooms, Thread, and Party, or every letter.</li>
       <li><button type="button" class="jump" data-tab="priorities" data-hi="pane-priorities"><b>PRIORITIES</b></button> - each desk's ranked list, top five as its connect prints them, with checks.</li>
       <li><button type="button" class="jump" data-tab="score" data-hi="pane-score"><b>SCORE</b></button> - Last against target. Off target also sits in the ticker.</li>
-      <li><button type="button" class="jump" data-tab="floor" data-hi="floor-map"><b>COLLAB</b></button> - desks that share a letter, a card, or a promise, and the timeline.</li>
+      <li><button type="button" class="jump" data-tab="floor" data-hi="floor-map"><b>COLLAB</b></button> - the desks' activity replayed, as Desks and Activity.</li>
       <li>The left rail is a station or a roster. It changes who is here. Scores stay on the office.</li>
-      <li><button type="button" class="jump" data-tab="guide" data-hi="pane-guide"><b>GUIDE</b></button> and <button type="button" class="jump" data-tab="glossary" data-hi="pane-glossary"><b>GLOSSARY</b></button> are under More, with theme: auto, light, dark.</li>
+      <li><button type="button" class="jump" data-tab="guide" data-hi="pane-guide"><b>GUIDE</b></button> and <button type="button" class="jump" data-tab="glossary" data-hi="pane-glossary"><b>GLOSSARY</b></button> are under More, with theme: auto, light, dark, and a palette.</li>
       <li><button type="button" class="jump" data-tab="admin" data-hi="pane-admin"><b>ADMIN</b></button> and <button type="button" class="jump" data-tab="wire" data-hi="pane-wire"><b>WIRE</b></button> are operator tools.</li>
     </ul>
   </aside>
@@ -677,22 +688,22 @@
      Markers: WALL_UI_LIB_POPUP WALL_UI_LIB_DATA WALL_UI_LIB_TABS WALL_UI_LIB_TABLE WALL_UI_LIB_GRAPH WALL_UI_LIB_THEME WALL_UI_LIB_KEYS WALL_UI_DEFAULT_BOARD_CSS WALL_UI_DEFAULT_BOOT -->
 <script defer src="/lib/theme.js"></script>
 <script defer src="/lib/popup.js"></script>
-<script defer src="/lib/data.js"></script>
+<script defer src="/lib/data.js?v=wow362"></script>
 <script defer src="/lib/tabs.js?v=wow346"></script>
 <script defer src="/lib/table.js"></script>
 <script defer src="/lib/graph.js"></script>
 <script defer src="/lib/keys.js"></script>
 <script defer src="/gutter.js"></script>
-  <script defer src="/lib/lazy.js?v=wow347"></script>
+  <script defer src="/lib/lazy.js?v=wow376"></script>
   <!-- WALL_UI_DEFAULT_DOMAINS: floor eager; MAIL/TODO/SCORE lazy on first tab (Wave 2 / #40).
        Inert template keeps src= strings for pack seams; wallEnsureDomain injects live scripts+CSS. -->
   <template id="wall-lazy-domains">
     <script src="/mail/mail.js?v=wow285"></script>
     <script src="/score/score.js?v=wow320"></script>
-    <script src="/todo/todo.js?v=wow320"></script>
+    <script src="/todo/todo.js?v=wow375"></script>
   </template>
   <script defer src="/floor/floor.js"></script>
-  
+
 
   <!-- WALL_UI_LIB_KEYS help chrome (markup only; logic in lib/keys.js) -->
   <div id="wall-keys-help" class="help-box wall-keys-help" hidden role="dialog" aria-label="Keyboard shortcuts">
@@ -768,6 +779,9 @@
   </form>
 </div>
 <script defer src="/session/desks-rows.js?v=wow349"></script>
-<script defer src="/boot.js?v=wow348"></script>
+<script defer src="/rd/rd-model.js?v=wow380"></script>
+<script defer src="/rd/rd-view.js?v=wow380"></script>
+<script defer src="/rd/rd-app.js?v=wow380"></script>
+<script defer src="/boot.js?v=wow377"></script>
 </body>
 </html>

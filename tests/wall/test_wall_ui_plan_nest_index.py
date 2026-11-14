@@ -133,9 +133,10 @@ def test_nest_index_matches_old_scans_and_is_linear():
     assert got["ms"] < 2000, got["ms"]
 
 
-def test_plan_chart_reuses_rows():
+def test_tree_outline_reuses_rows():
+    """The Tree view (list of trees, then one tree's outline) keeps unchanged lines' DOM."""
     src = BOOT.read_text(encoding="utf-8") + TODO_PAINT.read_text(encoding="utf-8")
     assert "function millNestBuild(" in src
-    assert "function todoPertSync(" in src
-    assert "wallKeyedSync(forestBox, forestRows);" in src
+    assert "function todoPertSync(" not in src, "the left-to-right card chart is gone; Tree is an outline"
+    assert 'wallKeyedSync(shell.querySelector(".todo-trees-list, .todo-outline-list"), rows);' in src
     assert "_millPaintScope = { d: d, cards: null };" in src

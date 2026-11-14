@@ -48,9 +48,20 @@ def test_human_write_paths_are_gone():
         "mail-rooms-reply",
         'class="sg-mail"',
         "data-plan-act",
-        'draggable="true"',
     ):
         assert gone not in src, gone
+
+
+def test_only_drag_is_the_todo_list_column_order():
+    """Dragging is view-only: TODO list headings reorder columns kept in localStorage.
+    No other drag source, and the list wiring never writes to the server."""
+    src = _boot()
+    assert src.count('draggable="true"') == 1
+    paint = src.split("function wallTodoListPaint()", 1)[1].split("function wireTodoList()", 1)[0]
+    assert 'draggable="true"' in paint
+    wire = src.split("function wireTodoList()", 1)[1].split("/* nest time window", 1)[0]
+    for write in ("fetch(", "method:", "POST", "XMLHttpRequest"):
+        assert write not in wire, write
 
 
 def test_get_polls_still_present():
