@@ -1085,3 +1085,186 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-rp-cap.rd-cap-expire { border-radius: 50%; background: transparent; border: 1.5px solid var(--rd-end-expire); }
 #rd .rd-rp-tip-span { color: var(--dim); font-variant-numeric: tabular-nums; }
 #rd .rd-rp-tip-on { color: var(--dim); font-size: 11px; }
+
+/* ---- score matrix (part=scores) ---- */
+#rd {
+  --st-forced: var(--amber);
+  --st-failed: var(--red);
+}
+#rd .rd-tab-groups.score {
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+  min-width: 0;
+}
+#rd .rd-sc-table-wrap {
+  overflow: auto;
+  min-width: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius, 2px);
+  background: var(--shop);
+}
+#rd .rd-sc-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#rd .rd-sc-table th, #rd .rd-sc-table td {
+  border-bottom: 1px solid color-mix(in srgb, var(--edge) 55%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--edge) 40%, transparent);
+  padding: .28rem .4rem;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--ink);
+  background: var(--shop);
+}
+#rd .rd-sc-table tr:last-child th, #rd .rd-sc-table tr:last-child td { border-bottom: 0; }
+#rd .rd-sc-corner, #rd .rd-sc-desk {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  font-weight: 650;
+  box-shadow: 1px 0 0 color-mix(in srgb, var(--edge) 40%, transparent);
+}
+#rd .rd-sc-areas th {
+  text-align: center;
+  color: var(--amber);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--panel);
+}
+#rd .rd-sc-col {
+  cursor: pointer;
+  vertical-align: bottom;
+  min-width: 5.2rem;
+  background: var(--panel);
+}
+#rd .rd-sc-col.on { color: var(--amber); }
+#rd .rd-sc-name {
+  display: block;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+  line-height: 1.25;
+  max-width: 7.5rem;
+}
+#rd .rd-sc-col.on .rd-sc-name { color: var(--amber); }
+#rd .rd-sc-med {
+  display: block;
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 10px;
+  margin-top: .1rem;
+}
+#rd .rd-sc-med .rd-sub { margin-left: .25rem; color: var(--dim); font-weight: 400; letter-spacing: 0; text-transform: none; }
+#rd .rd-sc-roster-h th {
+  text-align: left;
+  background: var(--well);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding-top: .4rem;
+}
+#rd .rd-sc-cell {
+  cursor: pointer;
+  font-weight: 650;
+}
+#rd .rd-sc-cell:hover, #rd .rd-sc-cell:focus-visible, #rd .rd-sc-col:hover, #rd .rd-sc-col:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--amber) 55%, var(--edge));
+  outline-offset: -1px;
+}
+#rd .rd-sc-cell.on {
+  box-shadow: inset 0 0 0 1px var(--amber);
+}
+#rd .rd-sc-cell.empty, #rd .rd-sc-card-row.empty {
+  color: var(--dim);
+  font-weight: 400;
+}
+#rd .rd-sc-cell.zero, #rd .rd-sc-card-row.zero {
+  color: color-mix(in srgb, var(--ink) 45%, var(--dim));
+  font-weight: 400;
+}
+#rd .rd-sc-cell.worse, #rd .rd-sc-card-row.worse {
+  background: color-mix(in srgb, var(--st-forced) 22%, var(--shop));
+  color: var(--ink);
+}
+#rd .rd-sc-cell.far, #rd .rd-sc-card-row.far {
+  background: color-mix(in srgb, var(--st-failed) 22%, var(--shop));
+  color: var(--ink);
+}
+#rd .rd-sc-cards { display: none; }
+
+#rd .rd-sc-card {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius, 2px);
+  background: var(--shop);
+  padding: .4rem .5rem .5rem;
+  margin: 0 0 .55rem;
+}
+#rd .rd-sc-card h3 {
+  margin: 0 0 .3rem;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  gap: .4rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#rd .rd-sc-card h3 .rd-sub { color: var(--dim); font-weight: 400; font-size: 11px; }
+#rd .rd-sc-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .5rem;
+  width: 100%;
+  margin: 0;
+  padding: .28rem .2rem;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--edge) 45%, transparent);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 2px;
+}
+#rd .rd-sc-card-row:first-of-type { border-top: 0; }
+#rd .rd-sc-card-lbl { color: var(--dim); }
+#rd .rd-sc-card-val { font-variant-numeric: tabular-nums; font-weight: 650; }
+#rd .rd-sc-card-row.on { box-shadow: inset 0 0 0 1px var(--amber); }
+
+@media (min-width: 900px) {
+  #rd .rd-tab-split.score {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: stretch;
+    overflow: hidden;
+  }
+  #rd .rd-tab-split.score .rd-tab-groups { overflow: auto; min-height: 0; display: block; }
+  #rd .rd-tab-split.score .rd-tab-detail { display: block; }
+}
+@media (max-width: 899px) {
+  #rd .rd-tab-split.score { display: flex; flex-direction: column; }
+  #rd .rd-tab-split.score .rd-sc-table-wrap { display: none; }
+  #rd .rd-tab-split.score .rd-sc-cards { display: block; }
+  #rd .rd-tab-split.score .rd-tab-detail {
+    display: block;
+    order: -1;
+    flex: 0 0 auto;
+    max-height: 40vh;
+  }
+}

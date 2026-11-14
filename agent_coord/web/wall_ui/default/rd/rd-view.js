@@ -261,7 +261,7 @@
     return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + h(m.from) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
   }
   function split(cols, detail, n, cls) {
-    return '<div class="rd-tab-split"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" data-groups="' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
+    return '<div class="rd-tab-split' + (cls ? " " + cls : "") + '"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" data-groups="' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
       '<aside class="rd-tab-detail">' + detail + "</aside></div>";
   }
   function mailHtml(m) {
@@ -306,29 +306,58 @@
     return split(cols, det, m.cols.length, "prios");
   }
   function scoreHtml(m) {
-    if (!m.groups.length) return split(groupCol("Scores", "0", empty("No platform score on this scope yet.")), "", 1);
-    var cols = m.groups.map(function (g) {
-      var rows = g.rows.map(function (r) {
-        var who = r.desk ? deskChip(r.desk) : chip(r.roster, "roster");
-        return itemRow(r.key, m.selected, who + ' <span class="rd-item-title">' + h(r.label) + "</span>",
-          '<span class="rd-lt">' + h(r.value) + (r.target ? '<span class="rd-tgt"> / ' + h(r.target) + "</span>" : "") + "</span>" +
-          (r.off ? flag("off target", "older") : "") + r.meta.map(function (x) { return "<span>" + h(x) + "</span>"; }).join(""), r.off ? "off" : "");
-      }).join("");
-      return groupCol(g.label, (g.off ? g.off + " off \u00b7 " : "") + g.hint, rows);
+    if (!m || !m.groups || !m.groups.length) {
+      return split(groupCol("Scores", "0", empty("No attention scores on this scope yet.")), "", 1, "score");
+    }
+    var headAreas = m.areas.map(function (a) {
+      return '<th class="rd-sc-area" colspan="' + a.cols.length + '">' + h(a.label) + "</th>";
     }).join("");
+    var headNames = m.areas.map(function (a) {
+      return a.cols.map(function (c) {
+        var on = m.sortCol === c.name;
+        var tip = c.medianText ? ("median " + c.medianText + " \u00b7 " + c.n_active + " active") : ("no median" + (c.n_active < 3 ? " (needs 3 active desks with a value)" : ""));
+        var sort = on ? (m.sortDir === "asc" ? "ascending" : "descending") : "none";
+        return '<th class="rd-sc-col' + (on ? " on" : "") + '" data-rd-score-sort="' + h(c.name) + '" title="' + h(tip) + '" aria-sort="' + sort + '"><span class="rd-sc-name">' + h(c.label) + '</span><span class="rd-sc-med">' + (c.medianText ? h(c.medianText) : "\u00a0") + '<span class="rd-sub"> n=' + h(String(c.n_active)) + "</span></span></th>";
+      }).join("");
+    }).join("");
+    var body = m.groups.map(function (g) {
+      var rows = g.rows.map(function (r) {
+        var tds = r.cells.map(function (c) {
+          var cls = "rd-sc-cell" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "") + (c.empty ? " empty" : "");
+          return '<td class="' + cls + '" data-rd-pick="' + h(c.key) + '" tabindex="0" title="' + h(c.title || "") + '">' + h(c.text) + "</td>";
+        }).join("");
+        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + h(r.desk) + "</th>" + tds + "</tr>";
+      }).join("");
+      return '<tbody class="rd-sc-roster"><tr class="rd-sc-roster-h"><th colspan="' + (1 + m.cols.length) + '">' + h(g.label) + ' <span class="rd-sub">' + h(String(g.rows.length)) + "</span></th></tr>" + rows + "</tbody>";
+    }).join("");
+    var table = '<div class="rd-sc-table-wrap"><table class="rd-sc-table"><thead><tr class="rd-sc-areas"><th class="rd-sc-corner"></th>' + headAreas + '</tr><tr class="rd-sc-names"><th class="rd-sc-corner">Desk</th>' + headNames + "</tr></thead>" + body + "</table></div>";
+    var cards = '<div class="rd-sc-cards">' + m.groups.map(function (g) {
+      return g.rows.map(function (r) {
+        var filled = r.cells.filter(function (c) { return !c.empty; });
+        var list = filled.map(function (c) {
+          var cls = "rd-sc-card-row" + (c.key === m.selected ? " on" : "") + (c.tint ? " " + c.tint : "") + (c.zero ? " zero" : "");
+          return '<button type="button" class="' + cls + '" data-rd-pick="' + h(c.key) + '" title="' + h(c.title || "") + '"><span class="rd-sc-card-lbl">' + h(c.label) + '</span><span class="rd-sc-card-val">' + h(c.text) + "</span></button>";
+        }).join("") || '<p class="rd-empty-line">No scores with a value.</p>';
+        return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + list + "</article>";
+      }).join("");
+    }).join("") + "</div>";
     var d = m.detail, det = "";
     if (d) {
-      det = '<h3>SCORE <span class="rd-sub">selected</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + h(d.desk || d.roster + " roster") + "</div>" +
-        '<div class="rd-detail-facts">' + (d.desk ? deskChip(d.desk) : chip(d.roster, "roster")) + '<span class="rd-lt">' + h(d.value) + (d.target ? '<span class="rd-tgt"> / ' + h(d.target) + "</span>" : "") + "</span>" +
-        (d.off ? flag("off target", "older") : "<span>on target</span>") + (d.updated ? "<span>updated " + h(clock(d.updated)) + "</span>" : "") + "</div>" +
-        '<p class="rd-detail-body">' + h(d.group + (d.desk ? " score for " + d.desk + "." : " score for the " + d.roster + " roster, not a desk\u2019s.")) + (d.note ? " " + h(d.note) : "") +
-        (d.meta.length ? " " + h(d.meta.join(", ")) + "." : "") + "</p>" +
-        (d.runs && d.runs.length ? '<h3>LAST RUNS <span class="rd-sub">oldest to newest</span></h3><div class="rd-runs">' + spark(d.runs.map(function (x) { return x.ms; })) + "</div>" +
-          d.runs.slice(-5).reverse().map(function (x) {
-            return '<div class="rd-feed-row"><span class="rd-when">' + h(R.msText(x.ms)) + '</span><div><span class="rd-text' + (x.phase === "failed" ? " off" : "") + '">' + h(x.phase) + (x.ended && x.ended !== x.phase ? ", " + h(x.ended) : "") + "</span></div></div>";
-          }).join("") : "");
+      var facts = [deskChip(d.desk)].concat(
+        d.roster ? [chip(d.roster, "roster")] : [],
+        ["<span>" + h(d.text) + "</span>"],
+        d.kind === "age" && d.anchorMs != null ? ['<span title="anchor">' + h(localWhen(d.anchorMs) + (d.ageText ? " \u00b7 " + d.ageText : "")) + "</span>"] : [],
+        d.num != null && d.den != null ? ["<span>" + h(String(d.num) + "/" + String(d.den)) + "</span>"] : [],
+        d.medianText ? ["<span>median " + h(d.medianText) + (d.n_active != null ? " \u00b7 n=" + h(String(d.n_active)) : "") + "</span>"] : ['<span title="no median">no median' + (d.n_active != null ? " \u00b7 n=" + h(String(d.n_active)) : "") + "</span>"],
+        d.reason ? ["<span>" + h(d.reason) + "</span>"] : []
+      ).join("");
+      var items = d.items && d.items.length ? '<h3>ITEMS <span class="rd-sub">' + h(String(d.items.length)) + "</span></h3>" + d.items.map(function (it) {
+        return '<div class="rd-feed-row"><a class="rd-on-item" href="#' + h(it.tab) + '" data-rd-go="' + h(it.tab) + '" data-rd-sel="' + h(it.sel) + '">' + h(it.text) + "</a></div>";
+      }).join("") : "";
+      det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + h(d.desk) + "</div>" +
+        '<div class="rd-detail-facts">' + facts + "</div>" + items;
     }
-    return split(cols, det, m.groups.length);
+    return split(table + cards, det, 1, "score");
   }
   function collabHtml(m) {
     var cols = m.groups.map(function (g) {
@@ -633,14 +662,15 @@
 
   var SCOPE_TEXT = {
     desks: "", todo: "grouped by state across the roster", mail: "grouped by who they wait on, oldest first",
-    priorities: "one column per desk \u00b7 ranks are 1-based, ord on hover", score: "grouped by impact \u00b7 desks are rows \u00b7 platform scores only",
+    priorities: "one column per desk \u00b7 ranks are 1-based, ord on hover", score: "desks by roster \u00b7 scores by area \u00b7 tinted when worse than the median",
     collab: "the focused desks\u2019 activity, replayed"
   };
   /* The time range lives on the tabs it cuts. TODO, MAIL and COLLAB keep their own time
    * controls (done span, plan window, activity grain) inside the pane they host. */
   var TIMED = { desks: 1, score: 1 };
-  function rangeHtml(range) {
-    return '<span class="rd-time-range" role="group" aria-label="Time range">' + R.RANGES.map(function (k) {
+  function rangeHtml(range, tab) {
+    var keys = (tab === "score" && R.SCORE_WINDOWS) ? R.SCORE_WINDOWS : R.RANGES;
+    return '<span class="rd-time-range" role="group" aria-label="Time range">' + keys.map(function (k) {
       return '<button type="button" data-rd-range="' + k + '"' + (k === range ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + (k === "today" ? "Today" : k) + "</button>";
     }).join("") + "</span>";
   }
@@ -650,7 +680,7 @@
     var timed = !!TIMED[tab];
     var scope = tab === "desks" ? "" : sc.label + (timed ? " \u00b7 " + R.rangeText(sc.range) : "") + " \u00b7 " + SCOPE_TEXT[tab];
     return '<div class="rd-pane-head">' + (tab === "desks" ? '<button type="button" class="rd-desk-back" data-rd-back="1">Back</button>' : "") +
-      "<h2>" + label + "</h2>" + (extra || "") + (timed ? rangeHtml(sc.range) : "") + (scope ? '<span class="rd-pane-scope">' + h(scope) + "</span>" : "") + "</div>";
+      "<h2>" + label + "</h2>" + (extra || "") + (timed ? rangeHtml(sc.range, tab) : "") + (scope ? '<span class="rd-pane-scope">' + h(scope) + "</span>" : "") + "</div>";
   }
 
   /* The head over a tab that hosts its full pane: the scope, and the pane's own view switch. */

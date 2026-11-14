@@ -26,6 +26,7 @@
   var MIN = 60000, HOUR = 3600000, DAY = 86400000;
   var RANGE_MS = { "7d": 7 * DAY, "30d": 30 * DAY };
   var RANGES = ["today", "7d", "30d"];
+  var SCORE_WINDOWS = ["24h", "7d", "30d"];
   var STATE_RANK = { working: 0, waiting: 1, idle: 2 };
   var STUCK_MS = 2 * DAY;
 
@@ -160,7 +161,7 @@
       rosters: rosters,
       only: only,
       label: str(scope.label) || rosters.join(" + "),
-      range: RANGES.indexOf(scope.range) >= 0 ? scope.range : "7d"
+      range: (RANGES.indexOf(scope.range) >= 0 || SCORE_WINDOWS.indexOf(scope.range) >= 0) ? scope.range : "7d"
     };
   }
 
@@ -652,74 +653,262 @@
     return { cols: cols, lists: lists, selected: selected, detail: detail };
   }
 
-  /* ---- SCORE: platform scores by impact, desks as rows ---- */
-  function score(b, opts) {
-    if (!b.kpis) return null;
-    var groups = {
-      wakes: { key: "wakes", label: "Wakes", hint: "impact first", rows: [] },
-      doing: { key: "doing", label: "Doing", hint: "desks as rows", rows: [] },
-      health: { key: "health", label: "Quiet while sitting", hint: "desks as rows", rows: [] },
-      system: { key: "system", label: "System", hint: "commands and routes", rows: [] },
-      other: { key: "other", label: "Other scores", hint: "", rows: [] }
-    };
-    var deskSet = {};
-    b.desks.forEach(function (d) { deskSet[d.name] = d; });
-    var perDesk = {}, perHealth = {};
-    b.kpis.forEach(function (k) {
-      var owner = str(k.owner), name = str(k.kpi), v = str(k.value);
-      if (v === "") return;
-      if (owner && !deskSet[owner]) return;
-      var row = { key: "score-" + k.id, kpi: name, label: kpiLabel(name), desk: owner, roster: owner ? "" : k.roster,
-        value: v, target: str(k.target), note: str(k.note), off: kpiMiss(v, k.target), meta: [], ids: [k.id], updated: utc(k.updated) };
-      if (/^mill-office\./.test(name) || /wake/.test(name)) { groups.wakes.rows.push(row); return; }
-      if (owner && name.indexOf("doing.task.") === 0) {
-        var pd = perDesk[owner] || (perDesk[owner] = {});
-        pd[name] = row;
-        return;
+  /* ---- SCORE: part=scores matrix, desks as rows, names as columns ---- */
+  var SCORE_LABELS = {
+    oldest_unread_ask_age_ms: "Oldest unread ask",
+    unanswered_required_n: "Unanswered required",
+    unanswered_fyi_n: "Unanswered fyi",
+    ask_to_answer_ms: "Ask to answer",
+    outgoing_unanswered_n: "Outgoing unanswered",
+    claimed_no_pass_age_ms: "Claimed idle",
+    claimed_idle_age_ms: "Claimed idle",
+    claimed_age_ms: "Claimed age",
+    claimed_claimant_inactive_n: "Claimant inactive",
+    claimed_past_eta_n: "Past eta",
+    shipped_unaccepted_age_ms: "Shipped unaccepted",
+    hold_open_age_ms: "Open hold",
+    force_taken_n: "Force taken",
+    stale_share: "Stale share",
+    ended_no_pass_or_mail_n: "Ended without pass or mail",
+    to_done_ms: "To done",
+    stale_done_share: "Stale done share",
+    hint_no_turn_n: "Hint with no turn"
+  };
+  var SCORE_AREAS = ["mail", "cards", "holds", "other"];
+  var SCORE_AREA_LABEL = { mail: "Mail", cards: "Cards", holds: "Holds", other: "Other" };
+  function scoreLabel(name) {
+    name = str(name);
+    if (SCORE_LABELS[name]) return SCORE_LABELS[name];
+    var s = name.replace(/_(ms|n|share)$/, "").replace(/_/g, " ").trim();
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : name;
+  }
+  function scoreArea(name) {
+    name = str(name);
+    if (/^(oldest_unread|unanswered_|ask_to_|outgoing_|hint_)/.test(name)) return "mail";
+    if (/^(claimed_|shipped_|ended_|to_done|stale_)/.test(name)) return "cards";
+    if (/^(hold_|force_)/.test(name)) return "holds";
+    return "other";
+  }
+  function scoreKind(row) {
+    if (row && row.kind) return str(row.kind);
+    if (row && row.den != null) return "share";
+    if (row && /_ms$/.test(str(row.name))) return "age";
+    return "count";
+  }
+  function scoreComparable(row, now) {
+    if (!row) return null;
+    var kind = scoreKind(row);
+    if (kind === "age") {
+      if (row.anchor_at) {
+        var t = utc(row.anchor_at);
+        return t != null ? Math.max(0, now - t) : null;
       }
-      if (owner && (/^mill-desk\./.test(name) || name === "mill-wall.ticks")) { (perHealth[owner] || (perHealth[owner] = [])).push(row); return; }
-      if (name === "system" || name === "wall" || /^mill-wall\./.test(name)) { groups.system.rows.push(row); return; }
-      groups.other.rows.push(row);
+      return num(row.value);
+    }
+    if (kind === "share") {
+      if (row.num != null && row.den) return Number(row.num) / Number(row.den);
+      return num(row.value);
+    }
+    return num(row.value);
+  }
+  function scoreMedian(values) {
+    var xs = (values || []).filter(function (v) { return v != null && Number.isFinite(v); }).slice().sort(function (a, c) { return a - c; });
+    if (!xs.length) return null;
+    return xs[Math.floor(xs.length / 2)];
+  }
+  /* worse = above the median for age and count (and share). far = more than twice the median.
+   * a median of 0 has no meaningful double, so a positive value is worse, not far. */
+  function scoreTint(value, median) {
+    if (value == null || median == null || !Number.isFinite(value) || !Number.isFinite(median)) return "";
+    if (value <= median) return "";
+    if (median > 0 && value > 2 * median) return "far";
+    return "worse";
+  }
+  function scoreMedianText(kind, median) {
+    if (median == null || !Number.isFinite(median)) return "";
+    if (kind === "age") return dur(median);
+    if (kind === "share") {
+      var pct = Math.round(median * 1000) / 10;
+      return (pct % 1 === 0 ? String(Math.round(pct)) : String(pct)) + "%";
+    }
+    return Number.isInteger(median) ? String(median) : String(Math.round(median * 100) / 100);
+  }
+  function scoreDisplay(row, now) {
+    var kind = scoreKind(row);
+    var hasAnchor = !!(row && row.anchor_at);
+    var hasVal = row && row.value != null && row.value !== "";
+    if (!hasAnchor && !hasVal && !(kind === "share" && row && row.den != null)) {
+      return { text: "\u2014", empty: true, zero: false, reason: str(row && row.reason) };
+    }
+    if (kind === "age") {
+      var ms = scoreComparable(row, now);
+      return { text: ms == null ? "\u2014" : dur(ms), empty: ms == null, zero: ms === 0, reason: str(row && row.reason) };
+    }
+    if (kind === "share") {
+      if (row.num != null && row.den != null) {
+        return { text: String(row.num) + "/" + String(row.den), empty: false, zero: Number(row.num) === 0, reason: str(row.reason) };
+      }
+      if (!hasVal) return { text: "\u2014", empty: true, zero: false, reason: str(row.reason) };
+      return { text: String(row.value), empty: false, zero: Number(row.value) === 0, reason: str(row.reason) };
+    }
+    if (!hasVal) return { text: "\u2014", empty: true, zero: false, reason: str(row && row.reason) };
+    return { text: String(row.value), empty: false, zero: Number(row.value) === 0, reason: str(row.reason) };
+  }
+  function scoreItemTab(area) {
+    return area === "mail" ? "mail" : (area === "holds" ? "collab" : "todo");
+  }
+  function scoreItemPrefix(area) {
+    return area === "mail" ? "mail-" : (area === "holds" ? "hold-" : "todo-");
+  }
+  function inScoreScope(b, desk, roster) {
+    var sc = b.scope || {};
+    if (b.offDesk && b.offDesk(desk)) return false;
+    if (sc.only) return !!sc.only[desk];
+    var rosters = sc.rosters || [];
+    if (!rosters.length || (rosters.length === 1 && rosters[0] === "Office")) return true;
+    return rosters.indexOf(roster) >= 0;
+  }
+  function score(b, opts) {
+    opts = opts || {};
+    if (!b || !b.data || b.data.povScores == null) return null;
+    var payload = b.data.povScores;
+    var now = opts.now != null ? opts.now : (b.now || Date.now());
+    var rawDesks = Array.isArray(payload.desks) ? payload.desks : [];
+    var desks = [];
+    rawDesks.forEach(function (d) {
+      if (!d || !str(d.desk)) return;
+      var name = str(d.desk), roster = str(d.roster);
+      if (!inScoreScope(b, name, roster)) return;
+      desks.push({ desk: name, roster: roster, scores: Array.isArray(d.scores) ? d.scores : [] });
     });
-    /* One Doing row per desk: the last run, with how it ended and its dwell. */
-    Object.keys(perDesk).forEach(function (desk) {
-      var pd = perDesk[desk];
-      var lr = pd["doing.task.last_run"], er = pd["doing.task.end_reason"];
-      var act = pd["doing.task.dwell_active_ms"], idl = pd["doing.task.dwell_idle_ms"], wt = pd["doing.task.dwell_waiting_ms"];
-      var lead = lr || er || act || idl || wt;
-      var row = { key: "doing-" + desk, kpi: lead.kpi, label: lr ? "Last run" : lead.label, desk: desk, roster: "",
-        value: lr ? lr.value : (lead === act || lead === idl || lead === wt ? msText(lead.value) : endWord(lead.value)), target: "",
-        note: "", off: Object.keys(pd).some(function (k) { return pd[k].off; }), meta: [], ids: [], updated: lead.updated };
-      Object.keys(pd).forEach(function (k) { row.ids.push(pd[k].ids[0]); });
-      if (er && lr) row.meta.push("ended " + endWord(er.value));
-      if (act) row.meta.push("active " + msText(act.value));
-      if (idl) row.meta.push("idle " + msText(idl.value));
-      if (wt) row.meta.push("waiting " + msText(wt.value));
-      groups.doing.rows.push(row);
+    var names = [], seen = {};
+    desks.forEach(function (d) {
+      d.scores.forEach(function (s) {
+        if (!s || !s.name || seen[s.name]) return;
+        seen[s.name] = 1;
+        names.push(str(s.name));
+      });
     });
-    /* One row per desk for the sitting checks: each is a count with a target of 0. */
-    Object.keys(perHealth).forEach(function (desk) {
-      var list = perHealth[desk];
-      var bad = list.filter(function (r) { return r.off; });
-      var lead = bad[0] || list[0];
-      groups.health.rows.push({ key: "health-" + desk, kpi: lead.kpi, label: bad.length ? lead.label : "Quiet while sitting", desk: desk, roster: "",
-        value: bad.length ? lead.value : String(list.length - bad.length) + " of " + list.length, target: bad.length ? lead.target : "",
-        note: list.map(function (r) { return r.label + ": " + r.note; }).join(" "), off: bad.length > 0,
-        meta: list.map(function (r) { return r.label.toLowerCase() + " " + r.value + (r.target ? " / " + r.target : ""); }),
-        ids: list.map(function (r) { return r.ids[0]; }), updated: lead.updated, okText: bad.length ? "" : "on target" });
+    var byDesk = desks.map(function (d) {
+      var map = {};
+      d.scores.forEach(function (s) { if (s && s.name) map[s.name] = s; });
+      return { desk: d.desk, roster: d.roster, map: map };
     });
-    var order = ["wakes", "doing", "health", "system", "other"];
-    var list = order.map(function (k) { return groups[k]; }).filter(function (g) { return g.rows.length; });
-    list.forEach(function (g) {
-      g.rows.sort(function (a, c) { return (c.off ? 1 : 0) - (a.off ? 1 : 0) || (a.desk || "~").localeCompare(c.desk || "~") || a.label.localeCompare(c.label); });
-      g.off = g.rows.filter(function (r) { return r.off; }).length;
+    var nActive = byDesk.length;
+    var cols = names.map(function (name) {
+      var sample = null;
+      byDesk.forEach(function (d) { if (!sample && d.map[name]) sample = d.map[name]; });
+      var kind = scoreKind(sample || { name: name });
+      var series = byDesk.map(function (d) { return scoreComparable(d.map[name], now); });
+      var median = nActive >= 3 ? scoreMedian(series) : null;
+      var roll = sample && sample.rollup ? sample.rollup : null;
+      var serverN = roll && roll.n_active != null ? Number(roll.n_active) : nActive;
+      return {
+        name: name, label: scoreLabel(name), kind: kind, area: scoreArea(name),
+        median: median, medianText: scoreMedianText(kind, median),
+        n_active: nActive, served_n: serverN,
+        window: (roll && roll.window) || payload.window || ""
+      };
     });
-    var off = list.reduce(function (s, g) { return s + g.off; }, 0);
-    var selected = pickSelected(list, opts && opts.selected, function (r) { return r.key; });
-    var sel = null;
-    list.forEach(function (g) { g.rows.forEach(function (r) { if (r.key === selected) sel = Object.assign({ group: g.label }, r); }); });
-    if (sel && sel.desk && /^doing-/.test(sel.key)) sel.runs = deskRuns(b, sel.desk);
-    return { groups: list, off: off, selected: selected, detail: sel };
+    var areas = SCORE_AREAS.map(function (key) {
+      return { key: key, label: SCORE_AREA_LABEL[key], cols: cols.filter(function (c) { return c.area === key; }) };
+    }).filter(function (a) { return a.cols.length; });
+    var colOf = {};
+    cols.forEach(function (c) { colOf[c.name] = c; });
+    var rows = byDesk.map(function (d) {
+      var cells = [], worse = 0;
+      cols.forEach(function (c) {
+        var raw = d.map[c.name] || { name: c.name, value: null, reason: "none" };
+        var disp = scoreDisplay(raw, now);
+        var cmp = scoreComparable(raw, now);
+        var tint = disp.empty ? "" : scoreTint(cmp, c.median);
+        if (tint) worse++;
+        var title = disp.empty && disp.reason ? disp.reason : (disp.empty ? "" : (c.label + ": " + disp.text));
+        cells.push({
+          key: d.desk + "|" + c.name, name: c.name, label: c.label, kind: c.kind, area: c.area,
+          text: disp.text, empty: disp.empty, zero: disp.zero, tint: tint, title: title,
+          reason: disp.reason, value: raw.value, anchor_at: raw.anchor_at || null,
+          num: raw.num, den: raw.den, items: Array.isArray(raw.items) ? raw.items : [],
+          cmp: cmp, median: c.median, medianText: c.medianText, n_active: c.n_active, window: c.window
+        });
+      });
+      return { desk: d.desk, roster: d.roster, worse: worse, cells: cells };
+    });
+    var sortCol = opts.sortCol && colOf[opts.sortCol] ? opts.sortCol : "";
+    var sortDir = opts.sortDir === "asc" ? "asc" : "desc";
+    function cmpRows(a, c) {
+      if (sortCol) {
+        var ac = a.cells.filter(function (x) { return x.name === sortCol; })[0];
+        var cc = c.cells.filter(function (x) { return x.name === sortCol; })[0];
+        var av = ac && ac.cmp != null ? ac.cmp : null, cv = cc && cc.cmp != null ? cc.cmp : null;
+        if (av == null && cv == null) return a.desk.localeCompare(c.desk);
+        if (av == null) return 1;
+        if (cv == null) return -1;
+        var dlt = av - cv;
+        return (sortDir === "asc" ? dlt : -dlt) || a.desk.localeCompare(c.desk);
+      }
+      return (c.worse - a.worse) || a.desk.localeCompare(c.desk);
+    }
+    var rosterNames = [];
+    var rosterSeen = {};
+    rows.forEach(function (r) {
+      var key = r.roster || "";
+      if (rosterSeen[key]) return;
+      rosterSeen[key] = 1;
+      rosterNames.push(key);
+    });
+    var groups = rosterNames.map(function (roster) {
+      var list = rows.filter(function (r) { return (r.roster || "") === roster; }).slice().sort(cmpRows);
+      var worse = list.reduce(function (s, r) { return s + r.worse; }, 0);
+      return { roster: roster, label: roster || "No roster", rows: list, worse: worse };
+    });
+    groups.sort(function (a, c) { return (c.worse - a.worse) || a.label.localeCompare(c.label); });
+    if (sortCol) {
+      groups.forEach(function (g) { g.rows.sort(cmpRows); });
+      groups.sort(function (a, c) {
+        var aTop = a.rows[0], cTop = c.rows[0];
+        return (aTop && cTop ? cmpRows(aTop, cTop) : 0) || a.label.localeCompare(c.label);
+      });
+    }
+    var off = rows.reduce(function (s, r) { return s + r.worse; }, 0);
+    var selected = opts.selected || "";
+    var detail = null;
+    groups.forEach(function (g) {
+      g.rows.forEach(function (r) {
+        r.cells.forEach(function (cell) {
+          if (cell.key === selected) {
+            var ids = [], idSeen = {};
+            (cell.items || []).forEach(function (id) {
+              if (id == null || id === "") return;
+              var sid = String(id);
+              if (idSeen[sid]) return;
+              idSeen[sid] = 1;
+              ids.push(sid);
+            });
+            var tab = scoreItemTab(cell.area), prefix = scoreItemPrefix(cell.area);
+            var anchorMs = cell.anchor_at ? utc(cell.anchor_at) : null;
+            detail = {
+              key: cell.key, name: cell.name, label: cell.label, area: cell.area, kind: cell.kind,
+              desk: r.desk, roster: r.roster, text: cell.text, empty: cell.empty, zero: cell.zero,
+              tint: cell.tint, reason: cell.reason, value: cell.value,
+              anchor_at: cell.anchor_at, anchorMs: anchorMs, ageText: (cell.kind === "age" && cell.cmp != null) ? dur(cell.cmp) : "",
+              num: cell.num, den: cell.den, median: cell.median, medianText: cell.medianText,
+              n_active: cell.n_active, window: cell.window,
+              items: ids.map(function (id) {
+                return { id: id, tab: tab, sel: prefix + id, text: prefix + id };
+              })
+            };
+          }
+        });
+      });
+    });
+    return {
+      window: payload.window || "",
+      windows: SCORE_WINDOWS.slice(),
+      areas: areas, cols: cols, groups: groups, rows: rows,
+      off: off, selected: selected, detail: detail,
+      sortCol: sortCol, sortDir: sortDir, n_active: nActive
+    };
   }
 
   /* ---- COLLAB: what blocks someone now, then holds, rooms, trees ---- */
@@ -1713,19 +1902,19 @@
       { tab: "todo", label: "TODO", n: td ? td.open : null, cue: "open cards", warn: !!(td && td.attention) },
       { tab: "mail", label: "MAIL", n: ml ? ml.waiting : (waitKnown ? waiting : null), cue: "waiting", warn: ml ? !!ml.overDay : overDay > 0 },
       { tab: "priorities", label: "PRIORITIES", n: pr ? pr.lists : null, cue: "lists", warn: false },
-      { tab: "score", label: "SCORE", n: sc ? sc.off : null, cue: "off target", warn: !!(sc && sc.off) },
+      { tab: "score", label: "SCORE", n: sc ? sc.off : null, cue: "worse", warn: !!(sc && sc.off) },
       { tab: "collab", label: "COLLAB", n: cb ? cb.shared : null, cue: "shared", warn: !!(cb && cb.blocking) }
     ];
   }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
   function rosterText(sc) { return sc.label || sc.rosters.join(" + "); }
-  function rangeText(r) { return r === "today" ? "today" : r === "30d" ? "last 30 days" : "last 7 days"; }
+  function rangeText(r) { return r === "today" ? "today" : (r === "24h" || r === "1d") ? "last 24 hours" : r === "30d" ? "last 30 days" : "last 7 days"; }
   function hero(b, tab, m) {
     var R = rosterText(b.scope);
     if (tab === "todo" && m) return { lead: plural(m.open, "open card") + " on " + R + ".", rest: "Kanban and List show the same cards: parked, open, claimed, shipped, done. Tree shows how they nest." };
     if (tab === "mail" && m) return { lead: plural(m.waiting, "letter") + " waiting on " + R + ".", rest: "Rooms is each conversation with its thread and party; Letters is every letter, newest first." };
     if (tab === "priorities" && m) return { lead: plural(m.lists, "ranked list") + " on this scope.", rest: "Each desk\u2019s ranked list." };
-    if (tab === "score" && m) return { lead: plural(m.off, "score") + " off target on " + R + ".", rest: "Grouped by impact. Desks are rows inside each group. Platform scores only." };
+    if (tab === "score" && m) return { lead: plural(m.off, "score") + " worse than the median on " + R + ".", rest: "Desks are rows, grouped by roster. Columns are scores grouped by area. A cell tints when it is worse than the cross-desk median." };
     if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Replay plays the focused desks\u2019 letters, card moves and promises back in order; a desk off this scope shows as outside." };
     if (tab === "desks" && m) {
       return { lead: plural(m.connected.length, "desk") + " connected, " + m.away.length + " disconnected on " + R + ".",
@@ -1950,8 +2139,9 @@
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayStateAt: replayStateAt,
     REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel, todoView: todoView,
+    scoreLabel: scoreLabel, scoreArea: scoreArea, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,
-    SORTS: SORTS.slice(), RANGES: RANGES.slice()
+    SORTS: SORTS.slice(), RANGES: RANGES.slice(), SCORE_WINDOWS: SCORE_WINDOWS.slice()
   };
   global.WALL_UI_DEFAULT_RD_MODEL = "WALL_UI_DEFAULT_RD_MODEL";
 })(typeof window !== "undefined" ? window : globalThis);

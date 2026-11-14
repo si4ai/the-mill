@@ -23,7 +23,7 @@
     desks: ["labels", "scores", "todos", "holds", "mail", "events"],
     /* The hosted panes read their own data through boot.js; the strip counts come from fetchCounts. */
     todo: [], mail: [], priorities: [],
-    score: ["scores", "runs"],
+    score: ["scores"],
     /* COLLAB Replay: the rows come from /api/v1/replay (fetchReplay); these only name and tag
      * the items on them (card titles, promise names, letter first lines, labels, trees). */
     collab: ["mail", "todos", "holds", "labels", "trees", "rooms"]
@@ -85,7 +85,15 @@
     try { r = JSON.parse(localStorage.getItem(RANGE_KEY) || "{}") || {}; } catch (e) { r = {}; }
     return r;
   }
-  function rangeOf(tab) { return R.RANGES.indexOf(state.range[tab]) >= 0 ? state.range[tab] : "7d"; }
+  function rangeOf(tab) {
+    var r = state.range[tab];
+    if (tab === "score" && R.SCORE_WINDOWS) {
+      if (R.SCORE_WINDOWS.indexOf(r) >= 0) return r;
+      if (r === "today" || r === "1d") return "24h";
+      return "7d";
+    }
+    return R.RANGES.indexOf(r) >= 0 ? r : "7d";
+  }
   /* Roster pick: that roster. Station pick: the desks seen at that station, on the Office roster. */
   function scope() {
     var p = state.pick, sc = { rosters: ["Office"], label: "Office", range: rangeOf(state.tab) };
@@ -162,6 +170,8 @@
       var w = windowFor(kind, tab), got = w ? winData[kind + "|" + w] : null;
       if (got) out[kind] = Object.assign({}, data[kind], got);
     });
+    var sw = rangeOf("score"), pov = winData["povScores|" + sw];
+    if (pov) out.povScores = pov;
     return out;
   }
   function fetchCore(force) {
@@ -197,11 +207,27 @@
     });
     return Promise.all(jobs);
   }
+  function fetchPovScores(force) {
+    var win = rangeOf("score");
+    var key = "povScores|" + win;
+    if (inflight[key]) return inflight[key];
+    if (!force && gotAt[key] && Date.now() - gotAt[key] < FRESH_MS.scores) return Promise.resolve();
+    inflight[key] = getJson("/api/pov?part=scores&window=" + encodeURIComponent(win)).then(function (j) {
+      inflight[key] = null;
+      if (j && Array.isArray(j.desks) && !j.error) {
+        winData[key] = j;
+        gotAt[key] = Date.now();
+      }
+      paintSoon();
+    }).catch(function () { inflight[key] = null; paintSoon(); });
+    return inflight[key];
+  }
   function fetchTab(tab, force) {
     var jobs = [];
     (NEEDS[tab] || []).forEach(function (k) {
       rosters().forEach(function (r) { jobs.push(fetchPart(k, r, force, windowFor(k, tab))); });
     });
+    if (tab === "score") jobs.push(fetchPovScores(force));
     return Promise.all(jobs);
   }
   /* The strip counts every tab: after the open tab, read the small parts for the rest. */
@@ -209,6 +235,7 @@
     ["todos", "labels", "scores", "holds", "mail", "rooms"].forEach(function (k) {
       rosters().forEach(function (r) { fetchPart(k, r); });
     });
+    fetchPovScores();
   }
   function fetchHistory(desk) {
     if (!desk) return;
@@ -245,7 +272,7 @@
     m.todo = R.todo(b, { selected: state.sel.todo });
     m.mail = R.mail(b, { selected: state.sel.mail });
     m.priorities = R.priorities(b, { selected: state.sel.priorities });
-    m.score = R.score(b, { selected: state.sel.score });
+    m.score = R.score(b, { selected: state.sel.score, sortCol: state.scoreSort && state.scoreSort.col, sortDir: state.scoreSort && state.scoreSort.dir });
     m.collab = R.collab(b, { selected: state.sel.collab });
     return m;
   }
@@ -1442,6 +1469,14 @@
       state.range[state.tab] = el.getAttribute("data-rd-range");
       save(RANGE_KEY, JSON.stringify(state.range));
       scopeChanged();
+      return;
+    }
+    if ((el = closest(t, "[data-rd-score-sort]"))) {
+      var col = el.getAttribute("data-rd-score-sort");
+      if (state.scoreSort && state.scoreSort.col === col) state.scoreSort.dir = state.scoreSort.dir === "desc" ? "asc" : "desc";
+      else state.scoreSort = { col: col, dir: "desc" };
+      last.pane = null;
+      paint();
       return;
     }
     if ((el = closest(t, "[data-rd-back]"))) { state.phoneDesk = false; paint(); return; }
