@@ -568,13 +568,19 @@ def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
         "SET @score_roster_seen = NEW.roster_id"
     )
     cur.execute(
-        "INSERT INTO score (desk_id, roster_id, kpi) VALUES (NULL, 1, 'one-desk'), "
-        "(NULL, 1, 'no-desk'), (NULL, 1, 'many-desks'), "
-        "(%s, 1, 'same-name'), (%s, %s, 'same-name')",
-        (desk_a, desk_a, roster_b),
+        "INSERT INTO score (desk_id, roster_id, kpi, `value`) VALUES "
+        "(NULL, 1, 'one-desk', ''), (NULL, 1, 'no-desk', ''), (NULL, 1, 'many-desks', ''), "
+        "(NULL, 1, 'empty-activity', ''), (%s, 1, 'word', 'good'), "
+        "(%s, 1, 'same-name', ''), (%s, %s, 'same-name', '')",
+        (desk_a, desk_a, desk_a, roster_b),
     )
-    cur.execute("SELECT id, kpi FROM score WHERE kpi IN ('one-desk', 'no-desk', 'many-desks', 'same-name')")
-    ids = {kpi: int(i) for i, kpi in cur.fetchall()}
+    cur.execute(
+        "SELECT id, kpi FROM score WHERE kpi IN "
+        "('one-desk', 'no-desk', 'many-desks', 'same-name', 'empty-activity', 'word')"
+    )
+    ids = {}
+    for i, kpi in cur.fetchall():
+        ids.setdefault(kpi, int(i))
     cur.executemany(
         "INSERT INTO score_point (score_id, desk_id, value) VALUES (%s, %s, %s)",
         [
@@ -582,8 +588,13 @@ def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
             (ids["one-desk"], desk_a, 2),
             (ids["many-desks"], desk_a, 1),
             (ids["many-desks"], desk_b, 2),
+            (ids["empty-activity"], desk_a, 4),
             (ids["same-name"], desk_a, 3),
         ],
+    )
+    cur.execute(
+        "INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('score', %s, NULL, 1)",
+        (ids["empty-activity"],),
     )
     main_book.commit()
     cur.close()
@@ -594,6 +605,8 @@ def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
     assert f"migrate_1214:attached id={ids['one-desk']} kpi=one-desk desk={desk_a} points=2" in text
     assert f"reason=no-desk" in text and f"id={ids['no-desk']}" in text
     assert f"reason=many-desks" in text and f"id={ids['many-desks']}" in text
+    assert f"reason=activity-desk" in text and f"id={ids['empty-activity']}" in text
+    assert f"migrate_1214:dropped value id={ids['word']} kpi=word text=good" in text
     assert "kpi=same-name" in text and "migrate_1214:merged" in text
     cur = main_book.cursor()
     cur.execute(
@@ -603,6 +616,10 @@ def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
     assert cur.fetchall() == []
     cur.execute("SELECT desk_id FROM score WHERE id = %s", (ids["one-desk"],))
     assert cur.fetchone()[0] == desk_a
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["word"],))
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["empty-activity"],))
+    assert cur.fetchone()[0] == 0
     cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (ids["one-desk"],))
     assert cur.fetchone()[0] == 2
     cur.execute("SELECT COUNT(*) FROM score WHERE kpi = 'same-name'")

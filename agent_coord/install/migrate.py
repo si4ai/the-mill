@@ -515,7 +515,7 @@ _FK_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
     ("hold", "fk_hold_desk", "desk_id", "name", "id", "RESTRICT"),
     ("hold", "fk_hold_res", "resource_id", "name", "id", "RESTRICT"),
     ("score", "fk_score_roster", "roster_id", "name", "id", "RESTRICT"),
-    ("score", "fk_score_desk", "desk_id", "name", "id", "RESTRICT"),
+    ("score", "fk_score_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
     ("wake", "fk_wake_desk", "desk_id", "seat", "desk_id", "RESTRICT"),
 )
 
@@ -2520,6 +2520,39 @@ def _merge_score_row(cur, loser: int, keeper: int) -> int:
     return dropped_slots
 
 
+def _activity_desk_matches(cur, sid: int, desk_id: int) -> bool:
+    """True when there is no activity row, or that row already names this desk.
+
+    An activity row with an empty desk is not filled in. The series is dropped instead.
+    """
+    if not _table_exists(cur, "activity"):
+        return True
+    cur.execute(
+        "SELECT desk_id FROM activity WHERE type = 'score' AND id = %s",
+        (sid,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return True
+    return row[0] is not None and int(row[0]) == int(desk_id)
+
+
+def _report_non_numeric_values(cur) -> list[str]:
+    """score.value was text. A word cannot become a point, so it is dropped and named."""
+    if not _column_exists(cur, "score", "value"):
+        return []
+    cur.execute(
+        "SELECT id, kpi, `value` FROM score "
+        "WHERE `value` IS NOT NULL AND `value` <> '' "
+        "AND `value` NOT REGEXP '^-?[0-9]+([.][0-9]+)?$'"
+    )
+    notes = []
+    for sid, kpi, val in cur.fetchall():
+        text = str(val).replace("\n", " ").replace("\r", " ")[:80]
+        notes.append(f"migrate_1214:dropped value id={int(sid)} kpi={kpi} text={text}")
+    return notes
+
+
 def _seat_holds(cur, desk_id: int) -> bool:
     if not _table_exists(cur, "seat"):
         return True
@@ -2543,7 +2576,7 @@ def _cleanup_score_rows(cur) -> list[str]:
             desks = [int(r[0]) for r in cur.fetchall()]
             cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (sid,))
             n_pt = int((cur.fetchone() or (0,))[0] or 0)
-        if len(desks) == 1 and _seat_holds(cur, desks[0]):
+        if len(desks) == 1 and _seat_holds(cur, desks[0]) and _activity_desk_matches(cur, sid, desks[0]):
             cur.execute(
                 "SELECT id FROM score WHERE desk_id = %s AND kpi = %s AND id <> %s LIMIT 1",
                 (desks[0], kpi, sid),
@@ -2559,7 +2592,9 @@ def _cleanup_score_rows(cur) -> list[str]:
                 cur.execute("UPDATE score SET desk_id = %s WHERE id = %s", (desks[0], sid))
                 notes.append(f"migrate_1214:attached id={sid} kpi={kpi} desk={desks[0]} points={n_pt}")
             continue
-        if len(desks) == 1:
+        if len(desks) == 1 and _seat_holds(cur, desks[0]):
+            reason = "activity-desk"
+        elif len(desks) == 1:
             reason = "no-seat"
         elif len(desks) == 0:
             reason = "no-desk"
@@ -2614,6 +2649,7 @@ def apply_1214(cn) -> list[str]:
                     "UPDATE score SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), "
                     + ", ".join(sets) + ")"
                 )
+            notes.extend(_report_non_numeric_values(cur))
             notes.extend(_cleanup_score_rows(cur))
             _drop_fk(cur, "score", "fk_score_roster")
             # The old key has no ON UPDATE CASCADE (desk_key blocked it). Drop it before
@@ -2916,7 +2952,14 @@ def apply_1200(cn) -> list[str]:
         blob = (sql_dir() / "migrations.sql").read_text(encoding="utf-8-sig")
         score_roster = _column_exists(cur, "score", "roster_id")
         for stmt in split_script(blob):
-            if not score_roster and "fk_score_roster" in stmt:
+            low = stmt.lower()
+            if not score_roster and "fk_score_roster" in low:
+                continue
+            if "drop index" in low and "idx_score_who" in low and not _index_exists(cur, "score", "idx_score_who"):
+                continue
+            if "drop column" in low and "desk_key" in low and not _column_exists(cur, "score", "desk_key"):
+                continue
+            if "drop foreign key" in low and "fk_score_desk" in low and not _fk_exists(cur, "score", "fk_score_desk"):
                 continue
             try:
                 cur.execute(stmt)
