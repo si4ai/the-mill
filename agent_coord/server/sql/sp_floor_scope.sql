@@ -140,13 +140,17 @@ BEGIN
     SELECT
       IFNULL(dn.name, '') AS owner, IFNULL(dn.type, '') AS owner_type,
       IFNULL(s.kpi, '') AS kpi,
-      IFNULL(s.value, '') AS value,
-      IFNULL(s.target, '') AS target,
-      IFNULL(s.note, '') AS note,
+      IFNULL(CAST(lp.value AS CHAR), '') AS value,
+      IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')), '') AS target,
+      IFNULL(lp.note, '') AS note,
       IFNULL(an.name, '') AS roster_id, IFNULL(an.type, '') AS roster_id_type
     FROM score s
     LEFT JOIN name dn ON dn.id = s.desk_id
-    LEFT JOIN name an ON an.id = s.roster_id
+    LEFT JOIN member mb ON mb.desk_id = s.desk_id
+    LEFT JOIN name an ON an.id = mb.name_id
+    LEFT JOIN score_point lp ON lp.id = (
+      SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id
+      ORDER BY p2.created DESC, p2.id DESC LIMIT 1)
     JOIN mill_floor_desk fd ON fd.desk_id = s.desk_id
     ORDER BY s.updated DESC
     LIMIT 200;
@@ -253,7 +257,8 @@ BEGIN
         IFNULL(DATE_FORMAT(MAX(s.updated), '%Y%m%d%H%i%s%f'), '0')
       )) AS fp
       FROM score s
-      WHERE v_proj IS NOT NULL AND s.roster_id = v_proj;
+      JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
+      WHERE v_proj IS NOT NULL;
     ELSEIF p_part = 'holds' THEN
       SELECT 'holds' AS part, MILL_FP(CONCAT_WS(':',
         COUNT(*),

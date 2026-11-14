@@ -163,8 +163,15 @@ def test_floor_office_kpis(cn) -> None:
 
     cur = cn.cursor()
     cur.execute(
-        "UPDATE score SET value='7' "
-        "WHERE roster_id=1 AND desk_id IS NULL AND kpi='mill-wall.ticks'"
+        "INSERT INTO score (desk_id, kpi, meta) "
+        "SELECT id, 'mill-wall.ticks', JSON_OBJECT('target', '0') FROM name "
+        "WHERE type='desk' AND name='a' "
+        "ON DUPLICATE KEY UPDATE meta = JSON_OBJECT('target', '0')"
+    )
+    cur.execute(
+        "INSERT INTO score_point (score_id, desk_id, value, note) "
+        "SELECT s.id, s.desk_id, 7, '' FROM score s JOIN name n ON n.id = s.desk_id "
+        "WHERE n.name='a' AND s.kpi='mill-wall.ticks'"
     )
     cn.commit()
     cur.close()

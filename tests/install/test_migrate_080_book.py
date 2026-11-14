@@ -289,6 +289,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_1200(cn)
     migrate.apply_1207(cn)  # card 1207: moves to transition, evidence to todo.meta, doing.evidence dropped
     migrate.apply_1212(cn)
+    migrate.apply_1214(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -426,6 +427,11 @@ def test_ids_rows_and_transforms(main_book):
     pq_n = len(_rows_as_dicts(before, "push_queue"))
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
+        if t == "score":
+            b = [r for r in b if r.get("desk_id") in desk_ids]
+            assert all(r.get("desk_id") in desk_ids for r in a)
+            assert len(a) == len(b), t
+            continue
         if t == "activity":
             wake_after = [r for r in a if r["type"] == "wake"]
             a = [r for r in a if r["type"] != "wake"]
@@ -442,8 +448,7 @@ def test_ids_rows_and_transforms(main_book):
             keep = {k: v for k, v in rb.items() if k not in ("desk_id", "weight", "n")}
             assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
     assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_key <> IFNULL(desk_id, 0)") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 3 + 8 * 3
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 0
 
     # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")

@@ -308,7 +308,7 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
         if (got_table, got_event, timing) != (table, event, "BEFORE") or msg not in (stmt or ""):
             bad_tr.append((name, have, msg))
     assert not bad_tr, bad_tr
-    assert len(got_tr) == 26
+    assert len(got_tr) == len(TYPE_TRIGGERS)
 
 
 def _signal_ok(exc) -> bool:
@@ -337,7 +337,7 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "mail": ("INSERT INTO mail (desk_id, roster_id, body) VALUES (%s, %s, 'k')", lambda x: (desk, x)),
         "todo": ("INSERT INTO todo (updated_id, roster_id, creator_id) VALUES (%s, %s, %s)", lambda x: (desk, x, desk)),
         "doing": ("INSERT INTO doing (desk_id, roster_id) VALUES (%s, %s)", lambda x: (desk, x)),
-        "score": ("INSERT INTO score (desk_id, roster_id, kpi) VALUES (%s, %s, 'kchk')", lambda x: (desk, x)),
+
         "tree": ("INSERT INTO tree (name_id, type, id, lft, rgt) VALUES (%s, 'mail', %s, 1, 2)", lambda x: (x, mail)),
         "tree_read": ("INSERT INTO tree_read (desk_id, tree_id, last_id) VALUES (%s, %s, 0)", lambda x: (desk, x)),
         "label": ("INSERT INTO label (type, id, name_id) VALUES ('mail', %s, %s)", lambda x: (mail, x)),
@@ -350,7 +350,7 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "mail": ("UPDATE mail SET roster_id = %s WHERE body = 'k'", lambda x: (x,)),
         "todo": ("UPDATE todo SET roster_id = %s WHERE creator_id = %s", lambda x: (x, desk)),
         "doing": ("UPDATE doing SET roster_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
-        "score": ("UPDATE score SET roster_id = %s WHERE kpi = 'kchk'", lambda x: (x,)),
+
         "tree": ("UPDATE tree SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),
         "tree_read": ("UPDATE tree_read SET tree_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
         "label": ("UPDATE label SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),

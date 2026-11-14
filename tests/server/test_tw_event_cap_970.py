@@ -46,7 +46,7 @@ def desk(cn, monkeypatch):
             return rows(cn, "SELECT * FROM transition WHERE join_key=%s ORDER BY id", (f"task:{name}:{wid}",))
 
         def score_rows():
-            return rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s ORDER BY kpi", (name,))
+            return rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s ORDER BY s.kpi", (name,))
 
         return SimpleNamespace(name=name, event=event, tasks=tasks, edges=edges, scores=score_rows, pings=pings)
 

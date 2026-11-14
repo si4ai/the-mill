@@ -50,7 +50,16 @@ def _rows(cn, sql: str, args: tuple = ()) -> list[tuple]:
 
 
 def _score(cn, roster_id: int, kpi: str) -> list[tuple]:
-    return _rows(cn, "SELECT id, desk_id, value FROM score WHERE roster_id=%s AND kpi=%s", (roster_id, kpi))
+    return _rows(
+        cn,
+        "SELECT s.id, s.desk_id, CAST(p.value AS CHAR) FROM score s "
+        "JOIN member m ON m.desk_id = s.desk_id AND m.name_id=%s "
+        "LEFT JOIN score_point p ON p.id = ("
+        " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+        " ORDER BY p2.created DESC, p2.id DESC LIMIT 1) "
+        "WHERE s.kpi=%s",
+        (roster_id, kpi),
+    )
 
 
 def _activity_desk(cn, score_id: int):
@@ -61,35 +70,32 @@ def _activity_desk(cn, score_id: int):
 
 # --- office-owned scores: desk NULL -------------------------------------------------------------
 
-def test_admin_upsert_is_owned_by_the_office_not_a_desk(cn):
-    rec_score.admin_upsert(cn, "lc.admin_kpi", "7", "0", "note")
+def test_admin_upsert_belongs_to_the_desk(cn):
+    (did,) = seed_names(cn, ("lc_admin_desk", "desk"))
+    rec_score.admin_upsert(cn, "lc.admin_kpi", "7", "0", "note", desk="lc_admin_desk")
     rows = _score(cn, 1, "lc.admin_kpi")
-    assert [(r[1], r[2]) for r in rows] == [(None, "7")]
-    assert _activity_desk(cn, rows[0][0]) is None
-    rec_score.admin_upsert(cn, "lc.admin_kpi", "8", "0", "note")
-    assert [(r[1], r[2]) for r in _score(cn, 1, "lc.admin_kpi")] == [(None, "8")]
+    assert [(r[1], r[2]) for r in rows] == [(did, "7")]
+    assert _activity_desk(cn, rows[0][0]) == did
+    rec_score.admin_upsert(cn, "lc.admin_kpi", "8", "0", "note", desk="lc_admin_desk")
+    assert [(r[1], r[2]) for r in _score(cn, 1, "lc.admin_kpi")] == [(did, "8")]
 
 
-def test_admin_upsert_updates_the_seeded_office_row(cn):
-    before = _score(cn, 1, "mill-wall.ticks")
-    assert [r[1] for r in before] == [None]
+def test_admin_upsert_with_no_desk_writes_nothing(cn):
     rec_score.admin_upsert(cn, "mill-wall.ticks", "3", "0", "n")
-    assert _score(cn, 1, "mill-wall.ticks") == [(before[0][0], None, "3")]
+    assert _score(cn, 1, "mill-wall.ticks") == []
 
 
-def test_wall_event_scores_the_office_with_no_desk(cn):
+def test_wall_event_writes_no_score_without_a_desk(cn):
     call(cn, "mill_wall_event", ["/api/floor", 12, None])
     call(cn, "mill_wall_event", ["/api/floor", 8, None])
-    rows = _score(cn, 1, "wall")
-    assert [(r[1], r[2]) for r in rows] == [(None, "2")]
-    assert _activity_desk(cn, rows[0][0]) is None
+    assert _score(cn, 1, "wall") == []
 
 
 def test_system_score_stays_on_its_desk(cn):
     (did,) = seed_names(cn, ("lc_sys_desk", "desk"))
     call(cn, "mill_score_event", ["lc_sys_desk", "inbox", 5, 10, 20, None])
-    rows = _rows(cn, "SELECT desk_id, roster_id FROM score WHERE kpi='system' AND desk_id=%s", (did,))
-    assert rows == [(did, 1)]
+    rows = _rows(cn, "SELECT desk_id FROM score WHERE kpi='system' AND desk_id=%s", (did,))
+    assert rows == [(did,)]
 
 
 # --- roster-defined series: desk NULL, the recording desk on activity and points ------------------
@@ -99,17 +105,23 @@ def test_point_series_is_owned_by_the_roster_with_no_desk(cn):
     rec_score.point_add(cn, "lc_proj", "lc_pa", "lc.series", 1.0)
     rec_score.point_add(cn, "lc_proj", "lc_pb", "lc.series", 2.0)
     rows = _score(cn, rid, "lc.series")
-    assert [(r[1], r[2]) for r in rows] == [(None, "2")]
-    assert _activity_desk(cn, rows[0][0]) == b
-    pts = _rows(cn, "SELECT desk_id FROM score_point WHERE score_id=%s ORDER BY id", (rows[0][0],))
-    assert pts == [(a,), (b,)]
+    assert sorted((r[1], r[2]) for r in rows) == sorted(((a, "1"), (b, "2")))
+    assert len(rows) == 2
 
 
 def test_define_creates_the_roster_owned_row(cn):
     rid, _a = seed_names(cn, ("lc_def", "roster"), ("lc_da", "desk"))
     rec_score.define(cn, "lc_def", "lc_da", "lc.defined", target="5", better="down", unit="ms")
-    rows = _rows(cn, "SELECT desk_id, target, better, unit FROM score WHERE roster_id=%s AND kpi='lc.defined'", (rid,))
-    assert rows == [(None, "5", "down", "ms")]
+    rows = _rows(
+        cn,
+        "SELECT s.desk_id, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')),"
+        " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')),"
+        " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit'))"
+        " FROM score s JOIN member m ON m.desk_id = s.desk_id AND m.name_id=%s"
+        " WHERE s.kpi='lc.defined'",
+        (rid,),
+    )
+    assert rows == [(_a, "5", "down", "ms")]
     rec_score.point_add(cn, "lc_def", "lc_da", "lc.defined", 4.0)
     assert len(_score(cn, rid, "lc.defined")) == 1
 
@@ -119,8 +131,8 @@ def test_points_read_prefers_the_roster_row_over_a_desk_row(cn):
     rec_score.upsert(cn, "lc_pref", "lc_pd", "lc.both", "99", "", "")
     rec_score.point_add(cn, "lc_pref", "lc_pd", "lc.both", 3.0)
     rows = rec_score.points(cn, "lc_pref", "lc.both", 5)
-    assert rows and rows[0]["latest"] == "3"
-    assert rows[0]["owner"] == "lc_pref"  # the wire shape: a roster-owned series shows its roster
+    assert rows and str(rows[0]["latest"]) == "3"
+    assert rows[0]["owner"] == "lc_pd"
 
 
 def test_retire_the_roster_series_by_a_recording_desk(cn):

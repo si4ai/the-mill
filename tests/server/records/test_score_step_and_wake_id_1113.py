@@ -80,7 +80,7 @@ def test_a_deadlock_in_the_claim_score_step_fails_the_claim(cn) -> None:
     # claim back; cmd_claim then returned 'claimed' with the card still open.
     rid = _id(cn, "roster", "unit")
     desk = _id(cn, "desk", "b")
-    _call(cn, "mill_card_score_event", [rid, "doing", None, None, None, 1, None])
+    _call(cn, "mill_card_score_event", [rid, desk, "doing", None, None, None, 1, None])
     cn.commit()
     _q(cn, "CREATE TABLE IF NOT EXISTS gate_ballast_1113 (id INT AUTO_INCREMENT PRIMARY KEY, v INT) ENGINE=InnoDB")
     cn.commit()
@@ -91,7 +91,7 @@ def test_a_deadlock_in_the_claim_score_step_fails_the_claim(cn) -> None:
         gate = _direct()
         # More undo than the claim, so InnoDB rolls the claim back as the deadlock victim.
         _q(gate, "INSERT INTO gate_ballast_1113 (v) SELECT 1 FROM information_schema.columns LIMIT 3000")
-        _q(gate, "SELECT id FROM score WHERE roster_id = %s AND desk_id IS NULL AND kpi = 'cards' FOR UPDATE", (rid,))
+        _q(gate, "SELECT id FROM score WHERE desk_id = %s AND kpi = 'cards' FOR UPDATE", (desk,))
         out: dict = {}
 
         def claim(card=card, out=out) -> None:

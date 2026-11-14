@@ -186,21 +186,7 @@ def _desk_scores(cn, desk_id: int, window: str, active: set[int]) -> list[dict]:
 
 
 def _ensure_view_table(cn) -> None:
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS score_view ("
-            " kpi VARCHAR(64) NOT NULL,"
-            " viewer_id BIGINT UNSIGNED NOT NULL,"
-            " n INT UNSIGNED NOT NULL DEFAULT 0,"
-            " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
-            " PRIMARY KEY (kpi, viewer_id),"
-            " KEY idx_viewer (viewer_id, last_seen)"
-            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
-        )
-        cn.commit()
-    finally:
-        cur.close()
+    return None
 
 
 def read_scores(cn, window: str = "7d", viewer: str | None = None) -> dict[str, Any]:
@@ -254,9 +240,16 @@ def _record_views(cn, viewer: str, names: tuple[str, ...]) -> None:
     try:
         for name in names:
             cur.execute(
-                "INSERT INTO score_view (kpi, viewer_id, n, last_seen) VALUES (%s, %s, 1, NOW()) "
+                "INSERT INTO score (desk_id, kpi) VALUES (%s, %s) "
+                "ON DUPLICATE KEY UPDATE updated = updated",
+                (vid, name),
+            )
+            cur.execute("SELECT id FROM score WHERE desk_id=%s AND kpi=%s", (vid, name))
+            sid = int(cur.fetchone()[0])
+            cur.execute(
+                "INSERT INTO score_view (score_id, viewer_id, n, last_seen) VALUES (%s, %s, 1, NOW()) "
                 "ON DUPLICATE KEY UPDATE n = n + 1, last_seen = NOW()",
-                (name, vid),
+                (sid, vid),
             )
         cn.commit()
     finally:
@@ -267,7 +260,9 @@ def _unviewed(cn, window: str) -> list[str]:
     span = _window_sql(window)
     try:
         seen = {str(r["kpi"]) for r in _rows(
-            cn, "SELECT DISTINCT kpi FROM score_view WHERE last_seen >= NOW() - " + span
+            cn,
+            "SELECT DISTINCT s.kpi FROM score_view v JOIN score s ON s.id = v.score_id "
+            "WHERE v.last_seen >= NOW() - " + span,
         )}
     except Exception:
         seen = set()

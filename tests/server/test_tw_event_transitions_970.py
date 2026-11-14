@@ -126,7 +126,7 @@ def test_stored_meta_privacy_and_score_values(cn, task):
         meta = json.loads(edge["meta"])
         assert not (set(meta) & (set(rpc._TW_EVENT_PRIVACY) | {"wake", "ts"}))
         assert "SECRET" not in json.dumps(meta)
-    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
     assert {"doing.task.dwell_idle_ms", "doing.task.dwell_active_ms", "doing.task.dwell_waiting_ms", "doing.task.wait_by_cause", "doing.task.end_reason"} <= got.keys()
     assert json.loads(got["doing.task.wait_by_cause"])["pattern"] == 1
     assert got["doing.task.end_reason"] == "tw_finished"
@@ -140,7 +140,7 @@ def test_metric_counts_emit_without_transition(cn, task):
     event("start")
     event("overflow", counts={"dropped": 4})
     event("retry", outcome="give_up", attempt=3)
-    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
     assert got["doing.task.buffer_overflow_n"] == "4"
     assert got["doing.task.retry_give_up_n"] == "1"
     assert len(edges()) == 1
@@ -252,13 +252,13 @@ def test_wrapper_clock_does_not_set_dwell(cn, task):
     desk, event, edges, _ = task
     event("start", ts="1900-01-01T00:00:00Z")
     event("exit", exit_code=0, ts="2999-01-01T00:00:00Z")
-    got = rows(cn, "SELECT value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s AND kpi='doing.task.dwell_active_ms'", (desk,))[0]
+    got = rows(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s AND s.kpi='doing.task.dwell_active_ms'", (desk,))[0]
     assert 0 <= float(got["value"]) < 60_000
     assert all("ts" not in json.loads(e["meta"]) for e in edges())
 
 
 def scores(cn, desk):
-    return {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    return {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
 
 
 @pytest.mark.parametrize("kind,extra", [("exit", {"exit_code": 0}), ("exit", {"exit_code": 3}), ("crash", {})])

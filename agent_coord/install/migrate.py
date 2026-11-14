@@ -2416,16 +2416,85 @@ def apply_1212(cn) -> list[str]:
             return []
         cur.execute(
             "CREATE TABLE score_view ("
-            " kpi VARCHAR(64) NOT NULL,"
+            " score_id BIGINT UNSIGNED NOT NULL,"
             " viewer_id BIGINT UNSIGNED NOT NULL,"
             " n INT UNSIGNED NOT NULL DEFAULT 0,"
             " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
-            " PRIMARY KEY (kpi, viewer_id),"
-            " KEY idx_viewer (viewer_id, last_seen)"
+            " PRIMARY KEY (score_id, viewer_id),"
+            " KEY idx_viewer (viewer_id, last_seen),"
+            " CONSTRAINT fk_score_view_score FOREIGN KEY (score_id) REFERENCES score (id)"
+            " ON DELETE RESTRICT ON UPDATE CASCADE"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
         )
         cn.commit()
         return ["migrate_1212:score_view"]
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def apply_1214(cn) -> list[str]:
+    """Card 1214: a score is one desk and one kpi. meta holds the markup. Views point at score.id."""
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "score"):
+            return []
+        changed = False
+        if _column_exists(cur, "score", "roster_id"):
+            if not _column_exists(cur, "score", "meta"):
+                cur.execute("ALTER TABLE score ADD COLUMN meta JSON NULL")
+            sets = []
+            for key, col in (("target", "target"), ("better", "better"), ("unit", "unit")):
+                if _column_exists(cur, "score", col):
+                    sets.append(f"'$.{key}', `{col}`")
+            if sets:
+                cur.execute(
+                    "UPDATE score SET meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), "
+                    + ", ".join(sets) + ")"
+                )
+            if _table_exists(cur, "score_evidence"):
+                cur.execute(
+                    "DELETE e FROM score_evidence e JOIN score s ON s.id = e.score_id WHERE s.desk_id IS NULL"
+                )
+            if _table_exists(cur, "score_point"):
+                cur.execute(
+                    "DELETE p FROM score_point p JOIN score s ON s.id = p.score_id WHERE s.desk_id IS NULL"
+                )
+            cur.execute("DELETE FROM score WHERE desk_id IS NULL")
+            _drop_fk(cur, "score", "fk_score_roster")
+            if _index_exists(cur, "score", "idx_score_who"):
+                cur.execute("ALTER TABLE score DROP INDEX idx_score_who")
+            for col in ("desk_key", "value", "target", "note", "better", "unit", "roster_id"):
+                if _column_exists(cur, "score", col):
+                    cur.execute(f"ALTER TABLE score DROP COLUMN `{col}`")
+            cur.execute("ALTER TABLE score MODIFY desk_id BIGINT UNSIGNED NOT NULL")
+            if not _index_exists(cur, "score", "idx_desk_kpi"):
+                cur.execute("ALTER TABLE score ADD UNIQUE KEY idx_desk_kpi (desk_id, kpi)")
+            _drop_fk(cur, "score", "fk_score_desk")
+            cur.execute(
+                "ALTER TABLE score ADD CONSTRAINT fk_score_desk FOREIGN KEY (desk_id)"
+                " REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE"
+            )
+            changed = True
+        if _table_exists(cur, "score_view") and _column_exists(cur, "score_view", "kpi"):
+            cur.execute("DROP TABLE score_view")
+            cur.execute(
+                "CREATE TABLE score_view ("
+                " score_id BIGINT UNSIGNED NOT NULL,"
+                " viewer_id BIGINT UNSIGNED NOT NULL,"
+                " n INT UNSIGNED NOT NULL DEFAULT 0,"
+                " last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),"
+                " PRIMARY KEY (score_id, viewer_id),"
+                " KEY idx_viewer (viewer_id, last_seen),"
+                " CONSTRAINT fk_score_view_score FOREIGN KEY (score_id) REFERENCES score (id)"
+                " ON DELETE RESTRICT ON UPDATE CASCADE"
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+            )
+            changed = True
+        cn.commit()
+        return ["migrate_1214:score"] if changed else []
     except Exception:
         cn.rollback()
         raise
@@ -2815,6 +2884,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             # card 1207: after the routine reload (mill_doing_anchor, MILL_FX_META) and the 1022 edges.
             applied.extend(apply_1207(cn))
             applied.extend(apply_1212(cn))
+            applied.extend(apply_1214(cn))
             return {"version": 1, "applied": applied, "book": "activity"}
         rec = apply_records(cn, wipe=wipe)
         applied.extend(rec.get("applied") or [])
