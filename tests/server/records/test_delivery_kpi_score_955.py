@@ -31,26 +31,39 @@ def _loads(value):
     return json.loads(value)
 
 
-def _cards_doc(cn, roster: str, stamp: str):
+def _cards_docs(cn, roster: str, stamp: str):
+    """Every member desk's cards document at this stamp. Fetch all rows so the cursor can close."""
     cur = cn.cursor(dictionary=True)
     cur.execute(
-        """SELECT e.value, s.value AS latest, s.id
+        """SELECT e.value, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.n')) AS latest, s.id
              FROM score s
-             JOIN name r ON r.id = s.roster_id AND r.name = %s
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = %s
              JOIN score_evidence e ON e.score_id = s.id
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` = %s""",
         (roster, stamp),
     )
-    row = cur.fetchone()
+    rows = cur.fetchall()
     cur.close()
-    if row is None:
-        return None
-    return _loads(row["value"]), str(row["latest"]), int(row["id"])
+    return [(_loads(row["value"]), str(row["latest"] or "0"), int(row["id"])) for row in rows]
+
+
+def _sum_docs(docs):
+    merged = {}
+    for doc, _latest, _sid in docs:
+        for key, val in doc.items():
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                continue
+            merged[key] = merged.get(key, 0) + val
+    return merged
 
 
 def _open_claim(cn, need, asker="a955", vol="v955", roster="unit"):
+    from tests.server.records.conftest import seed_member
+
     seed_names(cn, (roster, "roster"), (asker, "desk"), (vol, "desk"))
+    seed_member(cn, roster, asker, vol)
     book = _Book(cn)
     rpc._h_open(book, {"need": need}, roster, asker)
     return book, asker, vol
@@ -68,8 +81,9 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
     cur.execute(
         """SELECT e.`timestamp` FROM score_evidence e
              JOIN score s ON s.id = e.score_id
-             JOIN name r ON r.id = s.roster_id AND r.name = 'unit'
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = 'unit'
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` >= '1970-01-01' AND e.`timestamp` < '1970-01-02'
             LIMIT 1"""
     )
@@ -77,8 +91,9 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
     cur.execute(
         """SELECT e.`timestamp` FROM score_evidence e
              JOIN score s ON s.id = e.score_id
-             JOIN name r ON r.id = s.roster_id AND r.name = 'unit'
-            WHERE s.kpi = 'cards' AND s.desk_id IS NULL
+             JOIN member m ON m.desk_id = s.desk_id
+             JOIN name r ON r.id = m.name_id AND r.name = 'unit'
+            WHERE s.kpi = 'cards'
               AND e.`timestamp` >= '1970-01-02'
             ORDER BY e.`timestamp` DESC LIMIT 1"""
     )
@@ -86,18 +101,18 @@ def test_claim_started_pass_done_fill_hour_and_day(cn):
     cur.close()
     assert hour_row is not None, "claim/pass must write the hour score_evidence slot"
     assert day_row is not None, "claim/pass must write the day score_evidence rollup"
-    hour = _cards_doc(cn, "unit", str(hour_row["timestamp"]))
-    day = _cards_doc(cn, "unit", str(day_row["timestamp"]))
-    hdoc, latest, _ = hour
+    hours = _cards_docs(cn, "unit", str(hour_row["timestamp"]))
+    days = _cards_docs(cn, "unit", str(day_row["timestamp"]))
+    assert hours and days
+    hdoc = _sum_docs(hours)
     assert hdoc.get("claimed", 0) >= 1
     assert hdoc.get("started", 0) >= 1
     assert hdoc.get("passed", 0) >= 1
     assert hdoc.get("shipped", 0) >= 1
     assert hdoc.get("lead_sum", 0) >= 0
     assert "eta_sum" in hdoc or hdoc.get("eta_n", 0) >= 0
-    assert int(float(latest)) >= 1
-    ddoc, _, _ = day
-    assert ddoc.get("shipped", 0) >= 1
+    assert max(int(float(latest)) for _doc, latest, _sid in hours) >= 1
+    assert _sum_docs(days).get("shipped", 0) >= 1
 
 
 def test_score_failure_never_blocks_claim(cn):

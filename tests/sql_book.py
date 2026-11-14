@@ -36,6 +36,7 @@ DATA_TABLES = (
     "hold",
     "score_point",
     "score_evidence",
+    "score_view",
     "score",
     "human_member",
     "human_desk",
@@ -139,35 +140,6 @@ def reseed(cn) -> None:
             "INSERT IGNORE INTO seat (desk_id, token_hash, delivery_mode, wake_on) "
             "VALUES (0, NULL, 'polling', 'addressed')"
         )
-        for kpi, note in (
-            (
-                "mill-wall.ticks",
-                "server complexity: api.mill.heartbeat per desk-hour while sitting; target 0",
-            ),
-            (
-                "mill-desk.idle_verbs",
-                "prompt complexity: mill inbox/todo per desk-hour with no HINT; target 0",
-            ),
-            (
-                "mill-desk.hint_drop",
-                "sit FIFO overflow: mill-perf op=ws.recv drop=1 in window; target 0",
-            ),
-        ):
-            cur.execute(
-                "INSERT INTO score (updated, desk_id, roster_id, kpi, value, target, note) "
-                "SELECT CURRENT_TIMESTAMP(6), NULL, 1, %s, '', '0', %s FROM DUAL "
-                "WHERE NOT EXISTS ("
-                " SELECT 1 FROM score WHERE roster_id = 1 AND desk_id IS NULL AND kpi = %s"
-                ")",
-                (kpi, note, kpi),
-            )
-        cur.execute(
-            "INSERT IGNORE INTO activity (type, id, created, updated, desk_id, roster_id, act, bytes) "
-            "SELECT 'score', s.id, s.created, s.updated, s.desk_id, s.roster_id, 'create', NULL "
-            "FROM score s WHERE s.kpi IN "
-            "('mill-wall.ticks', 'mill-desk.idle_verbs', 'mill-desk.hint_drop')"
-        )
-
         # card 1022: allowed edges (truncated clears them; reseed from Python Enums)
         from agent_coord.server.transition_enums import ALLOWED_TRANSITIONS
         cur.execute("DELETE FROM transition_edge")

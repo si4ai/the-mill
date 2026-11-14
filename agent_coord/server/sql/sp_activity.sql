@@ -252,8 +252,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = v_office
-     AND s.desk_id = m.desk_id
+      ON s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
       ON e.score_id = s.id
@@ -266,8 +265,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = v_office
-     AND s.desk_id = j.desk_id
+      ON s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
       ON e.score_id = s.id
@@ -280,8 +278,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM member m
     JOIN score s
-      ON s.roster_id = v_office
-     AND s.desk_id = m.desk_id
+      ON s.desk_id = m.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
       ON e.score_id = s.id
@@ -294,8 +291,7 @@ BEGIN
     SELECT s.desk_id, dn.name AS desk, dn.type AS desk_type, e.`timestamp` AS `timestamp`, e.taken, e.value
     FROM seat j
     JOIN score s
-      ON s.roster_id = v_office
-     AND s.desk_id = j.desk_id
+      ON s.desk_id = j.desk_id
      AND s.kpi = 'system'
     JOIN score_evidence e
       ON e.score_id = s.id

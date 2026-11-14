@@ -41,13 +41,13 @@ def test_suffix_past_64_is_refused():
         free_name_suffix(base, lambda _c: False)
 
 
-def test_both_ddl_files_carry_the_same_26_triggers():
+def test_both_ddl_files_carry_the_same_name_type_triggers():
     tables = (ROOT / "agent_coord/server/sql/tables.sql").read_text(encoding="utf-8")
     beta = (ROOT / "docs/requirements/beta/beta_ddl.sql").read_text(encoding="utf-8")
     got_tables = name_type_trigger_sql(tables)
     got_beta = name_type_trigger_sql(beta)
     assert [name for name, _stmt in got_tables] == [name for name, _stmt in got_beta]
-    assert len(got_tables) == 26
+    assert len(got_tables) == 24
     assert got_tables[0][0] == "seat_desk_type_ins"
     seen = set()
     for (name, stmt), (_other, beta_stmt) in zip(got_tables, got_beta):

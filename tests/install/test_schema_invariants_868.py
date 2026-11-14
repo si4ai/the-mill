@@ -18,9 +18,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SHORT_TEXT_OK = {
     ("name", "name"): "the name itself",
     ("score", "kpi"): "a kpi key, not a name row (main)",
-    ("score", "value"): "a reading (main)",
-    ("score", "target"): "a target (main)",
-    ("score", "unit"): "a unit (main)",
     ("mill_invite", "label"): "free text on an invite (main)",
     ("mill_invite", "created_by"): "FINDING F1 in BETA-CHANGES.md: a desk name or 'wall'/'door' (main); pending the owner",
     ("mill_invite_join", "party_id"): "FINDING F1 in BETA-CHANGES.md: a desk name or human id (main); pending the owner",
@@ -178,11 +175,11 @@ def test_app_grant_is_execute_only(book):
 
 
 def test_no_name_event_anywhere_in_the_book(book):
-    # No name history (the owner): no table, trigger or routine names name_event, and the book has 25 tables (22 - push_queue + wake/transition/transition_edge + activity_history, card 1133) (F166).
+    # No name history (the owner): no table, trigger or routine names name_event, and the book has 26 tables (22 - push_queue + wake/transition/transition_edge + activity_history, card 1133, + score_view, card 1212) (F166).
     cn, db = book
     tables = [t for (t,) in _rows(cn, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s", (db,))]
     assert "name_event" not in tables
-    assert len(tables) == 25, f"beta book has {len(tables)} tables"
+    assert len(tables) == 26, f"beta book has {len(tables)} tables"
     trig = _rows(cn, "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s"
                      " AND (TRIGGER_NAME LIKE '%%name\\_event%%' OR EVENT_OBJECT_TABLE = 'name_event'"
                      " OR ACTION_STATEMENT LIKE '%%name\\_event%%')", (db,))
@@ -192,14 +189,14 @@ def test_no_name_event_anywhere_in_the_book(book):
 
 
 # The owner (2026-10-25): a name kind gets its own table only if the thing has its own data. A roster has none, so
-# there is no roster table and the seven roster columns reference name (id), with main's constraint names (F167).
+# there is no roster table and the roster columns reference name (id), with main's constraint names (F167).
+# A score has no roster column (card 1214).
 ROSTER_FKS = {
     ("member", "fk_member_name", "name_id"): "RESTRICT",
     ("activity", "fk_activity_roster", "roster_id"): "RESTRICT",
     ("mail", "fk_mail_roster", "roster_id"): "RESTRICT",
     ("todo", "fk_todo_roster", "roster_id"): "RESTRICT",
     ("doing", "fk_doing_roster", "roster_id"): "RESTRICT",
-    ("score", "fk_score_roster", "roster_id"): "RESTRICT",
     ("human_member", "fk_human_member_name", "name_id"): "CASCADE",
 }
 
@@ -229,7 +226,6 @@ KIND_FKS = {
     ("mail", "fk_mail_roster"): ("roster_id", "roster", "RESTRICT"),
     ("todo", "fk_todo_roster"): ("roster_id", "roster", "RESTRICT"),
     ("doing", "fk_doing_roster"): ("roster_id", "roster", "RESTRICT"),
-    ("score", "fk_score_roster"): ("roster_id", "roster", "RESTRICT"),
     ("tree", "fk_tree_name"): ("name_id", "tree", "RESTRICT"),
     ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree", "RESTRICT"),
     ("label", "fk_label_name"): ("name_id", "label", "RESTRICT"),
@@ -253,8 +249,6 @@ TYPE_TRIGGERS = (
     ("todo_roster_type_upd", "todo", "UPDATE", "todo.roster_id must name a roster"),
     ("doing_roster_type_ins", "doing", "INSERT", "doing.roster_id must name a roster"),
     ("doing_roster_type_upd", "doing", "UPDATE", "doing.roster_id must name a roster"),
-    ("score_roster_type_ins", "score", "INSERT", "score.roster_id must name a roster"),
-    ("score_roster_type_upd", "score", "UPDATE", "score.roster_id must name a roster"),
     ("label_name_type_ins", "label", "INSERT", "label.name_id must name a label"),
     ("label_name_type_upd", "label", "UPDATE", "label.name_id must name a label"),
     ("tree_name_type_ins", "tree", "INSERT", "tree.name_id must name a tree"),
@@ -314,7 +308,7 @@ def test_kind_checked_fks_have_the_reviewed_shape(book):
         if (got_table, got_event, timing) != (table, event, "BEFORE") or msg not in (stmt or ""):
             bad_tr.append((name, have, msg))
     assert not bad_tr, bad_tr
-    assert len(got_tr) == 26
+    assert len(got_tr) == len(TYPE_TRIGGERS)
 
 
 def _signal_ok(exc) -> bool:
@@ -343,7 +337,7 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "mail": ("INSERT INTO mail (desk_id, roster_id, body) VALUES (%s, %s, 'k')", lambda x: (desk, x)),
         "todo": ("INSERT INTO todo (updated_id, roster_id, creator_id) VALUES (%s, %s, %s)", lambda x: (desk, x, desk)),
         "doing": ("INSERT INTO doing (desk_id, roster_id) VALUES (%s, %s)", lambda x: (desk, x)),
-        "score": ("INSERT INTO score (desk_id, roster_id, kpi) VALUES (%s, %s, 'kchk')", lambda x: (desk, x)),
+
         "tree": ("INSERT INTO tree (name_id, type, id, lft, rgt) VALUES (%s, 'mail', %s, 1, 2)", lambda x: (x, mail)),
         "tree_read": ("INSERT INTO tree_read (desk_id, tree_id, last_id) VALUES (%s, %s, 0)", lambda x: (desk, x)),
         "label": ("INSERT INTO label (type, id, name_id) VALUES ('mail', %s, %s)", lambda x: (mail, x)),
@@ -356,7 +350,7 @@ def test_wrong_kind_name_id_is_refused_for_each_kind_checked_column(book):
         "mail": ("UPDATE mail SET roster_id = %s WHERE body = 'k'", lambda x: (x,)),
         "todo": ("UPDATE todo SET roster_id = %s WHERE creator_id = %s", lambda x: (x, desk)),
         "doing": ("UPDATE doing SET roster_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
-        "score": ("UPDATE score SET roster_id = %s WHERE kpi = 'kchk'", lambda x: (x,)),
+
         "tree": ("UPDATE tree SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),
         "tree_read": ("UPDATE tree_read SET tree_id = %s WHERE desk_id = %s", lambda x: (x, desk)),
         "label": ("UPDATE label SET name_id = %s WHERE type = 'mail' AND id = %s", lambda x: (x, mail)),

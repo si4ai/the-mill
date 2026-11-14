@@ -405,10 +405,13 @@ def _pack_routines() -> set[str] | None:
 def _office_scores(cn) -> dict[str, tuple]:
     rows = _q(
         cn,
-        "SELECT s.kpi, s.value, s.target, s.updated "
+        "SELECT s.kpi, CAST(lp.value AS CHAR), JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')), s.updated "
         "FROM score s "
-        # Beta 0.8.0: an office score has no desk (desk_id NULL; main used the Admin roster id).
-        f"WHERE s.roster_id = {OFFICE_ROSTER_ID} AND s.desk_id IS NULL "
+        "JOIN member m ON m.desk_id = s.desk_id "
+        "LEFT JOIN score_point lp ON lp.id = ("
+        " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+        " ORDER BY p2.created DESC, p2.id DESC LIMIT 1) "
+        f"WHERE m.name_id = {OFFICE_ROSTER_ID} "
         "/* glance:office-scores */",
     )
     out: dict[str, tuple] = {}
@@ -494,10 +497,10 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
 
     system_rows = _q(
         cn,
-        "SELECT d.name, s.value FROM score s "
+        "SELECT d.name, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.n')) FROM score s "
         "JOIN name d ON d.id = s.desk_id "
-        "JOIN name a ON a.id = s.roster_id "
-        f"WHERE s.kpi = 'system' AND a.id = {OFFICE_ROSTER_ID} "
+        "JOIN member m ON m.desk_id = s.desk_id "
+        f"WHERE s.kpi = 'system' AND m.name_id = {OFFICE_ROSTER_ID} "
         "/* glance:system-scores */",
     )
     commands = 0
@@ -528,7 +531,7 @@ def build(cn, *, api_only: bool = False) -> dict[str, Any]:
         cn,
         "SELECT e.value FROM score s "
         "JOIN score_evidence e ON e.score_id = s.id "
-        f"WHERE s.kpi = 'wall' AND s.roster_id = {OFFICE_ROSTER_ID} AND s.desk_id IS NULL "
+        "WHERE s.kpi = 'wall' "
         "AND e.`timestamp` = STR_TO_DATE("
         "CONCAT('1970-01-01 ', LPAD(HOUR(NOW()), 2, '0'), ':00:00'), '%Y-%m-%d %H:%i:%s') "
         "AND e.taken = CURDATE() "

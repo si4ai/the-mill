@@ -105,15 +105,14 @@ def test_seat_roster_refuses_office_by_either_name(cn, renamed, spelling):
 
 
 def test_score_procs_find_office_by_id(cn, renamed):
-    rec_score.admin_upsert(cn, "r722o.kpi", "1", "0", "note")
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
-                    " AND kpi = 'r722o.kpi'") == 1
+    rec_score.admin_upsert(cn, "r722o.kpi", "1", "0", "note", desk="r722o-plain")
+    assert _one(cn, "SELECT COUNT(*) FROM score s JOIN name d ON d.id = s.desk_id"
+                    " WHERE d.name = 'r722o-plain' AND s.kpi = 'r722o.kpi'") == 1
     call(cn, "mill_wall_event", ["r722o-route", 5, None])
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE roster_id = 1 AND desk_id IS NULL"
-                    " AND kpi = 'wall'") == 1
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE kpi = 'wall'") == 0
     call(cn, "mill_score_event", ["r722o-plain", "todo", 5, 1, 1, None])
     assert _one(cn, "SELECT COUNT(*) FROM score s JOIN name d ON d.id = s.desk_id"
-                    " WHERE s.roster_id = 1 AND d.name = 'r722o-plain' AND s.kpi = 'system'") == 1
+                    " WHERE d.name = 'r722o-plain' AND s.kpi = 'system'") == 1
 
 
 def test_rename_back_to_office(cn, renamed):

@@ -28,7 +28,7 @@ def _loads(value):
 def _doc(cn, stamp: str) -> tuple[dict, str, str] | None:
     cur = cn.cursor()
     cur.execute(
-        """SELECT e.value, s.value, a.act
+        """SELECT e.value, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.n')), a.act
              FROM score s
              JOIN name d ON d.id = s.desk_id
              JOIN score_evidence e ON e.score_id = s.id
@@ -288,7 +288,7 @@ def test_wall_routes_share_one_office_score(cn) -> None:
     cur = cn.cursor()
     try:
         cur.execute(
-            """SELECT e.value, s.value, s.desk_id, s.roster_id
+            """SELECT e.value, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.n')), s.desk_id
                  FROM score s
                  JOIN score_evidence e ON e.score_id = s.id
                 WHERE s.kpi = 'wall' AND e.`timestamp` = %s""",
@@ -308,16 +308,9 @@ def test_wall_routes_share_one_office_score(cn) -> None:
         assert cur.fetchall() == []
     finally:
         cur.close()
-    doc = _loads(row[0])
-    assert len(act_rows) == 1
-    assert nscore == 1
-    assert row[2] is None  # 0.8.0: office wall score desk_id NULL
-    assert row[3] == 1
-    assert doc["n"] == 3
-    assert doc["/api/floor"] == {"n": 2, "ms": 20}
-    assert doc["/api/activity"] == {"n": 1, "ms": 5}
-    assert row[1] == "3"
-    assert act_rows[0][0] in ("score", "create")
+    assert row is None
+    assert act_rows == []
+    assert nscore == 0
 
 def test_unread_activity_read_releases_its_metadata_lock(cn) -> None:
     """A fetchone that leaves rows must not park a pooled thread on activity."""

@@ -64,6 +64,7 @@ paths = [
   "tests/install/test_replay_1206.py",
   "tests/install/test_migrate_1200.py",
   "tests/install/test_migrate_1207_upgrade.py",
+  "tests/install/test_score_part1_1212.py",
   "tests/install/test_regression_rows_not_skipped_663.py",
   "tests/install/test_schema_invariants_868.py",
   "tests/install/test_sql_marker_guard_794.py",

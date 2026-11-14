@@ -1025,12 +1025,14 @@ def _scope_strip(cn, kind: str, label: str) -> dict:
             {"desk": _stored(str(r[0] or "")), "n": int(r[1] or 0)}
             for r in cur.fetchall()
         ]
-        # A roster-owned score has no desk (beta 0.8.0): it shows under the roster's name.
         cur.execute(
-            "SELECT COALESCE(d.name, r.name), s.kpi, s.value, s.target FROM score s"
-            " LEFT JOIN name d ON d.id = s.desk_id"
-            " JOIN name r ON r.id = s.roster_id"
-            " WHERE s.roster_id=%s",
+            "SELECT d.name, s.kpi, CAST(lp.value AS CHAR),"
+            " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) FROM score s"
+            " JOIN member m ON m.desk_id = s.desk_id AND m.name_id=%s"
+            " JOIN name d ON d.id = s.desk_id"
+            " LEFT JOIN score_point lp ON lp.id = ("
+            " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+            " ORDER BY p2.created DESC, p2.id DESC LIMIT 1)",
             (aid,),
         )
         miss_rows = []
@@ -1299,12 +1301,16 @@ def _page_rows(cn, tab: str, *, scope: str = "", desk: str = "", project: str = 
             ]
         elif tab == "misses":
             sql = (
-                "SELECT COALESCE(d.name, r.name), s.kpi, s.value, s.target FROM score s"
-                " LEFT JOIN name d ON d.id=s.desk_id"
-                " JOIN name r ON r.id=s.roster_id WHERE "
+                "SELECT d.name, s.kpi, CAST(lp.value AS CHAR),"
+                " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) FROM score s"
+                " JOIN name d ON d.id=s.desk_id"
+                " LEFT JOIN score_point lp ON lp.id = ("
+                " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+                " ORDER BY p2.created DESC, p2.id DESC LIMIT 1)"
+                " JOIN member m ON m.desk_id = s.desk_id WHERE "
             )
             if affil:
-                cur.execute(sql + "s.roster_id=%s LIMIT 80", (affil,))
+                cur.execute(sql + "m.name_id=%s LIMIT 80", (affil,))
             else:
                 cur.execute(sql + "s.desk_id IN (" + marks + ") LIMIT 80", tuple(ids))
             for dname, kname, val, tgt in cur.fetchall():
@@ -1696,11 +1702,24 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
             if path == "/api/pov":
                 qs = parse_qs(urlparse(self.path).query)
                 part = ((qs.get("part") or [""])[0] or "").strip().lower()
+                if part == "scores":
+                    window = ((qs.get("window") or ["7d"])[0] or "7d").strip()
+                    viewer = ((qs.get("viewer") or [""])[0] or "").strip()
+
+                    def produce_scores() -> bytes:
+                        with _office() as c:
+                            from agent_coord.server.records.score_part1 import read_scores
+
+                            payload = read_scores(c._cn, window, viewer or None)
+                        return _json(payload)
+
+                    self._send(200, produce_scores(), "application/json; charset=utf-8")
+                    return
                 pov_type = {"desks": "desk", "rosters": "roster"}.get(part)
                 if not pov_type:
                     self._send(
                         400,
-                        _json({"error": "GET /api/pov requires ?part=desks|rosters"}),
+                        _json({"error": "GET /api/pov requires ?part=desks|rosters|scores"}),
                         "application/json; charset=utf-8",
                     )
                     return
@@ -1930,8 +1949,12 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                                 ]
                                 holds = sum(r["n"] for r in holds_by)
                                 cur.execute(
-                                    "SELECT d.name, s.kpi, s.value, s.target FROM score s"
+                                    "SELECT d.name, s.kpi, CAST(lp.value AS CHAR),"
+                                    " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) FROM score s"
                                     " JOIN name d ON d.id = s.desk_id"
+                                    " LEFT JOIN score_point lp ON lp.id = ("
+                                    " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+                                    " ORDER BY p2.created DESC, p2.id DESC LIMIT 1)"
                                     " WHERE s.desk_id IN (" + marks + ")"
                                     " ORDER BY d.name, s.kpi",
                                     tuple(ids),

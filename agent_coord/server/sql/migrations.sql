@@ -95,9 +95,12 @@ ALTER TABLE `hold` DROP FOREIGN KEY `fk_hold_res`;
 ALTER TABLE `hold` ADD CONSTRAINT `fk_hold_res`  FOREIGN KEY (resource_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE `score` DROP FOREIGN KEY `fk_score_roster`;
+ALTER TABLE `score` DROP FOREIGN KEY `fk_score_desk`;
+-- desk_key is generated from desk_id, so the cascade cannot be added while it exists.
+ALTER TABLE `score` DROP INDEX `idx_score_who`;
+ALTER TABLE `score` DROP COLUMN `desk_key`;
 ALTER TABLE `score` ADD CONSTRAINT `fk_score_roster` FOREIGN KEY (roster_id) REFERENCES name (id) ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- fk_score_desk stays ON DELETE RESTRICT. score.desk_id feeds stored desk_key, so MySQL refuses ON UPDATE CASCADE.
+ALTER TABLE `score` ADD CONSTRAINT `fk_score_desk` FOREIGN KEY (desk_id) REFERENCES seat (desk_id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE `score_point` DROP FOREIGN KEY `fk_score_point_score`;
 ALTER TABLE `score_point` ADD CONSTRAINT `fk_score_point_score` FOREIGN KEY (score_id) REFERENCES score (id) ON DELETE RESTRICT ON UPDATE CASCADE;

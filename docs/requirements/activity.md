@@ -21,7 +21,7 @@ stateDiagram-v2
 
 No payload key guards the activity row (#216). Deleting it is refused while a tree row points at it (`fk_tree_activity`); the payload row is not checked. Labels on it go (`fk_label_activity` CASCADE) and watchers go (`activity_del_watchers`). Retire sets `name.deleted` and leaves the name row.
 
-`activity.roster_id` is required. Default is 1 (Office). `ON DELETE RESTRICT`. It is the shortcut that finds activities by project or role. `mail.roster_id`, `todo.roster_id`, `doing.roster_id`, and `score.roster_id` are required (NOT NULL, `ON DELETE RESTRICT`, like every mill key to `name`). Hold has no roster column: hold activity roster is Office (1). A score is unique on `(roster_id, desk_id, kpi)`. One hold row per `resource_id`. `hold.desk_id` NULL means free. Opening a letter stamps `mail_to.opened` and sets `activity.updated`. Desk, roster, weight, `n`, and bytes stay.
+`activity.roster_id` is required. Default is 1 (Office). `ON DELETE RESTRICT`. It is the shortcut that finds activities by project or role. `mail.roster_id`, `todo.roster_id`, and `doing.roster_id` are required (NOT NULL, `ON DELETE RESTRICT`, like every mill key to `name`). Hold has no roster column: hold activity roster is Office (1). A score has no roster column. It is unique on `(desk_id, kpi)` and `desk_id` is required. One hold row per `resource_id`. `hold.desk_id` NULL means free. Opening a letter stamps `mail_to.opened` and sets `activity.updated`. Desk, roster, weight, `n`, and bytes stay.
 
 `mill_name_delete` sets `name.deleted` and leaves the name row. Retire does not fire these keys. Reclaim clears `deleted` on the same id.
 
