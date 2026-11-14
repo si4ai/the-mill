@@ -543,6 +543,9 @@ def _ensure_fk_rules(cn) -> list[str]:
         for table, name, col, ref, ref_col, rule in _FK_RULES:
             if not _table_exists(cur, table):
                 continue
+            # Card 1214 drops score.roster_id. Do not add fk_score_roster back.
+            if any(not _column_exists(cur, table, c.strip()) for c in col.split(",")):
+                continue
             have = _fk_delete_rule(cur, table, name)
             if have == rule or (rule == "RESTRICT" and have == "NO ACTION"):
                 continue
@@ -2775,7 +2778,10 @@ def apply_1200(cn) -> list[str]:
         if cascaded and flagged:
             return []
         blob = (sql_dir() / "migrations.sql").read_text(encoding="utf-8-sig")
+        score_roster = _column_exists(cur, "score", "roster_id")
         for stmt in split_script(blob):
+            if not score_roster and "fk_score_roster" in stmt:
+                continue
             try:
                 cur.execute(stmt)
             except Exception as exc:

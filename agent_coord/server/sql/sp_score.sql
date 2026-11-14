@@ -59,8 +59,8 @@ BEGIN
     UPDATE score
       SET updated = v_ts,
           meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
-                          '$.target', IFNULL(p_target, JSON_EXTRACT(meta, '$.target')),
-                          '$.reading', IFNULL(p_value, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reading'))))
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.reading', IF(p_value IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reading')), p_value))
       WHERE id = v_id;
   END IF;
   IF p_value REGEXP '^-?[0-9]+([.][0-9]+)?$' THEN
@@ -117,7 +117,8 @@ BEGIN
   ELSE
     UPDATE score
       SET updated = v_ts,
-          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()), '$.target', IFNULL(p_target, JSON_EXTRACT(meta, '$.target')))
+          meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target))
       WHERE id = v_id;
   END IF;
   IF p_value REGEXP '^-?[0-9]+([.][0-9]+)?$' THEN
@@ -269,9 +270,9 @@ BEGIN
     UPDATE score
       SET updated = v_ts,
           meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
-                          '$.target', IFNULL(p_target, JSON_EXTRACT(meta, '$.target')),
-                          '$.better', IFNULL(p_better, JSON_EXTRACT(meta, '$.better')),
-                          '$.unit', IFNULL(p_unit, JSON_EXTRACT(meta, '$.unit')))
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.better', IF(p_better IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.better')), p_better),
+                          '$.unit', IF(p_unit IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.unit')), p_unit))
       WHERE id = v_id;
   END IF;
   INSERT INTO score_point (score_id, created, desk_id, value, note)
@@ -340,9 +341,9 @@ BEGIN
     UPDATE score
       SET updated = v_ts,
           meta = JSON_SET(IFNULL(meta, JSON_OBJECT()),
-                          '$.target', IFNULL(p_target, JSON_EXTRACT(meta, '$.target')),
-                          '$.better', IFNULL(p_better, JSON_EXTRACT(meta, '$.better')),
-                          '$.unit', IFNULL(p_unit, JSON_EXTRACT(meta, '$.unit')))
+                          '$.target', IF(p_target IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')), p_target),
+                          '$.better', IF(p_better IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.better')), p_better),
+                          '$.unit', IF(p_unit IS NULL, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.unit')), p_unit))
       WHERE id = v_id;
   END IF;
   CALL mill_activity_put('score', v_id, v_ts, v_desk, v_proj, 'score', NULL);
@@ -435,9 +436,9 @@ BEGIN
      WHERE s.kpi = p_kpi AND a.deleted IS NULL
        AND (
          EXISTS (SELECT 1 FROM score_point sp WHERE sp.score_id = s.id)
-         OR JSON_EXTRACT(s.meta, '$.target') IS NOT NULL
-         OR JSON_EXTRACT(s.meta, '$.better') IS NOT NULL
-         OR JSON_EXTRACT(s.meta, '$.unit') IS NOT NULL
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')), '') <> ''
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')), '') <> ''
+         OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit')), '') <> ''
          OR IFNULL(JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')), '') <> ''
        )
      ORDER BY s.updated DESC
@@ -807,6 +808,7 @@ BEGIN
   DECLARE v_own INT DEFAULT 0;
   DECLARE v_fail INT DEFAULT 0;
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
   -- Soft: swallow so a card move never fails for score. Never ROLLBACK the
   -- caller's @mill_req_tx; only end a transaction this call started.
   DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET v_fail = 1;
@@ -822,11 +824,10 @@ BEGIN
     END IF;
     SET v_ts = MILL_NOW();
     SET v_now = IFNULL(p_now, v_ts);
-    SET v_id = (
-      SELECT id FROM score
-       WHERE desk_id = p_desk AND kpi = 'cards'
-       LIMIT 1
-    );
+    SET v_id = NULL;
+    SELECT id INTO v_id FROM score
+     WHERE desk_id = p_desk AND kpi = 'cards'
+     LIMIT 1;
     IF v_fail = 0 AND v_id IS NULL AND p_desk IS NOT NULL THEN
       INSERT INTO score (updated, desk_id, kpi, meta)
       VALUES (
@@ -836,11 +837,10 @@ BEGIN
       );
       IF v_dup = 1 THEN
         SET v_dup = 0;
-        SET v_id = (
-          SELECT id FROM score
-           WHERE desk_id = p_desk AND kpi = 'cards'
-           LIMIT 1
-        );
+        SET v_id = NULL;
+        SELECT id INTO v_id FROM score
+         WHERE desk_id = p_desk AND kpi = 'cards'
+         LIMIT 1;
       ELSE
         SET v_id = LAST_INSERT_ID();
         IF v_fail = 0 THEN
@@ -854,20 +854,20 @@ BEGIN
         '%Y-%m-%d %H:%i:%s'
       );
       SET v_day = CAST(DATE(v_now) AS DATETIME);
-      SET v_taken = (
-        SELECT taken FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-      );
-      SET v_hour_old = (
-        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_hour
-      );
+      SET v_taken = NULL;
+      SELECT taken INTO v_taken FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_hour;
+      SET v_hour_old = NULL;
+      SELECT value INTO v_hour_old FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_hour;
       IF v_hour_old IS NULL OR v_taken IS NULL OR v_taken <> DATE(v_now) THEN
         SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(NULL, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       ELSE
         SET v_hour_new = MILL_CARD_SCORE_DOC_ADD(v_hour_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       END IF;
-      SET v_day_old = (
-        SELECT value FROM score_evidence WHERE score_id = v_id AND `timestamp` = v_day
-      );
+      SET v_day_old = NULL;
+      SELECT value INTO v_day_old FROM score_evidence
+       WHERE score_id = v_id AND `timestamp` = v_day;
       SET v_day_new = MILL_CARD_SCORE_DOC_ADD(v_day_old, p_kind, p_lead_min, p_eta_min, p_actual_min, p_doing_min);
       SET v_len = GREATEST(
         LENGTH(CAST(v_hour_new AS CHAR)),

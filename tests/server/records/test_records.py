@@ -159,10 +159,14 @@ def test_score_upsert_value(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (kid,)) is not None
 
 def test_floor_office_kpis(cn) -> None:
+    from agent_coord.client.tokens import token_hash
+    from agent_coord.server.records import join as rec_join
     from agent_coord.server.records.floor import floor as rec_floor
-    from tests.server.records.conftest import seed_member
+    from tests.server.records.conftest import seed_member, seed_names
 
+    seed_names(cn, ("the-mill", "roster"), ("a", "desk"))
     seed_member(cn, "the-mill", "a")
+    rec_join.upsert(cn, "the-mill", "a", "", token_hash("seat-floor-a"))
     cur = cn.cursor()
     cur.execute(
         "INSERT INTO score (desk_id, kpi, meta) "
