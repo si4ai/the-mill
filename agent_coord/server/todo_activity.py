@@ -169,6 +169,30 @@ def emit_claim(
         )
 
 
+def emit_assign(
+    cn, *, todo_id: int, desk_id: int, assignee_id: int | None = None, fixture: bool = False
+) -> None:
+    """T5 assign (open->claimed). desk_id is the assigner. meta.to is the assignee."""
+    tid, did = int(todo_id), int(desk_id)
+    if tid <= 0 or did <= 0:
+        return
+    meta = dict(_meta(fixture) or {})
+    if assignee_id is not None and int(assignee_id) > 0:
+        meta["to"] = int(assignee_id)
+    _safe_put(
+        cn,
+        activity_type=ActivityType.todo,
+        activity_id=tid,
+        from_state=State.open,
+        to_state=State.claimed,
+        reason=Reason.assign,
+        desk_id=did,
+        role="actor",
+        join_key=join_key(tid),
+        meta=meta or None,
+    )
+
+
 def emit_unclaim(cn, *, todo_id: int, desk_id: int, fixture: bool = False) -> None:
     tid, did = int(todo_id), int(desk_id)
     if tid <= 0 or did <= 0:

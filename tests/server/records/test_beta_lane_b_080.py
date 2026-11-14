@@ -1,12 +1,12 @@
 """0.8.0 lane B (card 868, F168, F174): card, doing and name procedures on the beta book.
 
-The book is the 0.8.0 schema (doing move rows, seat.doing_id, seat as the desk kind table,
+The book is the 0.8.0 schema as card 1207 left it (doing is only tw runs; seat as the desk kind table,
 the kind-checked name FKs). Each test names one ported behavior:
 
-- card moves: every status or volunteer change is one doing move row by the acting desk
-  (act, peer_id, evidence on ship and done); the card's `evidence` is read from them.
-- seat.doing_id: after every focus write path it names the desk's newest focus row
-  (act focus or clear, ORDER BY created DESC, id DESC), never a move row.
+- card moves: card 1207 moved them out of doing. The procedures set activity.act and todo.meta.evidence
+  (ship and done set it, back removes it); the move's record is the rpc's transition row (test_lane_b_moves_080).
+- live runs: clock-out, reset and retire end a desk's live tw runs as cleared (Tsk7); card 1207 dropped
+  seat.doing_id and the focus rows.
 - name commands: retire, rename, reclaim and mint go through sp_name_*; main's
   mill_name_delete / _rename / _reclaim are not in the book.
 - trust: the procedures read b_trust(); init_trust_fn re-creates it.
@@ -17,7 +17,6 @@ import mysql.connector
 import pytest
 
 from agent_coord.client.tokens import token_hash
-from agent_coord.server.records import doing as rec_doing
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records import todo as rec_todo
@@ -35,7 +34,7 @@ BOB = "lb080-bob"
 
 def _seat(cn, desk: str) -> str:
     digest = token_hash("seat-" + desk)
-    rec_join.upsert(cn, ROSTER, desk, "", digest, None)
+    rec_join.upsert(cn, ROSTER, desk, "", digest)
     cn.commit()
     return digest
 
@@ -53,18 +52,25 @@ def book(cn):
     set_trust(cn, "high")
 
 
-def _events(cn, card: int) -> list[tuple]:
-    """The card's move rows in id order: (act, peer, evidence, acting desk)."""
+def _events(cn, card: int) -> list[int]:
+    """Card 1207: doing has no item link, so any doing row by this module's card desks would be a move row."""
     rows = rows_done(
         cn,
-        "SELECT g.act, pn.name AS peer, IFNULL(g.evidence, '') AS evidence, dn.name AS desk"
-        " FROM doing g JOIN name dn ON dn.id = g.desk_id"
-        " LEFT JOIN name pn ON pn.id = g.peer_id"
-        " WHERE g.on_type = 'todo' AND g.on_id = %s AND g.act NOT IN ('focus', 'clear', 'finish')"
-        " ORDER BY g.id",
-        (card,),
+        "SELECT g.id FROM doing g JOIN name dn ON dn.id = g.desk_id WHERE dn.type = 'desk' AND dn.name IN (%s, %s, %s)",
+        (ADMIN, ANN, BOB),
     )
-    return [(r["act"], r["peer"], r["evidence"], r["desk"]) for r in rows]
+    return [int(r["id"]) for r in rows]
+
+
+def _act(cn, card: int) -> tuple:
+    """activity.act and its desk: the card's latest move."""
+    row = rows_done(cn, "SELECT a.act, n.name AS desk FROM activity a JOIN name n ON n.id = a.desk_id"
+                        " WHERE a.type = 'todo' AND a.id = %s", (card,))[0]
+    return (row["act"], row["desk"])
+
+
+def _meta_evidence(cn, card: int):
+    return scalar_done(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.evidence')) FROM todo WHERE id = %s", (card,))
 
 
 def _card(cn, body: str) -> int:
@@ -86,33 +92,34 @@ def _pass(cn, desk: str, card: int, step: str, ev=None) -> dict:
 
 def test_new_card_writes_its_first_event(book):
     card = _card(book, "lb-ev-new")
-    assert _events(book, card) == [("create", None, "", ANN)]
+    assert _events(book, card) == []
+    assert _act(book, card) == ("create", ANN)
 
 
 def test_parked_card_first_event_is_parked(book):
     rows = rec_todo.insert(book, ROSTER, ANN, "parked", '{"slug": "lb-ev-park"}')
     book.commit()
-    assert _events(book, int(rows[-1]["id"])) == [("park", None, "", ANN)]
+    card = int(rows[-1]["id"])
+    assert _events(book, card) == []
+    assert _act(book, card) == ("park", ANN)
 
 
 def test_claim_ship_done_back_write_events_with_evidence(book):
     card = _card(book, "lb-ev-flow")
     bob = _desk_id(book, BOB)
     call(book, "cmd_claim", [bob, card, 0, "", None])
+    assert _act(book, card) == ("claim", BOB)
     got = _pass(book, BOB, card, "ship", "sha abc123")
     assert got["evidence"] == "sha abc123"
+    assert (_act(book, card), _meta_evidence(book, card)) == (("ship", BOB), "sha abc123")
     got = _pass(book, ANN, card, "done", None)
     # a done with no evidence keeps the ship's (main's todo.evidence rule)
     assert got["evidence"] == "sha abc123"
+    assert (_act(book, card), _meta_evidence(book, card)) == (("done", ANN), "sha abc123")
     got = _pass(book, ANN, card, "back", None)
     assert got["evidence"] is None
-    assert _events(book, card) == [
-        ("create", None, "", ANN),
-        ("claim", None, "", BOB),
-        ("ship", None, "sha abc123", BOB),
-        ("done", None, "sha abc123", ANN),
-        ("back", None, "", ANN),
-    ]
+    assert (_act(book, card), _meta_evidence(book, card)) == (("back", ANN), None)
+    assert _events(book, card) == []
 
 
 def test_card_reads_show_the_newest_events_evidence(book):
@@ -135,7 +142,8 @@ def test_a_body_only_update_writes_no_event(book):
     card = _card(book, "lb-ev-note")
     rec_todo.update(book, card, ANN, "", "", '{"slug": "lb-ev-note", "detail": "x"}')
     book.commit()
-    assert len(_events(book, card)) == 1
+    assert _events(book, card) == []
+    assert _act(book, card) == ("note", ANN)  # a body edit is a note, not a move
 
 
 def test_todo_has_no_evidence_column(book):
@@ -153,8 +161,8 @@ def test_deleting_a_card_with_history_works(book):
     rec_todo.delete(book, card, ANN)
     book.commit()
     assert scalar_done(book, "SELECT COUNT(*) FROM todo WHERE id = %s", (card,)) == 0
-    # doing is append-only history with no FK to todo: the move rows stay
-    assert [e[0] for e in _events(book, card)] == ["create", "claim"]
+    # card 1207: no doing move rows were written, so none are left behind
+    assert _events(book, card) == []
 
 
 def test_attached_card_touch_keeps_the_parents_latest_move(book):
@@ -162,93 +170,54 @@ def test_attached_card_touch_keeps_the_parents_latest_move(book):
     rows = rec_todo.insert_attached(book, ROSTER, ANN, "open", '{"slug": "lb-att-child"}', "todo", parent)
     book.commit()
     child = int(rows[-1]["id"])
-    assert _events(book, child) == [("create", None, "", ANN)]
+    assert _events(book, child) == []
+    assert _act(book, child) == ("create", ANN)
     # main wrote roster id 1 into the parent's activity desk. 0.8.0: activity.act is the latest move and
     # desk_id who made it; a tree touch is not a move, so the parent keeps its filer's create.
     row = rows_done(book, "SELECT desk_id, act FROM activity WHERE type='todo' AND id=%s", (parent,))[0]
     assert (row["desk_id"], row["act"]) == (_desk_id(book, ANN), "create")
 
 
-# ---------- seat.doing_id ----------
+# ---------- live tw runs end as cleared (card 1207) ----------
 
-def _newest(cn, desk: str):
-    return scalar_done(
-        cn,
-        "SELECT g.id FROM doing g JOIN name d ON d.id = g.desk_id"
-        " WHERE d.type='desk' AND d.name=%s AND g.act IN ('focus', 'clear')"
-        " ORDER BY g.created DESC, g.id DESC LIMIT 1",
-        (desk,),
-    )
+def _start(cn, desk: str, wid: str) -> int:
+    rid = int(call(cn, "mill_doing_task", [desk, f"task:{desk}:{wid}", None, 1])[0]["id"])
+    cn.commit()
+    return rid
 
 
-def _now_row(cn, desk: str):
-    return scalar_done(
-        cn,
-        "SELECT dn.doing_id FROM seat dn JOIN name d ON d.id = dn.desk_id"
-        " WHERE d.type='desk' AND d.name=%s",
-        (desk,),
-    )
+def _cleared(cn, rid: int) -> bool:
+    return bool(scalar_done(
+        cn, "SELECT COUNT(*) FROM transition WHERE activity_type = 'doing' AND activity_id = %s"
+        " AND to_state = 'cleared' AND reason = 'clear'", (rid,)))
 
 
-def _same(cn, desk: str):
-    newest = _newest(cn, desk)
-    assert newest is not None
-    assert _now_row(cn, desk) == newest
-
-
-def test_seat_doing_id_follows_every_write_path(book):
-    """Validator check 2 (F181). Mutant: mill_doing_insert skips the UPDATE seat; this fails."""
+def test_clock_out_and_reset_clear_live_runs(book):
     desk = "lb080-dn"
     _seat(book, desk)
-    _same(book, desk)  # join: its focus (or clear) row
-    card = _card(book, "lb-dn-card")
-    rec_doing.put(book, desk, "working on it", "todo", card)
+    first = _start(book, desk, "a")
+    assert not _cleared(book, first)
+    rec_join.delete(book, ROSTER, desk)  # clock-out
     book.commit()
-    _same(book, desk)
-    call(book, "cmd_claim", [_desk_id(book, desk), card, 0, "", None])  # a move row: seat.doing_id stays
+    assert _cleared(book, first)
+    rec_join.upsert(book, ROSTER, desk, "", token_hash("seat-" + desk))
     book.commit()
-    _same(book, desk)
-    rec_doing.finish(book, desk, "todo", card)
-    book.commit()
-    _same(book, desk)
-    rec_doing.put(book, desk, "again", "todo", card)
-    book.commit()
-    rec_join.delete(book, ROSTER, desk)  # clock-out: a clear row
-    book.commit()
-    _same(book, desk)
-    rec_join.upsert(book, ROSTER, desk, "", token_hash("seat-" + desk), "new join text")
-    book.commit()
-    _same(book, desk)
+    second = _start(book, desk, "b")
     rec_join.reset(book, ROSTER, desk)
     book.commit()
-    _same(book, desk)
+    assert _cleared(book, second)
+    # a cleared run is cleared once
+    assert scalar_done(book, "SELECT COUNT(*) FROM transition WHERE activity_type = 'doing' AND activity_id = %s"
+                             " AND to_state = 'cleared'", (first,)) == 1
 
 
-def test_seat_doing_id_after_retire_names_the_clear_row(book):
+def test_retire_clears_live_runs(book):
     desk = "lb080-dn-ret"
     _seat(book, desk)
-    rec_doing.put(book, desk, "busy", "todo", _card(book, "lb-dn-ret"))
-    book.commit()
+    rid = _start(book, desk, "a")
     rec_name.retire(book, desk, "desk", by=ADMIN)
     book.commit()
-    _same(book, desk)
-    row = rows_done(book, "SELECT text, act FROM doing WHERE id = %s", (_now_row(book, desk),))[0]
-    assert (row["text"], row["act"]) == ("", "clear")
-
-
-def test_doing_now_read_reports_a_cleared_entry(book):
-    desk = "lb080-dn-read"
-    _seat(book, desk)
-    card = _card(book, "lb-dn-read")
-    rec_doing.put(book, desk, "reading", "todo", card)
-    book.commit()
-    rows = [r for r in rec_doing.now(book, desk) if r.get("part") == "desk"]
-    assert rows[0]["text"] == "reading" and rows[0]["ended_by"] is None
-    assert rows[0]["last_text"] == "reading"
-    rec_join.delete(book, ROSTER, desk)
-    book.commit()
-    rows = [r for r in rec_doing.now(book, desk) if r.get("part") == "desk"]
-    assert rows[0]["text"] == "reading" and rows[0]["ended_by"] == "cleared"
+    assert _cleared(book, rid)
 
 
 # ---------- name verbs through sp_name_* ----------

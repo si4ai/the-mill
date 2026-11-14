@@ -64,7 +64,7 @@ def book(monkeypatch):
     for n, k in ((ROSTER, "roster"), (D1, "desk"), (D2, "desk")):
         rec_name.get_or_insert(c, n, k)
     for d in (D1, D2):
-        rec_join.upsert(c, ROSTER, d, "", token_hash(TOK[d]), None)
+        rec_join.upsert(c, ROSTER, d, "", token_hash(TOK[d]))
     c.commit()
     monkeypatch.setattr(HUB, "rooms", {})
     monkeypatch.setattr(wake, "_GATE", {})

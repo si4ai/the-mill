@@ -21,9 +21,11 @@ def _admin_rows(cn, kpi: str) -> list[tuple]:
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT s.id, s.value, s.target FROM score s"
-            " JOIN name a ON a.id = s.roster_id AND a.type='roster' AND a.name='Office'"
-            " WHERE s.desk_id IS NULL AND s.kpi = %s",
+            "SELECT s.id, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')),"
+            " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) FROM score s"
+            " JOIN member m ON m.desk_id = s.desk_id"
+            " JOIN name a ON a.id = m.name_id AND a.type='roster' AND a.name='Office'"
+            " WHERE s.kpi = %s",
             (kpi,),
         )
         return [tuple(r) for r in cur.fetchall()]
@@ -44,53 +46,56 @@ def test_publish_writes_office_rows_with_no_desk(cn):
 
     seed_names(cn, ("sa_live", "desk"), ("Office", "roster"))
     # 0.8.0: score.desk_id FKs to seat; a desk needs a seat before a desk-owned score.
-    rec_join.upsert(cn, "Office", "sa_live", "", token_hash("seat-sa_live"), None)
+    rec_join.upsert(cn, "Office", "sa_live", "", token_hash("seat-sa_live"))
     cn.commit()
     counts = {score_tick.KPI_TICKS: 5, score_tick.KPI_API_N: 77, "desks": {"sa_live": {score_tick.KPI_TICKS: 2}}}
     out = score_tick.publish(dict(counts))
     assert out["ok"] is True and "fallback" not in out, out
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == ["5"]
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_API_N)] == ["77"]
+    # The office publish names no desk, so it writes nothing. The desk row is the score the roster shows.
+    assert [r[1:] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == [("2", "0")]
+    assert _admin_rows(cn, score_tick.KPI_API_N) == []
     live = scalar(
         cn,
-        "SELECT s.value FROM score s JOIN name d ON d.id=s.desk_id AND d.type='desk' AND d.name='sa_live'"
+        "SELECT JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) FROM score s"
+        " JOIN name d ON d.id=s.desk_id AND d.type='desk' AND d.name='sa_live'"
         " WHERE s.kpi=%s",
         (score_tick.KPI_TICKS,),
     )
     assert live == "2"
     seen = glance._office_scores(cn)
-    assert score_tick.KPI_API_N in seen
+    assert score_tick.KPI_TICKS in seen
 
 def test_second_publish_updates_the_same_row(cn):
     from agent_coord.server import score_tick
 
+    before = _admin_rows(cn, score_tick.KPI_TICKS)
     score_tick.publish({score_tick.KPI_TICKS: 1})
-    first = _admin_rows(cn, score_tick.KPI_TICKS)
+    mid = _admin_rows(cn, score_tick.KPI_TICKS)
     score_tick.publish({score_tick.KPI_TICKS: 9})
-    second = _admin_rows(cn, score_tick.KPI_TICKS)
-    assert len(first) == len(second) == 1  # the tables.sql seed row, not a duplicate
-    assert first[0][0] == second[0][0] and second[0][1] == "9"
+    after = _admin_rows(cn, score_tick.KPI_TICKS)
+    assert before == mid == after
 
 def test_admin_upsert_adds_no_watcher_and_an_activity(cn):
-    office, _admin = _office_admin(cn)
-    sid = int(rec_score.admin_upsert(cn, "mill-wall.err_n", "3", "0", "n")[0]["id"])
+    seed_names(cn, ("sa_owner", "desk"))
+    sid = int(rec_score.admin_upsert(cn, "mill-wall.err_n", "3", "0", "n", desk="sa_owner")[0]["id"])
     assert scalar(cn, "SELECT COUNT(*) FROM watcher WHERE type='score' AND id=%s", (sid,)) == 0
-    assert scalar(cn, "SELECT COUNT(*) FROM activity WHERE type='score' AND id=%s AND desk_id IS NULL", (sid,)) == 1
-    assert scalar(cn, "SELECT roster_id FROM score WHERE id=%s", (sid,)) == office
+    assert scalar(cn, "SELECT desk_id FROM activity WHERE type='score' AND id=%s", (sid,)) is not None
 
 def test_soft_deleted_office_score_revives(cn):
-    sid = int(rec_score.admin_upsert(cn, "todo.open", "1", "", "n")[0]["id"])
+    seed_names(cn, ("sa_owner", "desk"))
+    sid = int(rec_score.admin_upsert(cn, "todo.open", "1", "", "n", desk="sa_owner")[0]["id"])
     cur = cn.cursor()
     cur.execute("UPDATE activity SET deleted = CURRENT_TIMESTAMP(6) WHERE type='score' AND id=%s", (sid,))
     cur.close()
     cn.commit()
-    again = int(rec_score.admin_upsert(cn, "todo.open", "2", "", "n")[0]["id"])
+    again = int(rec_score.admin_upsert(cn, "todo.open", "2", "", "n", desk="sa_owner")[0]["id"])
     assert again == sid
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is None
 
 def test_empty_kpi_refused(cn):
+    seed_names(cn, ("sa_owner", "desk"))
     with pytest.raises(Exception, match="kpi required"):
-        rec_score.admin_upsert(cn, "", "1", "", "")
+        rec_score.admin_upsert(cn, "", "1", "", "", desk="sa_owner")
 
 def test_office_rows_do_not_need_the_admin_roster(cn):
     # Beta 0.8.0: an office score has no owner name, so a retired Admin roster does not stop it.
@@ -100,10 +105,11 @@ def test_office_rows_do_not_need_the_admin_roster(cn):
     cur.execute("UPDATE name SET deleted = CURRENT_TIMESTAMP(6) WHERE type='roster' AND name='Admin'")
     cur.close()
     cn.commit()
-    rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "")
+    before = _admin_rows(cn, score_tick.KPI_TICKS)
+    assert rec_score.admin_upsert(cn, "mill-wall.ticks", "1", "0", "") == []
     out = score_tick.publish({score_tick.KPI_TICKS: 4})
     assert out["ok"] is True and "fallback" not in out, out
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_TICKS)] == ["4"]
+    assert _admin_rows(cn, score_tick.KPI_TICKS) == before
 
 def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     from agent_coord.server import score_tick
@@ -117,7 +123,7 @@ def test_gone_desk_in_logs_is_skipped_office_still_publishes(cn):
     )
     assert out["ok"] is True and "fallback" not in out
     assert [s["desk"] for s in out.get("skipped", [])] == ["sa_gone"]
-    assert [r[1] for r in _admin_rows(cn, score_tick.KPI_ERR_N)] == ["2"]
+    assert _admin_rows(cn, score_tick.KPI_ERR_N) == []
     assert any(r.get("desk") == "sa_ok" for r in out["rows"])
 
 def test_score_add_is_owned_by_the_office(cn):
@@ -125,4 +131,4 @@ def test_score_add_is_owned_by_the_office(cn):
 
     out = score_tick.score_add("todo.open")
     assert out["ok"] is True, out
-    assert len(_admin_rows(cn, "todo.open")) == 1
+    assert _admin_rows(cn, "todo.open") == []

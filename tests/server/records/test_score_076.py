@@ -21,14 +21,14 @@ def _seat(cn, *desks: str) -> None:
     from agent_coord.server.records import join as rec_join
 
     for d in desks:
-        rec_join.upsert(cn, "Office", d, "", token_hash("seat-" + d), None)
+        rec_join.upsert(cn, "Office", d, "", token_hash("seat-" + d))
     cn.commit()
 
 
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
 from agent_coord.server.records import score as rec_score
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_member, seed_names
 from tests.server.records.test_room_reply import _Book
 
 
@@ -63,6 +63,7 @@ def _retire(cn, roster, desk, kpi, *, admin: bool = False):
 
 def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
     seed_names(cn, ("s76a", "roster"), ("g76", "desk"))
+    seed_member(cn, "s76a", "g76")
     _seat(cn, "g76")
     rec_score.upsert(cn, "s76a", "g76", "probe", "", "", "")  # the 0.7.4 shape: empty, desk-owned
     cn.commit()
@@ -70,7 +71,7 @@ def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
         rpc._h_score(_Book(cn), {"name": "probe"}, "s76a", "g76")
     _add(cn, "s76a", "g76", "probe", 6)
     got = rpc._h_score(_Book(cn), {"name": "probe"}, "s76a", "g76")
-    assert got["latest"] == 6 and got["owner"] == "s76a"
+    assert got["latest"] == 6 and got["owner"] == "g76"
 
 
 # F37
@@ -78,6 +79,7 @@ def test_empty_legacy_row_never_reads_before_the_first_point(cn) -> None:
 
 def test_set_target_without_a_point(cn) -> None:
     seed_names(cn, ("s76c", "roster"), ("tc", "desk"))
+    seed_member(cn, "s76c", "tc")
     _seat(cn, "tc")
     _define(cn, "s76c", "tc", "ms.read", target="50", better="down", unit="ms")
     got = rpc._h_score(_Book(cn), {"name": "ms.read"}, "s76c", "tc")
@@ -101,6 +103,7 @@ def test_set_target_without_a_point(cn) -> None:
 
 def test_at_orders_points_and_backfill_is_not_latest(cn) -> None:
     seed_names(cn, ("s76d", "roster"), ("td", "desk"))
+    seed_member(cn, "s76d", "td")
     _seat(cn, "td")
     b = _Book(cn)
     _add(cn, "s76d", "td", "k", 10, better="down")
@@ -139,6 +142,7 @@ def test_at_needs_a_value(cn) -> None:
 
 def test_retire_by_recorder_only_and_points_kept(cn) -> None:
     seed_names(cn, ("s76f", "roster"), ("rf", "desk"), ("other", "desk"))
+    seed_member(cn, "s76f", "rf", "other")
     _seat(cn, "rf", "other")
     sid = int(_add(cn, "s76f", "rf", "probe", 1)[0]["id"])
     with pytest.raises(Exception, match="only a desk that recorded on probe|only a desk"):
@@ -161,6 +165,7 @@ def test_retire_by_recorder_only_and_points_kept(cn) -> None:
 
 def test_retire_by_admin_and_legacy_owner(cn) -> None:
     seed_names(cn, ("s76g", "roster"), ("Admin", "roster"), ("ad", "desk"), ("own", "desk"), ("rec", "desk"))
+    seed_member(cn, "s76g", "ad", "own", "rec")
     _seat(cn, "ad", "own", "rec")
     from agent_coord.server.records import member as rec_member
 

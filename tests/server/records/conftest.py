@@ -17,6 +17,26 @@ import pytest
 from agent_coord.server.records import name as rec_name
 
 
+def seed_member(cn, roster: str, *desks: str) -> None:
+    """Put desks on a roster. A roster score read is the members' rows."""
+    from agent_coord.server.records.db import scalar
+
+    rid = scalar(cn, "SELECT id FROM name WHERE type='roster' AND name=%s", (roster,))
+    cur = cn.cursor()
+    try:
+        for desk in desks:
+            did = scalar(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", (desk,))
+            if rid is None or did is None:
+                continue
+            cur.execute(
+                "INSERT IGNORE INTO member (name_id, desk_id) VALUES (%s, %s)",
+                (rid, did),
+            )
+    finally:
+        cur.close()
+    cn.commit()
+
+
 def seed_names(cn, *specs: tuple[str, str]) -> list[int]:
     """Intentional create via mill_name_put. Idempotent. Skips blanks.
 
@@ -64,7 +84,7 @@ def admin_desk(cn, name: str = ADMIN_DESK) -> str:
     from agent_coord.client.tokens import token_hash
     from agent_coord.server.records import join as rec_join
 
-    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name), None)
+    rec_join.upsert(cn, "Office", name, "", token_hash("seat-" + name))
     return make_admin(cn, name)
 
 

@@ -24,7 +24,7 @@ KEY = "fx618-key-0123456789"
 
 def _seat(cn, desk: str) -> None:
     seed_names(cn, ("fx618", "roster"), (desk, "desk"))
-    rec_join.upsert(cn, "fx618", desk, "", token_hash("seat-" + desk), None)
+    rec_join.upsert(cn, "fx618", desk, "", token_hash("seat-" + desk))
     cn.commit()
 
 
@@ -71,11 +71,9 @@ def test_two_desks_keep_two_keys(cn):
 def test_watcher_rows_never_carry_the_key(cn):
     _seat(cn, "fx618-d4")
     rec_join.wake_arm(cn, "fx618-d4", URL, KEY)
-    jid = scalar_done(
-        cn,
-        "SELECT MAX(j.id) FROM doing j JOIN name d ON d.id = j.desk_id WHERE d.type = 'desk' AND d.name = %s",
-        ("fx618-d4",),
-    )
+    # Card 1207: a join writes no doing; a tw run is the doing a desk watches.
+    jid = call(cn, "mill_doing_task", ["fx618-d4", "task:fx618-d4:w", None, 1])[0]["id"]
+    call(cn, "mill_watcher_put", ["doing", int(jid), int(scalar_done(cn, "SELECT id FROM name WHERE type='desk' AND name=%s", ("fx618-d4",)))])
     rows = call(cn, "mill_watcher_select", ["doing", int(jid)]) or []
     assert rows and all(KEY not in repr(r) for r in rows)
 

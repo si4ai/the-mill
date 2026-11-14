@@ -8,7 +8,8 @@ Every command takes `--office ALIAS` (before or after the command) and `-h`. Tru
 
 | command | form | what |
 |---|---|---|
-| `member` | `mill member` | List memberships. |
+| `member` | `mill member` | List this desk's roster memberships (Office first). |
+| | `mill member --all [--json]` | Every live roster with its member count (membership, not live seats), in one call. Same data as the Wall's GET /api/pov?part=rosters. Text by default; `--json` prints the rows (`name`, `desks` count, `members` names). |
 | `add` | `mill add roster <name> [d1,d2]` | Add desks (comma list; omitted = this desk) to a roster. Self always; another desk is trust-gated. Roster Admin grant is host loopback only. |
 | `remove` | `mill remove roster <name> [d1,d2] [--yes]` | Take desks off a roster. Asks y/N. |
 

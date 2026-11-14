@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""#897 rule-doing-focus: a move row is never painted as current.
+"""#897 rule-doing-focus: a move row (card 1207: src transition) is never painted as current.
 #898 rule-card-evidence: the card trail's evidence slot shows the newest ship/done
 evidence and a later back clears it. Trails hold rows newest first, as the history
 route serves them."""
@@ -62,23 +62,22 @@ def test_move_rows_never_current_and_evidence_clears_on_back():
 
 def test_open_move_row_is_never_current():
     # A move row the server has not ended yet: only the act may paint, never "current".
-    out = _paint([{"id": 9100, "desk": "builder", "at": "2026-10-23 04:00:00", "doing": "",
-                   "on": "todo-1", "act": "claim", "ended": False, "ended_by": None}])
+    out = _paint([{"id": 9100, "desk": "builder", "at": "2026-10-23 04:00:00", "src": "transition",
+                   "text": "", "on": "todo-1", "act": "claim", "ended": False, "ended_by": None}])
     claims = [how for act, how in out["bits"] if act == "claim"]
     assert claims and "current" not in claims, out["bits"]
 
 
 def test_card_slot_paints_ship_then_back_clears_it():
-    shipped = _paint([{"id": 9101, "desk": "builder", "at": "2026-10-23 04:00:00", "doing": "",
-                       "on": "todo-1", "act": "ship", "evidence": "stage 2 landed",
-                       "ended": True, "ended_by": "finished"}])
+    shipped = _paint([{"id": 9101, "desk": "builder", "at": "2026-10-23 04:00:00", "src": "transition",
+                       "text": "", "on": "todo-1", "act": "ship", "evidence": "stage 2 landed"}])
     assert shipped["evidence"] == "stage 2 landed"
     assert "stage 2 landed" in (shipped["slot"] or "")
     backed = _paint([
-        {"id": 9101, "desk": "builder", "at": "2026-10-23 04:00:00", "doing": "",
-         "on": "todo-1", "act": "ship", "evidence": "stage 2 landed", "ended": True, "ended_by": "finished"},
-        {"id": 9102, "desk": "builder", "at": "2026-10-23 04:30:00", "doing": "",
-         "on": "todo-1", "act": "back", "ended": True, "ended_by": "finished"},
+        {"id": 9101, "desk": "builder", "at": "2026-10-23 04:00:00", "src": "transition", "text": "",
+         "on": "todo-1", "act": "ship", "evidence": "stage 2 landed"},
+        {"id": 9102, "desk": "builder", "at": "2026-10-23 04:30:00", "src": "transition", "text": "",
+         "on": "todo-1", "act": "back"},
     ])
     assert backed["evidence"] == ""
     assert backed["slot"] == ""

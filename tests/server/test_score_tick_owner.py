@@ -38,19 +38,15 @@ def test_no_upsert_names_admin_as_a_desk():
     assert "desk_id=2" not in src
 
 
-def test_fallback_updates_null_owner_office_rows():
-    """0.8.0: fallback writes roster_id=1, desk_id IS NULL (no Admin desk lookup)."""
+def test_fallback_writes_no_score_without_a_desk():
     from agent_coord.server import score_tick as st
 
     cur = MagicMock()
     cn = MagicMock()
     cn.cursor.return_value = cur
     st._publish_sql(cn, {st.KPI_TICKS: 3, st.KPI_IDLE: 0, st.KPI_DROP: 0})
-    updates = [c for c in cur.execute.call_args_list if "UPDATE score" in c.args[0]]
-    assert len(updates) == 3
-    assert all("desk_id IS NULL" in c.args[0] and "roster_id=1" in c.args[0] for c in updates)
-    assert all(c.args[1][0] in ("3", "0") for c in updates)
-    assert cn.commit.called
+    assert cur.execute.call_args_list == []
+    assert not cn.commit.called
 
 
 def test_fallback_failure_does_not_commit():
@@ -62,8 +58,7 @@ def test_fallback_failure_does_not_commit():
     cur.execute.side_effect = RuntimeError("book down")
     cn = MagicMock()
     cn.cursor.return_value = cur
-    with pytest.raises(RuntimeError, match="book down"):
-        st._publish_sql(cn, {st.KPI_TICKS: 1, st.KPI_IDLE: 0, st.KPI_DROP: 0})
+    st._publish_sql(cn, {st.KPI_TICKS: 1, st.KPI_IDLE: 0, st.KPI_DROP: 0})
     assert not cn.commit.called
 
 

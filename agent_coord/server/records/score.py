@@ -25,9 +25,14 @@ def upsert(
     )
 
 
-def admin_upsert(cn, kpi: str, value: str = "", target: str = "", note: str = "") -> list[dict]:
-    """Office host score with no desk (mill_score_admin_upsert, desk_id NULL). No watcher."""
-    return call(cn, "mill_score_admin_upsert", [kpi, value, target, note])
+def admin_upsert(cn, kpi: str, value: str = "", target: str = "", note: str = "", desk: str = "") -> list[dict]:
+    """One desk's score. A call with no desk writes nothing."""
+    from agent_coord.server.records.name import bare
+
+    desk_b = bare(desk, CONST_DESK) if desk else ""
+    if not desk_b:
+        return []
+    return call(cn, "mill_score_admin_upsert", [desk_b, kpi, value, target, note])
 
 
 def delete(cn, score_id: int, desk: str) -> list[dict]:
@@ -57,13 +62,18 @@ def select_rosters(cn, names: list[str]) -> list[tuple[str, dict]]:
     cur = cn.cursor(dictionary=True)
     try:
         cur.execute(
-            "SELECT s.type, s.id, s.created, s.updated, s.desk_id, s.roster_id, s.kpi,"
-            " s.value, s.target, s.note,"
+            "SELECT s.type, s.id, s.created, s.updated, s.desk_id, m.name_id AS roster_id, s.kpi,"
+            " CAST(lp.value AS CHAR) AS value,"
+            " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')) AS target, lp.note AS note,"
             " dn.name AS desk, dn.type AS desk_type, an.name AS roster, an.type AS roster_type"
             " FROM score s"
+            " JOIN member m ON m.desk_id = s.desk_id"
             " LEFT JOIN name dn ON dn.id = s.desk_id"
-            " LEFT JOIN name an ON an.id = s.roster_id"
-            " WHERE s.roster_id IN (" + marks + ")"
+            " LEFT JOIN name an ON an.id = m.name_id"
+            " LEFT JOIN score_point lp ON lp.id = ("
+            "   SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+            "   ORDER BY p2.created DESC, p2.id DESC LIMIT 1)"
+            " WHERE m.name_id IN (" + marks + ")"
             " ORDER BY s.updated DESC",
             tuple(ids),
         )
@@ -100,7 +110,7 @@ def runs(cn, roster: str, phase: str = "") -> list[dict]:
             " FROM score s"
             " JOIN transition t ON t.activity_type = 'score' AND t.activity_id = s.id"
             " LEFT JOIN name dn ON dn.id = s.desk_id"
-            " WHERE s.roster_id = MILL_NAME_GET('roster', %s)"
+            " WHERE s.desk_id IN (SELECT desk_id FROM member WHERE name_id = MILL_NAME_GET('roster', %s))"
             " AND s.kpi = 'doing.task.last_run'"
             " ORDER BY t.at DESC, t.id DESC",
             (roster,),
@@ -224,9 +234,10 @@ def cards_day_evidence(cn, project: str, when=None) -> dict | None:
     try:
         cur.execute(
             "SELECT e.value FROM score s"
-            " JOIN name r ON r.id = s.roster_id AND r.name = %s"
+            " JOIN member m ON m.desk_id = s.desk_id"
+            " JOIN name r ON r.id = m.name_id AND r.name = %s"
             " JOIN score_evidence e ON e.score_id = s.id AND e.`timestamp` = %s"
-            " WHERE s.kpi = 'cards' AND s.desk_id IS NULL LIMIT 1",
+            " WHERE s.kpi = 'cards' LIMIT 1",
             (roster, day),
         )
         row = cur.fetchone()

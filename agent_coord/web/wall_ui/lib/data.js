@@ -18,7 +18,7 @@
     session: "No desks are here. Ask your agent to join.",
     score_kpi: "Honest empty \u2014 no agent_kpi yet.",
     score_progress: "Honest empty \u2014 no desks/needs/spend yet.",
-    score_bottlenecks: "None \u2014 no waiting_on / stalled JOBs.",
+    score_bottlenecks: "None \u2014 no waiting tw runs / stalled JOBs.",
     mail: "no mail for this filter (floor-only or empty)",
     floor: "Honest empty \u2014 no floor glance yet.",
     spend: "no spend yet. After a model turn: mill spend --source grok --tokens N"
@@ -255,7 +255,6 @@
     task: "tasked",
     replace: "replaced"
   };
-  var WALL_ACT_FOCUS = { focus: 1, clear: 1, finish: 1 };
   var WALL_ACT_EVIDENCE = { ship: 1, done: 1 };
 
   function wallActLabel(act) {
@@ -263,9 +262,6 @@
     if (!a) return "";
     if (Object.prototype.hasOwnProperty.call(WALL_ACT_LABELS, a)) return WALL_ACT_LABELS[a];
     return a;
-  }
-  function wallActIsFocus(act) {
-    return !!WALL_ACT_FOCUS[String(act == null ? "" : act).trim()];
   }
   function wallActHasEvidence(act) {
     return !!WALL_ACT_EVIDENCE[String(act == null ? "" : act).trim()];
@@ -285,10 +281,90 @@
     return "";
   }
 
+
+  /* Card 1191: stations from GET /api/pov?part=desks rows. A station is a lan_ip; its last
+   * connection is the latest rows[].last_connected (ISO UTC, null = never). The rail shows
+   * live stations and those seen inside windowDays; Admin lists every station. */
+  var STATION_RAIL_DAYS = 7;
+  /* Card 1207: the server sends at most this many live doings per desk (records.doing.DOINGS_CAP). */
+  var DOINGS_CAP = 20;
+  function wallIsoMs(raw) {
+    if (raw == null || raw === "") return null;
+    var t = Date.parse(String(raw));
+    return Number.isFinite(t) ? t : null;
+  }
+  function wallAgoShort(ms) {
+    /* "now", "5m ago", "3h ago", "2d ago"; "" when unknown. */
+    if (ms == null || !Number.isFinite(ms)) return "";
+    var m = Math.floor(Math.max(0, ms) / 60000);
+    if (m < 1) return "now";
+    if (m < 60) return m + "m ago";
+    var h = Math.floor(m / 60);
+    if (h < 48) return h + "h ago";
+    return Math.floor(h / 24) + "d ago";
+  }
+  function wallStations(rows, nowMs) {
+    /* Every station, live first, then most recent connection, then never-seen by name. */
+    var by = {};
+    var order = [];
+    (rows || []).forEach(function (row) {
+      if (!row) return;
+      var ip = String(row.lan_ip || "").trim();
+      var st = by[ip];
+      if (!st) {
+        st = by[ip] = { ip: ip, n: 0, live: false, last: null, desks: [] };
+        order.push(st);
+      }
+      st.n += 1;
+      if (row.connected) st.live = true;
+      if (row.name) st.desks.push(String(row.name));
+      var t = wallIsoMs(row.last_connected);
+      if (t != null && (st.last == null || t > st.last)) st.last = t;
+    });
+    order.forEach(function (st) {
+      st.ago = st.live ? "live" : (st.last == null ? "never" : wallAgoShort(nowMs - st.last));
+      st.desks.sort(function (a, b) { return a.localeCompare(b); });
+    });
+    return order.sort(function (a, b) {
+      if (a.live !== b.live) return a.live ? -1 : 1;
+      var al = a.last == null ? -Infinity : a.last;
+      var bl = b.last == null ? -Infinity : b.last;
+      if (al !== bl) return bl - al;
+      return a.ip.localeCompare(b.ip);
+    });
+  }
+  function wallRailStations(rows, nowMs, days) {
+    /* The rail's stations: live, or last connected inside days (default 7). */
+    var win = (days == null ? STATION_RAIL_DAYS : days) * 86400000;
+    return wallStations(rows, nowMs).filter(function (st) {
+      return st.live || (st.last != null && nowMs - st.last <= win);
+    });
+  }
+
+  /* The rail's one order switch for STATIONS and ROSTER: "recent" (stations: live, then latest
+   * connection; rosters: by name, as before), "size" (most desks first, ties by name), "az". */
+  var RAIL_SORTS = ["recent", "size", "az"];
+  function wallRailOrder(list, mode, kind) {
+    var out = (list || []).slice();
+    var station = kind === "station";
+    var nameOf = function (x) { return String((station ? x.ip : x.name) || ""); };
+    var sizeOf = function (x) { return Number(station ? x.n : x.desks) || 0; };
+    var byName = function (a, b) { return nameOf(a).localeCompare(nameOf(b), undefined, { numeric: true }); };
+    if (mode === "size") return out.sort(function (a, b) { return (sizeOf(b) - sizeOf(a)) || byName(a, b); });
+    if (mode === "az" || !station) return out.sort(byName);
+    return out;
+  }
+
+  global.wallRailOrder = wallRailOrder;
+  global.WALL_RAIL_SORTS = RAIL_SORTS;
   global.wallPaintThrowSafe = paintThrowSafe;
+  global.wallAgoShort = wallAgoShort;
+  global.wallStations = wallStations;
+  global.wallRailStations = wallRailStations;
+  global.WALL_STATION_RAIL_DAYS = STATION_RAIL_DAYS;
+  global.WALL_DOINGS_CAP = DOINGS_CAP;
   global.WALL_ACT_LABELS = WALL_ACT_LABELS;
   global.wallActLabel = wallActLabel;
-  global.wallActIsFocus = wallActIsFocus;
   global.wallActHasEvidence = wallActHasEvidence;
   global.wallCardEvidenceFromTrail = wallCardEvidenceFromTrail;
   global.WALL_UI_LIB_DATA = "WALL_UI_LIB_DATA";

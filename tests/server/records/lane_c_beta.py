@@ -7,7 +7,7 @@ run against the beta schema:
     python -m pytest -p tests.server.records.lane_c_beta tests/server -m sql
 
 The DDL is, in order: MILL_BETA_DDL when set; agent_coord/server/sql/tables.sql
-when it is already the beta DDL (seat.doing_id / doing.evidence); else
+when it is already the shipping DDL (it creates score_view); else
 docs/requirements/beta/beta_ddl.sql. beta_sp.sql runs after the routine files.
 
 A desk name gets its seat row in the same statement (a test-only trigger), as
@@ -53,7 +53,7 @@ def beta_ddl_path() -> Path:
         return Path(env)
     tables = SQL_DIR / "tables.sql"
     body = tables.read_text(encoding="utf-8-sig")
-    if "doing_id" in body and "evidence" in body:
+    if "CREATE TABLE IF NOT EXISTS score_view" in body:
         return tables
     return BETA_DIR / "beta_ddl.sql"
 

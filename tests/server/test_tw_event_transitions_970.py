@@ -26,7 +26,7 @@ def rows(cn, sql, args=()):
 @pytest.fixture
 def task(cn, monkeypatch):
     desk = "builder-" + uuid4().hex[:8]
-    join.upsert(cn, "Office", desk, "", "a" * 64, "reviewing")
+    join.upsert(cn, "Office", desk, "", "a" * 64)
     pings = []
     monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: pings.append((a, k)))
 
@@ -46,20 +46,19 @@ def task(cn, monkeypatch):
 
 def test_birth_then_later_event_has_one_task_and_no_birth_edge(cn, task):
     desk, event, edges, _ = task
-    seat = rows(cn, "SELECT doing_id FROM seat JOIN name ON name.id=seat.desk_id WHERE name.name=%s", (desk,))[0]
     event("start", card=970, title="SECRET", argv=["SECRET"], pattern="SECRET")
     first = edges()
     assert [(e["from_state"], e["to_state"], e["reason"]) for e in first] == [("idle", "active", "tw_start")]
     doing = rows(cn, "SELECT * FROM doing WHERE id=%s", (first[0]["activity_id"],))[0]
-    assert doing["act"] == "task"
-    assert (doing["on_type"], doing["on_id"]) == ("todo", 970)
+    # Card 1207: six columns; the card rides the tw_start meta, never the doing row.
+    assert set(doing) == {"type", "id", "created", "desk_id", "roster_id", "text"}
+    assert json.loads(first[0]["meta"])["card"] == 970
     assert doing["text"] == ""
     event("start")
     event("stall", cause="quiet")
     assert [e["reason"] for e in edges()] == ["tw_start", "tw_wait"]
     assert {e["activity_id"] for e in edges()} == {doing["id"]}
-    assert len(rows(cn, "SELECT * FROM doing WHERE desk_id=%s AND act='task'", (doing["desk_id"],))) == 1
-    assert rows(cn, "SELECT doing_id FROM seat WHERE desk_id=%s", (doing["desk_id"],))[0] == seat
+    assert len(rows(cn, "SELECT * FROM doing WHERE desk_id=%s", (doing["desk_id"],))) == 1
 
 
 @pytest.mark.parametrize("kind,extra,reason,state", [
@@ -92,8 +91,7 @@ def test_recipe_one_start_one_exit(cn, task):
     event("start")
     event("exit", exit_code=0)
     assert [e["reason"] for e in edges()] == ["tw_start", "tw_finished"]
-    doing = rows(cn, "SELECT * FROM doing WHERE id=%s", (edges()[0]["activity_id"],))[0]
-    assert doing["on_type"] is None and doing["on_id"] is None
+    assert "card" not in json.loads(edges()[0]["meta"] or "{}")
 
 
 @pytest.mark.parametrize("kind", ["match", "overflow", "retry"])
@@ -128,7 +126,7 @@ def test_stored_meta_privacy_and_score_values(cn, task):
         meta = json.loads(edge["meta"])
         assert not (set(meta) & (set(rpc._TW_EVENT_PRIVACY) | {"wake", "ts"}))
         assert "SECRET" not in json.dumps(meta)
-    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
     assert {"doing.task.dwell_idle_ms", "doing.task.dwell_active_ms", "doing.task.dwell_waiting_ms", "doing.task.wait_by_cause", "doing.task.end_reason"} <= got.keys()
     assert json.loads(got["doing.task.wait_by_cause"])["pattern"] == 1
     assert got["doing.task.end_reason"] == "tw_finished"
@@ -142,7 +140,7 @@ def test_metric_counts_emit_without_transition(cn, task):
     event("start")
     event("overflow", counts={"dropped": 4})
     event("retry", outcome="give_up", attempt=3)
-    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    got = {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
     assert got["doing.task.buffer_overflow_n"] == "4"
     assert got["doing.task.retry_give_up_n"] == "1"
     assert len(edges()) == 1
@@ -162,7 +160,7 @@ def test_task_enum_existing_book_migration(cn, task):
     from agent_coord.install import migrate
     cur = cn.cursor()
     try:
-        for table, default in (("doing", "focus"), ("activity", "create")):
+        for table, default in (("activity", "create"),):  # card 1207: doing has no act
             cur.execute(f"UPDATE {table} SET act='create' WHERE act='task'")
             cur.execute("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s AND COLUMN_NAME='act'", (table,))
             old = cur.fetchone()[0].replace(",'task'", "")
@@ -186,7 +184,7 @@ def test_task_enum_existing_book_migration(cn, task):
         assert migrate.TASK_970 in migrate.ensure(cn)["applied"]
         assert not migrate.task_970_needed(cn)
         desk = task[0]
-        cur.execute("INSERT INTO doing (desk_id, act) SELECT id, 'task' FROM name WHERE name=%s AND type='desk'", (desk,))
+        cur.execute("INSERT INTO doing (desk_id) SELECT id FROM name WHERE name=%s AND type='desk'", (desk,))
         aid = cur.lastrowid
         cur.execute("INSERT INTO activity (type, id, desk_id, act) SELECT 'doing', %s, id, 'task' FROM name WHERE name=%s AND type='desk'", (aid, desk))
         cn.commit()
@@ -201,15 +199,15 @@ def test_birth_is_idle_before_first_transition_and_rolls_back_on_failure(cn, tas
     def refuse(cn, **kw):
         assert kw["from_state"].value == "idle"
         assert edges() == []
-        born = rows(cn, "SELECT act, text FROM doing WHERE id=%s", (kw["activity_id"],))[0]
-        assert born == {"act": "task", "text": ""}
+        born = rows(cn, "SELECT text FROM doing WHERE id=%s", (kw["activity_id"],))[0]
+        assert born == {"text": ""}
         raise CoordError("test refused")
 
     monkeypatch.setattr(transition, "put", refuse)
     with pytest.raises(CoordError, match="test refused"):
         event("start")
     assert edges() == [] and pings == []
-    assert rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (desk,)) == []
+    assert rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s", (desk,)) == []
 
 
 def test_wake_is_deferred_until_outer_commit_and_dropped_on_rollback(cn, task):
@@ -254,13 +252,13 @@ def test_wrapper_clock_does_not_set_dwell(cn, task):
     desk, event, edges, _ = task
     event("start", ts="1900-01-01T00:00:00Z")
     event("exit", exit_code=0, ts="2999-01-01T00:00:00Z")
-    got = rows(cn, "SELECT value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s AND kpi='doing.task.dwell_active_ms'", (desk,))[0]
+    got = rows(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s AND s.kpi='doing.task.dwell_active_ms'", (desk,))[0]
     assert 0 <= float(got["value"]) < 60_000
     assert all("ts" not in json.loads(e["meta"]) for e in edges())
 
 
 def scores(cn, desk):
-    return {r["kpi"]: r["value"] for r in rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s", (desk,))}
+    return {r["kpi"]: r["value"] for r in rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s", (desk,))}
 
 
 @pytest.mark.parametrize("kind,extra", [("exit", {"exit_code": 0}), ("exit", {"exit_code": 3}), ("crash", {})])
@@ -277,7 +275,7 @@ def test_replayed_start_and_terminal_hop_write_nothing(cn, task, kind, extra):
         assert reply["ok"] is True and "code" not in reply
     assert len(edges()) == n and scores(cn, desk) == after
     assert len(pings) == woke  # a replay that writes nothing does not ping again
-    assert len(rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (desk,))) == 1
+    assert len(rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s", (desk,))) == 1
     for edge in edges():
         assert "SECRET" not in edge["meta"]
         assert not set(json.loads(edge["meta"])) & set(rpc._TW_EVENT_PRIVACY)

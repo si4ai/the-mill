@@ -65,7 +65,7 @@
   var DOMAINS = {
     mail: {
       js: "/mail/mail.js?v=wow285",
-      css: "/mail/mail.css?v=wow318",
+      css: "/mail/mail.css?v=wow376",
       marker: "WALL_UI_DEFAULT_MAIL",
       modules: ["mailPaint"]
     },
@@ -76,8 +76,8 @@
       modules: ["scorePaint"]
     },
     todo: {
-      js: "/todo/todo.js?v=wow320",
-      css: "/todo/todo.css?v=wow335",
+      js: "/todo/todo.js?v=wow375",
+      css: "/todo/todo.css?v=wow376",
       marker: "WALL_UI_DEFAULT_TODO",
       modules: ["todoPaint"]
     }
@@ -111,7 +111,7 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow322",
+      js: "/mail/mail-paint.js?v=wow376",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
@@ -132,7 +132,7 @@
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow322",
+      js: "/todo/todo-paint.js?v=wow374",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
     },
@@ -155,13 +155,13 @@
     },
     /* #818 PR C: the doing view (strip, pill, trails). Loads after the first CONNECTED paint. */
     doingPaint: {
-      js: "/doing/doing-paint.js?v=wow324",
+      js: "/doing/doing-paint.js?v=wow347",
       css: "/doing/doing.css?v=wow324",
       marker: "WALL_UI_DEFAULT_DOING_PAINT"
     },
     /* Card 1153: PRIORITIES tab, each desk's ranked list. Loads on first open. */
     prioritiesPaint: {
-      js: "/priorities/priorities-paint.js?v=wow344",
+      js: "/priorities/priorities-paint.js?v=wow346",
       css: "/priorities/priorities.css?v=wow344",
       marker: "WALL_UI_DEFAULT_PRIORITIES_PAINT"
     }

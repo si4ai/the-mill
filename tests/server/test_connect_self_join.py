@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """A desk's own /ws connect must not come back to it as a missed DOING in the sync queue.
 
-The connect write fans out DOING before the socket sits in the Hub, so the connecting
-desk used to get its own DOING recorded as missed and replayed in the connect sync.
-A DOING another desk genuinely missed must still be queued for that desk.
+Card 1207: a connect writes no doing row and fans out no DOING, so neither the
+connecting desk nor another desk finds a DOING from it in the sync queue.
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.lib.observe import parse_roots
 from agent_coord.server.asgi import make_asgi_app
 from agent_coord.server.push import HUB, take_sync
-from agent_coord.server.records import join as here, name, watcher as watchers
+from agent_coord.server.records import join as here
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 
 TOKEN = "self-join-token"
@@ -37,37 +36,27 @@ def _connect_sync(client: TestClient, desk: str) -> list[dict]:
     assert frame.get("kind") == "sync", frame
     return list(frame.get("sync") or [])
 
-def _joins(items: list[dict], jid: int) -> list[dict]:
-    return [
-        it
-        for it in items
-        if str(it.get("type") or "") == "doing" and int(it.get("id") or 0) == jid and it.get("hint") == "DOING"
-    ]
+def _joins(items: list[dict]) -> list[dict]:
+    return [it for it in items if str(it.get("type") or "") == "doing" and it.get("hint") == "DOING"]
 
 def test_connect_does_not_echo_own_join_as_missed(cn, monkeypatch) -> None:
     monkeypatch.setattr(HUB, "rooms", {})
-    rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN), doing="present")
-    jid = int(rec[0]["id"])
-    assert watchers.select(cn, "doing", jid), "alice should watch her own doing entry"
+    here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN))
     take_sync(cn, "alice")
 
     client = _client(monkeypatch)
     first = _connect_sync(client, "alice")
-    assert _joins(first, jid) == [], first
+    assert _joins(first) == [], first
     second = _connect_sync(client, "alice")
-    assert _joins(second, jid) == [], second
+    assert _joins(second) == [], second
 
-def test_connect_join_still_queued_for_other_watcher(cn, monkeypatch) -> None:
+def test_connect_queues_no_doing_for_another_desk(cn, monkeypatch) -> None:
     monkeypatch.setattr(HUB, "rooms", {})
-    rec = here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN), doing="present")
-    jid = int(rec[0]["id"])
-    here.upsert(cn, "unit", "bob", "builder", token_hash="b" * 64, doing="present")
-    watchers.put(cn, "doing", jid, int(name.get(cn, "bob", "desk")))
+    here.upsert(cn, "unit", "alice", "builder", token_hash=token_hash(TOKEN))
+    here.upsert(cn, "unit", "bob", "builder", token_hash="b" * 64)
     take_sync(cn, "alice")
     take_sync(cn, "bob")
 
     client = _client(monkeypatch)
-    assert _joins(_connect_sync(client, "alice"), jid) == []
-    missed = _joins(take_sync(cn, "bob"), jid)
-    assert missed, "bob is not sitting and should find alice's DOING in his queue"
-    assert missed[0]["outcome"] == "missed"
+    assert _joins(_connect_sync(client, "alice")) == []
+    assert _joins(take_sync(cn, "bob")) == []

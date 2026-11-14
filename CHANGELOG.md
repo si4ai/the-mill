@@ -10,6 +10,34 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.15 (2026-11-13)
+
+- ci: run the pytest suites once on the PR; the merge queue checks ancestry
+- schema: one unique name string, with type triggers (card 1163)
+- card 1191: GET /api/pov?part=desks returns every station with last_connected (ISO UTC) and recent_activity.at
+- add oldest waiting letter time and the over-a-day count (card 1192)
+- wall: 7-day station rail with last connection, full list in Admin (card 1191)
+- Drop the 800px pane cap so the Wall is fluid at any width
+- wall: working desks lead the desk list, idle sits last
+- Wall: tabs are DESKS-first (DESKS, TODO, MAIL, PRIORITIES, SCORE, COLLAB).
+- fix: close the four codeql findings (cards 1064-1067)
+- wall: DESKS urgency keeps working desks before idle ones
+- add cascade on foreign keys and the bearer salt copy (card 1200)
+- card 1193: Wall scope filters. desks= and window=1d|7d|30d on every Wall list route, comma roster lists on doing, labels, activity-buckets and score-runs, and roster members on GET /api/pov?part=rosters
+- docs: document every CI job and why the name-token check misfires
+- list every roster with its member count (card 1204)
+- doing is only tw runs: `--doing` / `--waiting-on` and the focus row are gone, `mill connected` lists each desk's live doings and `n`, and the migration drops `seat.doing_id` and doing's focus columns (card 1207).
+- fix: apply_1207 zone check, connect-anchor desk, compressed hold test (card 1207)
+- add the collab replay keyset with edges (cards 1205 1206)
+- card 1207: copy `doing.peer_id` onto assign transition `meta.to` before the 1207 migration drops those rows, so assigns made before 0.8.15 keep their assignee.
+- add the part 1 attention scores read (card 1212)
+- wake by the delivery chosen at join (card 1211)
+- card 1214: a score is one desk and one kpi, and a view points at that score
+- docs: webhook desks are rung while connected (fix-forward #458)
+- wall: full redesign - scope rail and six roster-wide tabs
+
+## Last changes
+
 0.8.14 (2026-11-12)
 
 - card 1125: SPIN model and design doc for the agreed replace-body MVP
@@ -38,13 +66,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 1171: mill_mail_delete finds wakes by cause/cause_id and locks each row by primary key only
 - card 1125: delete the note command; `mill todo ROSTER NEED --eta/--started/--done-when/--progress` sets card fields and `mill replace-body` changes card and letter text; replace-body rights follow office trust (matrix in docs/requirements/admin.md)
 - check_pack: markdown heading marks are a line-start prefix for the name-token rule
-
-## Last changes
-
-0.8.13 (2026-11-11)
-
-- card 1130: `mill connected` filters one desk with `--who DESK`; `--desk` is the seat borrow there too. A command with no connect and no `--desk` says why and prints the exact next command. `todo --mine --desk DESK` matches the borrowed desk.
-- docs: grok-bot guide examples pass --desk (0.8.12 cold measure)
-- check_pack `--pr-message`: the pull_request run scans the squash message (title and body) with the private names, so a hit shows before the merge queue.
-- card 1127: select CI test jobs from ci/test-select.toml
-- docs: card 1130 wording for 0.8.13 (connected --who, refusal next command)

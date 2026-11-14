@@ -147,15 +147,15 @@ END //
 -- ---------- retire (admin.md sections 1 and 4; F65, F135; card 880) ----------
 -- Admin at either trust. Exception (card 880): a desk retires itself when p_by_hash is its seat's token hash, as in
 -- sp_name_rename. Soft: name.deleted. Office and Admin are never retired. A desk: its seat token and webhook are
--- cleared, its focus ends (a 'clear' row that seat.doing_id then names), and every hold it owns is freed, in this
--- call. Each freed hold gets a 'drop' row by the ACTING desk (the desk itself or Admin; never NULL), with the holder
--- as peer_id when another desk acted, and its activity row says 'drop' by that desk. Lock order: name, seat, hold.
+-- cleared, its live tw runs end (one 'cleared' transition each, card 1207), and every hold it owns is freed, in
+-- this call. Each freed hold gets a transition row on the holder (hold_drop on a self-retire, else hold_force with
+-- meta.by the acting desk), and its activity row says 'drop' by that desk. No doing row. Lock order: name, seat, hold.
 DROP PROCEDURE IF EXISTS sp_name_retire //
 CREATE PROCEDURE sp_name_retire(IN p_by VARCHAR(64), IN p_by_hash CHAR(64), IN p_type VARCHAR(16), IN p_name VARCHAR(64))
 BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
   DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_released INT DEFAULT 0;
-  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_self TINYINT DEFAULT 0; DECLARE v_now DATETIME(6) DEFAULT NOW(6);
+  DECLARE v_self TINYINT DEFAULT 0; DECLARE v_now DATETIME(6) DEFAULT NOW(6);
   IF v_type = 'desk' AND p_by_hash IS NOT NULL
      AND v_by = (SELECT id FROM name WHERE type = 'desk' AND name = TRIM(p_name))
      AND EXISTS (SELECT 1 FROM seat WHERE desk_id = v_by AND token_hash = p_by_hash) THEN SET v_self = 1; END IF;
@@ -169,16 +169,23 @@ BEGIN
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name already retired'; END IF;
   UPDATE name SET deleted = v_now WHERE id = v_id;
   IF v_type = 'desk' THEN
-    SELECT doing_id INTO v_doing FROM seat WHERE desk_id = v_id FOR UPDATE;
+    SELECT token_hash INTO @mill_beta_tok FROM seat WHERE desk_id = v_id FOR UPDATE;
     SELECT COUNT(*) INTO v_released FROM hold WHERE desk_id = v_id FOR UPDATE;
-    INSERT INTO doing (created, desk_id, roster_id, act, on_type, on_id, peer_id)
-      SELECT v_now, v_by, 1, 'drop', 'hold', h.id, NULLIF(v_id, v_by) FROM hold h WHERE h.desk_id = v_id ORDER BY h.id;
+    INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role, join_key, meta)
+      SELECT 'hold', h.id, 'held', 'free', IF(v_by <=> v_id, 'hold_drop', 'hold_force'), v_id, 'holder',
+             CONCAT('hold:', h.id, ':', v_id), IF(v_by <=> v_id, NULL, JSON_OBJECT('by', v_by))
+        FROM hold h WHERE h.desk_id = v_id ORDER BY h.id;
     UPDATE activity a JOIN hold h ON a.type = 'hold' AND a.id = h.id
        SET a.updated = v_now, a.desk_id = v_by, a.act = 'drop' WHERE h.desk_id = v_id;
     UPDATE hold SET desk_id = NULL WHERE desk_id = v_id;
-    INSERT INTO doing (created, desk_id, roster_id, act, text) VALUES (v_now, v_id, 1, 'clear', ''); SET v_doing = LAST_INSERT_ID();
-    INSERT INTO activity (type, id, created, updated, desk_id, roster_id, act) VALUES ('doing', v_doing, v_now, v_now, v_id, 1, 'clear');
-    UPDATE seat SET token_hash = NULL, time_disconnect = v_now, doing_id = v_doing,
+    INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason, desk_id, role, meta)
+      SELECT 'doing', g.id, 'any', 'cleared', 'clear', g.desk_id, 'actor', JSON_OBJECT('cause', 'retire', 'by', v_by)
+        FROM doing g
+       WHERE g.desk_id = v_id
+         AND NOT EXISTS (SELECT 1 FROM transition t WHERE t.activity_type = 'doing' AND t.activity_id = g.id
+                            AND t.to_state IN ('finished', 'failed', 'stale', 'cleared'))
+       ORDER BY g.id;
+    UPDATE seat SET token_hash = NULL, time_disconnect = v_now,
            delivery_mode = IF(delivery_mode = 'webhook', 'websocket', delivery_mode),
            endpoint_url = NULL, endpoint_key = NULL, wake_on = 'addressed'
      WHERE desk_id = v_id;
@@ -273,7 +280,7 @@ BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
   DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
   DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
-  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
+  DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
   SET v_type = LOWER(TRIM(p_type));
   IF v_type NOT IN ('roster','label','tree') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'delete: type is roster, label or tree (desks keep mill retire)';
@@ -304,10 +311,7 @@ BEGIN
     END IF;
   END IF;
   UPDATE name SET trashed = v_now WHERE id = v_id;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'delete');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'delete', NULL);
+  -- card 1207: no doing anchor row (doing is written only by tw)
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'deleted' AS op;
 END //
 
@@ -317,7 +321,7 @@ BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
   DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
   DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
-  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
+  DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
   SET v_type = LOWER(TRIM(p_type));
   IF v_type NOT IN ('roster','label','tree') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'restore: type is roster, label or tree (desks keep mill retire)';
@@ -345,10 +349,7 @@ BEGIN
     END IF;
   END IF;
   UPDATE name SET trashed = NULL WHERE id = v_id;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'restore');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'restore', NULL);
+  -- card 1207: no doing anchor row (doing is written only by tw)
   SELECT v_id AS id, v_nm AS name, v_type AS name_type, 'restored' AS op;
 END //
 
@@ -358,7 +359,7 @@ BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by);
   DECLARE v_type VARCHAR(8); DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
   DECLARE v_tr DATETIME(6); DECLARE v_nm VARCHAR(64); DECLARE v_now DATETIME(6) DEFAULT NOW(6);
-  DECLARE v_doing BIGINT UNSIGNED; DECLARE v_n INT DEFAULT 0;
+  DECLARE v_n INT DEFAULT 0;
   DECLARE v_members INT DEFAULT 0; DECLARE v_sole TINYINT DEFAULT 0;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -385,7 +386,8 @@ BEGIN
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (cards); mill retire soft-deletes instead'; END IF;
     SELECT COUNT(*) INTO v_n FROM mail WHERE roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (letters); mill retire soft-deletes instead'; END IF;
-    SELECT COUNT(*) INTO v_n FROM score WHERE roster_id = v_id;
+    SELECT COUNT(*) INTO v_n FROM activity
+     WHERE type = 'score' AND roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (scores); mill retire soft-deletes instead'; END IF;
     SELECT COUNT(*) INTO v_n FROM doing WHERE roster_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: roster is referenced (doing rows); mill retire soft-deletes instead'; END IF;
@@ -423,10 +425,7 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM tree_read WHERE tree_id = v_id;
     IF v_n > 0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'purge: tree has read cursors; clear them, or mill retire soft-deletes'; END IF;
   END IF;
-  INSERT INTO doing (created, desk_id, roster_id, text, act)
-    VALUES (v_now, v_by, 1, CONCAT(v_type, ':', v_nm), 'purge');
-  SET v_doing = LAST_INSERT_ID();
-  CALL mill_activity_put('doing', v_doing, v_now, v_by, 1, 'purge', NULL);
+  -- card 1207: no doing anchor row (doing is written only by tw)
   SET @mill_allow_name_hard_delete = 1;
   IF v_type = 'roster' THEN
     DELETE FROM member WHERE name_id = v_id;

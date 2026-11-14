@@ -30,15 +30,11 @@ hold group_by
 hold office
 hold yes
 hold sender_desk
-hold doing
-hold waiting_on
 drop (command)
 drop resource
 drop office
 drop yes
 drop sender_desk
-drop doing
-drop waiting_on
 wake-done (command)
 wake-done note
 wake-done lease
@@ -55,8 +51,6 @@ send receipt
 send office
 send yes
 send sender_desk
-send doing
-send waiting_on
 reply (command)
 reply mail_id
 reply body_file
@@ -66,8 +60,6 @@ reply receipt
 reply office
 reply yes
 reply sender_desk
-reply doing
-reply waiting_on
 mail-thread (command)
 mail-thread mail_id
 mail-thread scope
@@ -82,8 +74,6 @@ mark ids
 mark office
 mark yes
 mark sender_desk
-mark doing
-mark waiting_on
 trail (command)
 trail node
 trail label
@@ -132,8 +122,6 @@ score at
 score office
 score yes
 score sender_desk
-score doing
-score waiting_on
 score-add (command)
 score-add name
 score-add target
@@ -281,6 +269,8 @@ retire yes
 retire office
 retire sender_desk
 member (command)
+member all
+member as_json
 member office
 member yes
 member sender_desk
@@ -340,8 +330,6 @@ create todo done_when
 create todo yes
 create todo office
 create todo sender_desk
-create todo doing
-create todo waiting_on
 create roster (command)
 create roster slug
 create roster yes
@@ -372,8 +360,6 @@ todo done_when
 todo office
 todo yes
 todo sender_desk
-todo doing
-todo waiting_on
 replace-body (command)
 replace-body kind
 replace-body id
@@ -393,16 +379,12 @@ claim take_over
 claim office
 claim yes
 claim sender_desk
-claim doing
-claim waiting_on
 unclaim (command)
 unclaim project
 unclaim need
 unclaim office
 unclaim yes
 unclaim sender_desk
-unclaim doing
-unclaim waiting_on
 unpark (command)
 unpark project
 unpark need
@@ -411,8 +393,6 @@ unpark parent_id
 unpark office
 unpark yes
 unpark sender_desk
-unpark doing
-unpark waiting_on
 assign (command)
 assign project
 assign need
@@ -420,8 +400,6 @@ assign desk
 assign office
 assign yes
 assign sender_desk
-assign doing
-assign waiting_on
 pass (command)
 pass project
 pass need
@@ -431,8 +409,6 @@ pass evidence
 pass office
 pass yes
 pass sender_desk
-pass doing
-pass waiting_on
 glance (command)
 glance office
 glance yes

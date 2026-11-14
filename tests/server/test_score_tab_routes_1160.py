@@ -47,7 +47,7 @@ def _client(monkeypatch, cn=None) -> TestClient:
 @pytest.mark.parametrize("url,word", [
     ("/api/v1/activity-buckets", "project"),
     ("/api/v1/score-runs", "project"),
-    ("/api/v1/activity-buckets?project=a,b", "project"),
+    ("/api/v1/activity-buckets?project=a;b", "project"),  # card 1193: a comma list is allowed
     ("/api/v1/activity-buckets?project=Office&role=x", "project"),
     ("/api/v1/activity-buckets?project=Office&bucket=week", "bucket"),
     ("/api/v1/activity-buckets?project=Office&type=letter", "type"),
@@ -135,7 +135,7 @@ def _desk(cn) -> str:
     from agent_coord.server.records import join
 
     desk = "b1160-" + uuid4().hex[:8]
-    join.upsert(cn, "Office", desk, "", "a" * 64, "reviewing")
+    join.upsert(cn, "Office", desk, "", "a" * 64)
     cn.commit()
     return desk
 

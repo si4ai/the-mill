@@ -121,9 +121,13 @@ def test_score_upsert_revives_soft_deleted(cn) -> None:
     out = score.upsert(cn, "srv_proj", "srv_desk", "kpi_revive", "9", "10", "revived")[0]
     assert int(out["id"]) == sid
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is None
-    assert scalar(cn, "SELECT value FROM score WHERE id=%s", (sid,)) == "9"
-    assert scalar(cn, "SELECT target FROM score WHERE id=%s", (sid,)) == "10"
-    assert scalar(cn, "SELECT note FROM score WHERE id=%s", (sid,)) == "revived"
+    assert scalar(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reading')) FROM score WHERE id=%s", (sid,)) == "9"
+    assert scalar(cn, "SELECT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.target')) FROM score WHERE id=%s", (sid,)) == "10"
+    assert scalar(
+        cn,
+        "SELECT note FROM score_point WHERE score_id=%s ORDER BY id DESC LIMIT 1",
+        (sid,),
+    ) == "revived"
     assert scalar(cn, "SELECT COUNT(*) FROM score_evidence WHERE score_id=%s", (sid,)) == 1
     # mill_activity_put alone must not clear deleted (mail/todo safety): re-stamp, put, still deleted
     _exec(
@@ -135,7 +139,7 @@ def test_score_upsert_revives_soft_deleted(cn) -> None:
         cn,
         "CALL mill_activity_put('score', %s, MILL_NOW(), "
         "(SELECT desk_id FROM score WHERE id=%s), "
-        "(SELECT roster_id FROM score WHERE id=%s), NULL, NULL)",
+        "(SELECT roster_id FROM activity WHERE type='score' AND id=%s), NULL, NULL)",
         (sid, sid, sid),
     )
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (sid,)) is not None
@@ -229,27 +233,25 @@ def test_join_desk_fk_restrict(cn) -> None:
 
 def test_join_reset_stamps_disconnect_keeps_row(cn) -> None:
     seed_names(cn, ("sj_proj", "roster"), ("sj_desk", "desk"))
-    jid = int(here.upsert(cn, "sj_proj", "sj_desk", "", "d" * 64, "busy")[0]["id"])
+    here.upsert(cn, "sj_proj", "sj_desk", "", "d" * 64)
     did = _desk_id(cn, "sj_desk")
     assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is None
     here.reset(cn, "sj_proj", "sj_desk")
     assert scalar(cn, "SELECT token_hash FROM seat WHERE desk_id=%s", (did,)) is None
     assert scalar(cn, "SELECT time_disconnect FROM seat WHERE desk_id=%s", (did,)) is not None
-    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
-    # --dead no longer prunes: the seat, its doing rows and their activity stay
+    # card 1207: neither the join nor the reset writes a doing row
+    assert scalar(cn, "SELECT COUNT(*) FROM doing WHERE desk_id=%s", (did,)) == 0
+    # --dead no longer prunes: the seat stays
     out = here.prune_dead(cn)
     assert out["pruned"] == 0 and out["dead"] >= 1
     assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
-    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
-    assert scalar(cn, "SELECT id FROM activity WHERE type='doing' AND id=%s", (jid,)) == jid
 
 def test_name_delete_with_seat_refused(cn) -> None:
     seed_names(cn, ("sjr_proj", "roster"), ("sjr_desk", "desk"))
-    jid = int(here.upsert(cn, "sjr_proj", "sjr_desk", "", "e" * 64, "")[0]["id"])
+    here.upsert(cn, "sjr_proj", "sjr_desk", "", "e" * 64)
     did = _desk_id(cn, "sjr_desk")
     with pytest.raises(Exception):
         _exec(cn, "DELETE FROM name WHERE id=%s", (did,))
-    assert scalar(cn, "SELECT id FROM doing WHERE id=%s", (jid,)) == jid
     assert scalar(cn, "SELECT COUNT(*) FROM seat WHERE desk_id=%s", (did,)) == 1
 
 def test_name_hard_delete_refused_even_unreferenced(cn) -> None:

@@ -48,7 +48,7 @@ ENSURE_PAINT = {
 }
 
 # Main nav order lock (WALL-UI-LOCK) - default pack chrome; offices may tweak live later
-DEFAULT_MAIN_TABS = ("session", "floor", "jobs", "score", "mail", "plan")
+DEFAULT_MAIN_TABS = ("session", "jobs", "mail", "priorities", "score", "floor", "plan")
 
 
 def normalize_tab(name: str | None) -> dict[str, Any]:

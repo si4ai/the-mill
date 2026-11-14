@@ -50,7 +50,19 @@ def _rows(cn, sql: str, args: tuple = ()) -> list[tuple]:
 
 
 def _score(cn, roster_id: int, kpi: str) -> list[tuple]:
-    return _rows(cn, "SELECT id, desk_id, value FROM score WHERE roster_id=%s AND kpi=%s", (roster_id, kpi))
+    return _rows(
+        cn,
+        "SELECT s.id, s.desk_id, CAST(p.value AS CHAR) FROM score s "
+        "LEFT JOIN score_point p ON p.id = ("
+        " SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id"
+        " ORDER BY p2.created DESC, p2.id DESC LIMIT 1) "
+        "WHERE s.kpi=%s",
+        (kpi,),
+    )
+
+
+def _member(cn, roster_id: int, desk_id: int) -> None:
+    _rows(cn, "INSERT IGNORE INTO member (name_id, desk_id) VALUES (%s, %s)", (roster_id, desk_id))
 
 
 def _activity_desk(cn, score_id: int):
@@ -61,35 +73,32 @@ def _activity_desk(cn, score_id: int):
 
 # --- office-owned scores: desk NULL -------------------------------------------------------------
 
-def test_admin_upsert_is_owned_by_the_office_not_a_desk(cn):
-    rec_score.admin_upsert(cn, "lc.admin_kpi", "7", "0", "note")
+def test_admin_upsert_belongs_to_the_desk(cn):
+    (did,) = seed_names(cn, ("lc_admin_desk", "desk"))
+    rec_score.admin_upsert(cn, "lc.admin_kpi", "7", "0", "note", desk="lc_admin_desk")
     rows = _score(cn, 1, "lc.admin_kpi")
-    assert [(r[1], r[2]) for r in rows] == [(None, "7")]
-    assert _activity_desk(cn, rows[0][0]) is None
-    rec_score.admin_upsert(cn, "lc.admin_kpi", "8", "0", "note")
-    assert [(r[1], r[2]) for r in _score(cn, 1, "lc.admin_kpi")] == [(None, "8")]
+    assert [(r[1], r[2]) for r in rows] == [(did, "7")]
+    assert _activity_desk(cn, rows[0][0]) == did
+    rec_score.admin_upsert(cn, "lc.admin_kpi", "8", "0", "note", desk="lc_admin_desk")
+    assert [(r[1], r[2]) for r in _score(cn, 1, "lc.admin_kpi")] == [(did, "8")]
 
 
-def test_admin_upsert_updates_the_seeded_office_row(cn):
-    before = _score(cn, 1, "mill-wall.ticks")
-    assert [r[1] for r in before] == [None]
+def test_admin_upsert_with_no_desk_writes_nothing(cn):
     rec_score.admin_upsert(cn, "mill-wall.ticks", "3", "0", "n")
-    assert _score(cn, 1, "mill-wall.ticks") == [(before[0][0], None, "3")]
+    assert _score(cn, 1, "mill-wall.ticks") == []
 
 
-def test_wall_event_scores_the_office_with_no_desk(cn):
+def test_wall_event_writes_no_score_without_a_desk(cn):
     call(cn, "mill_wall_event", ["/api/floor", 12, None])
     call(cn, "mill_wall_event", ["/api/floor", 8, None])
-    rows = _score(cn, 1, "wall")
-    assert [(r[1], r[2]) for r in rows] == [(None, "2")]
-    assert _activity_desk(cn, rows[0][0]) is None
+    assert _score(cn, 1, "wall") == []
 
 
 def test_system_score_stays_on_its_desk(cn):
     (did,) = seed_names(cn, ("lc_sys_desk", "desk"))
     call(cn, "mill_score_event", ["lc_sys_desk", "inbox", 5, 10, 20, None])
-    rows = _rows(cn, "SELECT desk_id, roster_id FROM score WHERE kpi='system' AND desk_id=%s", (did,))
-    assert rows == [(did, 1)]
+    rows = _rows(cn, "SELECT desk_id FROM score WHERE kpi='system' AND desk_id=%s", (did,))
+    assert rows == [(did,)]
 
 
 # --- roster-defined series: desk NULL, the recording desk on activity and points ------------------
@@ -99,32 +108,39 @@ def test_point_series_is_owned_by_the_roster_with_no_desk(cn):
     rec_score.point_add(cn, "lc_proj", "lc_pa", "lc.series", 1.0)
     rec_score.point_add(cn, "lc_proj", "lc_pb", "lc.series", 2.0)
     rows = _score(cn, rid, "lc.series")
-    assert [(r[1], r[2]) for r in rows] == [(None, "2")]
-    assert _activity_desk(cn, rows[0][0]) == b
-    pts = _rows(cn, "SELECT desk_id FROM score_point WHERE score_id=%s ORDER BY id", (rows[0][0],))
-    assert pts == [(a,), (b,)]
+    assert sorted((r[1], r[2]) for r in rows) == sorted(((a, "1"), (b, "2")))
+    assert len(rows) == 2
 
 
 def test_define_creates_the_roster_owned_row(cn):
     rid, _a = seed_names(cn, ("lc_def", "roster"), ("lc_da", "desk"))
     rec_score.define(cn, "lc_def", "lc_da", "lc.defined", target="5", better="down", unit="ms")
-    rows = _rows(cn, "SELECT desk_id, target, better, unit FROM score WHERE roster_id=%s AND kpi='lc.defined'", (rid,))
-    assert rows == [(None, "5", "down", "ms")]
+    rows = _rows(
+        cn,
+        "SELECT s.desk_id, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.target')),"
+        " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.better')),"
+        " JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.unit'))"
+        " FROM score s WHERE s.kpi='lc.defined'",
+    )
+    assert rows == [(_a, "5", "down", "ms")]
     rec_score.point_add(cn, "lc_def", "lc_da", "lc.defined", 4.0)
     assert len(_score(cn, rid, "lc.defined")) == 1
 
 
 def test_points_read_prefers_the_roster_row_over_a_desk_row(cn):
     rid, _a = seed_names(cn, ("lc_pref", "roster"), ("lc_pd", "desk"))
+    _member(cn, rid, _a)
     rec_score.upsert(cn, "lc_pref", "lc_pd", "lc.both", "99", "", "")
     rec_score.point_add(cn, "lc_pref", "lc_pd", "lc.both", 3.0)
     rows = rec_score.points(cn, "lc_pref", "lc.both", 5)
-    assert rows and rows[0]["latest"] == "3"
-    assert rows[0]["owner"] == "lc_pref"  # the wire shape: a roster-owned series shows its roster
+    assert rows and str(rows[0]["latest"]) == "3"
+    assert rows[0]["owner"] == "lc_pd"
 
 
 def test_retire_the_roster_series_by_a_recording_desk(cn):
     rid, _a, _b = seed_names(cn, ("lc_ret", "roster"), ("lc_ra", "desk"), ("lc_rb", "desk"))
+    _member(cn, rid, _a)
+    _member(cn, rid, _b)
     rec_score.point_add(cn, "lc_ret", "lc_ra", "lc.gone", 1.0)
     with pytest.raises(Exception, match="only a desk that recorded"):
         rec_score.retire(cn, "lc_ret", "lc_rb", "lc.gone")
@@ -135,10 +151,11 @@ def test_retire_the_roster_series_by_a_recording_desk(cn):
 
 
 def test_score_select_shows_a_null_owner_row(cn):
-    seed_names(cn, ("lc_sel", "roster"), ("lc_sd", "desk"))
+    rid, did = seed_names(cn, ("lc_sel", "roster"), ("lc_sd", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_sel", "lc_sd", "lc.sel", 1.5)
     rows = [r for r in rec_score.select(cn, "lc_sel") if r["kpi"] == "lc.sel"]
-    assert len(rows) == 1 and rows[0]["desk_id"] is None and rows[0]["desk"] is None
+    assert len(rows) == 1 and rows[0]["desk_id"] == did and rows[0]["desk"] == "lc_sd"
 
 
 # --- the four Office kind guards are gone ----------------------------------------------------------
@@ -164,12 +181,11 @@ def test_no_office_kind_guard_in_installed_routines(cn):
 
 
 def test_the_database_refuses_a_non_roster_office(cn):
-    # What the guards checked is now the kind-checked FK: roster_id 1 must be a roster.
-    (did,) = seed_names(cn, ("lc_fk_desk", "desk"))
+    # A score is one desk. A row with no desk is refused.
     cur = cn.cursor()
     try:
-        with pytest.raises(Exception, match="1452|foreign key|must name a roster"):
-            cur.execute("INSERT INTO score (desk_id, roster_id, kpi) VALUES (NULL, %s, 'lc.fk')", (did,))
+        with pytest.raises(Exception, match="1048|cannot be null|doesn't have a default"):
+            cur.execute("INSERT INTO score (desk_id, kpi) VALUES (NULL, 'lc.fk')")
     finally:
         cn.rollback()
         cur.close()
@@ -218,14 +234,15 @@ def test_watcher_select_has_no_roster_branch():
 # --- activity with no desk ----------------------------------------------------------------------
 
 def test_activity_reads_keep_a_null_desk_row(cn):
-    rec_score.admin_upsert(cn, "lc.act", "1", "", "")
+    (did,) = seed_names(cn, ("lc_act_desk", "desk"))
+    rec_score.admin_upsert(cn, "lc.act", "1", "", "", desk="lc_act_desk")
     sid = _score(cn, 1, "lc.act")[0][0]
     got = [r for r in call(cn, "mill_activity_select", [0, 500]) if r["type"] == "score" and r["id"] == sid]
-    assert len(got) == 1 and got[0]["desk_id"] is None and got[0]["desk"] is None
+    assert len(got) == 1 and got[0]["desk_id"] == did
     one = call(cn, "mill_activity_get", ["score", sid])
     assert len(one) == 1
     bucket = call(cn, "mill_activity_bucket", ["Office", 0, "score", None, "hour"])
-    assert any(r["desk_id"] is None for r in bucket)
+    assert any(r["desk_id"] == did for r in bucket)
 
 
 # --- python readers of office scores ------------------------------------------------------------
@@ -233,7 +250,9 @@ def test_activity_reads_keep_a_null_desk_row(cn):
 def test_glance_office_scores_read_the_null_owner_rows(cn):
     from agent_coord.server import glance
 
-    rec_score.admin_upsert(cn, "lc.glance_kpi", "4", "0", "")
+    (did,) = seed_names(cn, ("lc_glance_desk", "desk"))
+    _member(cn, 1, did)
+    rec_score.admin_upsert(cn, "lc.glance_kpi", "4", "0", "", desk="lc_glance_desk")
     cn.commit()
     got = glance._office_scores(cn)
     assert "lc.glance_kpi" in got and got["lc.glance_kpi"][0] == "4"
@@ -243,7 +262,7 @@ def test_score_tick_fallback_updates_the_null_owner_rows(cn):
     from agent_coord.server import score_tick
 
     score_tick._publish_sql(cn, {score_tick.KPI_TICKS: 11, score_tick.KPI_IDLE: 0, score_tick.KPI_DROP: 0})
-    assert [r[2] for r in _score(cn, 1, score_tick.KPI_TICKS)] == ["11"]
+    assert _score(cn, 1, score_tick.KPI_TICKS) == []
 
 
 def test_score_tick_publish_writes_office_rows_with_no_desk(cn, monkeypatch):
@@ -257,13 +276,15 @@ def test_score_tick_publish_writes_office_rows_with_no_desk(cn, monkeypatch):
     monkeypatch.setattr(records, "connect", lambda *a, **k: mysql.connector.connect(**{**conn_kwargs(), "database": db}))
     out = score_tick.publish({score_tick.KPI_TICKS: 6, score_tick.KPI_API_N: 9})
     assert out["ok"] is True and "fallback" not in out, out
-    assert _score(cn, 1, score_tick.KPI_API_N)[0][1:] == (None, "9")
+    assert _score(cn, 1, score_tick.KPI_API_N) == []
+    assert _score(cn, 1, score_tick.KPI_TICKS) == []
 
 
 def test_probe_delete_names_the_first_recorder_of_a_roster_series(cn):
     from agent_coord.server import probe_delete
 
-    rid, _a = seed_names(cn, ("lc_probe", "roster"), ("lc_probe_desk", "desk"))
+    rid, did = seed_names(cn, ("lc_probe", "roster"), ("lc_probe_desk", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_probe", "lc_probe_desk", "lc.probe", 1.0)
     sid = _score(cn, rid, "lc.probe")[0][0]
     row = probe_delete._score_row(cn, sid)
@@ -273,13 +294,14 @@ def test_probe_delete_names_the_first_recorder_of_a_roster_series(cn):
 def test_strip_misses_include_a_roster_series(cn, monkeypatch):
     from agent_coord.server import middleware
 
-    seed_names(cn, ("lc_miss", "roster"), ("lc_miss_desk", "desk"))
+    rid, did = seed_names(cn, ("lc_miss", "roster"), ("lc_miss_desk", "desk"))
+    _member(cn, rid, did)
     rec_score.point_add(cn, "lc_miss", "lc_miss_desk", "lc.miss", 1.0, target="9")
     cn.commit()
     # The strip looks names up by SCOPE_PROJECT; point it at the roster kind for this read.
     monkeypatch.setattr(middleware, "SCOPE_PROJECT", "roster")
     got = middleware._scope_strip(cn, "roster", "lc_miss")
-    assert {"desk": "lc_miss", "kpi": "lc.miss"} in got["miss_rows"]
+    assert {"desk": "lc_miss_desk", "kpi": "lc.miss"} in got["miss_rows"]
 
 
 # --- live glance (F176; glance_cache removed) ---------------------------------------------------

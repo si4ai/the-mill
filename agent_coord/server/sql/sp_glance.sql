@@ -44,9 +44,10 @@ BEGIN
       WHERE t.status = 'done') AS done_n,
     (SELECT COUNT(*) FROM mail WHERE created >= v_day) AS letters_1d,
     -- 0.8.0: card moves live in doing (todo_event removed).
-    (SELECT COUNT(*) FROM doing
-      WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')
-        AND created >= v_day) AS card_moves_1d,
+    -- card 1207: card moves are todo transition rows (doing keeps no move rows); notes and probes are not moves.
+    (SELECT COUNT(*) FROM transition
+      WHERE activity_type = 'todo' AND reason NOT IN ('note', 'delete_probe')
+        AND at >= UTC_TIMESTAMP(6) - INTERVAL 1 DAY) AS card_moves_1d,
     (SELECT COUNT(*) FROM doing WHERE created >= v_day) AS doings_1d,
     (SELECT COUNT(*) FROM activity WHERE type = 'hold' AND updated >= v_day) AS holds_1d,
     (SELECT COUNT(*) FROM score_point WHERE created >= v_day) AS points_1d;

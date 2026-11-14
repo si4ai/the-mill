@@ -47,15 +47,11 @@ def test_insert_without_roster_id_fails(cn) -> None:
     with pytest.raises(Exception):
         _exec(
             cn,
-            "INSERT INTO score (desk_id, kpi, value, target, note) "
-            "VALUES (%s, 'nn.kpi', '0', '', '')",
-            (desk,),
+            "INSERT INTO score (kpi) VALUES ('nn.kpi')",
         )
-    # Explicit value still works (seed path shape).
     _exec(
         cn,
-        "INSERT INTO score (desk_id, roster_id, kpi, value, target, note) "
-        "VALUES (%s, %s, 'nn.kpi.ok', '0', '', '')",
-        (desk, office),
+        "INSERT INTO score (desk_id, kpi) VALUES (%s, 'nn.kpi.ok')",
+        (desk,),
     )
     _exec(cn, "SET FOREIGN_KEY_CHECKS=1")

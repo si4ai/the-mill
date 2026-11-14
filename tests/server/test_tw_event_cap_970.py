@@ -32,13 +32,13 @@ def desk(cn, monkeypatch):
 
     def make():
         name = "builder-" + uuid4().hex[:8]
-        join.upsert(cn, "Office", name, "", "a" * 64, "reviewing")
+        join.upsert(cn, "Office", name, "", "a" * 64)
 
         def event(wid, kind, conn=None, **kw):
             return rpc._h_tw_event(SimpleNamespace(_cn=conn or cn), {"watch_id": wid, "kind": kind, **kw}, "Office", name)
 
         def tasks(conn=None):
-            return rows(conn or cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (name,))
+            return rows(conn or cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s", (name,))
 
         def edges(wid=None):
             if wid is None:
@@ -46,7 +46,7 @@ def desk(cn, monkeypatch):
             return rows(cn, "SELECT * FROM transition WHERE join_key=%s ORDER BY id", (f"task:{name}:{wid}",))
 
         def score_rows():
-            return rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s ORDER BY kpi", (name,))
+            return rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s ORDER BY s.kpi", (name,))
 
         return SimpleNamespace(name=name, event=event, tasks=tasks, edges=edges, scores=score_rows, pings=pings)
 

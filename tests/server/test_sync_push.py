@@ -122,6 +122,64 @@ def test_emit_records_sent_missed_and_error(monkeypatch):
     assert marks == [(71, "missed"), (73, "error")]
 
 
+def test_websocket_miss_does_not_post(monkeypatch):
+    posts: list[str] = []
+    monkeypatch.setattr(hub.HUB, "rooms", {})
+    monkeypatch.setattr(rec_push, "put", lambda *a, **k: [{"id": 9}])
+    monkeypatch.setattr(rec_push, "mark", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": False, "host": "", "wake_on": "addressed"},
+    )
+    monkeypatch.setattr(
+        "agent_coord.server.wake.post_desk", lambda *a, **k: posts.append("post") or "sent"
+    )
+    assert hub.emit(object(), "DESK_one", "mail", {"id": 3}) == "missed"
+    assert posts == []
+
+
+def test_webhook_posts_while_sitting(monkeypatch):
+    posts: list[str] = []
+    monkeypatch.setattr(hub.HUB, "rooms", {"DESK_one": {object()}})
+    monkeypatch.setattr(rec_push, "put", lambda *a, **k: [{"id": 9}])
+    monkeypatch.setattr(rec_push, "mark", lambda *a, **k: 1)
+    monkeypatch.setattr(hub.HUB, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": True, "host": "", "wake_on": "addressed"},
+    )
+    monkeypatch.setattr(
+        "agent_coord.server.wake.post_desk", lambda *a, **k: posts.append("post") or "sent"
+    )
+    assert hub.emit(object(), "DESK_one", "mail", {"id": 3}) == "sent"
+    assert posts == ["post"]
+
+
+def test_ring_follows_join_delivery(monkeypatch):
+    posts: list[str] = []
+    monkeypatch.setattr(hub.HUB, "rooms", {"DESK_one": {object()}})
+    monkeypatch.setattr(
+        "agent_coord.server.wake.post_desk", lambda *a, **k: posts.append(a[1]) or "sent"
+    )
+    monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": False, "host": "", "wake_on": "addressed"},
+    )
+    assert hub.ring_waiting(object(), "DESK_one", "leave") == "sitting"
+    assert posts == []
+    monkeypatch.setattr(
+        "agent_coord.server.records.join.wake_state",
+        lambda cn, desk: {"armed": True, "host": "", "wake_on": "addressed"},
+    )
+    monkeypatch.setattr(
+        rec_push,
+        "waiting",
+        lambda cn, desk: {"id": 4, "kind": "mail", "payload": {"id": 8, "kind": "mail"}},
+    )
+    assert hub.ring_waiting(object(), "DESK_one", "leave") == "sent"
+    assert posts == ["DESK_one"]
+
+
 def test_take_merges_outcome_and_time(monkeypatch):
     monkeypatch.setattr(
         rec_push,

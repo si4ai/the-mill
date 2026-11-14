@@ -13,7 +13,7 @@ from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
 from agent_coord.server.records.db import call, conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_member, seed_names
 
 SQL = Path(__file__).resolve().parents[3] / "agent_coord" / "server" / "sql"
 
@@ -34,6 +34,8 @@ def seeded(cn):
     m3 = int(mail.insert(cn, "pp_role", "pp_s", "pp_r1", "three")[0]["id"])
     todo.insert(cn, "pp_a", "pp_s", "open", "ta")
     todo.insert(cn, "pp_b", "pp_s", "open", "tb")
+    seed_member(cn, "pp_a", "pp_s")
+    seed_member(cn, "pp_b", "pp_s")
     score.upsert(cn, "pp_a", "pp_s", "k1", "1", "", "")
     score.upsert(cn, "pp_b", "pp_s", "k2", "2", "", "")
     return m1, m2, m3
@@ -77,7 +79,7 @@ def test_roster_ids_project_before_role(cn) -> None:
 def test_floor_part_mail_one_row_per_letter(cn, seeded) -> None:
     m1, _m2, _m3 = seeded
     seed_names(cn, ("pp_lan_p", "roster"))
-    rec_join.upsert(cn, "pp_lan_p", "pp_r2", "", "1" * 64, "")
+    rec_join.upsert(cn, "pp_lan_p", "pp_r2", "", "1" * 64)
     cur = cn.cursor()
     cur.execute("UPDATE seat SET lan_ip='192.0.2.77' WHERE desk_id=(SELECT id FROM name WHERE type='desk' AND name='pp_r2')")
     cn.commit()

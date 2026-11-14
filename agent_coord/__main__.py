@@ -515,19 +515,6 @@ def _link_flags(sp) -> None:
     )
 
 
-DOING_HELP = (
-    "what you are doing now, in a few words; mill connected shows it on this command's item. "
-    "No end step: a reply or pass without --doing ends it"
-)
-WAITING_ON_HELP = (
-    "with --doing: what this doing is blocked on, then why: a desk, mail-ID, todo-ID or hold-ID "
-    "(--waiting-on \"gardener the column names\"). mill connected shows it, and the desk you wait on sees you"
-)
-DOING_FLAG_COMMANDS = (
-    "send", "reply", "mark", "create", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score",
-)
-
-
 def _build_parser() -> MillArgumentParser:
     p = MillArgumentParser(
         prog="mill",
@@ -1228,7 +1215,21 @@ def _build_parser() -> MillArgumentParser:
     )
     rtr.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
-    memb = sub.add_parser("member", help="list this desk's rosters (Office first)")
+    memb = sub.add_parser(
+        "member",
+        help="list this desk's rosters (Office first); --all lists every roster with its member count",
+    )
+    memb.add_argument(
+        "--all",
+        action="store_true",
+        help="every live roster with its member count (membership, not live seats)",
+    )
+    memb.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="print the JSON result (with --all)",
+    )
     for _command, _what in (("add", "put desks on"), ("remove", "take desks off")):
         _ap = sub.add_parser(
             _command,
@@ -1527,8 +1528,8 @@ def _build_parser() -> MillArgumentParser:
 
     se = sub.add_parser(
         "connected",
-        help="mill connected [ROSTER] [--who DESK] [--limit N]: what each desk is doing, on which letter or card, "
-        "what it waits on and who is blocked on it; --history lists past entries",
+        help="mill connected [ROSTER] [--who DESK] [--limit N]: each desk's live doings (tw runs) "
+        "and n, their count; --history lists past tw runs",
     )
     se.add_argument(
         "project", nargs="?", default="", metavar="ROSTER",
@@ -1536,7 +1537,7 @@ def _build_parser() -> MillArgumentParser:
     )
     se.add_argument("--who", dest="desk", default="", metavar="DESK", help="only this desk")
     se.add_argument("--all", action="store_true", help="every desk, not only those active in the last day")
-    se.add_argument("--history", action="store_true", help="past doing entries, newest first, 50 a page")
+    se.add_argument("--history", action="store_true", help="past doings (tw runs), newest first, 50 a page")
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
     se.add_argument("--page", type=int, default=0, help="with --history: page N")
     se.add_argument(
@@ -1659,12 +1660,6 @@ def _build_parser() -> MillArgumentParser:
     _no_abbrev(p)
     _yes_everywhere(p)
     _sender_desk_everywhere(p)
-    # #818 PR B: every activity write takes --doing; the doing entry links to the
-    # item that command wrote (no separate doing command).
-    for _name in DOING_FLAG_COMMANDS:
-        _dp = _ct if _name == "create" else sub.choices[_name]
-        _dp.add_argument("--doing", default="", metavar="TEXT", help=DOING_HELP)
-        _dp.add_argument("--waiting-on", dest="waiting_on", default="", metavar="WHAT [WHY]", help=WAITING_ON_HELP)
     return p
 
 

@@ -10,7 +10,7 @@ Placeholders are the ones activity-states.md uses: `R` roster, `NEED` card need,
 
 - **No vote tables and no vote state.** `vote`, `vote_option`, `vote_cast`, `todo_event`, `hold_event`, `doing_now`, `glance_cache` and `sp_deploy` are not in the schema. A vote is a build-room letter: each desk replies GO or NOGO at one exact commit, silence is not GO, and any NOGO blocks.
 - **One `act` list on `activity` and `doing`.** `activity.act` is the item's latest move, and `activity.desk_id` is the desk that made it. `doing.act` is the move a doing row records. Both columns use the same ENUM; the list and what each value folds to are in [BETA-CHANGES.md, "The act list"](BETA-CHANGES.md#the-act-list-activityact-and-doingact).
-- **Doing is the history of card and hold moves.** Every card status or volunteer change, and every hold take or drop, appends one move row (`mill_doing_move`) with `on_type` and `on_id` set to the item, the move's `act`, `peer_id` for the second desk, and card evidence in `doing.evidence` (VARCHAR(2000), move rows only). A hold refresh writes no row.
+- **Card 1207: card and hold moves are transition rows, not doing rows.** Every card status or volunteer change (claim, assign, unclaim, unpark, ship, done, back, retire, reclaim), every hold take or drop, and a card rename write one `transition` row; `mill_doing_move` is gone and the doing move rows are migrated (`apply_1207`). A card's ship or done evidence is `todo.meta.evidence` (no cap). A name's delete, restore or purge is a transition row on the acting desk's focus row (reasons `name_delete`, `name_restore`, `name_purge`). A hold refresh writes no row. Where the tables below say "move row", read "transition row" (the 0.8.0 design they record is kept for the Auditor's history).
 - **`seat.doing_id` names the desk's focus.** It points at the desk's newest focus row (act `focus` or `clear`). A move row and a task row never move it. The seat row lock orders a desk's doing writes.
 - **Mail stamps only move forward.** `mail_to.opened` keeps the first open. Opening a letter does not touch `activity`.
 - **Heartbeats do not touch `activity`.** Connect, touch, socket and LAN updates write only the seat row. `activity.n` and `activity.weight` are dropped: token use comes from the reply bytes of each command. The glance is computed live.
@@ -26,7 +26,7 @@ Placeholders are the ones activity-states.md uses: `R` roster, `NEED` card need,
 Three kinds of doing row follow from the list:
 
 - A **focus row** has act `focus` (text set) or `clear` (text empty). It is the desk's current doing, and `seat.doing_id` moves to it (`mill_doing_insert`).
-- A **move row** has a card or hold act (`create`, `park`, `claim`, `unclaim`, `assign`, `unpark`, `ship`, `done`, `back`, `rename`, `hold`, `drop`). It records a move on the item and leaves `seat.doing_id` where it was (`mill_doing_move`).
+- A **move row** (0.8.0 to card 1207) had a card or hold act and recorded a move on the item (`mill_doing_move`). Card 1207 removed it: the move is a `transition` row. Those acts stay in the ENUM for `activity.act`.
 - A **task row** has act `task` (`mill_doing_task`). It is the birth of one task-wrapper run and never a focus or clear.
 
 `finish` is a row kept from before 0.8.0 (the migration only; no writer on main). A command that makes a move and also carries `--doing TEXT` writes both: first the move row, then the focus row, under the same seat lock.
@@ -137,7 +137,7 @@ Changes from 0.7.19:
 |---|---|---|
 | T1 to T11 | the card row is updated and the activity row bumped (`n + 1`); no history of the move | the same update, plus one move row on the card with the move's act, plus act on the activity row |
 | T5, T6 | a volunteer change with the status unchanged leaves no trace beyond the last actor | its own move row (`assign`, or `claim` for a take-over), with the other desk in `peer_id` |
-| T8, T9 | evidence is a column on `todo`, overwritten by the next pass | evidence is `doing.evidence` on that move row; the card shows the newest one |
+| T8, T9 | evidence is a column on `todo`, overwritten by the next pass | card 1207: evidence is `todo.meta.evidence` (no cap), set by ship or done, removed by back; the card shows it |
 | T10 | evidence cleared on the card | the `back` row has no evidence; earlier evidence rows stay |
 | T12, T13 | `activity.deleted` stamped or cleared | the same; retire also sets act `retire`; no move row |
 | T14 | activity bumped like a move | act `note`, so an edit no longer looks like a move; no move row |

@@ -315,8 +315,13 @@ def score_spend_pulse(
 def score_waiting(d: Mapping[str, Any] | None) -> int:
     d = d or {}
     n = 0
+    # Card 1207: a desk waits when one of its live tw runs is in state waiting (a.doings or d.doing[owner]).
+    views = d.get("doing") or {}
     for a in d.get("agents") or d.get("live_agents") or []:
-        if a and a.get("waiting_on"):
+        if not a:
+            continue
+        tasks = a.get("doings") or (views.get(a.get("owner")) or {}).get("doings") or []
+        if any(t and t.get("state") == "waiting" for t in tasks):
             n += 1
     return n
 

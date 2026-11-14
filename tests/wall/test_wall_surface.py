@@ -45,12 +45,15 @@ MAIL_PAINT = ROOT / "default" / "mail" / "mail-paint.js"
 
 # Immutable for a year once the browser has them. Change a file, change its pin here.
 HTML_PINS = {
-    "boot.js": "wow344",
-    "board.css": "wow343",
-    "lazy.js": "wow344",
-    "shell.css": "wow270",
-    "shell-early.js": "wow283",
-    "theme.css": "wow165",
+    "boot.js": "wow377",
+    "tabs.js": "wow346",
+    "board.css": "wow362",
+    "lazy.js": "wow376",
+    "desks-rows.js": "wow349",
+    "shell.css": "wow362",
+    "data.js": "wow362",
+    "shell-early.js": "wow377",
+    "theme.css": "wow377",
     "welcome.css": "wow282",
     "board-css.js": "wow281",
 }
@@ -58,25 +61,25 @@ LAZY_PINS = (
     "/glossary/glossary.js?v=wow285",
     "/floor/map-paint.js?v=wow320",
     "/admin/invite.js?v=wow334",
-    "/mail/mail-paint.js?v=wow322",
+    "/mail/mail-paint.js?v=wow376",
     "/score/score-paint.js?v=wow342",
     "/score/score-impact.js?v=wow342",
     "/floor/floor-paint.js?v=wow323",
-    "/todo/todo-paint.js?v=wow322",
-    "/doing/doing-paint.js?v=wow324",
+    "/todo/todo-paint.js?v=wow374",
+    "/doing/doing-paint.js?v=wow347",
     "/session/desk-paint.js?v=wow321",
     "/session/service-paint.js?v=wow341",
     "/lists/lists-paint.js?v=wow321",
     "/admin/mint-paint.js?v=wow322",
     "/doing/doing.css?v=wow324",
-    "/priorities/priorities-paint.js?v=wow344",
+    "/priorities/priorities-paint.js?v=wow346",
     "/priorities/priorities.css?v=wow344",
     "/mail/mail.js?v=wow285",
     "/score/score.js?v=wow328",
-    "/todo/todo.js?v=wow320",
-    "/mail/mail.css?v=wow318",
+    "/todo/todo.js?v=wow375",
+    "/mail/mail.css?v=wow376",
     "/score/score.css?v=wow342",
-    "/todo/todo.css?v=wow335",
+    "/todo/todo.css?v=wow376",
 )
 PERF_PIN = "/lib/perf.js?v=wow164"
 
@@ -85,14 +88,14 @@ VOID = {
     "link", "meta", "source", "track", "wbr",
 }
 STRIP = (
-    ("session", "CONNECTED"),
+    ("session", "DESKS"),
     ("jobs", "TODO"),
-    ("priorities", "PRIORITIES"),
     ("mail", "MAIL"),
+    ("priorities", "PRIORITIES"),
     ("score", "SCORE"),
     ("floor", "COLLAB"),
 )
-REJECTED = {"SESSION", "FLOOR", "LEASES", "SCORECARDS"}
+REJECTED = {"SESSION", "FLOOR", "LEASES", "SCORECARDS", "CONNECTED"}
 REQUIRED_IDS = (
     "pane-session",
     "pane-todo",

@@ -44,7 +44,7 @@ ALL_CLASSES = frozenset(PH)
 WRITE_COMMANDS = frozenset({
     "send", "reply", "create", "open", "update", "score", "patch", "set",
     "join", "claim", "unclaim", "pass", "hold", "assign",
-    # #818 PR B: --doing text rides on these too.
+    # #818 PR B: card and hold moves that carry a note.
     "mark", "drop", "unpark",
     "replace-body",
 })

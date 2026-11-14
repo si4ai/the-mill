@@ -6,22 +6,22 @@
  */
 :root {
   /* Quiet mill: warm lamp on dark shop - human glance, not SOC terminal */
-  --bg: #080a0d;
-  --panel: #12171e;
-  --edge: #5c7088;
-  --ink: #e8eef5;
-  --dim: #c5d2e0;
-  --amber: #e4b56a;
-  --green: #4fdd9b;
-  --red: #ff6d6d;
-  --cyan: #5ee1d0;
-  --mag: #c4a4f7;
-  --lamp: #f3d7a0;
+  --bg: #121821;
+  --panel: #1a222d;
+  --edge: #76879c;
+  --ink: #e6edf4;
+  --dim: #9aa7b6;
+  --amber: #c8a872;
+  --green: #93b3a4;
+  --red: #c49a96;
+  --cyan: #8eabc0;
+  --mag: #b0a4bc;
+  --lamp: #c0ac86;
   --line: var(--edge);
-  --shop: #0d131a;
-  --shop-2: #16202b;
-  --deep: #0a0e14;
-  --well: #121820;
+  --shop: #232c3a;
+  --shop-2: #2c3646;
+  --deep: #0e141c;
+  --well: #1a222d;
 
   --font-ui: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
@@ -88,84 +88,153 @@ code, kbd, pre, .sg-node {
  * palette off data-theme-pref alone (would fight resolved dark). */
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #080a0d;
-  --panel: #12171e;
-  --edge: #5c7088;
-  --ink: #e8eef5;
-  --dim: #c5d2e0;
-  --amber: #e4b56a;
-  --green: #4fdd9b;
-  --red: #ff6d6d;
-  --cyan: #5ee1d0;
-  --mag: #c4a4f7;
-  --lamp: #f3d7a0;
-  --shop: #0d131a;
-  --shop-2: #16202b;
-  --deep: #0a0e14;
-  --well: #121820;
+  --bg: #121821;
+  --panel: #1a222d;
+  --edge: #76879c;
+  --ink: #e6edf4;
+  --dim: #9aa7b6;
+  --amber: #c8a872;
+  --green: #93b3a4;
+  --red: #c49a96;
+  --cyan: #8eabc0;
+  --mag: #b0a4bc;
+  --lamp: #c0ac86;
+  --shop: #232c3a;
+  --shop-2: #2c3646;
+  --deep: #0e141c;
+  --well: #1a222d;
   --shadow: 0 12px 36px rgba(0,0,0,.4);
 }
 html[data-theme="light"] {
   color-scheme: light;
-  --bg: #f4efe6;
-  --panel: #fffdf8;
-  --edge: #c9bba4;
-  --ink: #14110c;
-  --dim: #3f3a33;
+  --bg: #f3efe8;
+  --panel: #faf7f1;
+  --edge: #8a8070;
+  --ink: #1c1914;
+  --dim: #4a453e;
   --amber: #8a5410;
-  --green: #146644;
-  --red: #b13228;
-  --cyan: #0a4e49;
-  --mag: #5a3a8a;
-  --lamp: #9a7420;
-  --shop: #f7f1e6;
-  --shop-2: #ece3d4;
+  --green: #3a5a4c;
+  --red: #8f4a46;
+  --cyan: #3a556a;
+  --mag: #5a4e6e;
+  --lamp: #8a5a14;
+  --shop: #fdfbf7;
+  --shop-2: #fffefb;
   --deep: #efe8dc;
-  --well: #faf6ee;
+  --well: #faf7f1;
   --shadow: 0 12px 36px rgba(80, 50, 20, .12);
 }
 html[data-theme="auto"] { color-scheme: light dark; }
 @media (prefers-color-scheme: light) {
   html[data-theme="auto"] {
     color-scheme: light;
-  --bg: #f4efe6;
-  --panel: #fffdf8;
-  --edge: #c9bba4;
-  --ink: #14110c;
-  --dim: #3f3a33;
+  --bg: #f3efe8;
+  --panel: #faf7f1;
+  --edge: #8a8070;
+  --ink: #1c1914;
+  --dim: #4a453e;
   --amber: #8a5410;
-  --green: #146644;
-  --red: #b13228;
-  --cyan: #0a4e49;
-  --mag: #5a3a8a;
-  --lamp: #9a7420;
-  --shop: #f7f1e6;
-  --shop-2: #ece3d4;
+  --green: #3a5a4c;
+  --red: #8f4a46;
+  --cyan: #3a556a;
+  --mag: #5a4e6e;
+  --lamp: #8a5a14;
+  --shop: #fdfbf7;
+  --shop-2: #fffefb;
   --deep: #efe8dc;
-  --well: #faf6ee;
+  --well: #faf7f1;
   --shadow: 0 12px 36px rgba(80, 50, 20, .12);
   }
 }
 @media (prefers-color-scheme: dark) {
   html[data-theme="auto"] {
     color-scheme: dark;
-  --bg: #080a0d;
-  --panel: #12171e;
-  --edge: #5c7088;
-  --ink: #e8eef5;
-  --dim: #c5d2e0;
-  --amber: #e4b56a;
-  --green: #4fdd9b;
-  --red: #ff6d6d;
-  --cyan: #5ee1d0;
-  --mag: #c4a4f7;
-  --lamp: #f3d7a0;
-  --shop: #0d131a;
-  --shop-2: #16202b;
-  --deep: #0a0e14;
-  --well: #121820;
+  --bg: #121821;
+  --panel: #1a222d;
+  --edge: #76879c;
+  --ink: #e6edf4;
+  --dim: #9aa7b6;
+  --amber: #c8a872;
+  --green: #93b3a4;
+  --red: #c49a96;
+  --cyan: #8eabc0;
+  --mag: #b0a4bc;
+  --lamp: #c0ac86;
+  --shop: #232c3a;
+  --shop-2: #2c3646;
+  --deep: #0e141c;
+  --well: #1a222d;
   --shadow: 0 12px 36px rgba(0,0,0,.4);
   }
+}
+
+
+/* User palettes (soft is the default). Tokens key off data-palette and data-theme.
+ * Soft, cooler, warmer and high-contrast come from the swatch page; extreme is the
+ * previous wall look. #rd kind and outcome colours follow the same state tokens. */
+html[data-palette="soft"][data-theme="light"] {
+  --bg: #f3efe8; --panel: #faf7f1; --shop: #fdfbf7; --shop-2: #fffefb; --edge: #8a8070; --line: var(--edge); --ink: #1c1914; --dim: #4a453e; --amber: #8a5410; --green: #3a5a4c; --red: #8f4a46; --cyan: #3a556a; --mag: #5a4e6e; --lamp: #8a5a14; --deep: #efe8dc; --well: #faf7f1; --shadow: 0 12px 36px rgba(80, 50, 20, .12); --bar-track: #fdfbf7; --bar-col: #3a556a; --bar-base: #8a8070; --radius: 10px;
+}
+html[data-palette="soft"][data-theme="light"] #rd {
+  --rd-k-mail: #3a556a; --rd-k-todo: #8a5410; --rd-k-hold: #5a4e6e; --rd-k-wake: #8f4a46; --rd-k-doing: #4a453e; --rd-k-score: #3a5a4c; --rd-end-finished: #3a5a4c; --rd-end-failed: #8f4a46; --rd-end-stale: #5c5f64; --rd-end-cleared: #5c5f64; --rd-end-drop: #4a453e; --rd-end-force: #8a5a14; --rd-end-expire: #5c5f64;
+}
+html[data-palette="soft"][data-theme="dark"] {
+  --bg: #121821; --panel: #1a222d; --shop: #232c3a; --shop-2: #2c3646; --edge: #76879c; --line: var(--edge); --ink: #e6edf4; --dim: #9aa7b6; --amber: #c8a872; --green: #93b3a4; --red: #c49a96; --cyan: #8eabc0; --mag: #b0a4bc; --lamp: #c0ac86; --deep: #0e141c; --well: #1a222d; --shadow: 0 12px 36px rgba(0,0,0,.4); --bar-track: #232c3a; --bar-col: #8eabc0; --bar-base: #e6edf4; --radius: 10px;
+}
+html[data-palette="soft"][data-theme="dark"] #rd {
+  --rd-k-mail: #8eabc0; --rd-k-todo: #c8a872; --rd-k-hold: #b0a4bc; --rd-k-wake: #c49a96; --rd-k-doing: #9aa7b6; --rd-k-score: #93b3a4; --rd-end-finished: #93b3a4; --rd-end-failed: #c49a96; --rd-end-stale: #a3a7ad; --rd-end-cleared: #a3a7ad; --rd-end-drop: #9aa7b6; --rd-end-force: #c0ac86; --rd-end-expire: #a3a7ad;
+}
+html[data-palette="extreme"][data-theme="light"] {
+  --bg: #f4efe6; --panel: #fffdf8; --shop: #f7f1e6; --shop-2: #ece3d4; --edge: #c9bba4; --line: var(--edge); --ink: #14110c; --dim: #3f3a33; --amber: #8a5410; --green: #146644; --red: #b13228; --cyan: #0a4e49; --mag: #5a3a8a; --lamp: #9a7420; --deep: #efe8dc; --well: #faf6ee; --shadow: 0 12px 36px rgba(80, 50, 20, .12); --bar-track: #ece3d4; --bar-col: #0a4e49; --bar-base: #c9bba4; --radius: 10px;
+}
+html[data-palette="extreme"][data-theme="light"] #rd {
+  --rd-k-mail: #6e8eaa; --rd-k-todo: #c0977c; --rd-k-hold: #9a8eab; --rd-k-wake: #b48790; --rd-k-doing: #b4b8be; --rd-k-score: #5e9a92; --rd-end-finished: #7f988a; --rd-end-failed: #a77b78; --rd-end-stale: #6d7177; --rd-end-cleared: #8d9095; --rd-end-drop: #8c99a5; --rd-end-force: #b09a74; --rd-end-expire: #676b70;
+}
+html[data-palette="extreme"][data-theme="dark"] {
+  --bg: #080a0d; --panel: #12171e; --shop: #0d131a; --shop-2: #16202b; --edge: #5c7088; --line: var(--edge); --ink: #e8eef5; --dim: #c5d2e0; --amber: #e4b56a; --green: #4fdd9b; --red: #ff6d6d; --cyan: #5ee1d0; --mag: #c4a4f7; --lamp: #f3d7a0; --deep: #0a0e14; --well: #121820; --shadow: 0 12px 36px rgba(0,0,0,.4); --bar-track: #4e647c; --bar-col: #d7fff6; --bar-base: #e8eef5; --radius: 10px;
+}
+html[data-palette="extreme"][data-theme="dark"] #rd {
+  --rd-k-mail: #6e8eaa; --rd-k-todo: #c0977c; --rd-k-hold: #9a8eab; --rd-k-wake: #b48790; --rd-k-doing: #b4b8be; --rd-k-score: #5e9a92; --rd-end-finished: #7f988a; --rd-end-failed: #a77b78; --rd-end-stale: #6d7177; --rd-end-cleared: #8d9095; --rd-end-drop: #8c99a5; --rd-end-force: #b09a74; --rd-end-expire: #676b70;
+}
+html[data-palette="cooler"][data-theme="light"] {
+  --bg: #f0f0f0; --panel: #ffffff; --shop: #f6f6f6; --shop-2: #ffffff; --edge: #5c5c5c; --line: var(--edge); --ink: #141414; --dim: #4a4a4a; --amber: #0b57c4; --green: #1b6b4a; --red: #b42318; --cyan: #155a8a; --mag: #5a3d8c; --lamp: #8a5a00; --deep: #e8e8e8; --well: #ffffff; --shadow: 0 12px 36px rgba(20, 20, 20, .12); --bar-track: #f6f6f6; --bar-col: #155a8a; --bar-base: #5c5c5c; --radius: 5px;
+}
+html[data-palette="cooler"][data-theme="light"] #rd {
+  --rd-k-mail: #155a8a; --rd-k-todo: #0b57c4; --rd-k-hold: #5a3d8c; --rd-k-wake: #b42318; --rd-k-doing: #4a4a4a; --rd-k-score: #1b6b4a; --rd-end-finished: #1b6b4a; --rd-end-failed: #b42318; --rd-end-stale: #555555; --rd-end-cleared: #555555; --rd-end-drop: #4a4a4a; --rd-end-force: #8a5a00; --rd-end-expire: #555555;
+}
+html[data-palette="cooler"][data-theme="dark"] {
+  --bg: #121212; --panel: #1c1c1c; --shop: #262626; --shop-2: #303030; --edge: #9a9a9a; --line: var(--edge); --ink: #f2f2f2; --dim: #b0b0b0; --amber: #6aa6ff; --green: #6fca9a; --red: #f07a72; --cyan: #6eb3d6; --mag: #b79ae0; --lamp: #e0b24a; --deep: #0a0a0a; --well: #1c1c1c; --shadow: 0 12px 36px rgba(0,0,0,.4); --bar-track: #262626; --bar-col: #6eb3d6; --bar-base: #f2f2f2; --radius: 5px;
+}
+html[data-palette="cooler"][data-theme="dark"] #rd {
+  --rd-k-mail: #6eb3d6; --rd-k-todo: #6aa6ff; --rd-k-hold: #b79ae0; --rd-k-wake: #f07a72; --rd-k-doing: #b0b0b0; --rd-k-score: #6fca9a; --rd-end-finished: #6fca9a; --rd-end-failed: #f07a72; --rd-end-stale: #b0b0b0; --rd-end-cleared: #b0b0b0; --rd-end-drop: #b0b0b0; --rd-end-force: #e0b24a; --rd-end-expire: #b0b0b0;
+}
+html[data-palette="warmer"][data-theme="light"] {
+  --bg: #ead7c0; --panel: #f6e8d4; --shop: #fbf0e0; --shop-2: #fff8ee; --edge: #6e5642; --line: var(--edge); --ink: #2a160c; --dim: #5a3f2c; --amber: #a62e0c; --green: #246034; --red: #a31818; --cyan: #1a5f6e; --mag: #7a3e6e; --lamp: #8a4200; --deep: #e0c8ac; --well: #f6e8d4; --shadow: 0 12px 36px rgba(80, 50, 20, .14); --bar-track: #fbf0e0; --bar-col: #1a5f6e; --bar-base: #6e5642; --radius: 14px;
+}
+html[data-palette="warmer"][data-theme="light"] #rd {
+  --rd-k-mail: #1a5f6e; --rd-k-todo: #a62e0c; --rd-k-hold: #7a3e6e; --rd-k-wake: #a31818; --rd-k-doing: #5a3f2c; --rd-k-score: #246034; --rd-end-finished: #246034; --rd-end-failed: #a31818; --rd-end-stale: #5c4a3c; --rd-end-cleared: #5c4a3c; --rd-end-drop: #5a3f2c; --rd-end-force: #8a4200; --rd-end-expire: #5c4a3c;
+}
+html[data-palette="warmer"][data-theme="dark"] {
+  --bg: #1a100c; --panel: #26180f; --shop: #332116; --shop-2: #402a1b; --edge: #c4a078; --line: var(--edge); --ink: #f8ead8; --dim: #c9ab8c; --amber: #f07828; --green: #7ed89a; --red: #f08078; --cyan: #5ec0c8; --mag: #e09ac8; --lamp: #f0b44a; --deep: #120b08; --well: #26180f; --shadow: 0 12px 36px rgba(0,0,0,.4); --bar-track: #332116; --bar-col: #5ec0c8; --bar-base: #f8ead8; --radius: 14px;
+}
+html[data-palette="warmer"][data-theme="dark"] #rd {
+  --rd-k-mail: #5ec0c8; --rd-k-todo: #f07828; --rd-k-hold: #e09ac8; --rd-k-wake: #f08078; --rd-k-doing: #c9ab8c; --rd-k-score: #7ed89a; --rd-end-finished: #7ed89a; --rd-end-failed: #f08078; --rd-end-stale: #c4b09a; --rd-end-cleared: #c4b09a; --rd-end-drop: #c9ab8c; --rd-end-force: #f0b44a; --rd-end-expire: #c4b09a;
+}
+html[data-palette="high-contrast"][data-theme="light"] {
+  --bg: #ffffff; --panel: #ffffff; --shop: #f4f4f4; --shop-2: #ffffff; --edge: #1a1a1a; --line: var(--edge); --ink: #000000; --dim: #2a2a2a; --amber: #0033cc; --green: #007a2f; --red: #c00000; --cyan: #0047b3; --mag: #6b00a8; --lamp: #a34800; --deep: #e8e8e8; --well: #ffffff; --shadow: 0 8px 24px rgba(0,0,0,.16); --bar-track: #f4f4f4; --bar-col: #0047b3; --bar-base: #1a1a1a; --radius: 2px;
+}
+html[data-palette="high-contrast"][data-theme="light"] #rd {
+  --rd-k-mail: #0047b3; --rd-k-todo: #0033cc; --rd-k-hold: #6b00a8; --rd-k-wake: #c00000; --rd-k-doing: #2a2a2a; --rd-k-score: #007a2f; --rd-end-finished: #007a2f; --rd-end-failed: #c00000; --rd-end-stale: #333333; --rd-end-cleared: #333333; --rd-end-drop: #2a2a2a; --rd-end-force: #a34800; --rd-end-expire: #333333;
+}
+html[data-palette="high-contrast"][data-theme="dark"] {
+  --bg: #000000; --panel: #0e0e0e; --shop: #161616; --shop-2: #1c1c1c; --edge: #c8c8c8; --line: var(--edge); --ink: #ffffff; --dim: #d0d0d0; --amber: #6ea8ff; --green: #3ee07a; --red: #ff5c5c; --cyan: #4db2ff; --mag: #d889ff; --lamp: #ffc107; --deep: #000000; --well: #0e0e0e; --shadow: 0 12px 36px rgba(0,0,0,.4); --bar-track: #161616; --bar-col: #4db2ff; --bar-base: #ffffff; --radius: 2px;
+}
+html[data-palette="high-contrast"][data-theme="dark"] #rd {
+  --rd-k-mail: #4db2ff; --rd-k-todo: #6ea8ff; --rd-k-hold: #d889ff; --rd-k-wake: #ff5c5c; --rd-k-doing: #d0d0d0; --rd-k-score: #3ee07a; --rd-end-finished: #3ee07a; --rd-end-failed: #ff5c5c; --rd-end-stale: #c8c8c8; --rd-end-cleared: #c8c8c8; --rd-end-drop: #d0d0d0; --rd-end-force: #ffc107; --rd-end-expire: #c8c8c8;
+}
+
+html[data-palette] .theme-pref button.on {
+  color: var(--bg); background: var(--amber); border-color: var(--amber);
 }
 
 /* WALL_UI_LIB_KEYS chrome */

@@ -356,7 +356,9 @@ def test_a_letter_rings_without_its_text(monkeypatch) -> None:
     assert q.rows[0]["outcome"] == "missed" and q.rows[0]["body"] == "the letter text"
 
 
-def test_a_sitting_desk_is_never_posted(monkeypatch) -> None:
+def test_a_sitting_webhook_desk_still_gets_the_mail_post(monkeypatch) -> None:
+    # Card 1211: webhook posts even while a socket is up. The hint fanout
+    # notifies that socket and does not POST; the mail emit does.
     arm(monkeypatch)
     _Queue().install(monkeypatch)
     monkeypatch.setattr(push.HUB, "rooms", {"away": {object()}})
@@ -365,7 +367,7 @@ def test_a_sitting_desk_is_never_posted(monkeypatch) -> None:
     with patch("agent_coord.server.wake._open", lambda req, timeout=0: posts.append(1) or _Resp()):
         _hint(MagicMock(), 6220)
         push.emit(MagicMock(), "away", "mail", {"id": 6221})
-    assert posts == []
+    assert posts == [1]
 
 
 # --- the desk side: the same walk, the same key check ------------------------

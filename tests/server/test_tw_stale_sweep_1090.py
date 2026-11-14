@@ -51,13 +51,13 @@ def desk(cn, monkeypatch):
 
     def make():
         name = "builder-" + uuid4().hex[:8]
-        join.upsert(cn, "Office", name, "", "a" * 64, "reviewing")
+        join.upsert(cn, "Office", name, "", "a" * 64)
 
         def event(wid, kind, **kw):
             return rpc._h_tw_event(SimpleNamespace(_cn=cn), {"watch_id": wid, "kind": kind, **kw}, "Office", name)
 
         def tasks():
-            return rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s AND g.act='task'", (name,))
+            return rows(cn, "SELECT g.id FROM doing g JOIN name n ON n.id=g.desk_id WHERE n.name=%s", (name,))
 
         def edges(wid=None):
             if wid is None:
@@ -98,7 +98,7 @@ def desk(cn, monkeypatch):
                 cur.close()
 
         def scores():
-            return rows(cn, "SELECT kpi, value FROM score JOIN name ON name.id=score.desk_id WHERE name.name=%s ORDER BY kpi", (name,))
+            return rows(cn, "SELECT s.kpi, JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.reading')) AS value FROM score s JOIN name ON name.id=s.desk_id WHERE name.name=%s ORDER BY s.kpi", (name,))
 
         def reconcile(live):
             return rpc._h_tw_reconcile(SimpleNamespace(_cn=cn), {"live": live}, "Office", name)

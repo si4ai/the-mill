@@ -4,6 +4,7 @@
 -- from_state/to_state/reason are VARCHAR text in rows; callers should pass Enum .value from Python.
 
 DROP PROCEDURE IF EXISTS mill_transition_put;
+DROP FUNCTION IF EXISTS MILL_FX_META;
 
 DELIMITER //
 
@@ -51,6 +52,20 @@ BEGIN
     p_activity_type, p_activity_id, v_from, p_to_state, p_reason,
     IFNULL(p_desk_id, 0), IFNULL(p_role, 'actor'), p_join_key, p_meta
   );
+END //
+
+-- Card 1207: transition meta for a card a SQL procedure moves: {"fx": 1} on a fixture roster, else NULL.
+-- The same rule as todo_activity.roster_excluded (_FX_ROSTER and observe.is_fixture_project).
+CREATE FUNCTION MILL_FX_META(p_roster BIGINT UNSIGNED) RETURNS JSON
+  NOT DETERMINISTIC
+  READS SQL DATA
+BEGIN
+  DECLARE v_nm VARCHAR(64) DEFAULT NULL;
+  SELECT name INTO v_nm FROM name WHERE id = p_roster;
+  IF v_nm IS NOT NULL AND REGEXP_LIKE(v_nm, '^(fx-|cold-test\\b|t-[0-9a-f]{8}$)', 'i') THEN
+    RETURN JSON_OBJECT('fx', 1);
+  END IF;
+  RETURN NULL;
 END //
 
 DELIMITER ;

@@ -149,3 +149,23 @@ the checks, not a grade of each PR.
 4. **Stale pointers.** A covering command is not re-run by the
    Auditor. A pointer that resolves to nothing, or a result older
    than the span, is reported as stale.
+
+## Dev host book import (card 1200)
+
+Load a dump of another office book into a new database, then copy this
+host's desk bearer salts onto it. The uploaded book keeps its own rows
+and ids. Only `seat.token_hash` moves, and only for a desk name that
+exists on both sides.
+
+1. Back up the current book.
+2. Load the dump into an empty database. Leave the current book in place.
+3. From the current book, `CALL mill_import_bearer_salts('that_database')`.
+   The argument is a plain identifier. The procedure copies `token_hash`
+   onto the uploaded seat whose desk name matches.
+4. Point `database` in the host config at the uploaded database.
+5. Restart the wall. The previous database stays until you drop it.
+
+`migrations.sql` adds `ON UPDATE CASCADE` to every foreign key and lets
+`name_fixed` accept an id change when `@mill_allow_name_id_change` is 1.
+`mill install sql --apply` runs that step on a book that already exists.
+A fresh book gets the same keys from `tables.sql`.

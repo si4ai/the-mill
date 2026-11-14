@@ -274,10 +274,11 @@ MAIN_TABLES = ("name", "seat", "member", "activity", "label", "tree", "watcher",
                "mill_invite", "mill_invite_join", "push_queue")
 CARD_1022_TABLES = ("wake", "transition", "transition_edge")
 CARD_1133_TABLES = ("activity_history",)
-FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES
+CARD_1212_TABLES = ("score_view",)
+FRESH_TABLES = tuple(t for t in MAIN_TABLES if t != "push_queue") + CARD_1022_TABLES + CARD_1133_TABLES + CARD_1212_TABLES
 
 def _apply_1022_after_080(cn) -> None:
-    """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including card 1163."""
+    """Tip schema after 0.8.0. Kill/resume tests run apply_080 only; finish with the rest, including cards 1163 and 1200."""
     from agent_coord.install import migrate
 
     migrate.apply_transition_1022(cn)
@@ -285,6 +286,10 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_history_1133(cn)
     migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
     migrate.apply_1163(cn)
+    migrate.apply_1200(cn)
+    migrate.apply_1207(cn)  # card 1207: moves to transition, evidence to todo.meta, doing.evidence dropped
+    migrate.apply_1212(cn)
+    migrate.apply_1214(cn)
 
 
 # The owner (2026-10-26): no new tables. These must not be in a 0.8.0 book.
@@ -375,18 +380,23 @@ def test_ids_rows_and_transforms(main_book):
     after = dump(main_book)
     cn = main_book
 
-    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue"}  # name: System id 0; push_queue folded (1022)
+    untouched = set(MAIN_TABLES) - {"seat", "watcher", "activity", "score", "todo", "doing", "name", "push_queue",
+                                     "label", "score_point", "score_evidence"}  # name: System id 0; push_queue folded (1022); label: card 1207; points and evidence of a desk-less score go with card 1214
     for t in sorted(untouched):
         assert after[t] == before[t], t
+    # card 1207: a label on a doing row goes with that row's activity row (fk_label_activity CASCADE); the rest stay.
+    lcols, lrows = before["label"]
+    kept = [r for r in lrows if dict(zip(lcols, r))["type"] != "doing"]
+    assert after["label"] == (lcols, kept)
     assert "push_queue" not in after and "push_queue" in before  # fold into wake
     assert "wake" in {r[0] for r in _q(cn, "SHOW TABLES")}
 
     # seat: every desk has a seat; old rows unchanged; the unseated desks got a token-NULL row.
     old_seats = {r["desk_id"]: r for r in _rows_as_dicts(before, "seat")}
-    # updated = updated: seeding seat.doing_id is not a seat edit (ON UPDATE CURRENT_TIMESTAMP must not fire).
+    # updated = updated: seeding (080) and clearing (1207) seat.doing_id is not a seat edit; the column is gone.
     new_seats = {r["desk_id"]: r for r in _rows_as_dicts(after, "seat")}
     for d, row in old_seats.items():
-        assert new_seats[d] == row
+        assert new_seats[d] == {k: v for k, v in row.items() if k != "doing_id"}
     assert set(new_seats) - set(old_seats) == set(s["unseated"]) | {0}  # 0 = System seat (card 1022)
     for d in s["unseated"]:
         assert new_seats[d]["token_hash"] is None
@@ -417,12 +427,26 @@ def test_ids_rows_and_transforms(main_book):
     pq_n = len(_rows_as_dicts(before, "push_queue"))
     for t in ("activity", "score"):
         b, a = _rows_as_dicts(before, t), _rows_as_dicts(after, t)
+        if t == "score":
+            # A score that already named a desk stays. A score with no desk stays only when
+            # its points name one desk, and then that desk is on the row.
+            already = {r["id"] for r in b if r.get("desk_id") in desk_ids}
+            assert already <= {r["id"] for r in a}
+            assert all(r.get("desk_id") in desk_ids for r in a)
+            continue
         if t == "activity":
             wake_after = [r for r in a if r["type"] == "wake"]
             a = [r for r in a if r["type"] != "wake"]
             assert len(wake_after) == pq_n
             assert all(r["desk_id"] == 0 for r in wake_after)
             assert _one(cn, "SELECT COUNT(*) FROM activity WHERE type = 'wake' AND act <> 'ring'") == 0
+            # card 1207: a doing row's activity row goes with it unless a transition or tree node names it.
+            kept_doing = {r["id"] for r in a if r["type"] == "doing"}
+            b = [r for r in b if r["type"] != "doing" or r["id"] in kept_doing]
+            # card 1214: a score that cannot be kept takes its activity row with it.
+            kept_scores = {r["id"] for r in _rows_as_dicts(after, "score")}
+            b = [r for r in b if r["type"] != "score" or r["id"] in kept_scores]
+            a = [r for r in a if r["type"] != "score" or r["id"] in kept_scores]
         assert len(a) == len(b), t
         for rb, ra in zip(b, a):
             want_desk = rb["desk_id"] if rb["desk_id"] in desk_ids else None
@@ -430,8 +454,24 @@ def test_ids_rows_and_transforms(main_book):
             keep = {k: v for k, v in rb.items() if k not in ("desk_id", "weight", "n")}
             assert {k: v for k, v in ra.items() if k != "desk_id"} == keep
     assert "weight" not in after["activity"][0] and "n" not in after["activity"][0]
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_key <> IFNULL(desk_id, 0)") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 3 + 8 * 3
+    assert _one(cn, "SELECT COUNT(*) FROM score WHERE desk_id IS NULL") == 0
+    # Points on a score that already named a desk stay on that score. Evidence does too.
+    # A merge can move the other points onto the surviving score.
+    kept_scores = {r[after["score"][0].index("id")] for r in after["score"][1]}
+    desk_score_ids = {
+        r["id"] for r in _rows_as_dicts(before, "score") if r.get("desk_id") in desk_ids
+    }
+    for child in ("score_point", "score_evidence"):
+        bcols, brows = before[child]
+        assert after[child][0] == bcols, child
+        sid_i = bcols.index("score_id")
+        arows = after[child][1]
+        assert all(r[sid_i] in kept_scores for r in arows), child
+        if child == "score_evidence":
+            assert list(arows) == [r for r in brows if r[sid_i] in kept_scores], child
+        else:
+            stable = [r for r in brows if r[sid_i] in desk_score_ids]
+            assert [r for r in arows if r[sid_i] in desk_score_ids] == stable
 
     # todo: the column evidence is gone, every other field kept.
     b = _rows_as_dicts(before, "todo")
@@ -440,38 +480,40 @@ def test_ids_rows_and_transforms(main_book):
     for rb in b:
         assert {k: v for k, v in rb.items() if k != "evidence"} == a[rb["id"]]
 
-    # doing: main's rows are kept; act says what each was (text: focus; empty on an item: finish; else clear).
+    # doing: card 1207 keeps only tw runs (a main book has none), so main's rows are gone and doing is six columns.
     old_doing = {r["id"]: r for r in _rows_as_dicts(before, "doing")}
-    acts = dict(_q(cn, "SELECT id, act FROM doing WHERE id <= %s", (max(old_doing),)))
-    for i, r in old_doing.items():
-        assert acts[i] == ("focus" if r["text"] else "finish" if r["on_type"] else "clear"), r
-    new_doing = {
-        r["id"]: {k: v for k, v in r.items() if k != "evidence"}
-        for r in _rows_as_dicts(after, "doing") if r["id"] in old_doing
-    }
-    assert new_doing == old_doing
+    assert old_doing and after["doing"] == (["type", "id", "created", "desk_id", "roster_id", "text"], [])
 
     # Every card gets one move row (the owner, 2026-10-26): by updated_id at updated, act from the status, peer the
-    # volunteer, evidence the card's evidence byte for byte (or NULL), text empty. Focus rows keep evidence NULL.
-    moves = {r[0]: r[1:] for r in _q(cn, "SELECT on_id, desk_id, created, act, peer_id, HEX(IFNULL(evidence, '')),"
-                                         " text, roster_id"
-                                         " FROM doing WHERE on_type = 'todo' AND act NOT IN ('focus', 'clear', 'finish')")}
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(b) == len(moves)
+    # volunteer, evidence the card's evidence. Card 1207 then moves it to transition (one row per card, the mapped
+    # reason, by the same desk at the same time) and the evidence of a ship or done to todo.meta.evidence, byte for
+    # byte; doing keeps no move row.
+    reason = {"create": "create", "park": "create_parked", "claim": "claim", "assign": "assign",
+              "ship": "pass_ship", "done": "pass_done"}
+    card_act = {}
     for rb in b:
         act = SEED_ACT[rb["status"]]
         if act == "claim" and rb["assigned_id"] != rb["updated_id"]:
             act = "assign"
-        ev = (rb["evidence"] or "").encode("utf-8").hex().upper()
-        assert moves[rb["id"]] == (rb["updated_id"], rb["updated"], act, rb["assigned_id"], ev, "", rb["roster_id"]), rb
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE act IN ('focus', 'clear', 'finish') AND evidence IS NOT NULL") == 0
-    assert _one(cn, "SELECT COUNT(*) FROM doing WHERE id > %s", (max(old_doing),)) == len(b)
+        card_act[rb["id"]] = act
+        got = _q(cn, "SELECT desk_id, at, reason FROM transition WHERE activity_type = 'todo' AND activity_id = %s",
+                 (rb["id"],))
+        assert got == [(rb["updated_id"], rb["updated"], reason[act])], rb
+        ev = _one(cn, "SELECT HEX(JSON_UNQUOTE(JSON_EXTRACT(meta, '$.evidence'))) FROM todo WHERE id = %s", (rb["id"],))
+        want = (rb["evidence"].encode("utf-8").hex().upper()
+                if act in ("ship", "done") and rb["evidence"] is not None else None)
+        assert ev == want, rb
+    assert _one(cn, "SELECT COUNT(*) FROM doing") == 0
 
-    # activity.act: the item's latest move (a card's from its status, a doing row's own act, a hold taken or free).
+    # activity.act: the item's latest move (a card's from its status, a hold taken or free). Card 1207: a deleted
+    # doing row's activity row goes too, unless a transition (the connect pseudo row) or a tree node names it.
     for t, i, act in _q(cn, "SELECT a.type, a.id, a.act FROM activity a"):
         if t == "todo":
-            want = moves[i][2]
+            want = card_act[i]
         elif t == "doing":
-            want = acts[i]
+            assert _one(cn, "SELECT COUNT(*) FROM transition WHERE activity_type = 'doing' AND activity_id = %s", (i,))\
+                or _one(cn, "SELECT COUNT(*) FROM tree WHERE type = 'doing' AND id = %s", (i,)), (t, i)
+            continue
         elif t == "hold":
             want = "hold" if _one(cn, "SELECT desk_id FROM hold WHERE id = %s", (i,)) else "drop"
         elif t == "mail":
@@ -481,21 +523,6 @@ def test_ids_rows_and_transforms(main_book):
         else:
             want = "score"
         assert act == want, (t, i, act)
-
-    # seat.doing_id: the desk's newest focus row (focus or clear), created then id, as main's mill_doing_now orders
-    # rows. Where main's newest row is a finish row, the seat names the focus row it ended.
-    newest, focus = {}, {}
-    for r in _rows_as_dicts(before, "doing"):
-        k = (r["created"], r["id"])
-        if r["desk_id"] not in newest or k > newest[r["desk_id"]][0]:
-            newest[r["desk_id"]] = (k, r["id"])
-        if (r["text"] or not r["on_type"]) and (r["desk_id"] not in focus or k > focus[r["desk_id"]][0]):
-            focus[r["desk_id"]] = (k, r["id"])
-    seat_now = {d: v for d, v in _q(cn, "SELECT desk_id, doing_id FROM seat") if v is not None}
-    assert seat_now == {d: v[1] for d, v in focus.items()}
-    same = [d for d in newest if acts[newest[d][1]] != "finish"]
-    assert same and all(seat_now[d] == newest[d][1] for d in same)
-    assert any(acts[newest[d][1]] == "finish" for d in newest), "the seed has a desk whose newest row is a finish"
 
     for t in DROPPED_PLAN:
         assert _one(cn, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
@@ -521,6 +548,93 @@ def _checksums(cn):
 def _routines(cn):
     return _q(cn, "SELECT ROUTINE_TYPE, ROUTINE_NAME, SHA2(IFNULL(ROUTINE_DEFINITION, ''), 256)"
                   " FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() ORDER BY 1, 2")
+
+
+def test_1214_drops_old_triggers_and_names_what_it_cannot_keep(main_book):
+    """An upgraded office keeps a one-desk series, finishes a name collision, and says what it dropped."""
+    from agent_coord.install import migrate
+
+    seeded = seed(main_book)
+    migrate.apply_080(main_book)
+    desk_a, desk_b = seeded["desks"][0], seeded["desks"][1]
+    roster_b = seeded["rosters"][0]
+    cur = main_book.cursor()
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_ins BEFORE INSERT ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "CREATE TRIGGER score_roster_type_upd BEFORE UPDATE ON score FOR EACH ROW "
+        "SET @score_roster_seen = NEW.roster_id"
+    )
+    cur.execute(
+        "INSERT INTO score (desk_id, roster_id, kpi, `value`) VALUES "
+        "(NULL, 1, 'one-desk', ''), (NULL, 1, 'no-desk', ''), (NULL, 1, 'many-desks', ''), "
+        "(NULL, 1, 'empty-activity', ''), (%s, 1, 'word', 'good'), "
+        "(%s, 1, 'same-name', ''), (%s, %s, 'same-name', '')",
+        (desk_a, desk_a, desk_a, roster_b),
+    )
+    cur.execute(
+        "SELECT id, kpi FROM score WHERE kpi IN "
+        "('one-desk', 'no-desk', 'many-desks', 'same-name', 'empty-activity', 'word')"
+    )
+    ids = {}
+    for i, kpi in cur.fetchall():
+        ids.setdefault(kpi, int(i))
+    cur.executemany(
+        "INSERT INTO score_point (score_id, desk_id, value) VALUES (%s, %s, %s)",
+        [
+            (ids["one-desk"], desk_a, 1),
+            (ids["one-desk"], desk_a, 2),
+            (ids["many-desks"], desk_a, 1),
+            (ids["many-desks"], desk_b, 2),
+            (ids["empty-activity"], desk_a, 4),
+            (ids["same-name"], desk_a, 3),
+        ],
+    )
+    cur.execute(
+        "INSERT INTO activity (type, id, desk_id, roster_id) VALUES ('score', %s, NULL, 1)",
+        (ids["empty-activity"],),
+    )
+    main_book.commit()
+    cur.close()
+    applied = migrate.apply_1214(main_book)
+    text = "\n".join(applied)
+    assert "migrate_1214:dropped trigger score_roster_type_ins" in text
+    assert "migrate_1214:dropped trigger score_roster_type_upd" in text
+    assert f"migrate_1214:attached id={ids['one-desk']} kpi=one-desk desk={desk_a} points=2" in text
+    assert f"reason=no-desk" in text and f"id={ids['no-desk']}" in text
+    assert f"reason=many-desks" in text and f"id={ids['many-desks']}" in text
+    assert f"reason=activity-desk" in text and f"id={ids['empty-activity']}" in text
+    assert f"migrate_1214:dropped value id={ids['word']} kpi=word text=good" in text
+    assert "kpi=same-name" in text and "migrate_1214:merged" in text
+    cur = main_book.cursor()
+    cur.execute(
+        "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() "
+        "AND TRIGGER_NAME IN ('score_roster_type_ins', 'score_roster_type_upd')"
+    )
+    assert cur.fetchall() == []
+    cur.execute("SELECT desk_id FROM score WHERE id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == desk_a
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["word"],))
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT COUNT(*) FROM score WHERE id = %s", (ids["empty-activity"],))
+    assert cur.fetchone()[0] == 0
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (ids["one-desk"],))
+    assert cur.fetchone()[0] == 2
+    cur.execute("SELECT COUNT(*) FROM score WHERE kpi = 'same-name'")
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT id FROM score WHERE kpi = 'same-name'")
+    kept = int(cur.fetchone()[0])
+    cur.execute("SELECT COUNT(*) FROM score_point WHERE score_id = %s", (kept,))
+    assert cur.fetchone()[0] == 1
+    cur.execute(
+        "INSERT INTO score (desk_id, kpi) VALUES (%s, 'after-upgrade')",
+        (desk_a,),
+    )
+    main_book.commit()
+    cur.close()
+    assert migrate.apply_1214(main_book) == []
 
 
 def test_second_run_is_a_no_op(main_book):
@@ -559,9 +673,12 @@ def test_resumes_after_a_kill_at_each_step(main_book, fresh_snapshot, kill_after
     for t in MAIN_TABLES:
         if t not in after or t not in before:
             continue  # push_queue folded away after 1022
-        grow = len(before["todo"][1]) if t == "doing" else 0  # one move row per card
-        assert len(after[t][1]) == len(before[t][1]) + grow or t in ("seat", "watcher", "name", "activity"), t  # name: System; activity: folded wakes
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == len(
+        # card 1207: the 0.8.0 move rows (one per card) moved on to transition.
+        # card 1207: doing keeps only tw runs (none here) and a label on a doing row goes with it.
+        assert len(after[t][1]) == len(before[t][1]) or t in (
+            "seat", "watcher", "name", "activity", "doing", "label", "score", "score_point", "score_evidence"), t
+    assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
+    assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == len(
         before["todo"][1])
 
 
@@ -687,7 +804,8 @@ def test_resumes_after_a_kill_inside_a_step(main_book, fresh_snapshot, cut):
     snap = schema_snapshot(main_book)
     for key in fresh_snapshot:
         assert snap[key] == fresh_snapshot[key], (cut, key)
-    assert _one(main_book, "SELECT COUNT(*) FROM doing WHERE act NOT IN ('focus', 'clear', 'finish')") == n_cards
+    assert _one(main_book, "SELECT COUNT(*) FROM doing") == 0  # card 1207: only tw runs
+    assert _one(main_book, "SELECT COUNT(DISTINCT activity_id) FROM transition WHERE activity_type = 'todo'") == n_cards
 
 
 def _declared_keys_080() -> set[tuple[str, str]]:

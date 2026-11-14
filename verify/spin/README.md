@@ -11,7 +11,7 @@ in which the steps of the model can interleave, inside the stated bounds.
 | `wake.pml` | the wake path: push queue, webhook POST, the wake lease (card 886: ended by `mill wake-done` or its timeout, not by a connect), the trailing POST (#669), card 827's retry chain off the request (#300, live since 0.8.3), unread mail that resurfaces on connect and rings again (#297, card 949), wake-done inside a connect with no trailing POST to a sitting desk (#322, card 889, 0.8.5), connect sync, the seat rule (supersede, `-r` 4409), and the fixes for cards 831 and 832 (shipped; their switches default on); `LIVE`: the wake path at main 8bae076 and #416 for the live modes F1, F2, F7 (card 1144) |
 | `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal; `READ_DROP`: a connect sync against a committed drop (card 1144, F3) |
 | `todo.pml` | 0.8.0 card moves T1-T14: the card row lock, one move row per status or volunteer change, the act on the activity row, the migration seed |
-| `doing.pml` | 0.8.0 doing: focus rows and move rows, `seat.doing_id`, the seat row lock, finish (D8, D9), heartbeats, hold moves H1-H5, reset (D11) and retire (N1) |
+| `doing.pml` | 0.8.0 doing: focus rows and move rows, `seat.doing_id`, the seat row lock, finish (D8, D9), heartbeats, hold moves H1-H5, reset (D11) and retire (N1). History since card 1207 (0.8.15): the code has no focus rows, move rows, `seat.doing_id`, `--doing` or `--waiting-on`; a doing is one tw run. Not re-modelled yet. |
 | `mail.pml` | 0.8.0 recipient rows M1-M8: the first open kept, opening leaves activity alone, receipts |
 | `score.pml` | 0.8.0 score moves S1-S6, the Wall writer included |
 | `name.pml` | 0.8.0 retire and reclaim N1-N4, the self-retire token check (card 880), join of a retired name |
@@ -216,6 +216,8 @@ main 0.8.4 before #322 (W26, W29). `DONE_IN_CONNECT=1` lets a run say
   on the run host; W19 checks the 831 fix alone at that size.
 
 ## 0.8.0 activities: mail, todo, doing, hold, score, name
+
+**Card 1207 (0.8.15):** the doing rows below (focus, `seat.doing_id`, finish, `--doing`, `--waiting-on`) describe code that is gone; a doing is now one tw run, written only by tw. The doing results are kept as history until `doing.pml` is re-modelled.
 
 Models at the design in `docs/requirements/beta/activity-states-080.md` (PR #226,
 `DOC_080` = c2a91f9) and the 0.8.0 release code (main 8a80dc1, tag v0.8.0, `SYNC_080`).

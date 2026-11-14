@@ -20,15 +20,10 @@ def upsert(
     desk: str,
     role: str = "",
     token_hash: str | None = None,
-    doing: str | None = None,
 ) -> list[dict]:
-    from agent_coord.server.records.doing_stack import PLACEHOLDERS
+    """Card 1207: join writes the seat and memberships only; no doing row (doing is tw runs only)."""
     from agent_coord.server.records.name import bare
 
-    # #818 PR B: join and invite placeholders ("present", "invited") are not
-    # something a desk is doing, so they never become a doing entry.
-    if doing is not None and doing.strip() in PLACEHOLDERS:
-        doing = None
     return call(
         cn,
         "mill_join_upsert",
@@ -37,7 +32,6 @@ def upsert(
             bare(desk, CONST_DESK),
             bare(role, CONST_ROSTER) if role else "",
             token_hash,
-            doing,
         ],
     )
 
@@ -49,7 +43,6 @@ def note_connect(cn, desk: str, *, startup_ms: int | None = None) -> None:
     if not (desk or "").strip():
         return
     rows = call(cn, "mill_join_connect", [bare(desk, CONST_DESK)]) or []
-    jid = (rows[0] or {}).get("id") if rows else None
     desk_id = int((rows[0] or {}).get("desk_id") or 0) if rows else 0
     # Card 1028: D2 connect transition (soft-fail; ids only).
     try:
@@ -61,12 +54,7 @@ def note_connect(cn, desk: str, *, startup_ms: int | None = None) -> None:
             ca.emit_connect(cn, desk_id=desk_id, startup_ms=startup_ms)
     except Exception:
         pass
-    if not jid:
-        return
-    from agent_coord.server.push import fanout
-
-    # The connecting desk is not sitting yet; do not queue its own DOING back to it.
-    fanout(cn, "doing", int(jid), "DOING", skip_desk=desk)
+    # Card 1207: no DOING fan-out on connect (there is no focus row to watch).
 
 
 def mark_socket(cn, desk: str, *, up: bool) -> None:
@@ -120,7 +108,7 @@ def touch(cn, project: str, desk: str) -> list[dict]:
     if not desk_b:
         return []
     rows = call(cn, "mill_join_touch", [desk_b]) or []
-    if not rows or not (rows[0] or {}).get("id"):
+    if not rows or not (rows[0] or {}).get("desk_id"):
         return []
     return rows
 
@@ -131,11 +119,13 @@ def delete(cn, project: str, desk: str) -> list[dict]:
     return call(cn, "mill_join_delete", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK)])
 
 
-def reset(cn, project: str, desk: str) -> list[dict]:
-    """Clear token_hash so the desk name can mill join again (lost hash)."""
+def reset(cn, project: str, desk: str, by: str | None = None) -> list[dict]:
+    """Clear token_hash so the desk name can mill join again (lost hash). by: the resetting desk; another
+    desk's reset frees the holds as hold_force with meta.by (card 1207)."""
     from agent_coord.server.records.name import bare
 
-    return call(cn, "mill_join_reset", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK)])
+    return call(cn, "mill_join_reset", [bare(project, CONST_ROSTER), bare(desk, CONST_DESK),
+                                        bare(by, CONST_DESK) if by else None])
 
 
 def select(cn, project: str) -> list[dict]:

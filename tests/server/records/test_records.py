@@ -93,20 +93,18 @@ def test_todo_kanban_status_select(cn) -> None:
     assert todo.get(cn, tid) == []
     assert _presence_row(cn, "todo", tid) is not None
 
-def test_doing_appends_a_row_per_entry(cn) -> None:
-    """#818: each doing is its own row; a pipe in the text is just text."""
+def test_join_writes_no_doing_row(cn) -> None:
+    """Card 1207: a join (or a re-join) writes no doing row; tw runs are the only doings."""
     from agent_coord.server.records.db import rows_done
 
-    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="present")
-    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64, doing="a | b")
+    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64)
+    here.upsert(cn, "unit", "stack", "", token_hash="b" * 64)
     rows = rows_done(
         cn,
-        "SELECT g.text FROM doing g JOIN name n ON n.id = g.desk_id "
-        "WHERE n.type='desk' AND n.name=%s ORDER BY g.id",
+        "SELECT g.id FROM doing g JOIN name n ON n.id = g.desk_id WHERE n.type='desk' AND n.name=%s",
         ("stack",),
     )
-    # #818 PR B: the join placeholder writes no doing text.
-    assert [r["text"] for r in rows if r["text"]] == ["a | b"]
+    assert rows == []
 
 def test_hold_unique(cn) -> None:
     from agent_coord.server.records.db import scalar
@@ -161,12 +159,25 @@ def test_score_upsert_value(cn) -> None:
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='score' AND id=%s", (kid,)) is not None
 
 def test_floor_office_kpis(cn) -> None:
+    from agent_coord.client.tokens import token_hash
+    from agent_coord.server.records import join as rec_join
     from agent_coord.server.records.floor import floor as rec_floor
+    from tests.server.records.conftest import seed_member, seed_names
 
+    seed_names(cn, ("the-mill", "roster"), ("a", "desk"))
+    seed_member(cn, "the-mill", "a")
+    rec_join.upsert(cn, "the-mill", "a", "", token_hash("seat-floor-a"))
     cur = cn.cursor()
     cur.execute(
-        "UPDATE score SET value='7' "
-        "WHERE roster_id=1 AND desk_id IS NULL AND kpi='mill-wall.ticks'"
+        "INSERT INTO score (desk_id, kpi, meta) "
+        "SELECT id, 'mill-wall.ticks', JSON_OBJECT('target', '0') FROM name "
+        "WHERE type='desk' AND name='a' "
+        "ON DUPLICATE KEY UPDATE meta = JSON_OBJECT('target', '0')"
+    )
+    cur.execute(
+        "INSERT INTO score_point (score_id, desk_id, value, note) "
+        "SELECT s.id, s.desk_id, 7, '' FROM score s JOIN name n ON n.id = s.desk_id "
+        "WHERE n.name='a' AND s.kpi='mill-wall.ticks'"
     )
     cn.commit()
     cur.close()
@@ -287,7 +298,7 @@ def test_touch_bumps_the_seat_and_writes_no_entry(cn) -> None:
     """#635 / #818: a command that writes nothing else bumps the seat; no doing row."""
     from agent_coord.server.records.db import scalar
 
-    here.upsert(cn, "unit", "trail635", "", token_hash="c" * 64, doing="present")
+    here.upsert(cn, "unit", "trail635", "", token_hash="c" * 64)
     cn.cursor().execute(
         "UPDATE seat j JOIN name n ON n.id = j.desk_id SET "
         "j.updated = '2000-01-01' WHERE n.type='desk' AND n.name=%s",

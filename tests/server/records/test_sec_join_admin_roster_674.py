@@ -89,7 +89,7 @@ def test_sql_join_upsert_refuses_admin_project(cn, spelling):
     desk = "sec674-s%d" % ADMIN_SPELLINGS.index(spelling)
     before = _admin_n(cn)
     with pytest.raises(mysql.connector.Error) as ei:
-        rec_join.upsert(cn, spelling, desk, "", "a" * 64, "present")
+        rec_join.upsert(cn, spelling, desk, "", "a" * 64)
     assert "Admin is not granted by join" in str(ei.value)
     assert is_role_admin(cn, desk) is False
     assert _member_ids(cn, desk) == []  # rolled back: no Office row, no Admin row
@@ -102,7 +102,7 @@ def test_sql_join_upsert_refuses_admin_role(cn, spelling):
 
     desk = "sec674-sr%d" % ("Admin", "admin", "\u00c1dmin").index(spelling)
     with pytest.raises(mysql.connector.Error) as ei:
-        rec_join.upsert(cn, "sec674-proj", desk, spelling, "b" * 64, "present")
+        rec_join.upsert(cn, "sec674-proj", desk, spelling, "b" * 64)
     assert "Admin is not granted by join" in str(ei.value)
     assert is_role_admin(cn, desk) is False
 

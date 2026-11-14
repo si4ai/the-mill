@@ -59,7 +59,7 @@
         if (card.need_id) eta.need_id = card.need_id;
         return eta;
       }
-      const doing = wallDoingText(sess.owner, sess.doing);
+      const doing = wallDoingText(sess.owner);
       const idleNid = r => {
         const nid = String(r.need_id || "");
         return nid === "leftover" || nid.indexOf("idle-") === 0;
@@ -330,6 +330,7 @@
     /* WALL_UI_DEFAULT_MAIL: mailRowsForDesk from domain module */
     /* WALL_UI_DEFAULT_MAIL: mailRowsForDstSrc from domain module */
     function mailListHtml(d, rows) {
+      const td = (inner, attrs) => `<td${attrs ? " " + attrs : ""}><span class="mail-cell">${inner}</span></td>`;
       return `<table data-table="mail"><thead><tr>` +
         `<th>sent</th><th>read</th><th>line</th><th>src</th><th>dst</th><th>kind</th><th>body</th><th></th><th>eta</th>` +
         `</tr></thead><tbody>` +
@@ -362,14 +363,16 @@
           const deskKey = mailDstKey(dstVal);
           const bodyTrunc = (m.body_trunc === true) ? "1" : "0";
           return `<tr class="${cls}" data-mail-id="${esc(mid)}" data-mail-dst="${esc(deskKey)}" data-mail-project="${esc(millGid(m) || "")}" data-body-trunc="${bodyTrunc}">` +
-          `<td data-sort="${esc(atVal)}">${esc(sent)}</td>` +
-          `<td data-sort="${esc(m.read_at || "")}">${esc(readAt)}</td>` +
-          `<td>${esc(millGid(m))}</td>` +
-          `<td>${esc(srcVal)}</td><td title="${esc(cast.map(c => c.deskId).join(", "))}">${esc(dstShow)}</td>` +
-          `<td>${esc(m.kind || "note")}</td>` +
-          `<td class="body">${esc(m.body)}${millWatchBadge("mail", m.id)}${hrChip}</td>` +
-          `<td class="note">${st}${readers}</td>` +
-          `<td class="note" data-sort="${esc((eta && (eta.at || eta.kind)) || "")}">${esc(guess)}</td></tr>`;
+          td(esc(sent), `data-sort="${esc(atVal)}"`) +
+          td(esc(readAt), `data-sort="${esc(m.read_at || "")}"`) +
+          td(esc(millGid(m))) +
+          td(esc(srcVal)) +
+          td(esc(dstShow), `title="${esc(cast.map(c => c.deskId).join(", "))}"`) +
+          td(esc(m.kind || "note")) +
+          td(`${esc(m.body)}${millWatchBadge("mail", m.id)}${hrChip}`, `class="body"`) +
+          td(`${st}${readers}`, `class="note"`) +
+          td(esc(guess), `class="note" data-sort="${esc((eta && (eta.at || eta.kind)) || "")}"`) +
+          `</tr>`;
         }).join("") +
         `</tbody></table>`;
     }

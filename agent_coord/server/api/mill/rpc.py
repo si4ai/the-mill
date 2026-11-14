@@ -227,7 +227,7 @@ def _poke(
         return
     from agent_coord.server.records.db import after_commit
 
-    # #818: inside a --doing request the pokes wait for its commit.
+    # #818: inside a request transaction the pokes wait for its commit.
     after_commit(c._cn, lambda: _poke_now(c, typ, nid, command, owner=owner, fresh=fresh))
 
 
@@ -286,7 +286,6 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
         rs = _stored(role_s)
         if rec_name.get(c._cn, rs, CONST_ROSTER) is None and not mill_catalog_open(CONST_ROSTER):
             raise CoordError("limited-trust: Admin mill create roster NAME --yes")
-    doing = str(body.get("doing") or "present")[:64]
     # Join posts Office as a placeholder; the seat's one roster replaces it.
     # mill connect with no roster sends Office on purpose and keeps it.
     office = _office(c._cn)
@@ -310,11 +309,8 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
         _stored(owner),
         _stored(role_s) if role_s else "",
         token_hash(token),
-        doing,
     )
     got = rows[0] if rows else {}
-    if got.get("id"):
-        _poke(c, "doing", got.get("id"), "join")
     registered = _stored(_stored(str(got.get("owner") or owner)))
     try:
         from agent_coord.server.records import member as rec_member
@@ -331,7 +327,6 @@ def _issue_here(c: Book, body: dict[str, Any]) -> dict[str, Any]:
         "group_id": project,
         "owner": registered,
         "role": role_s,
-        "doing": doing,
         "token": token,
     }
     if desk_id:
@@ -693,11 +688,11 @@ def _heartbeat_rank(view: dict[str, Any]) -> tuple[int, float]:
 
 
 def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """`mill connected` (#274 word; RPC session). #818 PR B: what each desk is
-    doing, on which item, since when, and who is waiting on it.
+    """`mill connected` (#274 word; RPC session). card 1207: each desk's current
+    doings (live tw runs) and n, their count.
 
     ROSTER is optional (none = desks active in the last day; --all every desk;
-    --desk X one desk). --history lists past doing entries instead, a page at a time.
+    --desk X one desk). --history lists past doings (tw runs) instead, a page at a time.
     --limit N (card 647) is the wire key connected_limit: at most N live desks,
     newest heartbeat first. A body that only carries limit (a released client)
     is not capped and is not refused on --history.
@@ -721,26 +716,13 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
         return _doing_history(c, body, desk)
     if body.get("since") or page:
         raise CoordError("connected: --since and --page go with --history")
-    views = [_desk_view(r, roster, by) for r, by in _doing_rows(
-        rec_doing.now(c._cn, desk, roster, bool(body.get("all")))
-    )]
+    desks = [r for r in rec_doing.now(c._cn, desk, roster, bool(body.get("all"))) if r.get("part") == "desk"]
+    live = rec_doing.live_doings(c._cn, [str(r.get("desk") or "") for r in desks])
+    views = [_desk_view(r, roster, live.get(str(r.get("desk") or ""))) for r in desks]
     if limit is None:
         return views
     views.sort(key=_heartbeat_rank)
     return views[:limit]
-
-
-def _doing_rows(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, list]]]:
-    """Group the doing read parts: (desk row, {letters, cards, blocked desks, tasks})."""
-    extra: dict[str, dict[str, list]] = {}
-    desks: list[dict[str, Any]] = []
-    for r in rows:
-        part = str(r.get("part") or "")
-        if part == "desk":
-            desks.append(r)
-        elif part in ("letter", "card", "blocked", "task"):
-            extra.setdefault(str(r.get("desk") or ""), {"letter": [], "card": [], "blocked": [], "task": []})[part].append(r)
-    return [(d, extra.get(str(d.get("desk") or ""), {"letter": [], "card": [], "blocked": [], "task": []})) for d in desks]
 
 
 def _age(seconds: Any) -> str:
@@ -761,98 +743,21 @@ def _item(typ: Any, nid: Any) -> str | None:
     return f"{typ}-{int(nid)}" if typ and nid is not None else None
 
 
-def _desk_view(r: dict[str, Any], roster: str, by: dict[str, list]) -> dict[str, Any]:
+def _desk_view(r: dict[str, Any], roster: str, live: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Card 1207 (wall-ui shape): n live doings and the newest DOINGS_CAP of them."""
     from agent_coord.lib.observe import heartbeat_flags
     from agent_coord.server.push import desk_sitting
-    from agent_coord.server.records.doing import TASK_CAP
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
     # Card 985: a live /ws counts as alive even when seat.updated is old.
     alive, stale = heartbeat_flags(hb, sitting=desk_sitting(who))
-    text = str(r.get("text") or "")
-    on = _item(r.get("on_type"), r.get("on_id"))
-    ended = r.get("ended_at") is not None
     out: dict[str, Any] = {"owner": who, "heartbeat": hb, "alive": alive, "stale": stale}
     if roster:
         out["project_id"] = roster
-    if text and not ended:
-        # 0.8.0 wall read contract: every doing entry carries its act (a focus row here).
-        out.update({"doing": text, "on": on, "age": _age(r.get("age_s")), "act": str(r.get("act") or "focus")})
-        head = f'{who}: doing "{text}"' + (f" on {on}" if on else "") + f" ({out['age']})"
-        # #822: what this entry is blocked on (fields on its own doing row).
-        wait = _waiting_view(r.get("waiting_type"), r.get("waiting_id"), r.get("waiting_name"), r.get("waiting_why"))
-        if wait:
-            out["waiting_on"] = wait
-            target = wait["on"][5:] if wait["on"].startswith("desk-") else wait["on"]
-            head += f", waiting on {target}" + (f" ({wait['why']})" if wait["why"] else "")
-    else:
-        out["doing"] = ""
-        if ended and r.get("now") is not None:
-            out["idle"] = _age((r["now"] - r["ended_at"]).total_seconds())
-        elif r.get("age_s") is not None:
-            out["idle"] = _age(r.get("age_s"))
-        last_text = str(r.get("last_text") or "")
-        if last_text:
-            out["last"] = {"doing": last_text, "on": _item(r.get("last_on_type"), r.get("last_on_id")),
-                           "age": _age(r.get("last_age_s")), "ended_by": r.get("ended_by"),
-                           "act": str(r.get("act") or "focus")}
-        head = f"{who}: idle" + (f" {out['idle']}" if out.get("idle") else "")
-        if last_text:
-            head += f' (last: "{last_text}"' + (f" on {out['last']['on']}" if out["last"]["on"] else "") + ")"
-    letters = [
-        {"id": f"mail-{int(x['id'])}", "from": _stored(x.get("sender") or ""), "age": _age(x.get("age_s")),
-         "asked": bool(x.get("asked"))}  # #820: always true here, a copy never waits
-        for x in by["letter"]
-    ]
-    cards = [
-        {"id": f"todo-{int(x['id'])}", "need": str(x.get("need") or ""), "roster": _stored(x.get("roster") or ""),
-         "watchers": [w for w in str(x.get("watchers") or "").split(",") if w], "age": _age(x.get("age_s")),
-         # #821: when it was claimed, office clock, like the history's at
-         "claimed_at": str(x["claimed_at"])[:19] if x.get("claimed_at") is not None else None}
-        for x in by["card"]
-    ]
-    # #822: desks whose current doing is blocked on this one (a read of their rows).
-    blocked = [
-        {"desk": _stored(x.get("waiter") or ""), "age": _age(x.get("age_s")),
-         **(_waiting_view(x.get("waiting_type"), x.get("waiting_id"), who, x.get("waiting_why")) or {})}
-        for x in by.get("blocked", [])
-    ]
-    n_letters = int(by["letter"][0].get("n") or 0) if by["letter"] else 0
-    n_cards = int(by["card"][0].get("n") or 0) if by["card"] else 0
-    n_blocked = int(by["blocked"][0].get("n") or 0) if by.get("blocked") else 0
-    tasks = []
-    for task in by.get("task", []):
-        if task.get("state") not in ("idle", "active", "waiting"):
-            continue
-        item = {"state": task["state"]}
-        if task.get("join_key"):
-            item["join_key"] = task["join_key"]
-        cause = task.get("cause")
-        if task["state"] == "waiting" and isinstance(cause, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,31}", cause):
-            item["waiting_on"] = cause
-        if task.get("card_id") is not None:
-            item["card"] = _item("todo", task["card_id"])
-        tasks.append(item)
-        if len(tasks) == TASK_CAP:
-            break
-    out["tasks"] = tasks
-    out["waiting_on_it"] = {
-        "letters": {"n": n_letters, "newest": letters},
-        "cards": {"n": n_cards, "newest": cards},
-        "desks": {"n": n_blocked, "newest": blocked},
-    }
-    bits = []
-    if n_letters:
-        x = letters[0]
-        bits.append(f"{n_letters} unanswered letter{'s' if n_letters != 1 else ''} (newest {x['id']} from {x['from']}, {x['age']})")
-    if n_cards:
-        x = cards[0]
-        bits.append(f"{n_cards} watched card{'s' if n_cards != 1 else ''} it claimed (newest {x['id']} {x['need']}, {x['age']})")
-    if n_blocked:
-        x = blocked[0]
-        bits.append(f"{n_blocked} desk{'s' if n_blocked != 1 else ''} blocked on it (newest {x['desk']} on {x['on']}, {x['age']})")
-    out["line"] = head + ". Waiting on it: " + ("; ".join(bits) if bits else "nothing") + "."
+    live = live or {"n": 0, "doings": []}
+    out["n"] = int(live.get("n") or 0)
+    out["doings"] = list(live.get("doings") or [])
     return out
 
 
@@ -885,25 +790,25 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
         block["next"] = f"--page {page + 1}"
     entries = []
     for r in rows:
-        # Whichever came first: its own event (reply, pass or done, drop),
-        # clock-out or reset (cleared), or a newer --doing.
-        ends = [(r.get("ended_at"), "finished"), (r.get("cleared_at"), "cleared"), (r.get("replaced_at"), "newer")]
-        hit = [(at, by) for at, by in ends if at is not None]
-        how = min(hit, key=lambda x: x[0])[1] if hit else None
+        # Card 1207: a doing entry is a tw run (src doing); it ended at its terminal transition (finished,
+        # failed, stale or cleared). A move on an item's trail is a transition row (src transition) with its
+        # act; the card's evidence (todo.meta.evidence) rides on its newest ship or done move.
+        src = str(r.get("src") or "doing")
+        how = r.get("ended_by") if src == "doing" else None
         entry = {
             "id": int(r["id"]),
+            "src": src,
             "desk": _stored(r.get("desk") or ""),
             "at": str(r.get("created") or "")[:19],
-            "doing": str(r.get("text") or ""),
+            "text": str(r.get("text") or ""),
             "on": _item(r.get("on_type"), r.get("on_id")),
-            "act": str(r.get("act") or "focus"),
             "roster": _stored(r.get("roster") or ""),
-            "ended": how is not None,
-            "ended_by": how,
-            **({"waiting_on": w} if (w := _waiting_view(r.get("waiting_type"), r.get("waiting_id"),
-                                                        r.get("waiting_name"), r.get("waiting_why"))) else {}),
         }
-        # 0.8.0 Wall (letter 3227): move rows carry doing.evidence on the card trail.
+        if src == "transition":
+            entry["act"] = str(r.get("act") or "")
+        else:
+            entry["ended"] = how is not None
+            entry["ended_by"] = how
         if r.get("evidence"):
             entry["evidence"] = str(r["evidence"])
         entries.append(entry)
@@ -930,203 +835,27 @@ def _doing_page(raw: Any) -> int:
     if not 1 <= n <= DOING_PAGE_MAX:
         raise CoordError(f"connected --page: N is 1 to {DOING_PAGE_MAX}")
     return n
-# #818 PR B: commands whose --doing writes a doing entry on the item they wrote.
-DOING_COMMANDS = frozenset(
-    {"send", "reply", "mark", "open", "claim", "unclaim", "assign", "pass", "todo", "unpark", "hold", "drop", "score"}
-)
 
 
-def _doing_text(command: str, body: dict[str, Any]) -> str:
-    """The --doing text this call carries, checked before the command runs.
-    A --waiting-on (#822) is checked here too, so a bad one runs nothing."""
-    raw = body.get("doing") if command in DOING_COMMANDS else None
-    text = " ".join(str(raw).replace("\x00", "").split()) if raw is not None else ""
-    if command == "todo" and text and not _has_card_field(body):
-        # Card 1125: a doing rides only a card-field write, never a board read.
-        raise CoordError("todo: --doing goes with --eta, --started, --progress or --done-when; nothing was changed")
-    if len(text) > 512:
-        raise CoordError(f"{command}: --doing must be 1..512 characters; nothing stored")
-    _doing_waiting(command, body, text)
-    return text
+# Card 1207 (the owner, 2026-11-13): a command changes only its own type, and doing is written only by tw.
+# The --doing and --waiting-on keys are gone; a body that still carries one is refused before anything runs.
+_GONE_DOING_KEYS = ("doing", "waiting_on")
 
 
-_WAIT_ITEM = re.compile(r"^(mail|todo|hold)-(\d{1,19})$")
-
-
-def _doing_waiting(command: str, body: dict[str, Any], text: str) -> tuple[str, str, str] | None:
-    """#822 --waiting-on "WHAT [WHY]": what this doing is blocked on. WHAT is a
-    desk, mail-ID, todo-ID or hold-ID; the rest is the reason. None when absent."""
-    raw = " ".join(str(body.get("waiting_on") or "").replace("\x00", "").split())
-    if not raw:
-        return None
-    if command not in DOING_COMMANDS or not text:
-        raise CoordError(f"{command}: --waiting-on goes with --doing; nothing was changed")
-    what, _, why = raw.partition(" ")
-    if len(why) > 200:
-        raise CoordError(f"{command}: --waiting-on reason must be 0..200 characters; nothing was changed")
-    hit = _WAIT_ITEM.match(what.lower())
-    if hit:
-        return (hit.group(1), hit.group(2), why)
-    if len(what) > 64:
-        raise CoordError(f"{command} --doing refused: --waiting-on names no desk or item; nothing was changed")
-    return ("desk", what, why)
-
-
-def _waiting_view(typ: Any, nid: Any, name: Any, why: Any) -> dict[str, Any] | None:
-    """{on, why} of a blocked-on: on is desk-NAME or TYPE-ID."""
-    if not typ or nid is None:
-        return None
-    on = f"desk-{_stored(name or '')}" if typ == "desk" else f"{typ}-{int(nid)}"
-    return {"on": on, "why": str(why or "")}
-
-
-def _first_need(raw: Any) -> str:
-    return slug(str(raw or "").split(",")[0].strip())
-
-
-def _doing_item(c: Book, command: str, body: dict[str, Any], out: Any, project: str) -> tuple[str, int] | None:
-    """(type, id) of the item this command wrote, or None."""
-    res = out if isinstance(out, dict) else {}
-    if command == "send":
-        return ("mail", int(res["id"])) if res.get("id") else None
-    if command == "reply":
-        mid = int(body.get("mail_id") or body.get("id") or body.get("parent_id") or 0)
-        return ("mail", mid) if mid else None
-    if command == "mark":
-        ids = res.get("ids") or []
-        return ("mail", int(ids[0])) if ids else None
-    if command in ("open", "claim", "unclaim", "assign", "pass", "todo", "unpark"):
-        if command == "open" and res.get("id"):
-            return ("todo", int(res["id"]))
-        from agent_coord.server.records import todo as rec_todo
-
-        hit = rec_todo.find(c._cn, project, _first_need(body.get("need")))
-        return ("todo", int(hit["id"])) if hit else None
-    if command in ("hold", "drop"):
-        if command == "hold" and not res.get("held"):
-            return None
-        if res.get("id"):
-            return ("hold", int(res["id"]))
-        from agent_coord.helpers.bounds import resource_name
-        from agent_coord.server.records import hold as rec_hold
-
-        got = rec_hold.peek(c._cn, _stored(project), resource_name(str(body.get("resource") or "")))
-        return ("hold", int(got["id"])) if got.get("id") else None
-    if command == "score":
-        return ("score", int(res["id"])) if res.get("id") and not res.get("retired") else None
-    return None
-
-
-def _doing_finish(c: Book, command: str, body: dict[str, Any], out: Any, owner: str) -> None:
-    """A pass (ship) or pass --done of a card, or a drop that frees a hold, without
-    --doing ends the desk's own doing on that item. pass --back ends nothing.
-    The command already stands; a failure here is logged."""
-    from agent_coord.server.records import doing as rec_doing
-
-    res = out if isinstance(out, dict) else {}
-    if command == "pass":
-        if str(body.get("step") or "ship").strip().lower() not in ("ship", "done"):
-            return
-        on_type = "todo"
-        rows = res.get("results") if isinstance(res.get("results"), list) else [res]
-        ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("ok") and r.get("id")]
-    elif command == "drop":
-        on_type = "hold"
-        ids = [res.get("id")] if res.get("released") and res.get("id") else []
-    else:
+def _refuse_gone_doing_keys(command: str, body: dict[str, Any]) -> None:
+    if command in ("join", "invite-seat"):
         return
-    for nid in ids:
-        try:
-            rec_doing.finish(c._cn, _stored(owner), on_type, int(nid))
-        except Exception as e:
-            try:
-                c._cn.rollback()
-            except Exception:
-                pass
-            _log.warning("%s: doing finish not recorded for %s-%s: %s", command, on_type, nid, type(e).__name__)
+    for key in _GONE_DOING_KEYS:
+        raw = body.get(key)
+        if raw is not None and str(raw).strip():
+            flag = "--" + key.replace("_", "-")
+            raise CoordError(f"{command}: {flag} is gone (card 1207: doing is written only by tw); nothing was changed")
 
 
-def _doing_after(c: Book, command: str, body: dict[str, Any], out: Any, project: str, owner: str | None, text: str) -> Any:
-    """The doing side of a command, inside the request that ran it.
-
-    Without --doing, a pass or drop may write its finish row (_doing_finish).
-    With --doing this runs inside _run_command's transaction: any refusal raises,
-    and the command rolls back with its doing row (#818).
-    """
-    if not owner:
-        return out
-    if not text:
-        if command in ("pass", "drop"):
-            _doing_finish(c, command, body, out, owner)
-        return out
-    from agent_coord.server.records import doing as rec_doing
-
-    res = out if isinstance(out, dict) else {}
-    rows = res.get("results") if isinstance(res.get("results"), list) else []
-    bad = [r for r in rows if isinstance(r, dict) and r.get("ok") is False]
-    if bad:
-        # A list command with --doing is all or nothing.
-        b = bad[0]
-        raise CoordError(f"{b.get('need') or 'an item'}: {str(b.get('error') or 'refused')[:160]}")
-    item = _doing_item(c, command, body, out, project)
-    if item is None:
-        raise CoordError("no item was written, so no doing can be recorded")
-    from agent_coord.server.records.db import retryable_db
-
-    waiting = _doing_waiting(command, body, text)
-    try:
-        got = rec_doing.put(c._cn, _stored(owner), text, item[0], item[1], waiting)
-    except CoordError:
-        raise
-    except Exception as e:
-        if retryable_db(e):
-            raise  # a deadlock, lock wait or dropped connection: request_tx runs it again
-        raise CoordError(_sql_refusal(e) or "the doing could not be stored") from e
-    if isinstance(out, dict):
-        out = dict(out)
-        out["doing_entry"] = {"id": int(got.get("id") or 0), "on": f"{item[0]}-{item[1]}"}
-        if waiting:
-            w_on = f"desk-{_stored(waiting[1])}" if waiting[0] == "desk" else f"{waiting[0]}-{int(waiting[1])}"
-            out["doing_entry"]["waiting_on"] = {"on": w_on, "why": waiting[2]}
-    if got.get("id"):
-        _poke(c, "doing", got.get("id"), "doing", owner=owner)  # waits for the commit
-    return out
-
-
-def _run_command(c: Book, fn: Any, command: str, body: dict[str, Any], project: str, owner: str | None, text: str) -> Any:
-    """Run a handler and its doing side.
-
-    With --doing (#818) the command and its doing row are one transaction: both
-    commit, or a refusal of either rolls both back and nothing is written; its
-    pokes, letters and webhooks go out only after the commit. A deadlock, lock
-    wait or dropped connection runs the whole request once more (request_tx);
-    if that fails too the reply is the same "--doing refused ... nothing was
-    changed".
-    """
-    if not (owner and text):
-        out = fn(c, body, project, owner)
-        return _doing_after(c, command, body, out, project, owner, text)
-    from agent_coord.server.records.db import RequestRolledBack, request_tx
-
-    def run() -> Any:
-        out = fn(c, body, project, owner)
-        return _doing_after(c, command, body, out, project, owner, text)
-
-    from agent_coord.server.records.db import TRANSIENT_ERRNO, retryable_db, transient_errno
-
-    try:
-        return request_tx(c._cn, run)
-    except RequestRolledBack as e:
-        errno = transient_errno(e.cause)
-        if errno is not None:
-            msg = f"the book was busy ({TRANSIENT_ERRNO[errno]} {errno}) twice; try again"
-        elif retryable_db(e.cause):
-            msg = "the book connection failed twice; try again"
-        else:
-            msg = _sql_refusal(e.cause) or str(e.cause).split(":", 1)[-1].strip() or type(e.cause).__name__
-        raise CoordError(f"{command} --doing refused: {msg[:160]}; nothing was changed") from e
-    except CoordError as e:
-        raise CoordError(f"{command} --doing refused: {e}; nothing was changed", sync=getattr(e, "sync", None)) from e
+def _run_command(c: Book, fn: Any, command: str, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    """Run a handler (card 1207: no doing side)."""
+    _refuse_gone_doing_keys(command, body)
+    return fn(c, body, project, owner)
 
 
 def _h_project(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -1229,6 +958,8 @@ def _h_member(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
 
     command = canonical_command(str(body.get("verb") or ""))
     if command == "member":
+        if body.get("all"):
+            return rec_member.list_rosters(c._cn)
         return rec_member.select(c._cn, "", owner or "")
     group = str(body.get("group") or "")
     if not group:
@@ -1494,7 +1225,7 @@ def _h_reset(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     # Card 881: capture hold ids before release so watchers get a drop-shaped hint.
     desk = _stored(who)
     freed = [int(r["id"]) for r in (rec_hold.find(c._cn, desk=desk, held=True) or []) if r.get("id")]
-    rows = rec_join.reset(c._cn, _stored(project), desk)
+    rows = rec_join.reset(c._cn, _stored(project), desk, by=_stored(owner) if owner else None)
     # #892: drop the in-memory wake lease so the next holder is not coalesced.
     wake.gate_clear(desk, cn=c._cn)
     _poke_freed_holds(c, freed, owner=owner)
@@ -2476,13 +2207,29 @@ def _h_assign(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
         c._cn, int(hit["id"]), _stored(owner or ""), status="claimed", volunteer=_stored(desk)
     )
     rec = {"ok": True, "need_id": need, "id": int(hit["id"]), "status": "claimed", "volunteer": desk}
+    # Card 1207: the assign is transition T5 (the doing move row is gone).
+    try:
+        from agent_coord.server import todo_activity as ta
+
+        did = int(ta.desk_id_for(c._cn, owner) or 0)
+        assignee = int(ta.desk_id_for(c._cn, desk) or 0)
+        if rec["id"] > 0 and did > 0:
+            ta.emit_assign(
+                c._cn,
+                todo_id=int(rec["id"]),
+                desk_id=did,
+                assignee_id=assignee,
+                fixture=ta.roster_excluded(project),
+            )
+    except Exception:
+        pass
     _poke(c, "todo", rec["id"], "assign", owner=owner)
     return rec
 
 
 # Card 867: a card guard runs in its SP, in the transaction that moves the card,
 # under the card's row lock. The SP's 45000 text is the refusal the desk reads.
-EVIDENCE_MAX = 2000
+# Card 1207 (the owner, 2026-11-13): evidence is todo.meta.evidence, a JSON key, and is not capped.
 DONE_WHEN_MAX = 1000
 
 
@@ -2702,7 +2449,6 @@ def _h_open(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     from agent_coord.server.records import todo as rec_todo
 
     need = slug(str(body.get("need") or body.get("title") or ""))
-    # #818: --doing on create is the desk's doing (written after the call), not card text.
     # #188: same rule as an oversize note. Refuse. Do not keep a silent prefix.
     import json
 
@@ -2914,10 +2660,6 @@ def _h_pass(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     if step not in ("ship", "done", "back"):
         raise CoordError("pass: step is ship, done or back")
     evidence = str(body.get("evidence") or "").strip()
-    if len(evidence) > EVIDENCE_MAX:
-        raise CoordError(
-            "pass: evidence would be %s chars (max %s); refused, nothing changed" % (len(evidence), EVIDENCE_MAX)
-        )
     return _each_need(body.get("need"), lambda n: _pass_one(c, n, step, project, owner, evidence))
 
 
@@ -3178,27 +2920,28 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     key = resource_name(str(body.get("resource") or ""))
     out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
     if out.get("released"):
-        try:
-            from agent_coord.server import hold_activity as ha
-
-            hid = int(out.get("id") or 0)
-            actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
-            was = str(out.get("was_owner") or "").strip()
-            holder_id = int(ha.desk_id_for(c._cn, was) or 0)
-            if hid > 0 and holder_id > 0:
-                if was and owner and was == str(owner).strip():
-                    ha.emit_drop(c._cn, hold_id=hid, desk_id=holder_id)
-                else:
-                    ha.emit_force(
-                        c._cn,
-                        hold_id=hid,
-                        desk_id=holder_id,
-                        by_desk_id=actor_id or None,
-                    )
-        except Exception:
-            pass
+        emit_hold_release(c._cn, out, owner)
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
     return out
+
+
+def emit_hold_release(cn, out: dict[str, Any], owner: str | None) -> None:
+    """H4 (the holder drops) or H5 (another desk forces; meta.by) after a released drop. Card 1207: the
+    transition row is the hold's only move record (no doing row). Soft-fail, as every emitter."""
+    try:
+        from agent_coord.server import hold_activity as ha
+
+        hid = int(out.get("id") or 0)
+        actor_id = int(ha.desk_id_for(cn, owner) or 0)
+        was = str(out.get("was_owner") or "").strip()
+        holder_id = int(ha.desk_id_for(cn, was) or 0)
+        if hid > 0 and holder_id > 0:
+            if was and owner and was == str(owner).strip():
+                ha.emit_drop(cn, hold_id=hid, desk_id=holder_id)
+            else:
+                ha.emit_force(cn, hold_id=hid, desk_id=holder_id, by_desk_id=actor_id or None)
+    except Exception:
+        pass
 
 
 def _hold_list(c: Book, project: str) -> Any:
@@ -3842,7 +3585,6 @@ def _h_invite_seat(c: Book, body: dict[str, Any], project: str, owner: str | Non
         desk=desk,
         project=proj,
         created_by=owner or "",
-        doing=str(body.get("doing") or "invited")[:64],
     )
 
 
@@ -3875,11 +3617,16 @@ def _h_invite(c: Book, body: dict[str, Any], project: str, owner: str | None) ->
     return door_mod.board_packet()
 
 
-def _note_doing(c: Book, project: str, owner: str | None, command: str) -> None:
-    """A command that writes nothing else bumps the seat; doing stays the desk's (#635)."""
-    from agent_coord.server.records.doing_stack import BUMP_COMMANDS
+# Commands that write nothing else: each bumps the seat (seat.updated) instead (#635).
+SEAT_BUMP_COMMANDS = frozenset(
+    {"todo", "session", "mail-thread", "trail", "member", "trust", "invite", "move", "prune", "detach",
+     "label-remove", "add", "remove"}
+)
 
-    if command not in BUMP_COMMANDS or not owner:
+
+def _note_doing(c: Book, project: str, owner: str | None, command: str) -> None:
+    """A command that writes nothing else bumps the seat (#635). Card 1207: it never writes doing."""
+    if command not in SEAT_BUMP_COMMANDS or not owner:
         return
     try:
         from agent_coord.server.records import join as rec_join
@@ -4621,9 +4368,8 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
 
     if command in WRITE_COMMANDS or canonical_command(command) in WRITE_COMMANDS:
         scrub_request_body(body)
-    doing_text = _doing_text(command, body)
     try:
-        out = _run_command(c, fn, command, body, project, owner, doing_text)
+        out = _run_command(c, fn, command, body, project, owner)
         try:
             from agent_coord.server import wake_first
 
@@ -4801,8 +4547,7 @@ def dispatch_ws(
         else:
             owns_id = True
     try:
-        doing_text = _doing_text(v, body)
-        out = _run_command(c, fn, v, body, project, owner, doing_text)
+        out = _run_command(c, fn, v, body, project, owner)
         try:
             from agent_coord.server import wake_first
 

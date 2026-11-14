@@ -449,12 +449,10 @@
   function scoreImpactCtxFromRoutes(bodies, nowMs) {
     var ctx = {};
     var all = routeRows(bodies && bodies.activityAll);
-    var task = routeRows(bodies && bodies.activityTask);
-    if (all || task) {
+    if (all) {
+      /* Card 1207: every doing row is a tw run, so the all-type read covers doing (no act=task read). */
       ctx.activity = {};
-      if (all) ACT_TYPES.forEach(function (type) { ctx.activity[type] = hourBuckets(all, nowMs, type, ""); });
-      if (task) ctx.activity.doing = hourBuckets(task, nowMs, "doing", "task");
-      else delete ctx.activity.doing; /* doing items are task-only; all-type doing rows do not stand in */
+      ACT_TYPES.forEach(function (type) { ctx.activity[type] = hourBuckets(all, nowMs, type, ""); });
     }
     var runs = routeRows(bodies && bodies.runs);
     if (runs) ctx.runs = runs;
@@ -507,10 +505,9 @@
     var since = "&since=" + encodeURIComponent(midnightIso());
     Promise.all([
       getAll("/api/v1/activity-buckets?" + q + "&bucket=hour" + since),
-      getAll("/api/v1/activity-buckets?" + q + "&bucket=hour&type=doing&act=task" + since),
       getAll("/api/v1/score-runs?" + q)
     ]).then(function (got) {
-      _liveCtx = scoreImpactCtxFromRoutes({ activityAll: got[0], activityTask: got[1], runs: got[2], transitions: glanceTransitions() });
+      _liveCtx = scoreImpactCtxFromRoutes({ activityAll: got[0], runs: got[1], transitions: glanceTransitions() });
       _liveBusy = false;
       paintScoreImpact();
     }, function () { _liveBusy = false; });
