@@ -189,14 +189,14 @@ def test_no_name_event_anywhere_in_the_book(book):
 
 
 # The owner (2026-10-25): a name kind gets its own table only if the thing has its own data. A roster has none, so
-# there is no roster table and the seven roster columns reference name (id), with main's constraint names (F167).
+# there is no roster table and the roster columns reference name (id), with main's constraint names (F167).
+# A score has no roster column (card 1214).
 ROSTER_FKS = {
     ("member", "fk_member_name", "name_id"): "RESTRICT",
     ("activity", "fk_activity_roster", "roster_id"): "RESTRICT",
     ("mail", "fk_mail_roster", "roster_id"): "RESTRICT",
     ("todo", "fk_todo_roster", "roster_id"): "RESTRICT",
     ("doing", "fk_doing_roster", "roster_id"): "RESTRICT",
-    ("score", "fk_score_roster", "roster_id"): "RESTRICT",
     ("human_member", "fk_human_member_name", "name_id"): "CASCADE",
 }
 
@@ -226,7 +226,6 @@ KIND_FKS = {
     ("mail", "fk_mail_roster"): ("roster_id", "roster", "RESTRICT"),
     ("todo", "fk_todo_roster"): ("roster_id", "roster", "RESTRICT"),
     ("doing", "fk_doing_roster"): ("roster_id", "roster", "RESTRICT"),
-    ("score", "fk_score_roster"): ("roster_id", "roster", "RESTRICT"),
     ("tree", "fk_tree_name"): ("name_id", "tree", "RESTRICT"),
     ("tree_read", "fk_tree_read_tree"): ("tree_id", "tree", "RESTRICT"),
     ("label", "fk_label_name"): ("name_id", "label", "RESTRICT"),
