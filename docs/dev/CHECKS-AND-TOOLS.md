@@ -93,6 +93,7 @@ desk.
 
 These are the GitHub check names to review when looking at flakes,
 duplicates, validity, and jobs that must run together rather than be split.
+What each job runs and why: [PIPELINE.md](PIPELINE.md).
 
 | Check | Role |
 | :--- | :--- |

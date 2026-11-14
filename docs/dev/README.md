@@ -15,6 +15,7 @@ Office / customer desks do **not** load this folder. They use:
 | [RELEASE-FLOW.md](RELEASE-FLOW.md) | How cards reach main, ship GO, and who merges |
 | [CONTRIBUTING-PR.md](CONTRIBUTING-PR.md) | PR shape, partner review, Validator gate |
 | [BUILD.md](BUILD.md) | Pack, pipeline, PyPI, mill update |
+| [PIPELINE.md](PIPELINE.md) | Every CI job: trigger, scripts, why it exists; why the name-token check flags ordinary words |
 | [PROBE-DELETED-ROWS.md](PROBE-DELETED-ROWS.md) | Test-only probe that makes deleted todo and score rows live (#160) |
 | [FAILURE-CLASSES.md](FAILURE-CLASSES.md) | Auditor coverage list: who checks which failure class (card 913) |
 | [CHECKS-AND-TOOLS.md](CHECKS-AND-TOOLS.md) | Map of protocol, code, process, CI, hygiene, and field checks (where each lives, and what is still only a card) |
