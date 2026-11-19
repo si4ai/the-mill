@@ -1529,7 +1529,7 @@ def _build_parser() -> MillArgumentParser:
     se = sub.add_parser(
         "connected",
         help="mill connected [ROSTER] [--who DESK] [--limit N]: each desk's live doings (tw runs) "
-        "and n, their count; --history lists past tw runs",
+        "and n, their count; --history lists past tw runs; --run WATCH_ID lists one run and its descendants",
     )
     se.add_argument(
         "project", nargs="?", default="", metavar="ROSTER",
@@ -1540,6 +1540,10 @@ def _build_parser() -> MillArgumentParser:
     se.add_argument("--history", action="store_true", help="past doings (tw runs), newest first, 50 a page")
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
     se.add_argument("--page", type=int, default=0, help="with --history: page N")
+    se.add_argument(
+        "--run", default="", metavar="WATCH_ID",
+        help="one tw run and its descendants: start, end, exit code and each mill call they made",
+    )
     se.add_argument(
         "--limit",
         type=int,

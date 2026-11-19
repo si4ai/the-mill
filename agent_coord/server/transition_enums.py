@@ -119,6 +119,7 @@ class Reason(str, Enum):
     tw_finished = "tw_finished"
     tw_failed = "tw_failed"
     tw_stale = "tw_stale"
+    tw_call = "tw_call"
     wait_cycle = "wait_cycle"
     hold_grant = "hold_grant"
     hold_refresh = "hold_refresh"
@@ -277,6 +278,8 @@ ALLOWED_TRANSITIONS: frozenset[tuple[ActivityType, State, State, Reason]] = froz
         (ActivityType.doing, State.waiting, State.stale, Reason.tw_stale),  # Tsk6b
         (ActivityType.doing, State.any, State.cleared, Reason.clear),  # Tsk7
         (ActivityType.doing, State.waiting, State.waiting, Reason.wait_cycle),  # Tsk8
+        (ActivityType.doing, State.active, State.active, Reason.tw_call),  # Tsk9a
+        (ActivityType.doing, State.waiting, State.waiting, Reason.tw_call),  # Tsk9b
         (ActivityType.hold, State.no_row, State.held, Reason.hold_grant),  # H1
         (ActivityType.hold, State.free, State.held, Reason.hold_grant),  # H2
         (ActivityType.hold, State.held, State.held, Reason.hold_refresh),  # H3

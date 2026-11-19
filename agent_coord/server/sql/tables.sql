@@ -499,6 +499,7 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('doing','active','finished','finish_pass'),
   ('doing','active','finished','finish_reply'),
   ('doing','active','finished','tw_finished'),
+  ('doing','active','active','tw_call'),
   ('doing','active','stale','tw_stale'),
   ('doing','active','waiting','doing_wait'),
   ('doing','active','waiting','tw_wait'),
@@ -515,6 +516,7 @@ INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason)
   ('doing','waiting','stale','tw_stale');
 INSERT IGNORE INTO transition_edge (activity_type, from_state, to_state, reason) VALUES
   ('doing','waiting','waiting','wait_cycle'),
+  ('doing','waiting','waiting','tw_call'),
   ('hold','any','refused','hold_refuse'),
   ('hold','any','same','hold_peek'),
   ('hold','free','held','hold_grant'),

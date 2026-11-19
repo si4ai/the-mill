@@ -696,6 +696,8 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     --limit N (card 647) is the wire key connected_limit: at most N live desks,
     newest heartbeat first. A body that only carries limit (a released client)
     is not capped and is not refused on --history.
+    --run WATCH_ID (card 1223) lists that run of this desk (or of --who DESK) and
+    its descendants' mill calls.
     """
     from agent_coord.server.records import doing as rec_doing
 
@@ -710,6 +712,12 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
         _require_live_project(c._cn, roster, "connected")
     limit = _connected_limit(body)
     page = _doing_page(body.get("page"))
+    run = str(body.get("run") or "").strip()
+    if run:
+        # Card 1223: one run and its descendants' mill calls (start, end, exit code, calls).
+        if body.get("history") or body.get("since") or page or limit is not None or body.get("all") or roster:
+            raise CoordError("connected --run WATCH_ID takes only --who DESK")
+        return rec_doing.run_tree(c._cn, desk or (owner or ""), run)
     if body.get("history"):
         if limit is not None:
             raise CoordError("connected: --limit is for the live list, not --history")
@@ -4476,6 +4484,39 @@ def rpc_abort(desk: str, req_id: str) -> None:
         ev.set()
 
 
+# Card 1223 part B: tw stamps its run's watch id on each call a run's descendant forwards through
+# the per-run endpoint. The session hops (tw.event, tw.reconcile) carry watch ids of their own.
+def _take_run_tag(command: str, body: dict[str, Any]) -> str:
+    if command in SESSION_HOPS or "watch_id" not in body:
+        return ""
+    from agent_coord.server.records import doing as rec_doing
+
+    return rec_doing.call_watch_id(body.pop("watch_id"))
+
+
+def _open_run_call(c: Book, owner: str, wid: str) -> None:
+    """The tagged call's run must be live before the command runs (an ended run or the cap refuses)."""
+    from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records.db import in_request_tx, request_tx
+
+    def run() -> None:
+        rec_doing.open_call(c._cn, owner, wid)
+
+    run() if in_request_tx(c._cn) else request_tx(c._cn, run)
+
+
+def _note_run_call(c: Book, owner: str, wid: str, command: str, exc: BaseException | None = None) -> None:
+    """One tw_call row on the run: the command word and its outcome. A failed record never changes the reply."""
+    from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records.db import request_tx
+
+    err = "" if exc is None else ("refused" if isinstance(exc, CoordError) else "error")
+    try:
+        request_tx(c._cn, lambda: rec_doing.note_call(c._cn, owner, wid, command, exc is None, err))
+    except Exception as e:
+        _log.warning("tw_call not recorded desk=%s cmd=%s err=%s", owner, command, type(e).__name__)
+
+
 def dispatch_ws(
     c: Book,
     desk: str,
@@ -4511,6 +4552,7 @@ def dispatch_ws(
     # verified loopback transport peer, never from the /ws args.
     _strip_server_only(body)
     _refuse_join_type(v, body)
+    run_wid = _take_run_tag(v, body)
     from agent_coord.server.admin.guard import mark_host
 
     if peer and not forwarded:
@@ -4546,8 +4588,15 @@ def dispatch_ws(
             raise CoordError("ws rpc: duplicate request still running")
         else:
             owns_id = True
+    opened = False
     try:
+        if run_wid:
+            _open_run_call(c, owner, run_wid)
+            opened = True
         out = _run_command(c, fn, v, body, project, owner)
+        if opened:
+            opened = False  # noted once: a later error in the bookkeeping below is not a second call
+            _note_run_call(c, owner, run_wid, v)
         try:
             from agent_coord.server import wake_first
 
@@ -4591,7 +4640,9 @@ def dispatch_ws(
         if owns_id:
             rpc_finish(owner, rid, out)
         return out
-    except Exception:
+    except Exception as exc:
+        if opened:
+            _note_run_call(c, owner, run_wid, v, exc)
         if owns_id:
             rpc_abort(owner, rid)
         try:
