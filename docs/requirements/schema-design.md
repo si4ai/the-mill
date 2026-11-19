@@ -70,6 +70,11 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
     A desk's focus list is `seat.focus_label_id`. The label string follows the rank, so it does not
     stay equal to the desk name. `label todo`, `trail --label`, `todo --mine` and the connect focus
     line still address that list by the desk name.
+  - Card 1234 (office human, 2026-11-19). `name` also has a plain KEY `idx_type_name` (`type`, `name`), not
+    unique, for reads of one type's names in name order (all labels, all desks, a nearest-label hint).
+    Uniqueness stays on `idx_name` alone. Existing books get the key from `_ensure_name_type_idx`, right after
+    the card 1163 step (idempotent). `apply_080` leaves a card 1163 book alone, so the `idx_id_type` step in
+    `migrate_080.sql` does not run on an upgraded book, and a fresh and an upgraded book show the same keys.
   - Delete is hard to do: Admin retires (soft, `name.deleted`; a trigger refuses DELETE), the name stays reserved
     while retired, and an Admin reclaim restores the same id.
   - Rename is a plain update; related records follow through the id. Admin renames; a desk may rename itself.
@@ -79,7 +84,7 @@ Related: [admin.md](admin.md) (trust matrix), [BETA-CHANGES.md](beta/BETA-CHANGE
   or humans. UNIQUE (`name`) stops the same string naming two things, the id keeps records attached through a
   rename, and a hard delete would orphan what the name meant. A history table adds nothing to that goal
   (owner decision 2026-10-24). Card 1163 replaces the earlier UNIQUE (`type`, `name`) so a bare name is one row.
-- **Cost.** None beyond main's table and the procedures.
+- **Cost.** None beyond main's table and the procedures, plus the plain `idx_type_name` key (card 1234).
 - **To change it.** The owner's OK; a performance claim also needs a lab result.
 
 ## 5a. Kind tables: only a kind with its own data gets a table
