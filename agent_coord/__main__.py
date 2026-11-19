@@ -1685,6 +1685,7 @@ _NO_SENDER_DESK = {
     "wall-src",
     "invite",
     "local",
+    "status",
     "join",
     "version",
     "route",
