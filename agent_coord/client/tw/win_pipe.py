@@ -10,10 +10,13 @@ from typing import Any, Callable
 
 PIPE_ACCESS_DUPLEX = 0x00000003
 FILE_FLAG_OVERLAPPED = 0x40000000
+FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000
 PIPE_TYPE_BYTE = 0x00000000
 PIPE_READMODE_BYTE = 0x00000000
 PIPE_WAIT = 0x00000000
 PIPE_REJECT_REMOTE_CLIENTS = 0x00000008
+_SDDL_REVISION_1 = 1
+_OWNER_SDDL = "D:P(A;;GA;;;OW)"
 ERROR_PIPE_CONNECTED = 535
 ERROR_BROKEN_PIPE = 109
 ERROR_PIPE_BUSY = 231
@@ -101,6 +104,12 @@ def _bind_kernel32(lib) -> None:
     lib.CloseHandle.restype = wintypes.BOOL
     lib.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
     lib.CancelIoEx.restype = wintypes.BOOL
+    lib.LocalFree.argtypes = [ctypes.c_void_p]
+    lib.LocalFree.restype = ctypes.c_void_p
+    lib.GetNamedPipeClientProcessId.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    lib.GetNamedPipeClientProcessId.restype = wintypes.BOOL
+    lib.GetNamedPipeServerProcessId.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    lib.GetNamedPipeServerProcessId.restype = wintypes.BOOL
 
 
 _kernel32 = _LazyKernel()
@@ -137,11 +146,36 @@ def _blank(ov: _OVERLAPPED, event: int) -> None:
     ov.hEvent = event
 
 
+class _SECURITY_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [
+        ("nLength", wintypes.DWORD),
+        ("lpSecurityDescriptor", ctypes.c_void_p),
+        ("bInheritHandle", wintypes.BOOL),
+    ]
+
+
+def _pipe_process_id(handle: int, *, server: bool) -> int:
+    pid = wintypes.DWORD(0)
+    fn = (
+        _kernel32.GetNamedPipeServerProcessId
+        if server
+        else _kernel32.GetNamedPipeClientProcessId
+    )
+    try:
+        ok = fn(handle, ctypes.byref(pid))
+    except (OSError, AttributeError):
+        return 0
+    if not ok:
+        return 0
+    return int(pid.value)
+
+
 class _PipeIO:
     """One pipe instance. Read waits on data or on cancel(), so a stop can be written."""
 
     def __init__(self, handle: int) -> None:
         self._handle = handle
+        self.peer_pid = 0
         self._read_event = _event()
         self._wake_event = _event()
         self._write_event = _event()
@@ -220,8 +254,60 @@ class _PipeIO:
 class Pipe:
     kind = "pipe"
 
-    def __init__(self, desk: str) -> None:
-        self.address = pipe_name(desk)
+    def __init__(
+        self,
+        desk: str,
+        *,
+        address: str | None = None,
+        owner_only: bool = False,
+        first_instance: bool = False,
+        buffer_size: int = 8192,
+    ) -> None:
+        # Desk link: name from the desk, default DACL, no first-instance flag.
+        # A per-run endpoint passes address, owner_only, and first_instance.
+        self.address = address if address else pipe_name(desk)
+        self.owner_only = bool(owner_only)
+        self.first_instance = bool(first_instance)
+        self.buffer_size = int(buffer_size)
+        self._have_instance = False
+        self._sa: _SECURITY_ATTRIBUTES | None = None
+        self._sd: ctypes.c_void_p | None = None
+
+    def _security_arg(self):
+        if not self.owner_only:
+            return None
+        if self._sa is None:
+            adv = ctypes.WinDLL("advapi32", use_last_error=True)
+            adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+                wintypes.LPCWSTR,
+                wintypes.DWORD,
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.c_void_p,
+            ]
+            adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+            sd = ctypes.c_void_p()
+            ok = adv.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                _OWNER_SDDL, _SDDL_REVISION_1, ctypes.byref(sd), None
+            )
+            if not ok or not sd:
+                raise OSError(ctypes.get_last_error(), "pipe security")
+            sa = _SECURITY_ATTRIBUTES()
+            sa.nLength = ctypes.sizeof(_SECURITY_ATTRIBUTES)
+            sa.lpSecurityDescriptor = sd
+            sa.bInheritHandle = False
+            self._sa = sa
+            self._sd = sd
+        return ctypes.cast(ctypes.pointer(self._sa), ctypes.c_void_p)
+
+    def release_security(self) -> None:
+        sd = self._sd
+        self._sd = None
+        self._sa = None
+        if sd:
+            try:
+                _kernel32.LocalFree(sd)
+            except (OSError, AttributeError):
+                pass
 
     def serve(
         self,
@@ -230,18 +316,22 @@ class Pipe:
         ready: threading.Event,
     ) -> None:
         while not stop.is_set():
+            open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+            if self.first_instance and not self._have_instance:
+                open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE
             handle = _kernel32.CreateNamedPipeW(
                 self.address,
-                PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                open_mode,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 PIPE_UNLIMITED_INSTANCES,
-                8192,
-                8192,
+                self.buffer_size,
+                self.buffer_size,
                 0,
-                None,
+                self._security_arg(),
             )
             if not handle or handle == _INVALID:
                 raise OSError(ctypes.get_last_error(), "pipe")
+            self._have_instance = True
             if not ready.is_set():
                 ready.set()
             if not self._wait_client(handle, stop):
@@ -290,6 +380,7 @@ class Pipe:
 
     def _run_one(self, handle: int, on_conn: Callable[[Any], None]) -> None:
         io = _PipeIO(handle)
+        io.peer_pid = _pipe_process_id(handle, server=False)
         try:
             on_conn(io)
         finally:
@@ -321,3 +412,11 @@ class Pipe:
 
     def cleanup(self) -> None:
         return None
+
+
+def server_pid(fileobj: Any) -> int:
+    """Pid of the process that created the pipe this file is connected to."""
+    import msvcrt
+
+    handle = msvcrt.get_osfhandle(fileobj.fileno())
+    return _pipe_process_id(int(handle), server=True)

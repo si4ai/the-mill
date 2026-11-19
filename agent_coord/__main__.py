@@ -1642,6 +1642,10 @@ def _build_parser() -> MillArgumentParser:
                     help="with the webhook options: wake only for items addressed to this desk (addressed, the default) or for room copies too (all)")
 
     sub.add_parser(
+        "status",
+        help="inside a tw run, print this desk and watch id",
+    )
+    sub.add_parser(
         "local",
         help="list servers on this machine and the local alias for each",
     )
@@ -2179,6 +2183,10 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         )
         if args.cmd == "invite":
             return _invite_cmd(args)
+        if args.cmd == "status":
+            from agent_coord.client.tw.run_ipc import report_status
+
+            return report_status()
         if args.cmd == "local":
             from agent_coord.client.offices import local_servers
 

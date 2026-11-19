@@ -13,6 +13,51 @@ def socket_path(directory: Path, desk: str) -> Path:
     return directory / f"{desk}.tw.sock"
 
 
+def bind_private(path: Path, backlog: int = 64) -> socket.socket:
+    """Owner-only directory, umask before bind, refuse a path that already exists.
+
+    The desk socket stays on Unix.serve (listen 16, unlink then bind). A per-run
+    endpoint uses this so a predictable path cannot be replaced out from under it.
+    """
+    if not hasattr(socket, "AF_UNIX"):
+        raise OSError("no unix socket on this os")
+    target = Path(path)
+    if target.exists():
+        raise OSError("endpoint exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(target.parent, 0o700)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    previous = os.umask(0o077)
+    try:
+        srv.bind(str(target))
+    except OSError:
+        srv.close()
+        raise
+    finally:
+        os.umask(previous)
+    os.chmod(target, 0o600)
+    srv.listen(int(backlog))
+    return srv
+
+
+def peer_pid(conn: socket.socket) -> int:
+    """Pid on the other end of a connected unix socket. 0 when this OS cannot say."""
+    import struct
+    import sys
+
+    try:
+        if sys.platform.startswith("linux"):
+            raw = conn.getsockopt(socket.SOL_SOCKET, 17, 12)
+            pid, _uid, _gid = struct.unpack("iii", raw[:12])
+            return int(pid)
+        if sys.platform == "darwin":
+            raw = conn.getsockopt(0, 0x002, 4)
+            return int(struct.unpack("i", raw[:4])[0])
+    except (OSError, struct.error):
+        return 0
+    return 0
+
+
 class Unix:
     kind = "unix"
 

@@ -754,19 +754,41 @@ def _recipe() -> None:
     print(tw_bridge_hint(), file=sys.stderr)
 
 
+_WATCH_ENV = "MILL_TW_WATCH"
+
+
+def _desk_forward(verb: str, args: dict[str, Any], watch_id: str) -> Any:
+    """Forward from this tw process. It already shares the connect's shell."""
+    from agent_coord.client.ws import mill_ws_call
+
+    body = dict(args)
+    body["verb"] = verb
+    body["watch_id"] = watch_id
+    return mill_ws_call(body, via_run=False)
+
+
 def run_argv(
     desk: str,
     argv: list[str],
     log_path: str | None = None,
     *,
     arm_forward: bool = False,
+    linked: Any = None,
+    watch_id: str | None = None,
+    call_fn: Any = None,
 ) -> int:
     who = _desk(desk)
     _reclaim_lost(who)
     if not argv or any(not isinstance(part, str) or part == "" for part in argv):
         return 2
-    watch_id = "tw-" + uuid.uuid4().hex[:16]
-    session: Any = None
+    if watch_id is None:
+        watch_id = "tw-" + uuid.uuid4().hex[:16]
+    else:
+        watch_id = str(watch_id).strip()
+        if not watch_id:
+            return 2
+    session: Any = linked
+    gate: Any = None
     sink = None
     pumps: list[threading.Thread] = []
     procs: list[Any] = []
@@ -775,21 +797,72 @@ def run_argv(
     job = None
     restore = None
     killed = threading.Event()
+    session_lock = threading.Lock()
     try:
+        if linked is None:
+            try:
+                session = open_session(who)
+            except OSError:
+                _recipe()
+                return 1
+            try:
+                registered = session.request({"type": "register", "key": watch_id, "argv": list(argv)})
+            except OSError:
+                _recipe()
+                return 1
+            if not (isinstance(registered, dict) and registered.get("ok") is True):
+                return 1
+        noted = False
+
+        def _lose() -> None:
+            nonlocal session
+            if session is None:
+                return
+            try:
+                session.close()
+            except OSError:
+                pass
+            session = None
+
+        def _note() -> None:
+            nonlocal noted
+            if noted:
+                return
+            noted = True
+            from agent_coord.client.session_errors import tw_link_lost
+
+            print(tw_link_lost(), file=sys.stderr)
+
+        def _send(body: dict[str, Any]) -> bool:
+            if session is None:
+                _note()
+                return False
+            try:
+                with session_lock:
+                    if session is None:
+                        _note()
+                        return False
+                    reply = session.request(body)
+            except OSError:
+                _lose()
+                _note()
+                return False
+            return isinstance(reply, dict) and reply.get("ok") is True
+
+        from agent_coord.client.tw.run_ipc import RunGate
+
+        gate = RunGate(who, watch_id, call_fn or _desk_forward, _send)
         try:
-            session = open_session(who)
-        except OSError:
-            _recipe()
+            gate.open()
+        except OSError as exc:
+            print("tw: run endpoint failed: %s" % exc, file=sys.stderr)
             return 1
+        env = os.environ.copy()
+        env[_WATCH_ENV] = watch_id
         try:
-            registered = session.request({"type": "register", "key": watch_id, "argv": list(argv)})
-        except OSError:
-            _recipe()
-            return 1
-        if not (isinstance(registered, dict) and registered.get("ok") is True):
-            return 1
-        try:
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(
+                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+            )
         except OSError as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -832,39 +905,6 @@ def run_argv(
         }
         _save(who, runs)
         started = True
-        noted = False
-
-        def _lose() -> None:
-            nonlocal session
-            if session is None:
-                return
-            try:
-                session.close()
-            except OSError:
-                pass
-            session = None
-
-        def _note() -> None:
-            nonlocal noted
-            if noted:
-                return
-            noted = True
-            from agent_coord.client.session_errors import tw_link_lost
-
-            print(tw_link_lost(), file=sys.stderr)
-
-        def _send(body: dict[str, Any]) -> bool:
-            if session is None:
-                _note()
-                return False
-            try:
-                reply = session.request(body)
-            except OSError:
-                _lose()
-                _note()
-                return False
-            return isinstance(reply, dict) and reply.get("ok") is True
-
         start_body = _event_body(watch_id, "start", proc.pid)
         start_body["ts_ms"] = observed_ms
         _send(start_body)
@@ -877,20 +917,18 @@ def run_argv(
             if _flagged(who, watch_id):
                 stopped = True
                 break
-            if session is not None:
+            if session is not None and not getattr(session, "relay", False):
+                msg = None
                 try:
-                    ready = _pending(session._conn)
+                    with session_lock:
+                        ready = _pending(session._conn) if session is not None else False
+                        if ready:
+                            msg = session.read()
                 except OSError:
                     _lose()
                     _note()
-                    ready = False
-                if ready:
-                    try:
-                        msg = session.read()
-                    except OSError:
-                        _lose()
-                        _note()
-                        continue
+                    msg = None
+                if msg is not None:
                     if (
                         isinstance(msg, dict)
                         and msg.get("type") == "stop"
@@ -938,6 +976,8 @@ def run_argv(
         }
         return code
     finally:
+        if gate is not None:
+            gate.begin_exit()
         _end_all(procs)
         for pump in pumps:
             pump.join(1)
@@ -950,6 +990,8 @@ def run_argv(
             _store_finished(who, watch_id, finished)
         elif started:
             _drop(who, watch_id)
+        if gate is not None:
+            gate.close()
         if session is not None:
             try:
                 session.close()

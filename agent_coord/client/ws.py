@@ -1712,7 +1712,9 @@ def start_ws_thread(
     return t
 
 
-def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> Any:
+def mill_ws_call(
+    body: dict[str, Any], *, token: str = "", desk: str = "", via_run: bool = True
+) -> Any:
     """Desk-acting command over the sitting mill connect /ws via localhost bridge.
 
     Requires mill connect (bridge file). Does not open a second /ws (would kick).
@@ -1744,6 +1746,12 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
     req_id = load_retry_id(command, args) or str(uuid.uuid4())
 
     def _once() -> Any:
+        if via_run:
+            from agent_coord.client.tw.run_ipc import try_forward
+
+            forwarded = try_forward(dict(body))
+            if forwarded is not None:
+                return forwarded
         ep = bridge_for_parent()
         if not ep:
             died = dead_connect_for_parent()

@@ -166,6 +166,11 @@ def mill_http_call(body: dict[str, Any]) -> Any:
         # is still in the handshake (#121, #210).
         who = (resolve_desk_owner("") or "").strip()
         if not who:
+            from agent_coord.client.tw.run_ipc import try_forward
+
+            forwarded = try_forward(payload)
+            if forwarded is not None:
+                return forwarded
             who = (wait_for_sitting_desk() or "").strip()
         if who:
             if asked:

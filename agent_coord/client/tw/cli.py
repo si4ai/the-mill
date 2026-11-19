@@ -75,7 +75,30 @@ def main(argv: list[str] | None = None) -> int:
             _recipe()
             return 1
         return _print_running(who, as_json=args == ["--list-json"])
-    who = _sitting()
+    from agent_coord.client.tokens import resolve_desk_owner
+
+    who = (resolve_desk_owner("") or "").strip()
+    if not who:
+        from agent_coord.client.tw.run_ipc import lookup_parent, open_child, relay_call
+
+        parent = lookup_parent()
+        if parent:
+            try:
+                linked, watch_id, desk = open_child(parent, args)
+            except OSError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            return run_argv(
+                desk,
+                args,
+                arm_forward=True,
+                linked=linked,
+                watch_id=watch_id,
+                call_fn=relay_call(parent),
+            )
+        from agent_coord.client.ws import wait_for_sitting_desk
+
+        who = (wait_for_sitting_desk() or "").strip()
     if not who:
         _recipe()
         return 1
