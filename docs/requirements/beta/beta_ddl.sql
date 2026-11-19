@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS name (
   trashed     DATETIME(6)       NULL,  -- card 879: mill delete soft-trash; purge hard-deletes when set
   n           INT UNSIGNED      NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  UNIQUE KEY idx_name (name)   -- card 1163: one name string; type stays; an id change needs @mill_allow_name_id_change (card 1200)
+  UNIQUE KEY idx_name (name),  -- card 1163: one name string; type stays; an id change needs @mill_allow_name_id_change (card 1200)
+  KEY idx_type_name (type, name)  -- card 1234: one type's names in name order (all labels, all desks); not unique
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci AUTO_INCREMENT=100;
 
 INSERT IGNORE INTO name (id, type, name) VALUES
