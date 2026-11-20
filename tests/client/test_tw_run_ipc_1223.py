@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -27,6 +30,7 @@ from agent_coord.client.tw.run_ipc import (
     lookup_parent,
     report_status,
 )
+from agent_coord.client.tw import win_pipe
 from agent_coord.client.tw.unix_sock import bind_private
 from agent_coord.client.tw.win_pipe import Pipe, pipe_name
 from agent_coord.helpers.errors import CoordError
@@ -209,11 +213,28 @@ def test_watch_env_grants_nothing(monkeypatch, tmp_path) -> None:
 def test_desk_pipe_defaults_stay() -> None:
     pipe = Pipe("desk-a")
     assert pipe.address == pipe_name("desk-a")
-    assert pipe.owner_only is False
-    assert pipe.first_instance is False
+    assert pipe.owner_only is True
+    assert pipe.first_instance is True
     assert pipe.buffer_size == 8192
+    pipe_text = Path(win_pipe.__file__).read_text(encoding="utf-8")
+    assert "if self.first_instance and not self._have_instance" in pipe_text
+    assert "FILE_FLAG_FIRST_PIPE_INSTANCE" in pipe_text
     text = Path(run_ipc.__file__).resolve().parents[0].joinpath("unix_sock.py").read_text(encoding="utf-8")
-    assert "srv.listen(16)" in text
+    serve = text.split("def serve(", 1)[1].split("\n    def ", 1)[0]
+    assert "srv.listen(16)" in serve
+    bind = text.split("def _bind_desk(", 1)[1].split("\n    def ", 1)[0]
+    assert "os.umask(0o077)" in bind
+    assert "0o700" in bind
+    assert bind.index("os.umask(0o077)") < bind.index("srv.bind")
+    run_text = Path(run_ipc.__file__).read_text(encoding="utf-8")
+    pipe_open = run_text.split("def _open_pipe(", 1)[1].split("def _serve_pipe(", 1)[0]
+    assert "owner_only=True" in pipe_open
+    assert "first_instance=True" in pipe_open
+    assert "buffer_size=LINE_MAX" in pipe_open
+    unix_open = run_text.split("def _open_unix(", 1)[1].split("def _serve_unix(", 1)[0]
+    assert "bind_private(Path(self.address), LISTEN)" in unix_open
+    assert run_ipc.LINE_MAX == 32768
+    assert run_ipc.LISTEN == 64
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="unix socket")
@@ -305,3 +326,99 @@ class MemConn:
 
     def close(self) -> None:
         return None
+
+
+def _home(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
+    monkeypatch.setattr("agent_coord.client.offices.desk_local_file", lambda *a, **k: None)
+
+
+def test_client_refuses_a_server_pid_that_is_not_the_connect(tmp_path, monkeypatch) -> None:
+    """The desk client sends nothing when the server pid is not the connect."""
+    from agent_coord.client.tw.link import open_session, pointer_path, serve
+
+    _home(monkeypatch, tmp_path)
+    desk = "tw-1232"
+    link = serve(desk)
+    dispatched: list[int] = []
+    try:
+        assert Pipe(desk).address == pipe_name(desk)
+        pid_path = pointer_path(desk).with_name(pointer_path(desk).name + ".pid")
+        assert int(pid_path.read_text(encoding="utf-8").strip()) == os.getpid()
+        pid_path.unlink()
+        session = open_session(desk)
+        try:
+            got = session.request({"type": "register", "key": "tw:ok", "argv": ["true"]})
+            assert got["ok"] is True
+        finally:
+            session.close()
+        assert int(pid_path.read_text(encoding="utf-8").strip()) == os.getpid()
+        pid_path.write_text("1\n", encoding="utf-8")
+        monkeypatch.setattr(link, "_dispatch", lambda *args, **kwargs: dispatched.append(1))
+        with pytest.raises(OSError, match="server pid mismatch") as caught:
+            open_session(desk)
+        assert str(caught.value) == "server pid mismatch"
+        time.sleep(0.1)
+        assert dispatched == []
+        assert pid_path.read_text(encoding="utf-8").strip() == "1"
+    finally:
+        link.close()
+
+
+@pytest.mark.skipif(os.name == "nt" or not hasattr(socket, "AF_UNIX"), reason="unix socket")
+def test_desk_socket_bind_is_owner_only(tmp_path, monkeypatch) -> None:
+    """The umask is set before bind, and a stale socket does not block the next bind."""
+    from agent_coord.client.tw import unix_sock
+    from agent_coord.client.tw.unix_sock import Unix
+
+    directory = tmp_path / "session"
+    directory.mkdir()
+    stale = directory / "desk-a.tw.sock"
+    stale.write_text("stale", encoding="utf-8")
+    os.chmod(stale, 0o666)
+    os.chmod(directory, 0o755)
+    seen: list[int] = []
+    real_chmod = unix_sock.os.chmod
+
+    def _spy(path, mode) -> None:
+        name = os.fspath(path)
+        if str(name).endswith(".tw.sock"):
+            seen.append(os.stat(path).st_mode & 0o777)
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(unix_sock.os, "chmod", _spy)
+    previous = os.umask(0)
+    link = Unix("desk-a", directory)
+    stop = threading.Event()
+    ready = threading.Event()
+    box: dict = {}
+
+    def _run() -> None:
+        try:
+            link.serve(stop, lambda conn: None, ready)
+        except BaseException as exc:
+            box["error"] = exc
+            ready.set()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    assert ready.wait(3)
+    try:
+        assert "error" not in box, box.get("error")
+        mode = os.stat(link.address).st_mode & 0o777
+        assert mode == 0o600
+        assert os.stat(directory).st_mode & 0o777 == 0o700
+        assert stat.S_ISSOCK(os.stat(link.address).st_mode)
+        assert seen
+        assert all(bits & 0o077 == 0 for bits in seen)
+    finally:
+        os.umask(previous)
+        stop.set()
+        try:
+            probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            probe.settimeout(0.5)
+            probe.connect(link.address)
+            probe.close()
+        except OSError:
+            pass
+        thread.join(2)
