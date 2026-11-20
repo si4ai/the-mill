@@ -144,7 +144,7 @@ def _text(v) -> str:
 
 def live_roster(cn, name: str) -> str | None:
     """Stored name of the live roster that matches name, or None. One indexed
-    read (idx_type). The match is the column's (case and accent blind); callers
+    read (idx_name). The match is the column's (case and accent blind); callers
     that need the exact name compare the result (F23)."""
     who = (name or "").strip()
     if not who:

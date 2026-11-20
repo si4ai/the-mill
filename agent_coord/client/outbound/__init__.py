@@ -378,6 +378,9 @@ def body_from_args(args: Any) -> dict[str, Any]:
         val = getattr(args, key)
         if val is None or val == "":
             continue
+        # Repeatable activity --label is a list. Invite keeps the string path.
+        if key == "label" and isinstance(val, (list, tuple)):
+            continue
         body[key] = str(val)
     # Card 1140: a woken run that exported MILL_LEASE (its wake.lease) carries it on
     # every command, so the office renews that lease while the run works.
@@ -576,17 +579,36 @@ def body_from_args(args: Any) -> dict[str, Any]:
         from agent_coord.helpers.label_ord import parse_label_ord
 
         body["ord"] = parse_label_ord(getattr(args, "ord"))
+    raw_labels = getattr(args, "label", None)
+    if isinstance(raw_labels, (list, tuple)):
+        labels: list[str] = []
+        for item in raw_labels:
+            text = str(item or "").strip()
+            if text and text not in labels:
+                labels.append(text)
+        body.pop("label", None)
+        if labels:
+            body["labels"] = labels
+    if bool(getattr(args, "label_any", False)):
+        body["label_any"] = True
     if command == "trail":
         node = str(getattr(args, "node", "") or "").strip()
-        label = str(body.get("label") or getattr(args, "label", "") or "").strip()
-        if label and node:
+        labels = list(body.get("labels") or [])
+        if not labels:
+            legacy = str(body.get("label") or "").strip()
+            labels = [legacy] if legacy else []
+        if labels and node:
             raise CoordError("trail: say a node or --label, not both")
-        if not label and not node:
+        if not labels and not node:
             raise CoordError("trail: give a mail id, a todo id, or --label NAME")
         if node:
             body["node"] = node
-        if label:
-            body["label"] = label
+        if labels:
+            body["labels"] = labels
+            if len(labels) == 1:
+                body["label"] = labels[0]
+            else:
+                body.pop("label", None)
     if command == "watcher" and bool(getattr(args, "remove", False)):
         body["remove"] = True
     if command == "trust":
