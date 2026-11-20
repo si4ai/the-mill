@@ -530,6 +530,8 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     /api/v1/doing takes exactly one of all=1, desk=D or project=R and returns
     the _desk_view list. Card 1193 adds desks=d1,d2 and a comma project=R1,R2
     (either alone, both, or with all=1), and window=1d|7d|30d on the heartbeat.
+    ?run=WATCH_ID&desk=DESK (card 1239) returns that run's tree instead
+    ({runs, n}). run without desk, or with any other selector, is 400.
     /api/v1/doing/history takes desk=D and/or on=ITEM
     (mail-N, todo-N, hold-N, score-N), plus since= and page=, and returns
     {history, page} with ended_by. A refusal is 400 {"error"}.
@@ -550,6 +552,13 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
                 scope = wall_scope.parse_scope(qs)
             except wall_scope.ScopeError as e:
                 return 400, {"error": f"GET /api/v1/doing: {e}"}
+            run_id = one("run")
+            if run_id:
+                if (not desk or every or project or scope.desks is not None
+                        or len(projects) > 1 or scope.since is not None):
+                    return 400, {"error": "GET /api/v1/doing?run= takes ?desk= only"}
+                with _office() as c:
+                    return 200, rpc._h_session(c, {"desk": desk, "run": run_id}, "", None)
             if scope.desks is None and len(projects) <= 1:
                 if int(every) + int(bool(desk)) + int(bool(project)) != 1:
                     return 400, {"error": "GET /api/v1/doing requires one of ?all=1 or ?desk= or ?project= (or ?desks=)"}

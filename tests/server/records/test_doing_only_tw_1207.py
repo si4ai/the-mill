@@ -264,7 +264,7 @@ def test_connected_serves_n_and_doings_only(w):
     for gone in ("doing", "on", "act", "last", "waiting_on", "waiting_on_it", "tasks", "line", "age", "idle"):
         assert gone not in view, gone
     for row in view["doings"]:
-        assert set(row) == {"id", "created", "text", "state", "state_at", "card"}
+        assert set(row) == {"id", "created", "text", "state", "state_at", "card", "watch_id", "parent_watch_id"}
         assert row["created"].endswith("Z") and row["state_at"].endswith("Z")
 
 

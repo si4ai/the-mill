@@ -10,7 +10,7 @@ from tests import sql_book
 
 pytestmark = pytest.mark.sql
 
-ROW = {"id", "created", "text", "state", "state_at", "card"}
+ROW = {"id", "created", "text", "state", "state_at", "card", "watch_id", "parent_watch_id"}
 
 
 @pytest.fixture
@@ -44,6 +44,8 @@ def test_live_runs_newest_first_with_state_and_no_card_link(cn, feed):
     assert [r["id"] for r in view["doings"]] == sorted((r["id"] for r in view["doings"]), reverse=True)
     assert all(r["created"].endswith("Z") and r["state_at"].endswith("Z") for r in view["doings"])
     assert all(r["card"] is None and r["text"] == "" for r in view["doings"])
+    assert {r["watch_id"] for r in view["doings"]} == {"a", "b"}
+    assert all(r["parent_watch_id"] is None for r in view["doings"])
     assert "doing" not in view and "tasks" not in view and "waiting_on_it" not in view
 
 
@@ -67,4 +69,5 @@ def test_list_caps_at_twenty_and_n_is_the_true_count(cn, feed):
     assert views["Validator"]["n"] == 1
     only = views["Validator"]["doings"][0]
     assert only["state"] == "started" and only["state_at"] == only["created"]
+    assert only["watch_id"] is None and only["parent_watch_id"] is None
     assert read()["n"] == 23

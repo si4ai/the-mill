@@ -90,6 +90,27 @@ def test_doing_one_desk_or_one_roster(w, wall):
     assert all(d.get("project_id") == R for d in got)
 
 
+def test_doing_run_returns_that_runs_tree(w, wall, monkeypatch):
+    """Card 1239: ?run=&desk= is the nested-run object. run without desk, or with another selector, is 400."""
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
+    desk = _joined(w, "d1239-" + uuid.uuid4().hex[:4])
+    _tw(w, desk, "root", "start")
+    _tw(w, desk, "child", "start", parent_watch_id="root")
+    code, got = _get(wall, f"/api/v1/doing?run=child&desk={desk}")
+    assert code == 200 and got["n"] == 1, got
+    assert got["runs"][0]["watch_id"] == "child" and got["runs"][0]["parent_watch_id"] == "root"
+    assert "root" not in [r["watch_id"] for r in got["runs"]]
+    code, parent = _get(wall, f"/api/v1/doing?run=root&desk={desk}")
+    assert code == 200 and [r["watch_id"] for r in parent["runs"]] == ["root", "child"]
+    assert parent["n"] == 2 and parent["runs"][1]["parent_watch_id"] == "root"
+    code, missing = _get(wall, "/api/v1/doing?run=child")
+    assert code == 400 and "desk" in missing["error"]
+    code, extra = _get(wall, f"/api/v1/doing?run=child&desk={desk}&all=1")
+    assert code == 400
+    code, gone = _get(wall, f"/api/v1/doing?run=no-such-run&desk={desk}")
+    assert code == 400 and "no tw run" in gone["error"]
+
+
 def test_doing_needs_one_scope_and_refuses_unknowns(wall):
     code, got = _get(wall, "/api/v1/doing")
     assert code == 400 and "all=1" in got["error"]
