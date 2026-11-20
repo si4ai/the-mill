@@ -359,7 +359,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | **`move`** | Move that under that. A card on two plans names those plans and `--tree` picks one. | `mill_tree_move` |
 | **`prune`** | Kill that branch | `mill_tree_prune` |
 | **`detach`** | Take off the plan, keep children | `mill_tree_remove` |
-| **`trail`** | Read only: `mill trail <id> [--json]` (a mail id or todo id) prints the branch under a finding or card, any depth: kind id [state] title, last note, desk, PT time. Done and shipped cards stay in. A last note that starts `dead-end:` or `solved:` shows [DEAD END] / [SOLVED]. Use `mail:N` or `todo:N` when both ids exist. `mill trail --label NAME` lists mail and todo wearing that label, by ord then created; a label nobody has used yet lists 0 rows and says first use creates it (`mill label TYPE ID NAME`), or under limited trust that an Admin makes it with `mill create label NAME` | `mill_tree_subtree` |
+| **`trail`** | Read only: `mill trail <id> [--json]` (a mail id or todo id) prints the branch under a finding or card, any depth: kind id [state] title, last note, desk, PT time. Done and shipped cards stay in. A last note that starts `dead-end:` or `solved:` shows [DEAD END] / [SOLVED]. Use `mail:N` or `todo:N` when both ids exist. `mill trail --label NAME` (repeatable; `--any` keeps one) lists mail and todo wearing every named label, by ord then created. An unknown label warns and does not create one (`mill create label NAME`) | `mill_tree_subtree` |
 
 ### activity
 

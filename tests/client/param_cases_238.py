@@ -52,6 +52,21 @@ BOOK = {
 
 KIND = {
     ("hold", "resource"): "newname",
+    ("hold", "label"): "labels",
+    ("drop", "label"): "labels",
+    ("send", "label"): "labels",
+    ("reply", "label"): "labels",
+    ("mail-thread", "label"): "labels",
+    ("inbox", "label"): "labels",
+    ("connected", "label"): "labels",
+    ("todo", "label"): "labels",
+    ("create todo", "label"): "labels",
+    ("claim", "label"): "labels",
+    ("unclaim", "label"): "labels",
+    ("unpark", "label"): "labels",
+    ("assign", "label"): "labels",
+    ("pass", "label"): "labels",
+    ("score", "label"): "labels",
     ("hold", "group_by"): "enum", ("inbox", "group_by"): "enum", ("todo", "group_by"): "enum",
     ("drop", "resource"): "name",
     ("send", "to_desk"): "name", ("send", "body_file"): "name",
@@ -111,6 +126,9 @@ CASES = {
     "uncapped": ("missing",),
     "json": ("missing", "bad_format", "over_length"),
     "eta": ("missing", "bad_format", "over_length"),
+    # Card 1233: --label is optional and repeatable. A bare flag is a parse refusal.
+    # An unknown name warns and the write still happens, so it is not a refusal case.
+    "labels": ("missing",),
 }
 
 
