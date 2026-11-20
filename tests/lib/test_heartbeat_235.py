@@ -36,6 +36,7 @@ def test_null_heartbeat_on_session_and_floor(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     monkeypatch.setattr(
         "agent_coord.server.records.floor.rec_join.select",
         lambda cn, project: [row],

@@ -76,7 +76,10 @@ def test_doing_all_is_the_connected_view(w, wall, monkeypatch):
     mine = [d for d in got if d["owner"] == ME]
     assert len(mine) == 1
     view = mine[0]
-    assert set(view) == {"owner", "heartbeat", "alive", "stale", "n", "doings"} | ({"project_id"} & set(view))
+    # card 1242: reach (connect | wake | offline) and last_wake ride the same view.
+    assert set(view) == {"owner", "heartbeat", "alive", "stale", "reach", "last_wake", "n", "doings"} | (
+        {"project_id"} & set(view))
+    assert view["reach"] in ("connect", "wake", "offline")
     assert view["n"] >= 2 and view["doings"][0]["state"] == "waiting"
     assert view["doings"][0]["created"] >= view["doings"][1]["created"]
     assert view["doings"][0]["card"] is None  # the tw-to-card link is not decided
