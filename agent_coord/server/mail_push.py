@@ -1,4 +1,7 @@
-"""MAIL pushes. No watcher. Recipients hear the mail. A receipt returns to the sender."""
+"""MAIL pushes. No watcher. Recipients hear the mail. A receipt returns to the sender.
+
+A replace of a letter uses the same path for desks that already opened it.
+"""
 
 from __future__ import annotations
 
@@ -183,12 +186,19 @@ def has_unopened_receipt(cn, desk: str) -> bool:
         cur.close()
 
 
-def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
+def push_mail(
+    cn,
+    mail_id: int,
+    *,
+    room_only: set[str] | None = None,
+    desks: set[str] | None = None,
+) -> None:
     """Async MAIL item to every mail_to desk. Does not plant a watcher.
 
     room_only (#627): dests that get this letter as room members (reply-all);
     their wake says reason room. Every other dest was named: addressed.
     A receipt-required dest is always addressed (card 1093), even as a room copy.
+    desks, when passed, limits that to those recipient names (card 1236).
     """
     from agent_coord.server.push import emit
 
@@ -198,9 +208,13 @@ def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
     dests = rec_mail.to_list(cn, int(mail_id))
     room = _room_name(cn, int(mail_id))
     members = set(room_only or ())
+    # None means every recipient. An empty set means none.
+    only = None if desks is None else {str(d).strip() for d in desks if str(d or "").strip()}
     for row in dests:
         desk = str(row.get("desk") or "")
         if not desk:
+            continue
+        if only is not None and desk not in only:
             continue
         reason = wake_reason_for_dest(row, members)
         emit(
@@ -211,6 +225,60 @@ def push_mail(cn, mail_id: int, *, room_only: set[str] | None = None) -> None:
             reason=reason,
             room=room,
         )
+
+
+def _opened_set(value: object) -> bool:
+    """True when this mail_to row was read. Inbox unread is a null opened."""
+    return value not in (None, "")
+
+
+def notify_replaced_readers(cn, mail_id: int, actor: str) -> list[str]:
+    """One mail notice to each recipient who already opened this letter.
+
+    Clears opened for those desks so the letter is unread in inbox again.
+    Receipt stays. History stays. The acting desk is not told, and neither
+    is a recipient whose opened mark is still empty. A later replace tells
+    a desk again once that desk has opened the letter.
+    """
+    from agent_coord.const import CONST_DESK
+    from agent_coord.server.records.db import commit as db_commit
+    from agent_coord.server.records.name import bare
+
+    mid = int(mail_id)
+    dests = rec_mail.to_list(cn, mid)
+    who = bare(str(actor or ""), CONST_DESK) if str(actor or "").strip() else ""
+    names: list[str] = []
+    ids: list[int] = []
+    for row in dests or []:
+        desk = str(row.get("desk") or "").strip()
+        if not desk or (who and desk == who):
+            continue
+        if not _opened_set(row.get("opened")):
+            continue
+        try:
+            did = int(row.get("desk_id") or 0)
+        except (TypeError, ValueError):
+            did = 0
+        if did < 1:
+            continue
+        names.append(desk)
+        ids.append(did)
+    if not names:
+        return []
+    marks = ",".join(["%s"] * len(ids))
+    cur = cn.cursor()
+    try:
+        cur.execute(
+            "UPDATE mail_to SET opened = NULL"
+            " WHERE type = 'mail' AND id = %s AND opened IS NOT NULL"
+            " AND desk_id IN (" + marks + ")",
+            (mid, *ids),
+        )
+    finally:
+        cur.close()
+    db_commit(cn)
+    push_mail(cn, mid, desks=set(names))
+    return names
 
 
 def push_receipt(cn, row: dict) -> None:
