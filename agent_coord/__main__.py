@@ -1380,7 +1380,7 @@ def _build_parser() -> MillArgumentParser:
     nd.add_argument(
         "--mine",
         action="store_true",
-        help="this desk's cards (the sitting mill connect): first its focus cards (label named after the desk) in rank order, "
+        help="this desk's cards (the sitting mill connect): first its legacy focus cards (a desk-named label made before 0.8.16, read-only) in rank order, "
         "then the cards it volunteered for; works with --status, --done, --all, --find, --full and --page, "
         "and pages count only these cards",
     )
