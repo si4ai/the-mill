@@ -1,4 +1,5 @@
 """Card 970 / card 1207: a desk's live doings are its tw runs (the wall-ui shape)."""
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -55,6 +56,48 @@ def test_terminal_run_is_not_listed(cn, feed, state):
     assert event("a", "start")["ok"]
     rows_done(cn, "UPDATE transition SET to_state=%s WHERE join_key=%s", (state, "task:Builder:a"))
     assert read()["doings"] == [] and read()["n"] == 0
+
+
+def _z(at) -> str:
+    return at.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+
+
+def test_state_at_converts_to_utc_with_created(cn, feed):
+    """A session clock that is not UTC must not leave state_at eight hours behind created."""
+    event, read = feed
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT @@session.time_zone")
+        previous = cur.fetchone()[0]
+        cur.execute("SET time_zone = '-08:00'")
+        assert event("z", "start")["ok"]
+        row = read()["doings"][0]
+        cur.execute(
+            "SELECT created, (SELECT at FROM transition WHERE activity_id = doing.id"
+            " AND activity_type = 'doing' ORDER BY id DESC LIMIT 1) FROM doing"
+            " WHERE id = %s",
+            (row["id"],),
+        )
+        raw_created, raw_at = cur.fetchone()
+        assert event("z", "exit", exit_code=0)["ok"]
+        cur.execute(
+            "SELECT at FROM transition WHERE activity_type='doing' AND activity_id=%s"
+            " AND to_state IN ('finished','failed','stale','cleared')"
+            " ORDER BY id DESC LIMIT 1",
+            (row["id"],),
+        )
+        raw_end = cur.fetchone()[0]
+        ended = doing.run_tree(cn, "Builder", "z")["runs"][0]["end"]
+    finally:
+        cur.execute("SET time_zone = %s", (previous,))
+        cur.close()
+    assert row["watch_id"] == "z"
+    assert row["created"] == _z(raw_created + timedelta(hours=8))
+    assert row["state_at"] == _z(raw_at + timedelta(hours=8))
+    assert row["created"] != _z(raw_created)
+    assert row["state_at"] != _z(raw_at)
+    assert ended == _z(raw_end + timedelta(hours=8))
+    assert ended != _z(raw_end)
 
 
 def test_list_caps_at_twenty_and_n_is_the_true_count(cn, feed):
