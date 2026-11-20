@@ -700,6 +700,7 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     DESK) and the runs nested under it. Each run carries parent_watch_id.
     """
     from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records import join as rec_join
 
     roster = _stored(str(body.get("project") or "").strip())
     desk = _stored(str(body.get("desk") or "").strip())
@@ -725,8 +726,10 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     if body.get("since") or page:
         raise CoordError("connected: --since and --page go with --history")
     desks = [r for r in rec_doing.now(c._cn, desk, roster, bool(body.get("all"))) if r.get("part") == "desk"]
-    live = rec_doing.live_doings(c._cn, [str(r.get("desk") or "") for r in desks])
-    views = [_desk_view(r, roster, live.get(str(r.get("desk") or ""))) for r in desks]
+    names = [str(r.get("desk") or "") for r in desks]
+    live = rec_doing.live_doings(c._cn, names)
+    reach = rec_join.wake_reach(c._cn, names)  # card 1242
+    views = [_desk_view(r, roster, live.get(n), reach.get(n)) for r, n in zip(desks, names)]
     if limit is None:
         return views
     views.sort(key=_heartbeat_rank)
@@ -751,16 +754,32 @@ def _item(typ: Any, nid: Any) -> str | None:
     return f"{typ}-{int(nid)}" if typ and nid is not None else None
 
 
-def _desk_view(r: dict[str, Any], roster: str, live: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Card 1207 (wall-ui shape): n live doings and the newest DOINGS_CAP of them."""
+def _desk_view(
+    r: dict[str, Any], roster: str, live: dict[str, Any] | None = None, wake: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Card 1207 (wall-ui shape): n live doings and the newest DOINGS_CAP of them.
+
+    Card 1242: reach is connect (a live /ws), wake (no /ws, webhook armed and its
+    wakes not failing, #838) or offline; last_wake is the newest lease ring (UTC) or None.
+    """
     from agent_coord.lib.observe import heartbeat_flags
     from agent_coord.server.push import desk_sitting
+    from agent_coord.server.wake import wake_healthy
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
+    sitting = desk_sitting(who)
     # Card 985: a live /ws counts as alive even when seat.updated is old.
-    alive, stale = heartbeat_flags(hb, sitting=desk_sitting(who))
+    alive, stale = heartbeat_flags(hb, sitting=sitting)
     out: dict[str, Any] = {"owner": who, "heartbeat": hb, "alive": alive, "stale": stale}
+    wake = wake or {}
+    if sitting:
+        out["reach"] = "connect"
+    elif wake.get("armed") and wake_healthy(who):
+        out["reach"] = "wake"
+    else:
+        out["reach"] = "offline"
+    out["last_wake"] = wake.get("last_wake")
     if roster:
         out["project_id"] = roster
     live = live or {"n": 0, "doings": []}

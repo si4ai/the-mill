@@ -31,6 +31,7 @@ def _rows():
 def test_limit_keeps_the_newest_heartbeats(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.server.records.doing.now", lambda *a, **k: _rows())
     monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     whole = rpc._h_session(_Book(), {}, "", "probe")
     assert [row["owner"] for row in whole] == ["old", "mid", "new", "quiet"]
     kept = rpc._h_session(_Book(), {"connected_limit": 2}, "", "probe")
@@ -42,6 +43,7 @@ def test_limit_keeps_the_newest_heartbeats(monkeypatch) -> None:
 def test_limit_below_one_and_with_history_are_refused(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.server.records.doing.now", lambda *a, **k: _rows())
     monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     for bad in (0, -3, "no"):
         with pytest.raises(CoordError, match="at least 1"):
             rpc._h_session(_Book(), {"connected_limit": bad}, "", "probe")
@@ -52,6 +54,7 @@ def test_limit_below_one_and_with_history_are_refused(monkeypatch) -> None:
 def test_a_released_client_limit_does_not_cap_or_refuse_history(monkeypatch) -> None:
     monkeypatch.setattr("agent_coord.server.records.doing.now", lambda *a, **k: _rows())
     monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     plain = rpc._h_session(_Book(), {"limit": 10}, "", "probe")
     assert [row["owner"] for row in plain] == ["old", "mid", "new", "quiet"]
     monkeypatch.setattr(rpc, "_doing_history", lambda *a, **k: ["hist"])
@@ -66,6 +69,7 @@ def test_mixed_heartbeat_types_still_sort(monkeypatch) -> None:
     ]
     monkeypatch.setattr("agent_coord.server.records.doing.now", lambda *a, **k: rows)
     monkeypatch.setattr("agent_coord.server.records.doing.live_doings", lambda cn, desks: {})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     got = rpc._h_session(_Book(), {"connected_limit": 1}, "", "probe")
     assert [row["owner"] for row in got] == ["clock"]
 

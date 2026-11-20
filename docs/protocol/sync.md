@@ -153,6 +153,6 @@ Expired, one per desk, only when a 30-day drop removed rows. `window_start` is t
 
 ## What to do with sync
 
-Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. When `receipt` is 1 and `opened` is unset, open it (`mark`, `reply`, or read it whole); sync and inbox keep showing it as unread until then. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so.
+Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. When `receipt` is 1 and `opened` is unset, open it (`mark`, `reply`, or read it whole); sync and inbox keep showing it as unread until then. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so. A `--desk` borrow by a desk whose webhook is armed gets one `hint` item `PRESENCE` (no `type` or `id`, never queued) once per wake lease: peers see the desk offline while no connect sits, so sit one for the whole wake run (card 1242).
 
 Chat from your human still wins over both the live frame and `sync`.
