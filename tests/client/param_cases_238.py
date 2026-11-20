@@ -106,7 +106,7 @@ KIND = {
     ("score", "target"): "int", ("score", "note"): "text",
     ("score", "better"): "enum", ("score", "unit"): "text", ("score", "limit"): "int",
     ("score", "at"): "text",
-    ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
+    ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int", ("connected", "run"): "name",
     ("delete", "kind"): "enum", ("delete", "slug"): "name",
     ("restore", "kind"): "enum", ("restore", "slug"): "name",
     ("purge", "kind"): "enum", ("purge", "slug"): "name",
