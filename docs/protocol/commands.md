@@ -44,7 +44,7 @@ mill add mail:<id> <desk>    /  mill remove mail:<id> <desk>
 mill mark <mail_id> [<mail_id>...]
 mill todo <roster> [<need>] [--full | --page N]
 mill todo <roster> <need> [--eta E] [--started] [--progress P] | [--done-when TEXT]
-mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked]
+mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked] [--label NAME ...]
 mill claim <roster> <need> [--take-over]
 mill replace-body todo <id> TEXT
 mill hold [<resource>]
@@ -196,7 +196,7 @@ Grouped by **table**. Day-one teaching first; tree/Admin when said, not day-one 
 
 | Human idiom | Command |
 | :--- | :--- |
-| *"create/file/add a bug"*, *"found an issue"* | `create todo` `<roster> <need>` then `label` `todo <id> bug` |
+| *"create/file/add a bug"*, *"found an issue"* | `create todo` `<roster> <need> --label bug` |
 | *"create/file/add a todo"*, *"new card"*, *"feature request"* | `create todo` `<roster> <need>` optional `--detail` |
 | *"park that"*, *"file for later"* | `create todo` `<roster> <need> --status parked` |
 | *"what's on the board"*, *"list the bugs"* | `todo` `<roster>` (bugs: the cards labelled bug). `todo <roster> <numeric-id>` returns that card, the same as a slug peek, including a done card. Filter the board by the slug (printed as `need_id`, stored as `body.slug`) or by status, or use the Wall. Plain `todo` and `todo --all` read every roster in one call (200 rosters per call; a wall that does not answer `{cards}` is an error); done cards, the status and a numeric id are filtered in the database. Regression row F22 (todo-one-read). |
