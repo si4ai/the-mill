@@ -906,6 +906,7 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     _require_live_project(getattr(c, "_cn", None), project, command)
     if command == "label-add":
         # A new label is created on first use when trust allows (else Admin: mill create label NAME).
+        # A live desk name is that desk's focus list (card 1163): never minted here (card 1237).
         from agent_coord.config import mill_catalog_open
         from agent_coord.server.records import name as rec_name
         from agent_coord.server.records.name import bare as _bare
@@ -914,6 +915,7 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         if (
             0 < len(tag_b) <= 64
             and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
+            and rec_name.get(c._cn, tag_b, CONST_DESK) is None
             and mill_catalog_open(CONST_LABEL)
         ):
             rec_name.host_put(c._cn, tag_b, CONST_LABEL)
