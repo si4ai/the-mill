@@ -21,13 +21,15 @@ class _Book:
     _cn = None
 
 
-@pytest.mark.parametrize("trust,want", [("high", "first use creates it"), ("limited", "an Admin makes it first")])
-def test_trail_label_unused_hint_follows_trust(monkeypatch, trust, want):
+def test_trail_unknown_label_warns_and_does_not_mint(monkeypatch):
+    """#1233: trail --label on a missing name warns. It does not create the label."""
     from agent_coord.server.api.mill import rpc
     from agent_coord.server.records import name as rec_name
 
-    monkeypatch.setenv("AGENT_COORD_TRUST", trust)
     monkeypatch.setattr(rec_name, "get", lambda *a, **k: None)
     out = rpc._h_trail(_Book(), {"label": "zz-unused"}, "unit", "a")
     assert out["rows"] == [] and out["label"] == "zz-unused"
-    assert want in out["hint"] and "no name" not in out["hint"]
+    text = out["hint"] + " " + " ".join(out.get("label_warnings") or [])
+    assert "does not exist" in text
+    assert "mill create label zz-unused" in text
+    assert "no name" not in text
