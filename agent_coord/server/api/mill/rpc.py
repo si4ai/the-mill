@@ -4160,7 +4160,8 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
 
     The text write is mill_body_replace. A duplicate key on the history stamp
     is body:stale plus the reread command. The unchanged sentence is the
-    office's own words.
+    office's own words. A letter replace tells desks that already opened it
+    (card 1236): their opened mark is cleared and they get one mail notice.
     """
     from agent_coord.client.body_read import map_refusal, never_read, stale_line
     from agent_coord.server.records import body as rec_body
@@ -4207,6 +4208,10 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
         if msg is None:
             raise
         raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+    if kind == "mail":
+        from agent_coord.server.mail_push import notify_replaced_readers
+
+        notify_replaced_readers(c._cn, item_id, owner or "")
     _poke(c, kind, item_id, "replace-body", owner=owner)
     return row
 
