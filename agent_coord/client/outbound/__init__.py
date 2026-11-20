@@ -459,6 +459,9 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body["history"] = True
         if int(getattr(args, "page", 0) or 0):
             body["page"] = int(args.page)
+        run = str(getattr(args, "run", "") or "").strip()
+        if run:
+            body["run"] = run
         # Card 647: released clients always send limit=10. Move a typed --limit
         # onto connected_limit so those bodies stay uncapped, including history.
         raw_limit = body.pop("limit", None)

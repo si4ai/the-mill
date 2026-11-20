@@ -471,6 +471,7 @@ connected all
 connected history
 connected since
 connected page
+connected run
 connected limit
 connected label
 connected label_any
