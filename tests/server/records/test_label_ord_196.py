@@ -282,9 +282,12 @@ def test_trail_label_order_access_deleted_and_bound(cn, monkeypatch) -> None:
 
     empty = rpc._h_trail(book, {"label": "no-such-pack"}, "unit", "a")
     assert empty["rows"] == []
-    assert "no-such-pack" in empty["hint"]
-    # #709: high trust points to plain first use, not create.
-    assert "first use creates it" in empty["hint"] and "mill create label" not in empty["hint"]
+    text = empty["hint"] + " " + " ".join(empty.get("label_warnings") or [])
+    # #1233: an unknown --label warns and does not mint. A live unused label still
+    # goes through the one-label read (hint stays empty when rows exist).
+    assert "does not exist" in text
+    assert "mill create label no-such-pack" in text
+    assert "first use creates it" not in text
     assert rec_name.get(cn, "no-such-pack", "label") is None
 
     monkeypatch.setattr(rpc, "LABEL_LIST_MAX_BYTES", 80)

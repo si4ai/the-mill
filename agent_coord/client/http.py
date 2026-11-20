@@ -780,6 +780,10 @@ def mill_http_from_args(args: Any) -> int:
     body_read.prepare_replace(body)
     mine = todo_rows.mine_applies(args)
     row = _todo_call(args, body)
+    from agent_coord.helpers.activity_label import absorb_rows, emit_warnings
+
+    row = absorb_rows(row)
+    emit_warnings(row)
     body_read.remember(str(body.get("sender_desk") or body.get("owner") or ""), args, row)
     if mine and isinstance(row, dict) and row.get("ok") is True:
         # #373: only the sitting desk's cards, before --find and paging cut the list.
