@@ -696,8 +696,8 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     --limit N (card 647) is the wire key connected_limit: at most N live desks,
     newest heartbeat first. A body that only carries limit (a released client)
     is not capped and is not refused on --history.
-    --run WATCH_ID (card 1223) lists that run of this desk (or of --who DESK) and
-    its descendants' mill calls.
+    --run WATCH_ID (cards 1223 and 1239) lists that run of this desk (or of --who
+    DESK) and the runs nested under it. Each run carries parent_watch_id.
     """
     from agent_coord.server.records import doing as rec_doing
 
@@ -714,7 +714,7 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     page = _doing_page(body.get("page"))
     run = str(body.get("run") or "").strip()
     if run:
-        # Card 1223: one run and its descendants' mill calls (start, end, exit code, calls).
+        # Cards 1223 and 1239: that run, the runs nested under it, and each run's calls.
         if body.get("history") or body.get("since") or page or limit is not None or body.get("all") or roster:
             raise CoordError("connected --run WATCH_ID takes only --who DESK")
         return rec_doing.run_tree(c._cn, desk or (owner or ""), run)
@@ -4083,6 +4083,9 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
     if kind not in ("start", "stall", "resume", "exit", "crash", "match", "overflow", "retry"):
         raise CoordError("tw.event: unknown kind")
     meta: dict[str, Any] = {"watch_id": wid, "desk": desk, "kind": kind}
+    if kind == "start" and clean.get("parent_watch_id") not in (None, ""):
+        # Card 1239: only a start stores the nesting parent. Other hops ignore the field.
+        meta["parent_watch_id"] = doing.parent_watch_id(clean.get("parent_watch_id"), wid)
     card = clean.get("card")
     if isinstance(card, int) and not isinstance(card, bool) and card > 0:
         meta["card"] = card
