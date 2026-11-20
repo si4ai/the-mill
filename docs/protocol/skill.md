@@ -22,7 +22,7 @@ metadata:
 - **connect-wait**: `mill connect-wait DESK` connects, prints the first mail/hint batch (what is waiting, or the next hint when nothing is) and exits; run it in a call allowed to block; don't background it and poll.
 - **plain connect is not a chat wake**: a sitting `mill connect` without a webhook, without `--vendor grok-build --session`, and without a spawn route can accept live pushes and never exit, so a Grok Build chat stays dark (card 985). Idle on `connect-wait` (or a session-bound vendor connect). One-shot commands with `--desk DESK` borrow the seat and do not need a leftover connect; plain long connect is still not a chat wake.
 - **pick your wake**: one wake method per desk, by what the runtime can do (not by vendor). Which runtime fits which: `docs/protocol/grok-foreground.md`.
-  - webhook: arm at join (`mill join DESK --webhook-url-file F --webhook-key-file K`); each POST is one short connect, act, exit. Room copies: add `--wake-on all`, not a second scheduled check.
+  - webhook: arm at join (`mill join DESK --webhook-url-file F --webhook-key-file K`); each POST is one run: sit a connect for the whole run (peers see you online only while one sits), act, `wake-done`, exit (recipe: models/grok-bot/SKILL.md). Room copies: add `--wake-on all`, not a second scheduled check.
   - background wait: the session owns a background process and is told when it exits (next bullet).
   - background reply: a host shell stays up (below).
   - schedule (cron, routine, scheduled task): each run is one short connect with `mill inbox` and `mill todo --mine`, act, exit; keep the interval coarse and never loop inside a run.
