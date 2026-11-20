@@ -1884,6 +1884,24 @@ def _ensure_wake_cause_id_idx(cn) -> list[str]:
     return applied
 
 
+def _ensure_name_type_idx(cn) -> list[str]:
+    """card 1234: name (type, name) for reading one type's names. Not unique: idx_name stays the only
+    unique name key (card 1163). Additive and idempotent; runs after apply_1163, which drops the old idx_type."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "name") and not _index_exists(cur, "name", "idx_type_name"):
+            cur.execute("ALTER TABLE name ADD KEY idx_type_name (type, name)")
+            applied.append("name.idx_type_name")
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def apply_transition_1022(cn) -> list[str]:
     """card 1022: fold push_queue into wake, transition table, System desk id 0. Idempotent."""
     if not transition_1022_needed(cn):
@@ -3092,6 +3110,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             if did_1022:
                 applied.extend(reload_routines(cn))
             applied.extend(apply_1163(cn))
+            # card 1234: after 1163, so an upgraded book ends with the same name keys as tables.sql.
+            applied.extend(_ensure_name_type_idx(cn))
             applied.extend(apply_1200(cn))
             # card 1207: after the routine reload (mill_doing_anchor, MILL_FX_META) and the 1022 edges.
             applied.extend(apply_1207(cn))

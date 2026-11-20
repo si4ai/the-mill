@@ -4,7 +4,8 @@ name.type is the kind: project, desk, role, label, res, tree, or other.
 name.str is the bare name.
 
 The name table stores type and a bare string. id is the primary key.
-idx_type is the unique key (type, name).
+idx_name is the unique key (name). idx_type_name (type, name) is a plain key
+for reading one type's names (card 1234).
 """
 
 from __future__ import annotations

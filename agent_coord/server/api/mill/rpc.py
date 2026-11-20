@@ -778,8 +778,11 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
                 f"connected --since: {since_raw[:40]} is not a date; say 2026-10-22 or '2026-10-22 18:00' (office clock)"
             ) from None
     page = _doing_page(body.get("page")) or 1
-    size = DOING_PAGE
-    rows = rec_doing.history(c._cn, desk, since.isoformat(sep=" ") if since else None, page, size,
+    # #1233: a --label history read fetches one wide page, then keeps matches only.
+    wide = int(body.get("_label_hist_size") or 0)
+    size = wide if 0 < wide <= 5000 else DOING_PAGE
+    fetch = 1 if wide else page
+    rows = rec_doing.history(c._cn, desk, since.isoformat(sep=" ") if since else None, fetch, size,
                              on[0] if on else "", on[1] if on else None)
     total = int(rows[0].get("total") or 0) if rows else 0
     if not rows and page > 1:
@@ -3768,12 +3771,22 @@ def _h_trail(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.records import todo as rec_todo
     from agent_coord.server.records import tree as rec_tree
 
-    label = str(body.get("label") or "").strip()
+    raw_labels = body.get("labels")
+    if isinstance(raw_labels, (list, tuple)) and raw_labels:
+        labels = [str(x).strip() for x in raw_labels if str(x).strip()]
+    else:
+        one_label = str(body.get("label") or "").strip()
+        labels = [one_label] if one_label else []
     node = str(body.get("node") or body.get("id") or "").strip()
-    if label and node:
+    if labels and node:
         raise CoordError("trail: say a node or --label, not both")
-    if label:
-        return _h_trail_label(c, body, project, owner, label)
+    if labels:
+        from agent_coord.helpers.activity_label import trail_read
+
+        return trail_read(
+            c, labels, bool(body.get("label_any")),
+            lambda tag: _h_trail_label(c, body, project, owner, tag),
+        )
     if not owner:
         raise CoordError("trail: owner required")
     kind, nid = _trail_target(c, body)
@@ -4160,7 +4173,8 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
 
     The text write is mill_body_replace. A duplicate key on the history stamp
     is body:stale plus the reread command. The unchanged sentence is the
-    office's own words.
+    office's own words. A letter replace tells desks that already opened it
+    (card 1236): their opened mark is cleared and they get one mail notice.
     """
     from agent_coord.client.body_read import map_refusal, never_read, stale_line
     from agent_coord.server.records import body as rec_body
@@ -4207,6 +4221,10 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
         if msg is None:
             raise
         raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+    if kind == "mail":
+        from agent_coord.server.mail_push import notify_replaced_readers
+
+        notify_replaced_readers(c._cn, item_id, owner or "")
     _poke(c, kind, item_id, "replace-body", owner=owner)
     return row
 
@@ -4369,7 +4387,12 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
     if command in WRITE_COMMANDS or canonical_command(command) in WRITE_COMMANDS:
         scrub_request_body(body)
     try:
-        out = _run_command(c, fn, command, body, project, owner)
+        from agent_coord.helpers.activity_label import run_labeled
+
+        out = run_labeled(
+            c, command, body, owner,
+            lambda: _run_command(c, fn, command, body, project, owner),
+        )
         try:
             from agent_coord.server import wake_first
 
@@ -4547,7 +4570,12 @@ def dispatch_ws(
         else:
             owns_id = True
     try:
-        out = _run_command(c, fn, v, body, project, owner)
+        from agent_coord.helpers.activity_label import run_labeled
+
+        out = run_labeled(
+            c, v, body, owner,
+            lambda: _run_command(c, fn, v, body, project, owner),
+        )
         try:
             from agent_coord.server import wake_first
 
