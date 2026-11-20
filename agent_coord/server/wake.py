@@ -606,7 +606,8 @@ _ENDED: dict[str, str] = {}
 _PRESENCE: dict[str, tuple[str, float]] = {}
 PRESENCE_DETAIL = (
     "this desk shows offline to peers while it works: a --desk borrow is not presence. "
-    "Sit a connect for the whole wake run (the one-liner in models/grok-bot/SKILL.md, step 1)."
+    "Sit a connect for the whole wake run"
+    " (the one-liner in docs/protocol/models/grok-bot/SKILL.md, step 1)."
 )
 
 
