@@ -27,6 +27,7 @@ _LOCAL = frozenset(
         "wall-check",
         "wall-src",
         "local",
+        "status",
     }
 )
 _NAME = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -55,8 +56,9 @@ def _help_commands() -> list[str]:
 
 def test_help_wall_commands_are_handlers() -> None:
     names = _help_commands()
-    # #254: status folded into hold --peek.
-    assert "status" not in names
+    # #254 folded the old wall status verb into hold --peek.
+    # Card 1223's status is a local run self-check, not a wall handler.
+    assert "status" in names
     assert "hold" in names
     missing = []
     for name in names:
