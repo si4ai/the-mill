@@ -1,26 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Card 1242: a --desk borrow tells the office it is a borrow; a sitting connect does not."""
+"""Card 1242: a --desk borrow tells the office it is a borrow (tests/client/test_seat_1080.py);
+a sitting connect does not, and the local bridge forwards only the mark it was given."""
 from __future__ import annotations
 
 from agent_coord.client.seat import session
-
-
-def test_borrow_marks_the_call(monkeypatch):
-    seen: list[dict] = []
-
-    class _Run:
-        desk = "hookdesk"
-
-    monkeypatch.setattr(session, "open_session", lambda *a, **k: _Run())
-    monkeypatch.setattr(session, "wait_ready", lambda running: None)
-    monkeypatch.setattr(session, "release", lambda running: None)
-    monkeypatch.setattr(
-        "agent_coord.client.ws.mill_ws_call",
-        lambda body, **kw: seen.append({"body": dict(body), **kw}) or {"ok": True},
-    )
-    monkeypatch.setattr("agent_coord.client.ws._shell_ppid", lambda: 1)
-    session.borrow("hookdesk", "tok", {"verb": "inbox"})
-    assert seen and seen[0].get("borrow") is True
 
 
 def test_sitting_connect_call_is_not_a_borrow(monkeypatch):

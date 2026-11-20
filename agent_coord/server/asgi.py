@@ -155,7 +155,8 @@ def _presence(c: Any, who: str, items: list) -> None:
 
         hint = presence_hint(c._cn, who)
     except Exception as e:
-        _log.warning("ws presence hint err=%s", type(e).__name__)
+        err = type(e).__name__  # the class only; no exception text reaches the log
+        _log.warning("ws presence hint err=%s", err)
         return
     if hint:
         items.append(hint)
