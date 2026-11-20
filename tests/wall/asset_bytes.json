@@ -1,6 +1,6 @@
 {
   "note": "Wall asset bytes (LF). Card 871; wall-contract rule-asset-bytes (874). Raise a line only with a reason in the PR text.",
-  "total": 1502194,
+  "total": 1515551,
   "bytes": {
     "components/gutter.css": 773,
     "components/gutter.js": 4582,
@@ -9,8 +9,8 @@
     "default/board.css": 111831,
     "default/board.html": 57367,
     "default/boot.js": 383611,
-    "default/doing/doing-paint.js": 18393,
-    "default/doing/doing.css": 2929,
+    "default/doing/doing-paint.js": 29892,
+    "default/doing/doing.css": 4787,
     "default/favicon.svg": 395,
     "default/floor/floor-paint.js": 25497,
     "default/floor/floor.js": 1912,
