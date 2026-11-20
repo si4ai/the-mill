@@ -150,12 +150,12 @@ def test_no_focus_line_on_parked_only_lists(sample):
     for desk in ("validator", "wall-ui"):
         col = _col(sample, desk)
         assert col["top"] == []
-        assert col["empty"] == {"why": "1 ranked, all parked", "fix": f"mill label todo <id> {desk} --ord 0"}
+        assert col["empty"] == {"why": "1 ranked, all parked", "fix": "pick another label; a desk name cannot be a label"}
     assert _col(sample, "build-ui")["empty"]["why"] == "0 ranked"
     html = sample["html"]
     assert html.count('data-prio-check="no-focus"') == 3
     assert "No focus line: 1 ranked, all parked." in html
-    assert "<code>mill label todo &lt;id&gt; validator --ord 0</code>" in html
+    assert "<code>pick another label; a desk name cannot be a label</code>" in html
     for desk in ("builder", "grok-tui", "auditor", "gardener"):
         assert _col(sample, desk)["empty"] is None
 

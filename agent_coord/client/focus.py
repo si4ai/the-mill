@@ -1,7 +1,8 @@
-"""Desk focus: the label whose name is the desk id ranks that desk's cards (#374).
+"""Desk focus: the desk's stored focus list ranks that desk's cards (#374).
 
-Anyone ranks a card for a desk with `mill label todo <id> <desk> --ord N`
-(0 pinned, 65535 unplaced). Two readers, both on existing read paths.
+A desk name cannot also be a label, so `mill label todo <id> <desk>` is refused.
+A focus list stored before 0.8.16 is still read. Rank new cards under another label.
+Two readers, both on existing read paths.
 
 Focus skips cards that are done, parked, or held by another desk. Rank is
 ord ascending (0 pinned first), ties by card id. Client only: the wall
@@ -28,8 +29,8 @@ CARD_KEYS = ("id", "project_id", "need_id", "status", "volunteer")
 REST = "mill todo --mine lists every focus card, then your claimed ones"
 
 
-def set_focus_hint(desk: str) -> str:
-    return f"rank a card first with mill label todo <id> {desk} --ord 0"
+def set_focus_hint(_desk: str) -> str:
+    return "a desk name cannot be a label; rank cards under another label"
 
 
 def _result(reply: Any) -> Any:

@@ -886,6 +886,18 @@ def _h_here(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     return _issue_here(c, body)
 
 
+def _occupant_type(cn, name: str) -> str:
+    """Type that already holds this bare name, or empty when the name is free."""
+    from agent_coord.server.records.db import scalar
+
+    rec = scalar(cn, "SELECT type FROM name WHERE name=%s LIMIT 1", (name,))
+    if rec is None:
+        return ""
+    if isinstance(rec, (bytes, bytearray)):
+        rec = rec.decode("utf-8")
+    return str(rec)
+
+
 def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     from agent_coord.server.records import label as rec_label
 
@@ -911,6 +923,10 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         from agent_coord.server.records.name import bare as _bare
 
         tag_b = _bare(tag, CONST_LABEL)
+        # A name another type already holds is refused. The error names that type (cards 1237, 1254).
+        other = _occupant_type(c._cn, tag_b)
+        if other and other != CONST_LABEL:
+            raise CoordError("name in use: %s is a %s; pick another name" % (tag_b, other))
         if (
             0 < len(tag_b) <= 64
             and rec_name.get(c._cn, tag_b, CONST_LABEL) is None

@@ -112,7 +112,7 @@ def test_empty_names_how_to_set_focus(monkeypatch, capsys):
     _wall(monkeypatch, [_card(1, "desk-b", "claimed")])
     _, row = _run(capsys)
     assert row["result"] == []
-    assert "mill label todo <id> desk-a --ord 0" in row["note"]
+    assert "a desk name cannot be a label; rank cards under another label" in row["note"]
 
 
 def test_label_read_failure_keeps_board_order(monkeypatch, capsys):
