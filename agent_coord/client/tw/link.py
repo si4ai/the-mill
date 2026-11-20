@@ -2,6 +2,7 @@
 """Sitting connect's local task-wrapper link. Protocol is shared. The transport is not."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -29,6 +30,126 @@ def _desk(name: str) -> str:
 
 def pointer_path(desk: str) -> Path:
     return route_path(desk).with_suffix(".tw")
+
+
+def _pid_path(pointer: Path) -> Path:
+    return pointer.with_name(pointer.name + ".pid")
+
+
+def _read_pid_file(path: Path) -> int:
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 0
+    if not text.isdigit():
+        return 0
+    try:
+        pid = int(text)
+    except ValueError:
+        return 0
+    return pid if pid > 0 else 0
+
+
+def _write_pid_beside(pointer: Path, pid: int) -> None:
+    """Record the connect pid next to the desk pointer. No secret, no path in errors."""
+    who = int(pid)
+    if who <= 0:
+        raise OSError("server pid mismatch")
+    path = _pid_path(pointer)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("%s\n" % who, encoding="utf-8")
+    if os.name != "nt":
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+
+
+def _json_pid(path: Path) -> int:
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 0
+    if not text.startswith("{"):
+        return 0
+    try:
+        row = json.loads(text)
+    except ValueError:
+        return 0
+    if not isinstance(row, dict):
+        return 0
+    raw = row.get("pid")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return 0
+    return raw if raw > 0 else 0
+
+
+def _recorded_connect_pid(desk: str) -> int:
+    """Pid already stored on a desk pointer. 0 when none is live."""
+    try:
+        from agent_coord.client.ws import _pid_alive, connect_starting_path, rpc_bridge_path
+    except Exception:
+        return 0
+    paths: list[Path] = []
+    for loader in (rpc_bridge_path, connect_starting_path):
+        try:
+            paths.append(loader(desk))
+        except Exception:
+            continue
+    for path in paths:
+        pid = _json_pid(path)
+        if pid <= 0:
+            continue
+        try:
+            alive = bool(_pid_alive(pid))
+        except Exception:
+            alive = False
+        if alive:
+            return pid
+    return 0
+
+
+def _expected_connect_pid(desk: str, pointer: Path) -> int:
+    """Sitting connect pid, if a pointer already records one. Else the beside file."""
+    recorded = _recorded_connect_pid(desk)
+    beside = _read_pid_file(_pid_path(pointer))
+    if recorded > 0:
+        if beside != recorded:
+            try:
+                _write_pid_beside(pointer, recorded)
+            except OSError:
+                pass
+        return recorded
+    return beside
+
+
+def _close_conn(conn: Any) -> None:
+    close = getattr(conn, "close", None)
+    if close is None:
+        return
+    try:
+        close()
+    except OSError:
+        pass
+
+
+def _server_pid(kind_name: str, conn: Any) -> int:
+    try:
+        stamped = getattr(conn, "_mill_server_pid", None)
+        if isinstance(stamped, int) and not isinstance(stamped, bool) and stamped > 0:
+            return stamped
+        if kind_name == "pipe":
+            from agent_coord.client.tw.win_pipe import server_pid
+
+            return int(server_pid(conn) or 0)
+        if kind_name == "unix":
+            from agent_coord.client.tw.unix_sock import server_pid
+
+            return int(server_pid(conn) or 0)
+    except (OSError, TypeError, ValueError):
+        return 0
+    return 0
 
 
 def _open_transport(desk: str):
@@ -232,6 +353,8 @@ class Link:
         path = pointer_path(self.desk)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._opened = True
+        # Write the pid before the pointer so a client never sees a link without it.
+        _write_pid_beside(path, os.getpid())
         path.write_text(kind() + " " + self._transport.address + "\n", encoding="utf-8")
         if os.name != "nt":
             os.chmod(path, 0o600)
@@ -719,18 +842,26 @@ class Link:
             self._outbox = None
         if not self._opened:
             return
-        try:
-            pointer_path(self.desk).unlink()
-        except OSError:
-            pass
+        pointer = pointer_path(self.desk)
+        pid_file = _pid_path(pointer)
+        for path in (pointer, pid_file, pid_file.with_name(pid_file.name + ".tmp")):
+            try:
+                path.unlink()
+            except OSError:
+                pass
         self._transport.cleanup()
 
 
 def open_session(desk: str) -> Session:
-    """Connect to the sitting link named by the desk pointer file."""
+    """Connect to the sitting link named by the desk pointer file.
+
+    The server pid is checked before any mill bytes are written.
+    """
     who = _desk(desk)
-    text = pointer_path(who).read_text(encoding="utf-8").strip()
+    pointer = pointer_path(who)
+    text = pointer.read_text(encoding="utf-8").strip()
     kind_name, _, _address = text.partition(" ")
+    expect = _expected_connect_pid(who, pointer)
     if kind_name == "pipe":
         from agent_coord.client.tw.win_pipe import Pipe
 
@@ -738,9 +869,22 @@ def open_session(desk: str) -> Session:
     elif kind_name == "unix":
         from agent_coord.client.tw.unix_sock import Unix
 
-        conn = Unix(who, pointer_path(who).parent).connect()
+        conn = Unix(who, pointer.parent).connect()
     else:
         raise OSError("bad pointer")
+    try:
+        server = _server_pid(kind_name, conn)
+        if expect <= 0:
+            # No desk pointer recorded a connect pid yet. Record the one we reached.
+            if server <= 0:
+                raise OSError("server pid mismatch")
+            _write_pid_beside(pointer, server)
+            expect = server
+        if server <= 0 or server != expect:
+            raise OSError("server pid mismatch")
+    except Exception:
+        _close_conn(conn)
+        raise
     return Session.from_conn(conn)
 
 

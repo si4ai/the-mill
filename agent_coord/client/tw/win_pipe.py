@@ -259,12 +259,12 @@ class Pipe:
         desk: str,
         *,
         address: str | None = None,
-        owner_only: bool = False,
-        first_instance: bool = False,
+        owner_only: bool = True,
+        first_instance: bool = True,
         buffer_size: int = 8192,
     ) -> None:
-        # Desk link: name from the desk, default DACL, no first-instance flag.
-        # A per-run endpoint passes address, owner_only, and first_instance.
+        # Desk link: predictable name, owner-only DACL, first instance once.
+        # A per-run endpoint passes its own address and the same two flags.
         self.address = address if address else pipe_name(desk)
         self.owner_only = bool(owner_only)
         self.first_instance = bool(first_instance)
@@ -317,6 +317,7 @@ class Pipe:
     ) -> None:
         while not stop.is_set():
             open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+            # Only the first CreateNamedPipe of this name claims the instance.
             if self.first_instance and not self._have_instance:
                 open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE
             handle = _kernel32.CreateNamedPipeW(
