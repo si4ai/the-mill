@@ -86,23 +86,8 @@ def redact_output(text: str) -> str:
 
 
 def _print(text: str, file: TextIO | None = None) -> None:
-    """Write already-redacted text, with the same trailing newline as print()."""
-    safe = redact_output(text) + "\n"
     dest = file or sys.stdout
-    # print() and sys.std*.write are CodeQL clear-text-logging sinks and do not
-    # treat redact_output as a sanitizer. Write the redacted bytes through a
-    # stream that is not those sinks.
-    buf = getattr(dest, "buffer", None)
-    if buf is not None:
-        enc = getattr(dest, "encoding", None) or "utf-8"
-        buf.write(safe.encode(enc, "replace"))
-        buf.flush()
-        return
-    if dest is not sys.stdout and dest is not sys.stderr:
-        dest.write(safe)
-        return
-    enc = getattr(dest, "encoding", None) or "utf-8"
-    os.write(dest.fileno(), safe.encode(enc, "replace"))
+    print(redact_output(text), file=dest)
 
 
 def sql_ident(name: str) -> str:
