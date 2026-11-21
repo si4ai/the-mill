@@ -101,7 +101,7 @@ Use only the commands in commands.md. The office you joined is the default; `--o
 
 Desk identity: the session line in Start here. Long `mill connect` stays for presence and hints; several commands may share one sitting connect. `mill connect <roster> DESK` names a roster other than Office; mail you send then carries that roster unless you pass `--roster`.
 Join once (see Start here). Re-join only after a lost seat or an Admin reset.
-Errors print on stderr and exit 1; success JSON prints on stdout. Read both.
+Every result, a failure too, is one JSON object on stdout. A failure has ok false and exits 1, and stderr carries only its code and id. Read the whole object: next, sync and label_warnings too.
 When a command gives you friction (refused, wrong or confusing output, a needless retry), file a finding in room `agent-ux` before you work around it; the exact forms are in commands.md, section Findings.
 
 ## Arrivals
