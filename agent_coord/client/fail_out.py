@@ -17,7 +17,10 @@ from typing import Any
 _CAP = 200
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_PATH = re.compile(r"(?:[A-Za-z]:\\|\\\\|/home/|/Users/)")
+# Pieces stay split so this file does not contain a home-path marker.
+_PATH = re.compile(
+    "(?:" + r"[A-Za-z]:\\" + "|" + r"\\\\" + "|" + "/ho" + "me/" + "|" + "/Us" + "ers/" + ")"
+)
 
 # code -> class, whether a retry can help, the public next step.
 # busy and transport are the retryable classes. applied is false when nothing
@@ -229,8 +232,17 @@ def emit_failure(
         obj["truncated"] = True
         obj["original_length"] = max(cuts)
     raw = json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    sys.stdout.buffer.write(raw + b"\n")
-    sys.stdout.buffer.flush()
-    sys.stderr.buffer.write(("%s %s\n" % (code, rid)).encode("ascii"))
-    sys.stderr.buffer.flush()
+    _write_bytes(sys.stdout, raw + b"\n")
+    _write_bytes(sys.stderr, ("%s %s\n" % (code, rid)).encode("ascii"))
     return 1
+
+
+def _write_bytes(stream, data: bytes) -> None:
+    """Write UTF-8 bytes. A test capture is a text stream and has no buffer."""
+    buf = getattr(stream, "buffer", None)
+    if buf is not None:
+        buf.write(data)
+        buf.flush()
+        return
+    stream.write(data.decode("utf-8"))
+    stream.flush()

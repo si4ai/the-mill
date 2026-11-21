@@ -1,6 +1,7 @@
 """Card 1238: failed-command stdout, stderr, and the server log line."""
 from __future__ import annotations
 
+import io
 import json
 import logging
 
@@ -10,6 +11,15 @@ from agent_coord.client.fail_out import emit_failure
 from agent_coord.client.session_errors import SESSION_CONNECT_DIED, SESSION_WS_BRIDGE_REQUIRED
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill.rpc import dispatch_ws
+
+
+def test_text_capture_without_buffer_still_prints(monkeypatch):
+    out, err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr("sys.stdout", out)
+    monkeypatch.setattr("sys.stderr", err)
+    assert emit_failure(text="seat busy", envelope={"ok": False, "id": "b1", "error": "busy"}) == 1
+    obj = json.loads(out.getvalue())
+    assert obj["code"] == "busy" and err.getvalue().strip() == "busy b1"
 
 
 def test_server_refusal_keeps_sync_and_label_warnings(capsys, monkeypatch):

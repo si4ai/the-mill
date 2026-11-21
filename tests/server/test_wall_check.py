@@ -120,10 +120,13 @@ def test_wall_check_office_without_alias_refuses(monkeypatch, capsys):
 
     monkeypatch.setattr("agent_coord.client.offices.read_alias", lambda name, dest=None: "")
     rc = main(["wall-check", "--office", "missing-office"])
-    err = capsys.readouterr().err
+    cap = capsys.readouterr()
     assert rc == 1
-    assert "no local alias" in err
-    assert "missing-office" in err
+    obj = json.loads(cap.out)
+    assert obj["code"] == "refused"
+    assert "no local alias" not in cap.out and "no local alias" not in cap.err
+    assert "missing-office" not in cap.out and "missing-office" not in cap.err
+    assert cap.err.strip() == "refused %s" % obj["id"]
 
 
 def test_wall_check_missing_version_fails():

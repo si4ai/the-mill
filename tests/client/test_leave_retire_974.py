@@ -2,6 +2,7 @@
 """Card 974: desk self-retire on live /ws; remove roster without --yes exits non-zero."""
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,9 +18,12 @@ def test_remove_roster_without_yes_exits_nonzero(monkeypatch, capsys) -> None:
     """Cold measure (b): no tty and no --yes must exit 1, not 0."""
     monkeypatch.setattr("agent_coord.client.language._tty", lambda: False)
     rc = main(["remove", "roster", "the-mill"])
-    err = capsys.readouterr().err
+    cap = capsys.readouterr()
     assert rc == 1
-    assert "add --yes" in err
+    obj = json.loads(cap.out)
+    assert obj["code"] == "refused"
+    assert "add --yes" not in cap.out and "add --yes" not in cap.err
+    assert cap.err.strip() == "refused %s" % obj["id"]
 
 
 def test_self_retire_supplies_seat_hash_when_book_has_no_http_token(monkeypatch) -> None:

@@ -1,6 +1,7 @@
 """An unknown-need error exits 1 on stderr (#233)."""
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -18,6 +19,8 @@ def test_no_such_need_exits_1_on_stderr(cmd, capsys) -> None:
         rc = http.mill_http_from_args(SimpleNamespace(cmd=cmd))
     captured = capsys.readouterr()
     assert rc == 1
-    assert captured.out == ""
-    assert "no such need: unit/missing" in captured.err
+    obj = json.loads(captured.out)
+    assert obj["code"] == "refused"
+    assert "no such need" not in captured.out and "no such need" not in captured.err
+    assert captured.err.strip() == "%s %s" % (obj["code"], obj["id"])
     captured.err.encode("ascii")
