@@ -2903,7 +2903,7 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     if not str(body.get("resource") or "").strip():
         return _hold_list(c, project)
     key = resource_name(str(body.get("resource") or ""))
-    # Read path. mill_hold_upsert inserts, takes, and refreshes (#223).
+    # Read path never takes (#223). Takes never refresh a held row (#1267).
     if body.get("peek"):
         out = rec_hold.peek(c._cn, _stored(project), key)
         if out.get("id") is None:
@@ -2913,65 +2913,37 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             what = " (%s is a roster)" % key if rec_name.get(c._cn, key, CONST_ROSTER) is not None else ""
             out["hint"] = "no hold named %s%s; mill hold --peek lists every lock" % (key, what)
         return out
-    rows = rec_hold.upsert(c._cn, _stored(project), _stored(owner or ""), key)
+    from agent_coord.helpers.hold_key import is_kh, key_hash
+
+    kh = body.get("kh")
+    if not is_kh(kh):
+        raise CoordError("hold: kh must be a sha256; use mill hold NAME to make the release key")
+    old_key = body.get("key")
+    rows = rec_hold.upsert(
+        c._cn, _stored(project), _stored(owner or ""), key, kh,
+        old_kh=key_hash(old_key) if old_key is not None else None,
+    )
     rec = rows[0] if rows else {}
-    ok = int(rec.get("ok") if rec.get("ok") is not None else 1) == 1
-    owner_name = _stored(owner or "")
-    if not ok:
-        try:
-            holder_id = int(rec.get("desk_id") or 0)
-        except (TypeError, ValueError):
-            holder_id = 0
-        named = name_by_id(c._cn, holder_id) if holder_id else ""
-        owner_name = _stored(named or "")
+    ok = int(rec.get("ok") or 0) == 1
+    holder_id = int(rec.get("desk_id") or 0)
+    holder = _stored(name_by_id(c._cn, holder_id) or "") if holder_id else None
     out = {
         "ok": ok,
-        "resource": _stored(_stored(key)),
+        "resource": key,
         "id": rec.get("id"),
-        "owner": owner_name if not ok else owner,
+        "owner": owner if ok else holder,
         "held": ok,
-        # Card 853: callers dedupe wake holds via refreshed; since stays the take time.
-        "refreshed": bool(int(rec.get("refreshed") or 0)) if ok else False,
+        "since": str(rec.get("since"))[:26] if rec.get("since") is not None else None,
     }
-    if ok and rec.get("since") is not None:
-        out["since"] = str(rec.get("since"))[:26]
-    # Card 981: hold FEATURE transitions (existing H1-H8); soft-fail; ids only in meta.
-    try:
-        from agent_coord.server import hold_activity as ha
-        from agent_coord.server.transition_enums import State as TrState
-
-        hid = int(rec.get("id") or 0)
-        actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
-        if hid > 0 and actor_id > 0:
-            if not ok:
-                holder_id = 0
-                try:
-                    holder_id = int(rec.get("desk_id") or 0)
-                except (TypeError, ValueError):
-                    holder_id = 0
-                ha.emit_refuse(
-                    c._cn, hold_id=hid, desk_id=actor_id, holder_desk_id=holder_id or None
-                )
-                ha.note_refused(actor_id, hid)
-            elif out.get("refreshed"):
-                ha.emit_refresh(c._cn, hold_id=hid, desk_id=actor_id)
-            elif ha.take_waited(actor_id, hid):
-                ha.emit_wait_acquire(c._cn, hold_id=hid, desk_id=actor_id)
-            else:
-                cur = c._cn.cursor()
-                try:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM transition"
-                        " WHERE activity_type='hold' AND activity_id=%s",
-                        (hid,),
-                    )
-                    n_prev = int((cur.fetchone() or [0])[0])
-                finally:
-                    cur.close()
-                from_state = TrState.no_row if n_prev == 0 else TrState.free
-                ha.emit_grant(c._cn, hold_id=hid, desk_id=actor_id, from_state=from_state)
-    except Exception:
-        pass
+    if not ok:
+        out.update({
+            "refused": "held",
+            "holder": holder,
+            "reason": f"{key} is already held by {holder or 'another caller'}; a second take never refreshes it",
+            "next": f"wait, or mill hold {key} --peek; the key holder may mill drop {key} --key KEY",
+        })
+    elif rec.get("handoff"):
+        out["handoff"] = True
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)
@@ -2986,10 +2958,21 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     project = project or _office(getattr(c, "_cn", None))
     _require_live_project(getattr(c, "_cn", None), project, "drop")
     key = resource_name(str(body.get("resource") or ""))
-    out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
+    out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key, body.get("key"))
     if out.get("released"):
-        emit_hold_release(c._cn, out, owner)
+        if out.get("forced"):
+            emit_hold_release(c._cn, out, owner)
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
+    elif out.get("id") and body.get("key") is None:
+        # Key failures are logged atomically by mill_hold_drop. This is the Python
+        # authorization refusal of the keyless override (the hold was not changed).
+        from agent_coord.server import hold_activity as ha
+
+        actor_id = ha.desk_id_for(c._cn, owner)
+        holder_id = ha.desk_id_for(c._cn, out.get("owner"))
+        if actor_id:
+            ha.emit_refuse(c._cn, hold_id=int(out["id"]), desk_id=actor_id,
+                           holder_desk_id=holder_id, op="drop")
     return out
 
 
@@ -3004,7 +2987,7 @@ def emit_hold_release(cn, out: dict[str, Any], owner: str | None) -> None:
         was = str(out.get("was_owner") or "").strip()
         holder_id = int(ha.desk_id_for(cn, was) or 0)
         if hid > 0 and holder_id > 0:
-            if was and owner and was == str(owner).strip():
+            if not out.get("forced") and was and owner and was == str(owner).strip():
                 ha.emit_drop(cn, hold_id=hid, desk_id=holder_id)
             else:
                 ha.emit_force(cn, hold_id=hid, desk_id=holder_id, by_desk_id=actor_id or None)
@@ -3133,19 +3116,9 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 did = ma.desk_id_for(c._cn, owner)
                 return ma.score_view_for_name(c._cn, name, desk_id=did)
-            if name in (
-                "hold.wait_ms",
-                "hold.held_ms",
-                "hold.contention_n",
-                "hold.force_taken_n",
-                "hold.expired_n",
-                "hold-wait",
-                "hold-held",
-                "hold-contention",
-                "hold-force-taken",
-                "hold-expired",
-            ):
-                from agent_coord.server import hold_activity as ha
+            from agent_coord.server import hold_activity as ha
+
+            if name in ha.SCORE_NAMES:
 
                 did = ha.desk_id_for(c._cn, owner)
                 return ha.score_view_for_name(c._cn, name, desk_id=did)
@@ -4601,6 +4574,34 @@ def _note_run_call(c: Book, owner: str, wid: str, command: str, exc: BaseExcepti
 
 
 def dispatch_ws(
+    c: Book,
+    desk: str,
+    command: str,
+    args: dict[str, Any] | None = None,
+    req_id: str | None = None,
+    *,
+    peer: str = "",
+    forwarded: bool = False,
+    client_mill: str = "",
+) -> Any:
+    """Run a desk-acting command. A failed call logs id, command, and class (card 1238)."""
+    try:
+        return _dispatch_ws(
+            c, desk, command, args, req_id,
+            peer=peer, forwarded=forwarded, client_mill=client_mill,
+        )
+    except Exception as exc:
+        # The exception text can carry a secret. The id joins this line to the client failure.
+        _log.warning(
+            "failed rpc id=%s command=%s class=%s",
+            str(req_id or ""),
+            str(command or ""),
+            type(exc).__name__,
+        )
+        raise
+
+
+def _dispatch_ws(
     c: Book,
     desk: str,
     command: str,

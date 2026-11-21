@@ -72,7 +72,10 @@ def test_send_roster_and_desk(body):
 
 
 def test_hold_drop_take_no_roster(body):
-    assert body("hold build") == {**body("hold build"), "project": CONST_OFFICE, "resource": "build"}
+    took = body("hold build")
+    assert took["project"] == CONST_OFFICE and took["resource"] == "build"
+    # Card 1267: each take sends a fresh sha256 of its one-use key, never the key.
+    assert len(took["kh"]) == 64 and took["kh"] != body("hold build")["kh"]
     assert body("drop build")["project"] == CONST_OFFICE
     assert body("hold --peek").get("peek") is True
 

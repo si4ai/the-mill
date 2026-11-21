@@ -172,12 +172,12 @@ def _print(obj) -> int:
     return len(raw.encode("utf-8"))
 
 def _print_err(obj) -> int:
-    """Error JSON object: same shape as _print, on stderr."""
-    from .install import redact_user_paths
+    """Failure: one JSON object on stdout, one ASCII line on stderr (card 1238)."""
+    from agent_coord.client.fail_out import emit_failure
 
-    raw = json.dumps(redact_user_paths(obj), default=str, indent=2)
-    print(raw, file=sys.stderr, flush=True)
-    return len(raw.encode("utf-8"))
+    if isinstance(obj, dict):
+        return emit_failure(text=str(obj.get("error") or ""), envelope=obj)
+    return emit_failure(text=str(obj))
 
 
 def _connect_json_error(error: str, desk: str) -> int:
@@ -340,7 +340,9 @@ def _invite_cmd(args) -> int:
         body = body_from_args(args)
         row = mill_http_call(body)
     except CoordError as e:
-        print(str(e), file=sys.stderr, flush=True)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=args)
         return 1
     if not isinstance(row, dict):
         print(json.dumps(row, default=str), flush=True)
@@ -591,7 +593,7 @@ def _build_parser() -> MillArgumentParser:
 
     a = sub.add_parser(
         "hold",
-        help="take or refresh an office-wide lock: mill hold NAME (bare mill hold lists every lock)",
+        help="take a free office-wide lock and print its one-use release_key: mill hold NAME (bare mill hold lists every lock)",
     )
     a.add_argument(
         "resource",
@@ -602,7 +604,12 @@ def _build_parser() -> MillArgumentParser:
     a.add_argument(
         "--peek",
         action="store_true",
-        help="show who holds the resource, or every lock when no resource; never takes or refreshes",
+        help="show who holds the resource, or every lock when no resource; never takes",
+    )
+    a.add_argument(
+        "--key",
+        default=None,
+        help="hand off a held lock: spend its release key and print a new one for this caller",
     )
     a.add_argument(
         "--group-by",
@@ -615,9 +622,10 @@ def _build_parser() -> MillArgumentParser:
 
     r = sub.add_parser(
         "drop",
-        help="release a lock (own, or Admin / high-trust stale other): mill drop NAME",
+        help="release a lock with its one-use key: mill drop NAME --key KEY (no key: admin.md override)",
     )
     r.add_argument("resource")
+    r.add_argument("--key", default=None, help="the release_key printed by mill hold NAME; any desk may present it once")
     _label_flags(r, read=False)
 
     dn = sub.add_parser(
@@ -1851,7 +1859,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
 
         args = translate(args)
     except (CoordError, ValueError) as e:
-        print(_format_error(e), file=sys.stderr)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=args)
         return 1
     try:
         from agent_coord.client.tokens import apply_session_token_env
@@ -2270,7 +2280,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
                     return rc
                 return mill_http_from_args(args)
             except CoordError as e:
-                print(str(e), file=sys.stderr, flush=True)
+                from agent_coord.client.fail_out import emit_failure
+
+                emit_failure(e, args=args)
                 return 1
         if args.cmd == "join":
             from agent_coord.client.offices import (
@@ -2387,7 +2399,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         print("unknown mill cmd", getattr(args, "cmd", ""), flush=True)
         return 1
     except (CoordError, RuntimeError, ValueError) as e:
-        print(_format_error(e), file=sys.stderr)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=locals().get("args"))
         return 1
     return 1
 

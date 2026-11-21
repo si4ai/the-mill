@@ -7,7 +7,7 @@ pytestmark = pytest.mark.sql
 
 from agent_coord.server.push import connect_sync_frame
 from agent_coord.server.records import hold
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_names, take_hold
 
 
 def test_own_empty_desk_and_no_holds(cn) -> None:
@@ -48,9 +48,13 @@ def test_own_since_is_updated_and_path_is_stored(cn) -> None:
 
 def test_own_omits_a_dropped_hold(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("f11-drop", "desk"))
-    assert int(hold.upsert(cn, "unit", "f11-drop", "f11-drop.res")[0]["ok"]) == 1
+    taken, key = take_hold(cn, "unit", "f11-drop", "f11-drop.res")
+    assert int(taken[0]["ok"]) == 1
     assert {r["resource"] for r in hold.own(cn, "f11-drop")} == {"f11-drop.res"}
-    released = hold.drop(cn, "unit", "f11-drop", "f11-drop.res")
+    keyless = hold.drop(cn, "unit", "f11-drop", "f11-drop.res")
+    assert keyless["ok"] is False
+    assert {r["resource"] for r in hold.own(cn, "f11-drop")} == {"f11-drop.res"}
+    released = hold.drop(cn, "unit", "f11-drop", "f11-drop.res", key)
     assert released["ok"] is True
     assert hold.own(cn, "f11-drop") == []
 

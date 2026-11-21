@@ -9,7 +9,7 @@ pytestmark = pytest.mark.sql
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records import activity, hold, join as here, mail, name, opened, score, todo
 from agent_coord.server.records import tree as rec_tree
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_names, take_hold
 from agent_coord.server.records import member as rec_member
 
 @pytest.fixture(scope="module", autouse=True)
@@ -107,24 +107,31 @@ def test_join_writes_no_doing_row(cn) -> None:
     assert rows == []
 
 def test_hold_unique(cn) -> None:
+    from agent_coord.helpers.hold_key import key_hash, new_key
     from agent_coord.server.records.db import scalar
 
     seed_names(cn, ("unit", "roster"), ("other", "roster"), ("a", "desk"), ("b", "desk"))
-    a = hold.upsert(cn, "unit", "a", "weights.pt")
+    a, key = take_hold(cn, "unit", "a", "weights.pt")
     assert int(a[0]["ok"]) == 1
     hid = int(a[0]["id"])
     again = hold.upsert(cn, "unit", "a", "weights.pt")
-    assert int(again[0]["ok"]) == 1
+    assert int(again[0]["ok"]) == 0
     assert int(again[0]["id"]) == hid
+    seen = hold.peek(cn, "unit", "weights.pt")
+    assert seen["held"] is True and seen["owner"] == "a"
     other = hold.upsert(cn, "other", "b", "weights.pt")
     assert int(other[0]["ok"]) == 0
     assert int(other[0]["id"]) == hid
     held = [r for r in hold.select(cn, "other") if int(r["id"]) == hid]
     assert held and held[0]["desk_id"] is not None
-    stranger = hold.delete(cn, hid, "b")
+    stranger = hold.delete(cn, hid, "b", new_key()[1])
     assert int(stranger[0]["ok"]) == 0
     assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is not None
-    hold.delete(cn, hid, "a")
+    keyless = hold.drop(cn, "unit", "a", "weights.pt")
+    assert keyless["ok"] is False
+    assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is not None
+    released = hold.delete(cn, hid, "a", key_hash(key))
+    assert int(released[0]["ok"]) == 1
     assert scalar(cn, "SELECT id FROM hold WHERE id=%s", (hid,)) == hid
     assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is None
     taken = hold.upsert(cn, "other", "b", "weights.pt")
@@ -135,10 +142,13 @@ def test_hold_drop_res_prefix(cn) -> None:
     from agent_coord.server.records.db import scalar
 
     seed_names(cn, ("unit", "roster"), ("a", "desk"), ("b", "desk"))
-    hold.upsert(cn, "unit", "a", "coord.py")
+    taken, key = take_hold(cn, "unit", "a", "coord.py")
+    assert int(taken[0]["ok"]) == 1
     missed = hold.drop(cn, "other", "b", "coord.py")
     assert missed["ok"] is False
-    hit = hold.drop(cn, "unit", "a", "coord.py")
+    keyless = hold.drop(cn, "unit", "a", "coord.py")
+    assert keyless["ok"] is False
+    hit = hold.drop(cn, "unit", "a", "coord.py", key)
     assert hit["ok"] is True
     assert hit.get("id")
     row = next(r for r in hold.select(cn, "") if int(r["id"]) == int(hit["id"]))

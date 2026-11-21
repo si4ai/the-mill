@@ -19,7 +19,7 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
-from tests.server.records.conftest import admin_desk, seed_names
+from tests.server.records.conftest import admin_desk, seed_names, take_hold
 
 pytestmark = pytest.mark.sql
 
@@ -49,8 +49,9 @@ def test_after_reset_hold_refresh_and_take_are_refused(book) -> None:
     cn.rollback()
     assert "no live seat" in str(ei.value).lower()
     # Another live desk can take the freed resource.
-    assert int(rec_hold.upsert(cn, R, OTHER, "h882/lock")[0]["ok"]) == 1
-    assert rec_hold.drop(cn, R, OTHER, "h882/lock").get("released") is True
+    rows, key = take_hold(cn, R, OTHER, "h882/lock")
+    assert int(rows[0]["ok"]) == 1
+    assert rec_hold.drop(cn, R, OTHER, "h882/lock", key).get("released") is True
 
 
 def test_after_reset_drop_of_freed_hold_is_released_false(book) -> None:
@@ -61,11 +62,12 @@ def test_after_reset_drop_of_freed_hold_is_released_false(book) -> None:
     assert out.get("released") is False
     assert out.get("reason") == "not held by you"
     # If another desk took it, drop by the reset desk still says released false.
-    assert int(rec_hold.upsert(cn, R, OTHER, "h882/lock")[0]["ok"]) == 1
+    rows, key = take_hold(cn, R, OTHER, "h882/lock")
+    assert int(rows[0]["ok"]) == 1
     out2 = rec_hold.drop(cn, R, LIVE, "h882/lock")
     assert out2.get("released") is False
     assert "not you" in str(out2.get("reason") or "").lower()
-    assert rec_hold.drop(cn, R, OTHER, "h882/lock").get("released") is True
+    assert rec_hold.drop(cn, R, OTHER, "h882/lock", key).get("released") is True
 
 
 def test_after_retire_hold_is_refused(cn) -> None:
