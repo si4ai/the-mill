@@ -282,8 +282,8 @@ DOINGS_CAP = 20
 
 
 def _utc_iso(at: Any, off: int = 0) -> str | None:
-    """A UTC DATETIME as ISO UTC with Z. doing.created (book clock) is converted per row in SQL first
-    (CONVERT_TZ from the session zone), so a run from the other side of a DST change reads right."""
+    """A UTC DATETIME as ISO UTC with Z. Book-clock values (doing.created and transition.at)
+    are converted to UTC in SQL first, so a stamp from the other side of a DST change reads right."""
     if at is None:
         return None
     from datetime import datetime, timedelta
@@ -311,7 +311,9 @@ def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
                x.join_key, x.parent_watch_id
           FROM name d
           JOIN LATERAL (
-            SELECT g.id, g.created, g.text, t.to_state AS state, t.at AS state_at,
+            SELECT g.id, g.created, g.text, t.to_state AS state,
+                   IFNULL(CONVERT_TZ(t.at, @@session.time_zone, '+00:00'),
+                          t.at + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS state_at,
                    IFNULL(CONVERT_TZ(g.created, @@session.time_zone, '+00:00'),
                           g.created + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS created_utc,
                    COUNT(*) OVER () AS n,
@@ -766,7 +768,10 @@ def run_tree(cn, desk: str, wid: str) -> dict[str, Any]:
     keys = [f"task:{desk}:{node[2]}" for node in nodes]
     marks = ",".join(["%s"] * len(keys))
     hop_rows = rows_done(cn, f"""
-        SELECT join_key, at, to_state, reason, meta FROM transition
+        SELECT join_key,
+               IFNULL(CONVERT_TZ(at, @@session.time_zone, '+00:00'),
+                      at + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS at,
+               to_state, reason, meta FROM transition
          WHERE activity_type = 'doing' AND join_key IN ({marks})
          ORDER BY id""",
         tuple(keys),
