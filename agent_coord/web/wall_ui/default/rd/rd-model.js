@@ -178,7 +178,10 @@
     var top = runs[0] || null;
     var doingText = n ? (str(top && top.text) || plural(n, "doing")) : "";
     var waiting = runs.some(function (x) { return str(x.state) === "waiting"; });
-    var state = !connected ? "disconnected" : (doingText ? (waiting ? "waiting" : "working") : "idle");
+    /* Card 1242: no connect sits but the webhook can wake it (reach "wake"): not disconnected.
+     * A server that sends no reach keeps today's rows. */
+    var wake = !connected && !!view && view.reach === "wake";
+    var state = !connected ? (wake ? "wake" : "disconnected") : (doingText ? (waiting ? "waiting" : "working") : "idle");
     var lc = st ? utc(st.last_connected) : null;
     /* A last-connected time in the future is not a reading; the seat heartbeat stands in. */
     if (lc != null && lc > ctx.now + 5 * MIN) lc = null;
@@ -204,6 +207,7 @@
       waitingOn: null,
       wait: null,
       lastSeenAt: lc,
+      lastWakeAt: wake ? utc(view.last_wake) : null,
       recentAt: raAt != null ? raAt : lc,
       recent: ra ? { type: str(ra.type), thing: str(ra.thing) } : null
     };
@@ -419,10 +423,13 @@
     var rows = b.desks.map(function (d) { return deskRow(b, d); });
     var live = sortDesks(rows.filter(function (r) { return r.connected; }), sort, false);
     var away = sortDesks(rows.filter(function (r) { return !r.connected; }), sort, true);
+    var wake = away.filter(function (r) { return r.state === "wake"; });
+    /* Card 1242: by urgency, a desk reachable by wake leads the ones away. */
+    if (sort === "urgency") away = wake.concat(away.filter(function (r) { return r.state !== "wake"; }));
     var selected = str(opts.selected);
     if (!rows.some(function (r) { return r.name === selected; })) selected = (live[0] || away[0] || {}).name || "";
     return {
-      sort: sort, connected: live, away: away, selected: selected,
+      sort: sort, connected: live, away: away, wake: wake.length, selected: selected,
       known: b.agentsKnown,
       scoreOff: live.filter(function (r) { return r.scores && r.scores.off; }).length
     };
@@ -2062,7 +2069,7 @@
     if (tab === "score" && m) return { lead: plural(m.off, "score") + " worse than the median on " + R + ".", rest: "Desks are rows, grouped by roster. Columns are scores grouped by area. A cell tints when it is worse than the cross-desk median." };
     if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Replay plays the focused desks\u2019 letters, card moves and promises back in order; a desk off this scope shows as outside." };
     if (tab === "desks" && m) {
-      return { lead: plural(m.connected.length, "desk") + " connected, " + m.away.length + " disconnected on " + R + ".",
+      return { lead: plural(m.connected.length, "desk") + " connected, " + (m.wake ? m.wake + " reachable by wake, " : "") + (m.away.length - (m.wake || 0)) + " disconnected on " + R + ".",
         rest: "Most active first." };
     }
     return { lead: "Loading " + R + "\u2026", rest: "" };
