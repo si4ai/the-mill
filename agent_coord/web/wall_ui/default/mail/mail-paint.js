@@ -329,6 +329,10 @@
     /* WALL_UI_DEFAULT_MAIL: mailRowsForListDst from domain module */
     /* WALL_UI_DEFAULT_MAIL: mailRowsForDesk from domain module */
     /* WALL_UI_DEFAULT_MAIL: mailRowsForDstSrc from domain module */
+    /* Card 1255: the rows that may mark a letter's names deleted (letter, sender, each mail_to). */
+    function mailMarks(m) {
+      return m ? [m, m.sender].concat(Array.isArray(m.mail_tos) ? m.mail_tos : []) : [];
+    }
     function mailListHtml(d, rows) {
       const td = (inner, attrs) => `<td${attrs ? " " + attrs : ""}><span class="mail-cell">${inner}</span></td>`;
       return `<table data-table="mail"><thead><tr>` +
@@ -672,7 +676,7 @@
         if (visible[i] === 2) cls.push("is-hit");
         if (visible[i] === 1) cls.push("is-spine");
         const whoDesk = (m && typeof mailSenderDesk === "function") ? mailSenderDesk(m) : (p.who || "");
-        const who = whoDesk ? `<span class="who">${esc(millName("desk", whoDesk) || whoDesk)}</span>` : "";
+        const who = whoDesk ? `<span class="who">${nmDel(mailMarks(m), whoDesk, esc(millName("desk", whoDesk) || whoDesk))}</span>` : "";
         const castN = (m && typeof mailCastCount === "function") ? mailCastCount(m) : 0;
         const castTip = (m && typeof mailCastTip === "function") ? mailCastTip(m) : "";
         const cast = (m && typeof mailRoomCast === "function") ? mailRoomCast(m) : [];
@@ -928,7 +932,7 @@
       srcCol.innerHTML = head + tos.map(function (t) {
         const id = String(t.deskId || "");
         const name = (typeof millName === "function" && millName("desk", id)) || id;
-        return `<div class="mail-party-row"><span class="desk-id">${esc(name)}</span><span class="desk-kind">addressed</span></div>`;
+        return `<div class="mail-party-row"><span class="desk-id">${nmDel(mailMarks(m), id, esc(name))}</span><span class="desk-kind">addressed</span></div>`;
       }).join("");
     }
     function mailLetterMs(m) {
@@ -981,16 +985,16 @@
         let src = (typeof mailSenderDesk === "function") ? String(mailSenderDesk(m) || "") : "";
         if (!src && m && m.sender && typeof m.sender === "object") src = String(m.sender.deskId || m.sender.desk || "");
         if (!src) src = String((m && (m.src || m.desk)) || "");
-        const srcName = (src && typeof millName === "function" && millName("desk", src)) || src || "desk";
+        const srcName = nmDel(mailMarks(m), src, esc((src && typeof millName === "function" && millName("desk", src)) || src || "desk"));
         const tos = (typeof mailTos === "function" && mailTos(m).length)
           ? mailTos(m)
           : ((m && Array.isArray(m.mail_tos)) ? m.mail_tos : []);
         const toNames = tos.map(function (t) {
           const id = String(t.deskId || "");
-          return (typeof millName === "function" && millName("desk", id)) || id;
+          return nmDel(mailMarks(m), id, esc((typeof millName === "function" && millName("desk", id)) || id));
         }).filter(Boolean).join(", ");
         const body = String(m.body || m.subject || "").replace(/\s+/g, " ").trim().slice(0, 96);
-        return `<div class="mail-letter"><span class="ln"><span class="meta">${esc(clock)}</span><span class="meta">${esc(srcName)}${toNames ? " \u2192 " + esc(toNames) : ""}</span><span class="meta">${esc(mailPartyFraction(m))}</span></span><span class="ln">${esc(body)}</span></div>`;
+        return `<div class="mail-letter"><span class="ln"><span class="meta">${esc(clock)}</span><span class="meta">${srcName}${toNames ? " \u2192 " + toNames : ""}</span><span class="meta">${esc(mailPartyFraction(m))}</span></span><span class="ln">${esc(body)}</span></div>`;
       }).join("");
       el.innerHTML = picks + (lines || `<div class="col-empty">${esc(span[3])}</div>`);
       el.querySelectorAll("[data-mail-letter-span]").forEach(function (btn) {

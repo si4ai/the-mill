@@ -37,7 +37,9 @@
     return '<a class="rd-on-item" href="#' + tab + '" data-rd-go="' + h(tab) + '" data-rd-sel="' + h(it.key) + '">' + h(it.key) + "</a>";
   }
   function chip(text, cls) { return '<span class="rd-chip' + (cls ? " " + cls : "") + '">' + h(text) + "</span>"; }
-  function deskChip(name) { return '<button type="button" class="rd-chip rd-desk-chip" data-rd-desk="' + h(name) + '">' + h(name) + "</button>"; }
+  /* Card 1255: a name the row's deleted_names lists paints struck, tagged "deleted" (lib/data.js). */
+  function del(row, name, html) { return global.wallDelName ? global.wallDelName(row, name, html) : html; }
+  function deskChip(name, row) { return '<button type="button" class="rd-chip rd-desk-chip" data-rd-desk="' + h(name) + '">' + del(row, name, h(name)) + "</button>"; }
   function empty(text) { return '<p class="rd-empty-line">' + h(text) + "</p>"; }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
 
@@ -109,7 +111,7 @@
     var state = r.connected || r.state === "wake" ? r.state : "disconnected";
     return '<div class="rd-here-line' + (r.connected || state === "wake" ? "" : " away") + '">' +
       '<button type="button" class="rd-here-row' + on + '" data-rd-pickdesk="' + h(r.name) + '">' +
-      '<span class="rd-here-dot ' + h(state) + '"></span><span class="rd-here-name">' + h(r.name) + "</span>" +
+      '<span class="rd-here-dot ' + h(state) + '"></span><span class="rd-here-name">' + del(r, r.name, h(r.name)) + "</span>" +
       '<span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span>" +
       doing + meta + priosLine(r.prios) + (r.connected ? rowChips(r) : "") + "</button></div>";
   }
@@ -183,7 +185,7 @@
     if (r.wait && r.wait.letters) facts.push(h(plural(r.wait.letters, "letter")) + " waiting");
     if (r.wait && r.wait.cards) facts.push(h(plural(r.wait.cards, "card")) + " waiting");
     if (r.rosters.length) facts.push("on " + h(r.rosters.join(", ")));
-    var html = '<div class="rd-desk-head"><b>' + h(r.name) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span></div>" +
+    var html = '<div class="rd-desk-head"><b>' + del(r, r.name, h(r.name)) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span></div>" +
       '<div class="rd-desk-doing">' + text + '<div class="rd-facts">' + facts.join(" \u00b7 ") + "</div></div>" + scoresBlock(dd);
     html += '<div class="rd-desk-grid">';
     html += '<section class="rd-block card"><h3>CARD <span class="rd-sub">current</span></h3>' + (dd.card
@@ -193,9 +195,9 @@
       : '<div class="rd-empty">' + (r.on ? "Doing is on " + item(r.on) + ", not a card." : "No current card.") + "</div>") + "</section>";
     if (dd.chat) {
       html += '<section class="rd-block chat"><h3>CHAT <span class="rd-sub">latest first</span></h3>' + (dd.chat.length ? dd.chat.slice(0, 4).map(function (m) {
-        var to = m.tos.map(function (t) { return t.desk; }).join(", ");
-        return '<div class="rd-letter"><b>' + h(m.from) + "</b> " + item("mail-" + m.id) + '<span class="rd-when">' + h(R.dur(now - m.at)) + "</span>" +
-          '<span class="rd-body">' + (m.from === r.name ? "to " + h(to) + ": " : "") + h(R.firstLine(m.body, 160) || "(no text)") + "</span></div>";
+        var to = m.tos.map(function (t) { return del(m, t.desk, h(t.desk)); }).join(", ");
+        return '<div class="rd-letter"><b>' + del(m, m.from, h(m.from)) + "</b> " + item("mail-" + m.id) + '<span class="rd-when">' + h(R.dur(now - m.at)) + "</span>" +
+          '<span class="rd-body">' + (m.from === r.name ? "to " + to + ": " : "") + h(R.firstLine(m.body, 160) || "(no text)") + "</span></div>";
       }).join("") + (dd.chat.length > 4 ? '<a class="rd-more-link" href="#mail" data-rd-go="mail">' + h(plural(dd.chat.length - 4, "older letter")) + "</a>" : "")
         : '<div class="rd-empty">No letters in this slice.</div>') + "</section>";
     }
@@ -215,7 +217,7 @@
   function feedHtml(rows) {
     if (rows == null) return "";
     return "<h3>OFFICE ACTIVITY <span class=\"rd-sub\">latest first</span></h3>" + (rows.length ? rows.map(function (f) {
-      return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(f.at)) + '</span><div><span class="rd-who">' + h(f.who) + '</span><span class="rd-k ' + h(f.kind) + '">' + h(f.kind) + '</span><span class="rd-text">' + h(f.text) + "</span></div></div>";
+      return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(f.at)) + '</span><div><span class="rd-who">' + del(f, f.who, h(f.who)) + '</span><span class="rd-k ' + h(f.kind) + '">' + h(f.kind) + '</span><span class="rd-text">' + h(f.text) + "</span></div></div>";
     }).join("") : '<p class="rd-empty">Nothing in the latest activity.</p>');
   }
   /* A tab's platform scores (rd-model SCORE_TABS), off target first. None served: no strip. */
@@ -263,7 +265,7 @@
     return split(cols, det, m.groups.length);
   }
   function feedLetter(m) {
-    return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + h(m.from) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
+    return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + del(m, m.from, h(m.from)) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
   }
   function split(cols, detail, n, cls) {
     return '<div class="rd-tab-split' + (cls ? " " + cls : "") + '"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" data-groups="' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
@@ -351,7 +353,7 @@
         var at = {};
         r.cells.forEach(function (c) { at[c.name] = c; });
         var tds = m.shown.map(function (s) { return s.summary ? sumTd(r.byArea[s.area]) : cellTd(at[s.col.name]); }).join("");
-        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + h(r.desk) + (r.worse ? ' <span class="rd-sc-worse" title="' + h(plural(r.worse, "score") + " worse than median") + '">' + h(String(r.worse)) + "</span>" : "") + "</th>" + tds + "</tr>";
+        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + del(r, r.desk, h(r.desk)) + (r.worse ? ' <span class="rd-sc-worse" title="' + h(plural(r.worse, "score") + " worse than median") + '">' + h(String(r.worse)) + "</span>" : "") + "</th>" + tds + "</tr>";
       }).join("");
       return '<tbody class="rd-sc-roster"><tr class="rd-sc-roster-h"><th class="rd-sc-desk">' + h(g.label) + ' <span class="rd-sub">' + h(String(g.rows.length)) + '</span></th><td colspan="' + nCols + '"></td></tr>' + rows + "</tbody>";
     }).join("");
@@ -368,7 +370,7 @@
           }).join("") || '<p class="rd-empty-line">No scores with a value.</p>';
           return head + '<div class="rd-sc-card-sec">' + list + "</div>";
         }).join("");
-        return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
+        return '<article class="rd-sc-card"><h3>' + del(r, r.desk, h(r.desk)) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
       }).join("");
     }).join("") + "</div>";
     function flagBtn(key, on, text, tip) {
@@ -404,7 +406,7 @@
     }
     var d = m.detail, det = "";
     if (d) {
-      var facts = [deskChip(d.desk)].concat(
+      var facts = [deskChip(d.desk, d)].concat(
         d.roster ? [chip(d.roster, "roster")] : [],
         ["<span>" + h(d.text) + "</span>"],
         d.kind === "age" && d.anchorMs != null ? ['<span title="anchor">since ' + h(localWhen(d.anchorMs)) + "</span>"] : [],
@@ -415,7 +417,7 @@
       var items = d.items && d.items.length ? '<h3>ITEMS <span class="rd-sub">' + h(String(d.items.length)) + (d.items.length >= 5 ? " (first 5)" : "") + '</span></h3><div class="rd-sc-items">' + d.items.map(function (it) {
         return '<a class="rd-on-item" href="#' + h(it.tab) + '" data-rd-go="' + h(it.tab) + '" data-rd-sel="' + h(it.sel) + '">' + h(it.text) + "</a>";
       }).join("") + "</div>" : "";
-      det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + h(d.desk) + "</div>" +
+      det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + del(d, d.desk, h(d.desk)) + "</div>" +
         (d.desc ? '<p class="rd-sc-desc">' + h(d.desc) + ' <span class="rd-sc-better">Lower is better.</span></p>' : "") +
         '<div class="rd-detail-facts">' + facts + "</div>" + items;
     }

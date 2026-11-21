@@ -355,7 +355,19 @@
     return out;
   }
 
+  /* Card 1255: a row naming a retired or trashed name lists it in deleted_names. The name's
+   * html comes back struck and tagged "deleted" when a row (or one of rows) lists it; else as is. */
+  function wallDelIs(rows, name) {
+    var n = String(name == null ? "" : name).trim();
+    return !!n && [].concat(rows).some(function (r) { var d = r && r.deleted_names; return Array.isArray(d) && d.indexOf(n) >= 0; });
+  }
+  function wallDelName(rows, name, html) {
+    return wallDelIs(rows, name) ? '<s class="nm-del" title="deleted">' + html + '</s> <span class="nm-del-tag">deleted</span>' : html;
+  }
+
   global.wallRailOrder = wallRailOrder;
+  global.wallDelIs = wallDelIs;
+  global.wallDelName = wallDelName;
   global.WALL_RAIL_SORTS = RAIL_SORTS;
   global.wallPaintThrowSafe = paintThrowSafe;
   global.wallAgoShort = wallAgoShort;
