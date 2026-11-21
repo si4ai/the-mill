@@ -883,9 +883,15 @@ def _refuse_gone_doing_keys(command: str, body: dict[str, Any]) -> None:
 
 
 def _run_command(c: Book, fn: Any, command: str, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Run a handler (card 1207: no doing side)."""
+    """Run a handler (card 1207: no doing side).
+
+    Card 1255: every reply row that refers to a retired or trashed name (a card's
+    roster, a letter's sender, a hold's desk) carries deleted_names.
+    """
+    from agent_coord.server.records.name_marks import mark_deleted
+
     _refuse_gone_doing_keys(command, body)
-    return fn(c, body, project, owner)
+    return mark_deleted(getattr(c, "_cn", None), fn(c, body, project, owner))
 
 
 def _h_project(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
