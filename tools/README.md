@@ -227,6 +227,24 @@ drift. Not a CI gate. Tests prove normalize/diff fail on doctored input
 and pass on clean input. The live install-then-doctor test is marked
 sql; CI pytest_sql_run is the proof.
 
+## dev_host_import.py
+
+Card 1266. Refresh a dev host book from a logical dump of another office
+book (the card 1200 steps). Backs up the current book, loads the dump
+into a new database, reports cross-type name strings and current-only
+desks, copies matching desk bearer salts from the current book, points
+the host config at the new database, then runs `mill install sql --apply`
+from the release checkout. It prints the restart and rollback steps and
+does not restart the wall. `--dry-run` prints the plan and pre-check
+only. Never prints passwords, bearer tokens, or hashes. Dev pipeline
+tooling, not a product feature. The write-up is in
+[CHECKS-AND-TOOLS.md](../docs/dev/CHECKS-AND-TOOLS.md).
+
+```bash
+python tools/dev_host_import.py --dump PATH --new-database NAME --dry-run
+python tools/dev_host_import.py --dump PATH --new-database NAME
+```
+
 ## cold_measure_head.py
 
 Stage a PR-head cold measure kit (card 813 / F212). Copies JOIN.md and the
