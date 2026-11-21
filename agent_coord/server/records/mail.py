@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agent_coord.const import CONST_DESK, CONST_MAIL, CONST_ROSTER
 
-from .db import call, scalar, scalar_done
+from .db import call, rows_done, scalar, scalar_done
 from .db import commit as _db_commit
 
 
@@ -54,16 +54,67 @@ def select(cn, desk: str) -> list[dict]:
     )
 
 
-def inbox(cn, desk: str, *, all_mail: bool = False, limit: int = 100) -> list[dict]:
+def inbox(
+    cn,
+    desk: str,
+    *,
+    all_mail: bool = False,
+    limit: int = 100,
+    label_sets: list[list[int]] | None = None,
+    label_any: bool = False,
+) -> list[dict]:
     """Inbox page cut in SQL. Unread: newest `limit` unread, newest first (card 846).
-    all_mail: newest `limit` letters, newest first. Same rows as select()."""
+    all_mail: newest `limit` letters, newest first. Same rows as select().
+
+    Card 1260: label_sets (label name ids, one list per asked label) narrows the letters
+    before the page is cut: every list must hit, or with label_any at least one. [] is
+    no match. mill_mail_inbox's columns and order, as a plain read with a WHERE (F23)."""
     from agent_coord.server.records.name import bare
 
-    return call(
-        cn,
-        "mill_mail_inbox",
-        [bare(desk, CONST_DESK) if desk else "", 1 if all_mail else 0, max(1, int(limit or 100))],
+    lim = max(1, int(limit or 100))
+    who = bare(desk, CONST_DESK) if desk else ""
+    if label_sets is None:
+        return call(cn, "mill_mail_inbox", [who, 1 if all_mail else 0, lim])
+    sets = [[int(i) for i in ids] for ids in label_sets]
+    if not sets or (not label_any and any(not ids for ids in sets)) or not any(sets):
+        return []
+
+    def _hit(ids: list[int]) -> tuple[str, list[int]]:
+        marks = ",".join(["%s"] * len(ids))
+        return (
+            "EXISTS (SELECT 1 FROM label l WHERE l.type = 'mail' AND l.id = mt.id"
+            " AND l.name_id IN (" + marks + "))",
+            ids,
+        )
+
+    if label_any:
+        clause, args = _hit(sorted({i for ids in sets for i in ids}))
+    else:
+        parts = [_hit(ids) for ids in sets]
+        clause = " AND ".join(p for p, _a in parts)
+        args = [i for _p, a in parts for i in a]
+    sql = (
+        "SELECT m.type, m.id, m.created, m.created AS updated, m.desk_id,"
+        " m.roster_id AS sender_roster_id,"
+        " m.roster_id AS roster_id, t.desk_id AS dst_id, m.body,"
+        " t.receipt AS receipt, t.opened AS opened,"
+        " m.body_updated, bun.name AS body_updater,"
+        " srcn.name AS desk, srcn.type AS desk_type, dstn.name AS dst, dstn.type AS dst_type,"
+        " affn.name AS roster, affn.type AS roster_type,"
+        " affn.name AS sender_roster, affn.type AS sender_roster_type"
+        " FROM (SELECT mt.id, mt.desk_id, mt.receipt, mt.opened FROM mail_to mt"
+        "  WHERE mt.type = 'mail' AND mt.desk_id = MILL_NAME_GET('desk', %s)"
+        + ("" if all_mail else " AND mt.opened IS NULL")
+        + " AND " + clause +
+        "  ORDER BY mt.id DESC LIMIT %s) t"
+        " JOIN mail m ON m.type = 'mail' AND m.id = t.id"
+        " LEFT JOIN name srcn ON srcn.id = m.desk_id"
+        " LEFT JOIN name dstn ON dstn.id = t.desk_id"
+        " LEFT JOIN name affn ON affn.id = m.roster_id"
+        " LEFT JOIN name bun ON bun.id = m.body_updater_id"
+        " ORDER BY t.id DESC"
     )
+    return rows_done(cn, sql, (who, *args, lim))
 
 
 def list_project(cn, project: str) -> list[dict]:
@@ -255,6 +306,37 @@ def _mail_crumb(packed: list[dict], mid: int) -> dict:
     return out
 
 
+def _room_crumb(packed: list[dict], mid: int) -> dict:
+    """Card 1259: the crumb from one tree. A letter may sit on several trees (a room and
+    a todo plan); mixing their ancestors lost the parent. Rows carry tree_id. The room is
+    the lowest tree id whose outermost node is mail, else the lowest tree id with a crumb."""
+    by_tree: dict[int, list[dict]] = {}
+    for row in packed:
+        by_tree.setdefault(int(row.get("tree_id") or 0), []).append(row)
+    first: dict = {}
+    for tid in sorted(by_tree):
+        rows = sorted(by_tree[tid], key=lambda r: int(r.get("lft") or 0))
+        crumb = _mail_crumb(rows, mid)
+        if not crumb:
+            continue
+        if str(rows[0].get("anc_type") or "") == "mail":
+            return crumb
+        if not first:
+            first = crumb
+    return first
+
+
+_CRUMB_SQL = (
+    "SELECT node.id AS mail_id, node.name_id AS tree_id, n.name AS tree, n.type AS tree_type,"
+    " anc.type AS anc_type, anc.id AS anc_id, anc.lft"
+    " FROM tree AS node"
+    " JOIN name n ON n.id = node.name_id"
+    " JOIN tree AS anc"
+    "   ON anc.name_id = node.name_id"
+    "  AND anc.lft <= node.lft AND anc.rgt >= node.rgt"
+)
+
+
 def tree_crumbs_batch(cn, mail_ids: list[int]) -> dict[int, dict]:
     """Batch tree_crumbs for many mail ids (one query). Missing ids -> omitted."""
     ids = _mail_id_list(mail_ids)
@@ -264,15 +346,8 @@ def tree_crumbs_batch(cn, mail_ids: list[int]) -> dict[int, dict]:
     cur = cn.cursor()
     try:
         cur.execute(
-            "SELECT node.id AS mail_id, n.name AS tree, n.type AS tree_type, anc.type AS anc_type,"
-            " anc.id AS anc_id, anc.lft"
-            " FROM tree AS node"
-            " JOIN name n ON n.id = node.name_id"
-            " JOIN tree AS anc"
-            "   ON anc.name_id = node.name_id"
-            "  AND anc.lft <= node.lft AND anc.rgt >= node.rgt"
-            " WHERE node.type = 'mail' AND node.id IN (" + marks + ")"
-            " ORDER BY node.id, anc.lft",
+            _CRUMB_SQL + " WHERE node.type = 'mail' AND node.id IN (" + marks + ")"
+            " ORDER BY node.id, node.name_id, anc.lft",
             tuple(ids),
         )
         cols = list(cur.column_names)
@@ -287,11 +362,10 @@ def tree_crumbs_batch(cn, mail_ids: list[int]) -> dict[int, dict]:
         cur.close()
     out: dict[int, dict] = {}
     for mid, packed in by_mail.items():
-        crumb = _mail_crumb(packed, mid)
+        crumb = _room_crumb(packed, mid)
         if crumb:
             out[mid] = crumb
     return out
-
 
 
 def to_put(
@@ -743,27 +817,7 @@ def dest_count(cn, mail_id: int) -> int:
 
 def tree_crumbs(cn, mail_id: int) -> dict:
     """parent_id / root_id / tree name for a mail node (empty if not on a plan)."""
-    cur = cn.cursor()
-    try:
-        cur.execute(
-            "SELECT n.name AS tree, n.type AS tree_type, anc.type AS anc_type, anc.id AS anc_id, anc.lft"
-            " FROM tree AS node"
-            " JOIN name n ON n.id = node.name_id"
-            " JOIN tree AS anc"
-            "   ON anc.name_id = node.name_id"
-            "  AND anc.lft <= node.lft AND anc.rgt >= node.rgt"
-            " WHERE node.type = 'mail' AND node.id = %s"
-            " ORDER BY anc.lft",
-            (int(mail_id),),
-        )
-        rows = cur.fetchall()
-        if not rows:
-            return {}
-        cols = list(cur.column_names)
-        packed = [dict(zip(cols, r)) for r in rows]
-        return _mail_crumb(packed, int(mail_id))
-    finally:
-        cur.close()
+    return tree_crumbs_batch(cn, [int(mail_id)]).get(int(mail_id), {})
 
 
 def room_participants(cn, mail_id: int, room: "RoomRead | None" = None) -> set[str]:
