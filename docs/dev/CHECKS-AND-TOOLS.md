@@ -154,16 +154,38 @@ the checks, not a grade of each PR.
 
 Load a dump of another office book into a new database, then copy this
 host's desk bearer salts onto it. The uploaded book keeps its own rows
-and ids. Only `seat.token_hash` moves, and only for a desk name that
-exists on both sides.
+and ids (ids are not remapped). Only `seat.token_hash` moves, and only
+for a desk name that exists on both sides. A desk that exists only on
+the current book does not carry its bearer over.
 
-1. Back up the current book.
-2. Load the dump into an empty database. Leave the current book in place.
-3. From the current book, `CALL mill_import_bearer_salts('that_database')`.
+Run the steps with `python tools/dev_host_import.py --dump PATH
+--new-database NAME` (card 1266). `--dry-run` prints the plan and the
+pre-check only. The script stops on the first failure. It never prints
+passwords, bearer tokens, or hashes.
+
+1. Back up the current book to a dump file. Leave the current database
+   in place as the rollback.
+2. Create a new empty database (letters, digits, and underscore only)
+   and load the dump into it.
+3. Pre-check: strings that are a desk on one book and another type on
+   the other; desks only on the current book (their bearers will not
+   carry over). Name collisions inside one book are left to the apply
+   step in item 7 (card 1163: rank res, desk, roster, tree, label;
+   later rows get name-N).
+4. From the current book, `CALL mill_import_bearer_salts('that_database')`.
    The argument is a plain identifier. The procedure copies `token_hash`
-   onto the uploaded seat whose desk name matches.
-4. Point `database` in the host config at the uploaded database.
-5. Restart the wall. The previous database stays until you drop it.
+   onto the uploaded seat whose desk name matches. The call is refused
+   when the session database is the upload (calling it there would copy
+   the upload onto itself).
+5. Check that the account has EXECUTE on the new database (the apply
+   step needs it).
+6. Point `database` in the host config at the new database, keeping a
+   copy of the old config.
+7. From the release checkout, run `mill install sql --apply` against
+   the new database after the config points at it. Use the checkout's
+   mill, not an older installed client.
+8. Print the restart step and the rollback step. Do not restart the
+   wall. The previous database stays until you drop it.
 
 `migrations.sql` adds `ON UPDATE CASCADE` to every foreign key and lets
 `name_fixed` accept an id change when `@mill_allow_name_id_change` is 1.
