@@ -6,13 +6,10 @@ live release key frees or hands off a hold, every refusal has its row in the
 refusing transaction, the release-other race guards, drop idempotence, and the
 known no-TTL stuck-hold finding (no expiry is by design since card 1267).
 
-**Code of record: PR #490 head 047b9f5 (card 1267), not merged yet.** `SYNC`
-in `run.sh` is that commit. release/0.8.16 head 77ed251 still has the old
-desk-owned hold, so `run.sh anchors` is red there by design (12/32 anchors;
-the two `absent` anchors flag today's same-desk refresh and own-desk `kept`
-branches). Until #490 lands, run it against a checkout of #490:
-
-    HOLD_CODE_ROOT=<checkout of 047b9f5> verify/hold-code/run.sh
+**Code of record: PR #490 (card 1267), landed on release/0.8.16 as a9d5f2e.**
+`SYNC` in `run.sh` is 047b9f5, the head the anchors were written against;
+later #490 commits changed refusal text and docs only. Run
+`verify/hold-code/run.sh` from this checkout.
 
 - `Hold.tla` / `Hold.cfg`: TLA+ model of take, hand-off take, keyed drop,
   release-other, tick; guards as CONSTANTS

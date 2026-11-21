@@ -457,7 +457,7 @@ holds. `-DRUNS=0`, the default, leaves the models above unchanged.
   `_h_hold` in `rpc.py`, `emit_refuse` through `_safe_put` in
   `hold_activity.py`).
 - `OWNER=2` is card 1267 as the owner set it (2026-11-20, 10:09-10:12 PM
-  Pacific), checked against PR #490 head 047b9f5 (not merged): a take of a
+  Pacific), checked against PR #490 head 047b9f5 (landed as a9d5f2e): a take of a
   free hold is atomic and writes the key hash on its `hold_grant` row; a take
   of a held one is refused for every caller, same desk included, with a
   `hold_refuse` row in the same transaction (classed same-desk or cross-desk

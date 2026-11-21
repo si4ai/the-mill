@@ -21,8 +21,7 @@ those assume. Package:
 ## does my change touch the covered code?
 
 Sync commit (in `run.sh` as `SYNC`, currently 047b9f50feff2928b96b04aa755d099c30ac350f,
-PR #490 head, card 1267; not merged: run with `HOLD_CODE_ROOT` set to a
-checkout of it until it lands):
+PR #490's head, card 1267; landed as a9d5f2e):
 
 - take, hand-off and refusal row: `sp_hold.sql` `mill_hold_upsert`
 - live key: `sp_hold.sql` `MILL_HOLD_KH`; key hash: `helpers/hold_key.py`
