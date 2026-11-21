@@ -223,7 +223,7 @@ def may_drop_other(cn, actor: str, holder: str, *, hold_id: int = 0, since=None)
     if mill_trust() == "limited":
         return False, (
             f"drop: {whose} "
-            f"(limited trust: only the holder or Admin may drop)"
+            f"(limited trust: only the key or Admin may drop)"
         )
     if seat_connected(cn, holder):
         return False, (
