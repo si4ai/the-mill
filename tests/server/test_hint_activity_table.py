@@ -147,7 +147,7 @@ def test_h13_label_add_pokes_todo_not_label() -> None:
     book = MagicMock()
     with patch("agent_coord.server.records.label.put", return_value=[{"ok": True}]), patch(
         "agent_coord.server.push.fanout", side_effect=fake_fanout
-    ):
+    ), patch.object(rpc, "_occupant_type", return_value=""):
         rpc._h_label(
             book,
             {"verb": "label-add", "type": "todo", "id": 14, "label": "bug"},
