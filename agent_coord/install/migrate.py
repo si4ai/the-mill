@@ -1827,6 +1827,30 @@ def _ensure_wake_lease_edges(cn) -> list[str]:
     return applied
 
 
+def _ensure_tw_call_edges(cn) -> list[str]:
+    """card 1223: a run's forwarded mill call is a same-state tw_call row. Idempotent INSERT IGNORE."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "transition_edge"):
+            return applied
+        cur.execute(
+            "INSERT IGNORE INTO transition_edge"
+            " (activity_type, from_state, to_state, reason) VALUES"
+            " ('doing', 'active', 'active', 'tw_call'),"
+            " ('doing', 'waiting', 'waiting', 'tw_call')"
+        )
+        if cur.rowcount:
+            applied.append("transition_edge.tw_call_1223")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def _ensure_wake_auto_id(cn) -> list[str]:
     """card 1113: wake is payload first, as mail and todo. wake.id is AUTO_INCREMENT, past every wake id in
     activity (rollup deletes wake rows and keeps their activity rows), and fk_wake_activity is gone (the
@@ -1875,6 +1899,24 @@ def _ensure_wake_cause_id_idx(cn) -> list[str]:
         if _table_exists(cur, "wake") and not _index_exists(cur, "wake", "idx_cause_id"):
             cur.execute("ALTER TABLE wake ADD KEY idx_cause_id (cause, cause_id, state)")
             applied.append("wake.idx_cause_id")
+        cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
+def _ensure_name_type_idx(cn) -> list[str]:
+    """card 1234: name (type, name) for reading one type's names. Not unique: idx_name stays the only
+    unique name key (card 1163). Additive and idempotent; runs after apply_1163, which drops the old idx_type."""
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if _table_exists(cur, "name") and not _index_exists(cur, "name", "idx_type_name"):
+            cur.execute("ALTER TABLE name ADD KEY idx_type_name (type, name)")
+            applied.append("name.idx_type_name")
         cn.commit()
     except Exception:
         cn.rollback()
@@ -3085,6 +3127,7 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_transition_n(cn))
             applied.extend(_ensure_wake_retry_edge(cn))
             applied.extend(_ensure_wake_lease_edges(cn))
+            applied.extend(_ensure_tw_call_edges(cn))
             # card 1113: wake.id is AUTO_INCREMENT, payload first (after the 1022 wake table).
             applied.extend(_ensure_wake_auto_id(cn))
             # card 1171: after the 1022 wake table exists.
@@ -3092,6 +3135,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             if did_1022:
                 applied.extend(reload_routines(cn))
             applied.extend(apply_1163(cn))
+            # card 1234: after 1163, so an upgraded book ends with the same name keys as tables.sql.
+            applied.extend(_ensure_name_type_idx(cn))
             applied.extend(apply_1200(cn))
             # card 1207: after the routine reload (mill_doing_anchor, MILL_FX_META) and the 1022 edges.
             applied.extend(apply_1207(cn))

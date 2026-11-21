@@ -17,7 +17,7 @@ class _Book:
 def test_bare_hold_lists_and_roster_peek_hints(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("c326-test", "roster"), ("c326-w3", "desk"))
     book = _Book(cn)
-    took = rpc._h_hold(book, {"resource": "c326-deploy"}, "unit", "c326-w3")
+    took = rpc._h_hold(book, {"kh": "0" * 64, "resource": "c326-deploy"}, "unit", "c326-w3")
     assert took["held"] is True
 
     listed = rpc._h_hold(book, {}, "unit", "c326-w3")

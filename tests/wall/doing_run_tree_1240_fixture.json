@@ -1,0 +1,300 @@
+{
+  "_about": "Card 1240 glass fixture: the display contract of letter 6456 for card 1239's server. 'doing' is GET /api/v1/doing?all=1 with watch_id and parent_watch_id on each live row (newest first). 'runs' maps WATCH_ID to the GET /api/v1/doing?run=WATCH_ID&desk=builder body ({n, runs}); a missing key is the server's 400 (no tw run). Synthetic desks and ids, no real data. 'served' is one desk view and its run tree as the card 1239 server on the dev box sent them (2026-11-20), trimmed to that desk.",
+  "doing": [
+    {
+      "owner": "builder",
+      "heartbeat": "2026-11-20 09:10:00",
+      "alive": true,
+      "stale": false,
+      "project_id": "the-mill",
+      "n": 5,
+      "doings": [
+        {
+          "id": 105,
+          "created": "2026-11-20T09:06:00Z",
+          "text": "lone root",
+          "state": "started",
+          "state_at": "2026-11-20T09:06:00Z",
+          "card": null,
+          "watch_id": "tw-eee",
+          "parent_watch_id": null
+        },
+        {
+          "id": 104,
+          "created": "2026-11-20T09:05:00Z",
+          "text": "",
+          "state": "active",
+          "state_at": "2026-11-20T09:05:00Z",
+          "card": null,
+          "watch_id": "tw-ddd",
+          "parent_watch_id": "tw-zzz"
+        },
+        {
+          "id": 103,
+          "created": "2026-11-20T09:02:00Z",
+          "text": "",
+          "state": "active",
+          "state_at": "2026-11-20T09:02:00Z",
+          "card": null,
+          "watch_id": "tw-ccc",
+          "parent_watch_id": "tw-bbb"
+        },
+        {
+          "id": 102,
+          "created": "2026-11-20T09:00:10Z",
+          "text": "",
+          "state": "waiting",
+          "state_at": "2026-11-20T09:00:10Z",
+          "card": null,
+          "watch_id": "tw-bbb",
+          "parent_watch_id": "tw-aaa"
+        },
+        {
+          "id": 101,
+          "created": "2026-11-20T09:00:00Z",
+          "text": "parent run",
+          "state": "active",
+          "state_at": "2026-11-20T09:00:00Z",
+          "card": null,
+          "watch_id": "tw-aaa",
+          "parent_watch_id": null
+        }
+      ]
+    },
+    {
+      "owner": "validator",
+      "heartbeat": "2026-11-20 09:10:00",
+      "alive": true,
+      "stale": false,
+      "project_id": "the-mill",
+      "n": 1,
+      "doings": [
+        {
+          "id": 201,
+          "created": "2026-11-20T09:01:00Z",
+          "text": "old server row",
+          "state": "started",
+          "state_at": "2026-11-20T09:01:00Z",
+          "card": null
+        }
+      ]
+    }
+  ],
+  "runs": {
+    "tw-aaa": {
+      "n": 3,
+      "runs": [
+        {
+          "watch_id": "tw-aaa",
+          "parent_watch_id": null,
+          "desk": "builder",
+          "start": "2026-11-20T09:00:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 250,
+          "ok_n": 248,
+          "failed_n": 2,
+          "calls": [
+            {
+              "at": "2026-11-20T09:00:05Z",
+              "verb": "inbox",
+              "ok": true
+            },
+            {
+              "at": "2026-11-20T09:00:06Z",
+              "verb": "todo",
+              "ok": false,
+              "err": "refused"
+            }
+          ]
+        },
+        {
+          "watch_id": "tw-bbb",
+          "parent_watch_id": "tw-aaa",
+          "desk": "builder",
+          "start": "2026-11-20T09:00:10Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "waiting",
+          "calls_n": 1,
+          "ok_n": 1,
+          "failed_n": 0,
+          "calls": [
+            {
+              "at": "2026-11-20T09:00:12Z",
+              "verb": "inbox",
+              "ok": true
+            }
+          ]
+        },
+        {
+          "watch_id": "tw-ccc",
+          "parent_watch_id": "tw-bbb",
+          "desk": "builder",
+          "start": "2026-11-20T09:02:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 0,
+          "ok_n": 0,
+          "failed_n": 0,
+          "calls": []
+        }
+      ]
+    },
+    "tw-eee": {
+      "n": 1,
+      "runs": [
+        {
+          "watch_id": "tw-eee",
+          "parent_watch_id": null,
+          "desk": "builder",
+          "start": "2026-11-20T09:06:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "started",
+          "calls_n": 0,
+          "ok_n": 0,
+          "failed_n": 0,
+          "calls": []
+        }
+      ]
+    },
+    "tw-zzz": {
+      "n": 2,
+      "runs": [
+        {
+          "watch_id": "tw-zzz",
+          "parent_watch_id": null,
+          "desk": "builder",
+          "start": "2026-11-20T08:50:00Z",
+          "end": "2026-11-20T09:04:00Z",
+          "ended_by": "finished",
+          "exit_code": 0,
+          "state": "finished",
+          "calls_n": 1,
+          "ok_n": 0,
+          "failed_n": 1,
+          "calls": [
+            {
+              "at": "2026-11-20T08:51:00Z",
+              "verb": "send",
+              "ok": false,
+              "err": "error"
+            }
+          ]
+        },
+        {
+          "watch_id": "tw-ddd",
+          "parent_watch_id": "tw-zzz",
+          "desk": "builder",
+          "start": "2026-11-20T09:05:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 1,
+          "ok_n": 1,
+          "failed_n": 0,
+          "calls": [
+            {
+              "at": "2026-11-20T09:05:30Z",
+              "verb": "mark",
+              "ok": true
+            }
+          ]
+        }
+      ]
+    },
+    "tw-ddd": {
+      "n": 1,
+      "runs": [
+        {
+          "watch_id": "tw-ddd",
+          "parent_watch_id": "tw-zzz",
+          "desk": "builder",
+          "start": "2026-11-20T09:05:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 1,
+          "ok_n": 1,
+          "failed_n": 0,
+          "calls": [
+            {
+              "at": "2026-11-20T09:05:30Z",
+              "verb": "mark",
+              "ok": true
+            }
+          ]
+        }
+      ]
+    },
+    "tw-orph": {
+      "n": 1,
+      "runs": [
+        {
+          "watch_id": "tw-orph",
+          "parent_watch_id": "tw-gone",
+          "desk": "builder",
+          "start": "2026-11-20T09:07:00Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 0,
+          "ok_n": 0,
+          "failed_n": 0,
+          "calls": []
+        }
+      ]
+    }
+  },
+  "served": {
+    "doing": {
+      "owner": "grok-tui",
+      "heartbeat": "2026-11-12 19:49:31.530536",
+      "alive": false,
+      "stale": true,
+      "n": 1,
+      "doings": [
+        {
+          "id": 6840,
+          "created": "2026-11-13T11:45:15Z",
+          "text": "",
+          "state": "active",
+          "state_at": "2026-11-13T03:45:15Z",
+          "card": null,
+          "watch_id": "tw-535d9c73e8eb49d2",
+          "parent_watch_id": null
+        }
+      ]
+    },
+    "run": {
+      "runs": [
+        {
+          "watch_id": "tw-535d9c73e8eb49d2",
+          "parent_watch_id": null,
+          "desk": "grok-tui",
+          "start": "2026-11-13T11:45:15Z",
+          "end": null,
+          "ended_by": null,
+          "exit_code": null,
+          "state": "active",
+          "calls_n": 0,
+          "ok_n": 0,
+          "failed_n": 0,
+          "calls": []
+        }
+      ],
+      "n": 1,
+      "mill": "0.8.15"
+    }
+  }
+}

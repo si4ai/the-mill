@@ -1,4 +1,4 @@
-"""Card 879 / F218: mill delete trashes; restore undoes; purge hard-deletes trashed rows only."""
+"""Card 879 / card 1241: mill delete empties and trashes; restore clears the flag; purge is removed."""
 from __future__ import annotations
 
 import mysql.connector
@@ -46,39 +46,24 @@ def test_restore_clears_trash(cn) -> None:
     assert rec_name.get(cn, "l879-rest", "label") == lid
     assert _trashed(cn, "label", "l879-rest") in (0, False, None)
 
-def test_purge_refuses_live_not_trashed(cn) -> None:
+def test_purge_is_removed_and_the_name_stays(cn) -> None:
     admin = admin_desk(cn)
-    rec_name.get_or_insert(cn, "l879-live", "label")
-    with pytest.raises(CoordError, match="trashed|delete first"):
+    lid = rec_name.get_or_insert(cn, "l879-live", "label")
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "l879-live", "label", by=admin)
-    assert rec_name.get(cn, "l879-live", "label") is not None
-
-def test_purge_hard_deletes_trashed_unreferenced(cn) -> None:
-    admin = admin_desk(cn)
+    assert rec_name.get(cn, "l879-live", "label") == lid
     tid = rec_name.get_or_insert(cn, "t879-purge", "tree")
     rec_name.trash(cn, "t879-purge", "tree", by=admin)
-    out = rec_name.purge_trashed(cn, "t879-purge", "tree", by=admin)
-    assert out["op"] == "purged" and out["id"] == tid
+    with pytest.raises(CoordError, match="purge is removed"):
+        rec_name.purge_trashed(cn, "t879-purge", "tree", by=admin)
     row = scalar_done(cn, "SELECT COUNT(*) FROM name WHERE type='tree' AND name='t879-purge'")
-    assert int(row or 0) == 0
-
-def test_purge_refuses_referenced_trashed_roster(cn) -> None:
-    admin = admin_desk(cn)
-    _seat(cn, "d879b")
-    _seat(cn, "d879c")
-    rid = rec_name.get_or_insert(cn, "r879-card", "roster")
-    rec_member.put(cn, "r879-card", "d879b")
-    rec_member.put(cn, "r879-card", "d879c")
-    rec_name.trash(cn, "r879-card", "roster", by=admin)
-    with pytest.raises(CoordError, match="retire|referenced|members"):
-        rec_name.purge_trashed(cn, "r879-card", "roster", by=admin)
-    assert scalar_done(cn, "SELECT id FROM name WHERE type='roster' AND name='r879-card'") == rid
+    assert int(row or 0) == 1
 
 def test_office_and_admin_never_purge(cn) -> None:
     admin = admin_desk(cn)
     with pytest.raises(CoordError, match="Office and Admin"):
         rec_name.trash(cn, "Office", "roster", by=admin)
-    with pytest.raises(CoordError, match="Office and Admin|desk|retire"):
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "Office", "roster", by=admin)
 
 def test_desk_type_refused_for_delete_restore_purge(cn) -> None:
@@ -88,7 +73,7 @@ def test_desk_type_refused_for_delete_restore_purge(cn) -> None:
         rec_name.trash(cn, "d879desk", "desk", by=admin)
     with pytest.raises(CoordError, match="retire"):
         rec_name.restore_trashed(cn, "d879desk", "desk", by=admin)
-    with pytest.raises(CoordError, match="retire"):
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "d879desk", "desk", by=admin)
 
 def test_raw_delete_refused_without_session_flag(cn) -> None:
@@ -143,8 +128,10 @@ def test_human_member_blocks_purge(cn) -> None:
         pytest.skip(f"human_member shape: {e}")
     cur.close()
     rec_name.trash(cn, "r879-hm", "roster", by=admin)
-    with pytest.raises(CoordError, match="human|referenced|retire"):
+    assert scalar_done(cn, "SELECT COUNT(*) FROM human_member WHERE name_id=%s", (int(rid),)) in (0, None)
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "r879-hm", "roster", by=admin)
+    assert scalar_done(cn, "SELECT id FROM name WHERE type='roster' AND name='r879-hm'") == rid
 
 def test_delete_restore_purge_write_no_timeline_row(cn) -> None:
     admin = admin_desk(cn)
@@ -152,7 +139,8 @@ def test_delete_restore_purge_write_no_timeline_row(cn) -> None:
     rec_name.trash(cn, "l879-act", "label", by=admin)
     rec_name.restore_trashed(cn, "l879-act", "label", by=admin)
     rec_name.trash(cn, "l879-act", "label", by=admin)
-    rec_name.purge_trashed(cn, "l879-act", "label", by=admin)
+    with pytest.raises(CoordError, match="purge is removed"):
+        rec_name.purge_trashed(cn, "l879-act", "label", by=admin)
     cur = cn.cursor()
     # Card 1207: a name is not an activity and focus rows are gone, so the events leave no timeline row at all.
     cur.execute("SELECT COUNT(*) FROM transition WHERE join_key = %s", (f"name:{int(lid)}",))
@@ -168,7 +156,7 @@ def test_purge_label_refuses_non_admin(cn) -> None:
     d = _seat(cn, "d879-noadmin")
     lid = rec_name.get_or_insert(cn, "l879-noadmin", "label")
     rec_name.trash(cn, "l879-noadmin", "label", by=d)
-    with pytest.raises(CoordError, match="Admin"):
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "l879-noadmin", "label", by=d)
     assert scalar_done(cn, "SELECT id FROM name WHERE type='label' AND name='l879-noadmin'") == lid
 
@@ -176,7 +164,7 @@ def test_purge_tree_refuses_non_admin(cn) -> None:
     d = _seat(cn, "d879-tree-na")
     tid = rec_name.get_or_insert(cn, "t879-noadmin", "tree")
     rec_name.trash(cn, "t879-noadmin", "tree", by=d)
-    with pytest.raises(CoordError, match="Admin"):
+    with pytest.raises(CoordError, match="purge is removed"):
         rec_name.purge_trashed(cn, "t879-noadmin", "tree", by=d)
     assert scalar_done(cn, "SELECT id FROM name WHERE type='tree' AND name='t879-noadmin'") == tid
 
@@ -225,9 +213,12 @@ def test_delete_roster_sole_member_may_trash(cn) -> None:
     rec_member.put(cn, "r879-sole-gate", sole)
     out = rec_name.trash(cn, "r879-sole-gate", "roster", by=sole)
     assert out["op"] == "deleted" and out["id"] == rid
-    rec_name.restore_trashed(cn, "r879-sole-gate", "roster", by=sole)
-    # empty after removing the sole member: outsider refused, Admin ok
-    rec_member.delete(cn, "r879-sole-gate", sole)
+    assert scalar_done(cn, "SELECT COUNT(*) FROM member WHERE name_id=%s", (int(rid),)) in (0, None)
+    with pytest.raises(CoordError, match="Admin"):
+        rec_name.restore_trashed(cn, "r879-sole-gate", "roster", by=sole)
+    rec_name.restore_trashed(cn, "r879-sole-gate", "roster", by=admin)
+    assert scalar_done(cn, "SELECT COUNT(*) FROM member WHERE name_id=%s", (int(rid),)) in (0, None)
+    # empty after the delete removed the sole member: outsider refused, Admin ok
     with pytest.raises(CoordError, match="Admin"):
         rec_name.trash(cn, "r879-sole-gate", "roster", by=outsider)
     out = rec_name.trash(cn, "r879-sole-gate", "roster", by=admin)

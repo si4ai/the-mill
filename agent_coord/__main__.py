@@ -172,12 +172,12 @@ def _print(obj) -> int:
     return len(raw.encode("utf-8"))
 
 def _print_err(obj) -> int:
-    """Error JSON object: same shape as _print, on stderr."""
-    from .install import redact_user_paths
+    """Failure: one JSON object on stdout, one ASCII line on stderr (card 1238)."""
+    from agent_coord.client.fail_out import emit_failure
 
-    raw = json.dumps(redact_user_paths(obj), default=str, indent=2)
-    print(raw, file=sys.stderr, flush=True)
-    return len(raw.encode("utf-8"))
+    if isinstance(obj, dict):
+        return emit_failure(text=str(obj.get("error") or ""), envelope=obj)
+    return emit_failure(text=str(obj))
 
 
 def _connect_json_error(error: str, desk: str) -> int:
@@ -340,7 +340,9 @@ def _invite_cmd(args) -> int:
         body = body_from_args(args)
         row = mill_http_call(body)
     except CoordError as e:
-        print(str(e), file=sys.stderr, flush=True)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=args)
         return 1
     if not isinstance(row, dict):
         print(json.dumps(row, default=str), flush=True)
@@ -501,6 +503,25 @@ def _page_number(raw: str) -> int:
     return n
 
 
+def _label_flags(sp: argparse.ArgumentParser, *, read: bool) -> None:
+    """Repeatable --label (#1233). --any is the read match. Neither creates a label."""
+    sp.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        dest="label",
+        metavar="NAME",
+        help="label (repeatable). Unknown or not allowed is skipped with a warning; this does not create a label",
+    )
+    if read:
+        sp.add_argument(
+            "--any",
+            action="store_true",
+            dest="label_any",
+            help="with --label, keep an item that wears any named label (default: every named label)",
+        )
+
+
 def _link_flags(sp) -> None:
     """--link-file for commands that mint an invite key or a host seat (#607).
 
@@ -572,7 +593,7 @@ def _build_parser() -> MillArgumentParser:
 
     a = sub.add_parser(
         "hold",
-        help="take or refresh an office-wide lock: mill hold NAME (bare mill hold lists every lock)",
+        help="take a free office-wide lock and print its one-use release_key: mill hold NAME (bare mill hold lists every lock)",
     )
     a.add_argument(
         "resource",
@@ -583,7 +604,12 @@ def _build_parser() -> MillArgumentParser:
     a.add_argument(
         "--peek",
         action="store_true",
-        help="show who holds the resource, or every lock when no resource; never takes or refreshes",
+        help="show who holds the resource, or every lock when no resource; never takes",
+    )
+    a.add_argument(
+        "--key",
+        default=None,
+        help="hand off a held lock: spend its release key and print a new one for this caller",
     )
     a.add_argument(
         "--group-by",
@@ -592,12 +618,15 @@ def _build_parser() -> MillArgumentParser:
         choices=("tree", "label", "roster"),
         help="group the list by label or roster (default: flat; holds sit on no tree)",
     )
+    _label_flags(a, read=True)
 
     r = sub.add_parser(
         "drop",
-        help="release a lock (own, or Admin / high-trust stale other): mill drop NAME",
+        help="release a lock with its one-use key: mill drop NAME --key KEY (no key: admin.md override)",
     )
     r.add_argument("resource")
+    r.add_argument("--key", default=None, help="the release_key printed by mill hold NAME; any desk may present it once")
+    _label_flags(r, read=False)
 
     dn = sub.add_parser(
         "wake-done",
@@ -612,6 +641,7 @@ def _build_parser() -> MillArgumentParser:
     dn.add_argument("--note", default="", help="one line for the next wake (last_note): what you did, what is next")
     dn.add_argument("--lease", default="",
                     help="the wake.lease token of the wake that started this run: a run that outlived its lease ends nothing")
+    _label_flags(dn, read=False)
 
     m = sub.add_parser(
         "send",
@@ -662,6 +692,7 @@ def _build_parser() -> MillArgumentParser:
         default=False,
         help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
     )
+    _label_flags(m, read=False)
 
     rp = sub.add_parser(
         "reply",
@@ -696,6 +727,7 @@ def _build_parser() -> MillArgumentParser:
         default=False,
         help="required receipt: each dest is woken (even as a room copy) until it opens; you hear when they do",
     )
+    _label_flags(rp, read=False)
 
     mt = sub.add_parser(
         "mail-thread",
@@ -753,6 +785,7 @@ def _build_parser() -> MillArgumentParser:
         default=0,
         help="catch-up: letters with id > after (implies --room unless --subtree); envelope latest_id",
     )
+    _label_flags(mt, read=True)
     mk = sub.add_parser(
         "mark",
         help="mark mail ids handled for this desk",
@@ -777,8 +810,17 @@ def _build_parser() -> MillArgumentParser:
     )
     tr.add_argument(
         "--label",
-        default="",
-        help="list mail and todo wearing this label, by ord then created",
+        action="append",
+        default=None,
+        dest="label",
+        metavar="NAME",
+        help="list mail and todo wearing this label (repeatable), by ord then created. Does not create a label",
+    )
+    tr.add_argument(
+        "--any",
+        action="store_true",
+        dest="label_any",
+        help="with --label, keep an item that wears any named label (default: every named label)",
     )
     tr.add_argument("--json", action="store_true", dest="as_json", help="print the JSON result")
 
@@ -839,6 +881,7 @@ def _build_parser() -> MillArgumentParser:
         metavar="N",
         help="short rows, page N (1 = first); the reply's page block names the next",
     )
+    _label_flags(i, read=True)
 
     rms = sub.add_parser(
         "rooms",
@@ -907,6 +950,7 @@ def _build_parser() -> MillArgumentParser:
     kp.add_argument("--unit", default="", help="unit shown with the points, e.g. ms, bytes, tokens")
     kp.add_argument("--limit", type=int, default=0, help="points to show on a read (default 10)")
     kp.add_argument("--at", default="", help="when the point happened: YYYY-MM-DD[THH:MM] (book clock) or 90m, 2h, 3d ago")
+    _label_flags(kp, read=True)
 
     sadd = sub.add_parser(
         "score-add",
@@ -1151,6 +1195,7 @@ def _build_parser() -> MillArgumentParser:
     recm.add_argument("slug", metavar="NAME", help="roster, label or desk name; for todo, the ROSTER")
     recm.add_argument("need", metavar="NEED", nargs="?", default="", help="todo form only: NEED or a comma list")
     recm.add_argument("--yes", action="store_true", help="skip the prompt")
+    _label_flags(recm, read=False)
 
     rnm = sub.add_parser(
         "rename",
@@ -1173,33 +1218,33 @@ def _build_parser() -> MillArgumentParser:
         help="todo rename: why (stored on the activity timeline)",
     )
     rnm.add_argument("--yes", action="store_true", help="skip the retype prompt")
+    _label_flags(rnm, read=False)
 
 
     dele = sub.add_parser(
         "delete",
-        help="trash: mill delete roster|label|tree NAME stamps trashed (hidden, restorable); "
-        "desks keep mill retire; mill purge hard-deletes a trashed unreferenced name",
+        help="mill delete NAME empties a roster, label, or tree and stamps it trashed; "
+        "the name stays. A desk stays on mill retire. A second word is refused",
     )
-    dele.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
     dele.add_argument("slug", metavar="NAME")
+    dele.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
     dele.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     restor = sub.add_parser(
         "restore",
-        help="undo trash: mill restore roster|label|tree NAME clears name.trashed",
+        help="mill restore NAME clears trashed and does not put the contents back",
     )
-    restor.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
     restor.add_argument("slug", metavar="NAME")
+    restor.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
     restor.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     purg = sub.add_parser(
         "purge",
-        help="hard delete: mill purge roster|label|tree NAME removes a trashed unreferenced name; "
-        "creator stand-in (sole roster member) or Admin",
+        help="removed: mill purge is refused; mill delete NAME empties and trashes",
     )
-    purg.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
-    purg.add_argument("slug", metavar="NAME")
-    purg.add_argument("--yes", action="store_true", help="skip the retype prompt")
+    purg.add_argument("slug", nargs="?", default="", metavar="NAME")
+    purg.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
+    purg.add_argument("--yes", action="store_true", help="unused; purge is removed")
 
     rtr = sub.add_parser(
         "retire",
@@ -1214,6 +1259,7 @@ def _build_parser() -> MillArgumentParser:
         help="score form: the score NAME; todo form: NEED or a comma list",
     )
     rtr.add_argument("--yes", action="store_true", help="skip the retype prompt")
+    _label_flags(rtr, read=False)
 
     memb = sub.add_parser(
         "member",
@@ -1310,6 +1356,7 @@ def _build_parser() -> MillArgumentParser:
     _ct = cr_sub.add_parser("todo", help="file a card")
     _todo_create_args(_ct)
     _ct.add_argument("--yes", action="store_true", help="accepted for symmetry; create todo never prompts")
+    _label_flags(_ct, read=False)
     for _obj in ("roster", "label"):
         _cp = cr_sub.add_parser(_obj, help=f"create a {_obj} name (type it once; prompt unless --yes)")
         _cp.add_argument("slug", metavar="NAME")
@@ -1340,7 +1387,7 @@ def _build_parser() -> MillArgumentParser:
     nd.add_argument(
         "--mine",
         action="store_true",
-        help="this desk's cards (the sitting mill connect): first its focus cards (label named after the desk) in rank order, "
+        help="this desk's cards (the sitting mill connect): first its legacy focus cards (a desk-named label made before 0.8.16, read-only) in rank order, "
         "then the cards it volunteered for; works with --status, --done, --all, --find, --full and --page, "
         "and pages count only these cards",
     )
@@ -1389,6 +1436,7 @@ def _build_parser() -> MillArgumentParser:
         dest="done_when",
         help="with ROSTER NEED, alone: set the acceptance line (asker or Admin); a blank value clears it",
     )
+    _label_flags(nd, read=True)
 
     rb = sub.add_parser(
         "replace-body",
@@ -1414,6 +1462,7 @@ def _build_parser() -> MillArgumentParser:
         default="newest",
         help="with --history: newest (default) or oldest",
     )
+    _label_flags(rb, read=False)
 
     vo = sub.add_parser("claim", help="claim a card")
     vo.add_argument("project")
@@ -1426,6 +1475,7 @@ def _build_parser() -> MillArgumentParser:
         dest="take_over",
         help="take a card another desk holds; the card records the prior volunteer",
     )
+    _label_flags(vo, read=False)
 
     yd = sub.add_parser(
         "unclaim",
@@ -1433,6 +1483,7 @@ def _build_parser() -> MillArgumentParser:
     )
     yd.add_argument("project")
     yd.add_argument("need")
+    _label_flags(yd, read=False)
 
     unp = sub.add_parser("unpark", help="parked -> open (protocol unpark)")
     unp.add_argument("project")
@@ -1451,6 +1502,7 @@ def _build_parser() -> MillArgumentParser:
         dest="parent_id",
         help="TREE parent id to attach the card under",
     )
+    _label_flags(unp, read=False)
 
     _assign_help = (
         "Put DESK on an unassigned card: mill assign ROSTER NEED DESK. A claimed card is"
@@ -1460,6 +1512,7 @@ def _build_parser() -> MillArgumentParser:
     asn.add_argument("project")
     asn.add_argument("need")
     asn.add_argument("desk")
+    _label_flags(asn, read=False)
 
     psd = sub.add_parser(
         "pass",
@@ -1475,6 +1528,7 @@ def _build_parser() -> MillArgumentParser:
         default="",
         help="text stored with a ship or a done step (0..2000 chars); --back stores none",
     )
+    _label_flags(psd, read=False)
     sub.add_parser(
         "glance",
         help="office glance from the cached read: one summary row and the newest activity",
@@ -1529,7 +1583,7 @@ def _build_parser() -> MillArgumentParser:
     se = sub.add_parser(
         "connected",
         help="mill connected [ROSTER] [--who DESK] [--limit N]: each desk's live doings (tw runs) "
-        "and n, their count; --history lists past tw runs",
+        "and n, their count; --history lists past tw runs; --run WATCH_ID lists that run and the runs nested under it",
     )
     se.add_argument(
         "project", nargs="?", default="", metavar="ROSTER",
@@ -1541,11 +1595,16 @@ def _build_parser() -> MillArgumentParser:
     se.add_argument("--since", default="", metavar="DATE", help="with --history: entries from DATE on (office clock)")
     se.add_argument("--page", type=int, default=0, help="with --history: page N")
     se.add_argument(
+        "--run", default="", metavar="WATCH_ID",
+        help="that run and the runs nested under it, plus each run's mill calls",
+    )
+    se.add_argument(
         "--limit",
         type=int,
         default=None,
         help="at most N desks on the live list, newest heartbeat first",
     )
+    _label_flags(se, read=True)
 
     att = sub.add_parser(
         "attach",
@@ -1557,6 +1616,7 @@ def _build_parser() -> MillArgumentParser:
     att.add_argument("type_b", nargs="?", default="")
     att.add_argument("id_b", nargs="?", default=None, help="child id; a todo also by ROSTER/NEED")
     att.add_argument("--tree", default="", help="plan name when the card is on more than one plan")
+    _label_flags(att, read=False)
 
     mv = sub.add_parser(
         "move",
@@ -1568,18 +1628,21 @@ def _build_parser() -> MillArgumentParser:
     mv.add_argument("parent_type", nargs="?", default="")
     mv.add_argument("parent_id", nargs="?", default=None, help="parent id; a todo also by ROSTER/NEED")
     mv.add_argument("--tree", default="")
+    _label_flags(mv, read=False)
 
     prn = sub.add_parser("prune", help="kill that branch")
     prn.add_argument("project")
     prn.add_argument("type", nargs="?", default="")
     prn.add_argument("id", nargs="?", default=None, help="id; a todo also by ROSTER/NEED")
     prn.add_argument("--tree", default="")
+    _label_flags(prn, read=False)
 
     det = sub.add_parser("detach", help="take off the plan, keep children")
     det.add_argument("project")
     det.add_argument("type", nargs="?", default="")
     det.add_argument("id", nargs="?", default=None, help="id; a todo also by ROSTER/NEED")
     det.add_argument("--tree", default="")
+    _label_flags(det, read=False)
 
     wchk = sub.add_parser(
         "wall-check",
@@ -1642,6 +1705,10 @@ def _build_parser() -> MillArgumentParser:
                     help="with the webhook options: wake only for items addressed to this desk (addressed, the default) or for room copies too (all)")
 
     sub.add_parser(
+        "status",
+        help="inside a tw run, print this desk and watch id",
+    )
+    sub.add_parser(
         "local",
         help="list servers on this machine and the local alias for each",
     )
@@ -1681,6 +1748,7 @@ _NO_SENDER_DESK = {
     "wall-src",
     "invite",
     "local",
+    "status",
     "join",
     "version",
     "route",
@@ -1790,7 +1858,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
 
         args = translate(args)
     except (CoordError, ValueError) as e:
-        print(_format_error(e), file=sys.stderr)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=args)
         return 1
     try:
         from agent_coord.client.tokens import apply_session_token_env
@@ -2179,6 +2249,10 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         )
         if args.cmd == "invite":
             return _invite_cmd(args)
+        if args.cmd == "status":
+            from agent_coord.client.tw.run_ipc import report_status
+
+            return report_status()
         if args.cmd == "local":
             from agent_coord.client.offices import local_servers
 
@@ -2205,7 +2279,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
                     return rc
                 return mill_http_from_args(args)
             except CoordError as e:
-                print(str(e), file=sys.stderr, flush=True)
+                from agent_coord.client.fail_out import emit_failure
+
+                emit_failure(e, args=args)
                 return 1
         if args.cmd == "join":
             from agent_coord.client.offices import (
@@ -2322,7 +2398,9 @@ def _run_parsed(p: MillArgumentParser, argv: list[str] | None) -> int:
         print("unknown mill cmd", getattr(args, "cmd", ""), flush=True)
         return 1
     except (CoordError, RuntimeError, ValueError) as e:
-        print(_format_error(e), file=sys.stderr)
+        from agent_coord.client.fail_out import emit_failure
+
+        emit_failure(e, args=locals().get("args"))
         return 1
     return 1
 

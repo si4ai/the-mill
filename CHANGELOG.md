@@ -10,6 +10,35 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.16 (2026-11-21)
+
+- card 1234: name gets a plain (type, name) index again (idx_type_name) on fresh and upgraded hosts; idx_name stays the only unique key
+- dependency bumps: fastapi 0.162.7 (CI lock), html-validate 11.21.1 (wall validators), desk client pin the-mill 0.8.15
+- card 1236: replacing a letter tells the desks that already read it.
+- card 1233: desk writes and reads of the six activities take repeatable --label.
+- card 1223: a tw run forwards allowlisted mill commands from its descendants
+- card 1223: the office records each mill call a tw run's descendants make, and `mill connected --run WATCH_ID` lists the run and those calls
+- card 1232: the sitting desk pipe is owner-only and checks the server process.
+- card 1237: `mill label TYPE ID DESK` adds to or re-ranks that desk's focus list instead of failing with "name in use"
+- card 1239: a nested tw run keeps its parent, and connected --run lists that tree
+- card 1240: the Wall nests live tw runs under their parent and opens a run tree with each run's forwarded mill calls
+- docs: webhook desks sit a connect for the whole wake run (card 1242)
+- #1242 Webhook desk presence: borrow hint and reach by wake
+- Name collisions say which type already holds the name, and a desk name is not minted as a label.
+- card 1207: a live run's state_at is UTC, the same as its created time.
+- wall: a desk reachable by wake reads "reachable by wake" with its last wake time, not disconnected (card 1242)
+- #1255 Lists hide trashed names; activities keep them marked deleted
+- #1258 #1259 #1260 Wall and list join fixes from the joins audit
+- #1266 Dev host book import script for the card 1200 steps
+- #1255 Wall paint: strikethrough plus deleted tag for retired and trashed names
+- #1266 Revert the import script print sink to the text layer
+- #1267 hold: one-use release key, refuse second take, keyed drop
+- A refused command names the office sentence on stdout.
+- card 1241: mill delete NAME empties a name and mill purge is removed
+- Verify: SPIN `holds.pml` models card 1267 hold-session-safe (today's desk-owned hold as the counterexample, the release-key design as PR #490 builds it, with mutants); `verify/hold-code` re-anchored to the release-key code.
+
+## Last changes
+
 0.8.15 (2026-11-13)
 
 - ci: run the pytest suites once on the PR; the merge queue checks ancestry
@@ -35,34 +64,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - card 1214: a score is one desk and one kpi, and a view points at that score
 - docs: webhook desks are rung while connected (fix-forward #458)
 - wall: full redesign - scope rail and six roster-wide tabs
-
-## Last changes
-
-0.8.14 (2026-11-12)
-
-- card 1125: SPIN model and design doc for the agreed replace-body MVP
-- card 1138: failure-class list for the 0.8.13 release pass
-- card 1133: card and letter text keep their history: `activity_history`, body edit stamps, `todo.body` is the text and `todo.meta` the rest, `mill_body_replace` with a stale check and a plain same-text refusal, `mill_body_history` newest first with an order option; existing books migrate in place.
-- grok-bot guide: end a wake with wake-done, not a trailing connect argument
-- A tw exit or crash no longer rings an empty webhook wake. It rings only when mail, a hint or an unopened receipt waits for the desk. Stall and match still ring.
-- card 1155: add a hidden-code scan of the PR diff
-- docs: card 1132, correct the 0.8.12 1112 refusal wording and point pr authors at ci/test-select.toml
-- Score tab redesign: scores by impact, tw-time spend
-- card 1147: add a dead-command scan for mill examples outside check_doc_commands
-- card 1151: add a failure-class coverage check for FAILURE-CLASSES.md
-- card 1152: add a test-overlap check for duplicate tests and uncovered F-rows
-- card 1148: add a CI flake-rerun check for fail-then-success runs
-- card 1145: add an install-drift check for routines, tables, and columns
-- verify/spin: V01-V24 model the live wake modes F1, F2, F3 and F7 before and after #416.
-- card 1153: PRIORITIES tab, each desk's ranked list (first slice)
-- card 1160: Score tab routes /api/v1/activity-buckets and /api/v1/score-runs, score.updated
-- card 1140: record the wake lease on the wake that rang it
-- card 1154: tw keeps the sitting connect's link when a second connect for the desk starts, waits for a starting connect, and shows the tw form in its refusal
-- card 1153: GET /api/v1/labels for the Wall PRIORITIES tab, label.updated (schema change)
-- card 1141 step 2: pending() no longer counts rows already sent live, so a tw exit or trailing wake does not ring for work the desk already has; the empty skip is re-checked under the gate lock.
-- hygiene: check_pack's home-path rule now catches WSL UNC shares (wsl$ and wsl.localhost) and /mnt/<drive>/Users/<login> paths.
-- free the seat after this desk's own connect exits
-- ci: let a hidden-code scanner crash show red (card 1155)
-- card 1171: mill_mail_delete finds wakes by cause/cause_id and locks each row by primary key only
-- card 1125: delete the note command; `mill todo ROSTER NEED --eta/--started/--done-when/--progress` sets card fields and `mill replace-body` changes card and letter text; replace-body rights follow office trust (matrix in docs/requirements/admin.md)
-- check_pack: markdown heading marks are a line-start prefix for the name-token rule

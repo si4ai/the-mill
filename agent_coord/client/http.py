@@ -166,6 +166,11 @@ def mill_http_call(body: dict[str, Any]) -> Any:
         # is still in the handshake (#121, #210).
         who = (resolve_desk_owner("") or "").strip()
         if not who:
+            from agent_coord.client.tw.run_ipc import try_forward
+
+            forwarded = try_forward(payload)
+            if forwarded is not None:
+                return forwarded
             who = (wait_for_sitting_desk() or "").strip()
         if who:
             if asked:
@@ -577,11 +582,12 @@ def _refused_hold(args: Any, row: dict[str, Any]) -> bool:
 
 def _hold_refusal(row: dict[str, Any]) -> dict[str, Any]:
     res = row.get("result") if isinstance(row.get("result"), dict) else row
-    owner = str((res or {}).get("owner") or "someone")
+    owner = str((res or {}).get("holder") or (res or {}).get("owner") or "someone")
     out = dict(row)
     result = dict(res or {})
     result["held"] = False
-    result["reason"] = f"held by {owner}, not you"
+    result.setdefault("refused", "held")
+    result.setdefault("reason", f"held by {owner}, not you")
     out["result"] = result
     return out
 
@@ -775,6 +781,12 @@ def mill_http_from_args(args: Any) -> int:
     body_read.prepare_replace(body)
     mine = todo_rows.mine_applies(args)
     row = _todo_call(args, body)
+    from agent_coord.helpers.activity_label import absorb_rows, emit_warnings
+
+    row = absorb_rows(row)
+    # A failure keeps stderr to one ASCII line. label_warnings ride the stdout object.
+    if not (isinstance(row, dict) and (row.get("ok") is False or row.get("error"))):
+        emit_warnings(row)
     body_read.remember(str(body.get("sender_desk") or body.get("owner") or ""), args, row)
     if mine and isinstance(row, dict) and row.get("ok") is True:
         # #373: only the sitting desk's cards, before --find and paging cut the list.
@@ -928,6 +940,11 @@ def mill_http_from_args(args: Any) -> int:
         row = _hold_refusal(row)
         # Envelope ok matches result.ok. The holder name stays on stdout (#207, #193).
         row["ok"] = False
+    release_key = getattr(args, "_release_key", None)
+    res_now = row.get("result") if isinstance(row, dict) else None
+    if release_key and isinstance(res_now, dict) and res_now.get("held") is True:
+        # Printed once to the caller; never stored or logged.
+        row = dict(row, result=dict(res_now, release_key=release_key))
     refused_drop = isinstance(row, dict) and _refused_drop(args, row)
     if refused_drop:
         row = dict(row)
@@ -945,15 +962,20 @@ def mill_http_from_args(args: Any) -> int:
             if isinstance(wire, int) and wire != n:
                 printed, n = with_bytes(dict(public, wire_bytes=wire))
             public = printed
-        # Error JSON goes to stderr. A refused hold or drop stays on stdout
-        # with ok false and exit 1 (#193, #227).
+        # A failure is one stdout object and one stderr line (card 1238).
+        # A refused hold or drop stays on stdout with ok false and exit 1 (#193, #227).
         failed = (
             (row.get("ok") is False or bool(row.get("error")))
             and not refused_hold
             and not refused_drop
         )
-        print(json.dumps(public, default=str), file=sys.stderr if failed else sys.stdout, flush=True)
-        if failed or refused_hold or _refused_drop(args, row):
+        if failed:
+            from agent_coord.client.fail_out import emit_failure
+
+            emit_failure(args=args, text=str(row.get("error") or ""), envelope=public)
+            return 1
+        print(json.dumps(public, default=str), flush=True)
+        if refused_hold or _refused_drop(args, row):
             return 1
         return 0
     print(json.dumps(row, default=str), flush=True)

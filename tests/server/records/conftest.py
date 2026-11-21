@@ -107,3 +107,12 @@ def book_trust(cn, level: str):
         yield level
     finally:
         init_trust_fn(cn, "high")
+
+
+def take_hold(cn, project: str, desk: str, resource: str) -> tuple[list[dict], str]:
+    """Card 1267: take a hold with a release key the test keeps (rows, key)."""
+    from agent_coord.helpers.hold_key import new_key
+    from agent_coord.server.records import hold as rec_hold
+
+    key, kh = new_key()
+    return rec_hold.upsert(cn, project, desk, resource, kh), key

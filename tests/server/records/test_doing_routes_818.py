@@ -76,7 +76,10 @@ def test_doing_all_is_the_connected_view(w, wall, monkeypatch):
     mine = [d for d in got if d["owner"] == ME]
     assert len(mine) == 1
     view = mine[0]
-    assert set(view) == {"owner", "heartbeat", "alive", "stale", "n", "doings"} | ({"project_id"} & set(view))
+    # card 1242: reach (connect | wake | offline) and last_wake ride the same view.
+    assert set(view) == {"owner", "heartbeat", "alive", "stale", "reach", "last_wake", "n", "doings"} | (
+        {"project_id"} & set(view))
+    assert view["reach"] in ("connect", "wake", "offline")
     assert view["n"] >= 2 and view["doings"][0]["state"] == "waiting"
     assert view["doings"][0]["created"] >= view["doings"][1]["created"]
     assert view["doings"][0]["card"] is None  # the tw-to-card link is not decided
@@ -88,6 +91,27 @@ def test_doing_one_desk_or_one_roster(w, wall):
     code, got = _get(wall, f"/api/v1/doing?project={R}")
     assert code == 200 and {ME, PEER} <= {d["owner"] for d in got}
     assert all(d.get("project_id") == R for d in got)
+
+
+def test_doing_run_returns_that_runs_tree(w, wall, monkeypatch):
+    """Card 1239: ?run=&desk= is the nested-run object. run without desk, or with another selector, is 400."""
+    monkeypatch.setattr("agent_coord.server.wake.post_desk", lambda *a, **k: None)
+    desk = _joined(w, "d1239-" + uuid.uuid4().hex[:4])
+    _tw(w, desk, "root", "start")
+    _tw(w, desk, "child", "start", parent_watch_id="root")
+    code, got = _get(wall, f"/api/v1/doing?run=child&desk={desk}")
+    assert code == 200 and got["n"] == 1, got
+    assert got["runs"][0]["watch_id"] == "child" and got["runs"][0]["parent_watch_id"] == "root"
+    assert "root" not in [r["watch_id"] for r in got["runs"]]
+    code, parent = _get(wall, f"/api/v1/doing?run=root&desk={desk}")
+    assert code == 200 and [r["watch_id"] for r in parent["runs"]] == ["root", "child"]
+    assert parent["n"] == 2 and parent["runs"][1]["parent_watch_id"] == "root"
+    code, missing = _get(wall, "/api/v1/doing?run=child")
+    assert code == 400 and "desk" in missing["error"]
+    code, extra = _get(wall, f"/api/v1/doing?run=child&desk={desk}&all=1")
+    assert code == 400
+    code, gone = _get(wall, f"/api/v1/doing?run=no-such-run&desk={desk}")
+    assert code == 400 and "no tw run" in gone["error"]
 
 
 def test_doing_needs_one_scope_and_refuses_unknowns(wall):
@@ -138,7 +162,7 @@ def test_history_on_hold_includes_move_rows(w, wall):
     """Card 901 / F213: GET /api/v1/doing/history?on=hold-N returns take/drop moves with act."""
     res = w.ok(["hold", "h901/lock"])
     hid = int(res["id"])
-    w.ok(["drop", "h901/lock"])
+    w.ok(["drop", "h901/lock", "--key", res["release_key"]])
     code, got = _get(wall, f"/api/v1/doing/history?on=hold-{hid}")
     assert code == 200, got
     rows = got["history"]

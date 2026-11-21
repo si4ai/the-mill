@@ -601,6 +601,14 @@ _LAPSED: dict[str, list[str]] = {}
 # Card 1140: desk -> the token of the lease this wall ended last (done or
 # lapse), so a second wake-done on it is already_done, not stale.
 _ENDED: dict[str, str] = {}
+# Card 1242: desk -> (lease token, or "" with no live lease; monotonic time) of the
+# last presence hint a --desk borrow got. Wall-process memory, like the lease.
+_PRESENCE: dict[str, tuple[str, float]] = {}
+PRESENCE_DETAIL = (
+    "this desk shows offline to peers while it works: a --desk borrow is not presence. "
+    "Sit a connect for the whole wake run"
+    " (the one-liner in docs/protocol/models/grok-bot/SKILL.md, step 1)."
+)
 
 
 def _live_locked(desk: str, now: float) -> bool:
@@ -609,6 +617,37 @@ def _live_locked(desk: str, now: float) -> bool:
     if at is None:
         return False
     return now < max(at + lease_s(), _UNTIL.get(desk, 0.0))
+
+
+def presence_hint(cn, desk: str) -> dict[str, Any] | None:
+    """Card 1242: the sync item for a --desk borrow by a desk whose webhook is armed,
+    once per wake lease (with no live lease, once per lease_s()); else None."""
+    import time
+
+    from agent_coord.server.records import join as rec_join
+
+    d = str(desk or "").strip()
+    if not d or not rec_join.wake_state(cn, d).get("armed"):
+        return None
+    now = time.monotonic()
+    with _GATE_LOCK:
+        token = _EPOCH.get(d, "") if _live_locked(d, now) else ""
+        last = _PRESENCE.get(d)
+        if token:
+            due = last is None or last[0] != token
+        else:
+            due = last is None or now - last[1] >= lease_s()
+        if not due:
+            return None
+        _PRESENCE[d] = (token, now)
+    return {"kind": "hint", "hint": "PRESENCE", "detail": PRESENCE_DETAIL}
+
+
+def wake_healthy(desk: str) -> bool:
+    """Card 1242: False once the desk's wakes keep failing (#838: FAIL_ALERT_N in a row)."""
+    with _FAILS_LOCK:
+        run = _FAILS.get(str(desk or "").strip()) or {}
+    return int(run.get("n") or 0) < FAIL_ALERT_N
 
 
 def cap_s() -> float:

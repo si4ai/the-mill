@@ -330,3 +330,11 @@ The owner (2026-11-13): doing holds what a desk is doing, not item history. Tran
 | 1207e | (migration) | `apply_1207`: adds edge T16; copies each card's newest ship/done evidence into `todo.meta.evidence`; writes a transition row for every move row that has none (a claim row whose peer is another desk is a `take_over`; `doing.created` goes to UTC per row from the session zone, and a zone that cannot convert stops the run before any change); deletes the move rows and the name timeline rows (counted, not kept); copies a tw run's card (`on_id`) into its `tw_start` meta.card where tw had not; moves connect rows to their own anchor; clears `seat.doing_id`; deletes every non-task doing row with its watchers (and its activity row when no transition names it), except a row a tree node names, which stays with its node and gets one `cleared` row (meta.cause `migrate_1207`); then drops `doing.evidence` and its check, `seat.doing_id` with its FK and index, and the doing FK, indexes and seven columns. Idempotent | alpha: no back-compat; the owner GO 2026-11-13 | approved by the owner (2026-11-13) |
 
 Data no longer kept: a rename's `why` text (transition meta holds no text); evidence of older ship/done steps (meta keeps the newest); name trash, restore and purge timeline rows; every focus, clear and finish row with its text, item link and `waiting_*` blocked-on; `doing.peer_id`; a tw run's `on_*` other than a todo card (the card id rides tw_start meta.card).
+
+## card 1223 (part B: a tw run's forwarded mill calls)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1223a | `transition_edge` has no doing edge for a mill call a run's descendant makes | two seed rows, `('doing','active','active','tw_call')` and `('doing','waiting','waiting','tw_call')` (Tsk9); existing books via `migrate._ensure_tw_call_edges` (INSERT IGNORE) | one same-state row per forwarded call on the run's doing row (meta `watch_id`, `verb`, `ok`, `err`), read by `mill connected --run` | proposed |
+
+No table, column or index changes. The parent-link column on the doing row waits on card 1207.

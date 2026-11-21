@@ -1,6 +1,6 @@
 /* PRIORITIES tab (card 1153, first slice): each desk's ranked list, as its connect focus line sees it.
  * Design: letters 5553 (ask), 5556 gardener, 5558 builder, 5559 auditor, 5566 validator.
- * - A desk's list is the todo label named after the desk (mill label todo <id> <desk> --ord N),
+ * - A desk name cannot be a label. A focus list stored before 0.8.16 is still read,
  *   the same source as the connect focus line and todo --mine (client/focus.py).
  * - One column per desk, top FOCUS_TOP workable cards: not done, not parked, not held by another
  *   desk; ord ascending (0 pinned, 65535 unplaced), ties by card id. Same rule as focus.order_mine.
@@ -190,6 +190,8 @@
         conflicts: []
       };
       if (!top.length) col.empty = emptyFact(desk, col);
+      /* Card 1255: a list row or a human top card that marks this desk name deleted. */
+      if (rows.concat(hTop.map(function (r) { return r.card; })).some(function (r) { return r && (r.deleted_names || []).indexOf(desk) >= 0; })) col.deleted_names = [desk];
       if (top.length && served.last_activity_at) {
         var t0 = parseLocal(top[0].last_activity_at);
         var age = t0 == null ? null : now - t0;
@@ -243,10 +245,12 @@
     else if (col.parked === col.ranked) why = col.ranked + " ranked, all parked";
     else if (!col.parked) why = col.ranked + " ranked, all held by " + col.heldBy.join(", ");
     else why = col.ranked + " ranked, all parked or held (" + col.parked + " parked, " + col.held + " held by " + col.heldBy.join(", ") + ")";
-    return { why: why, fix: "mill label todo <id> " + desk + " --ord 0" };
+    return { why: why, fix: "pick another label; a desk name cannot be a label" };
   }
 
   /* ---- HTML. */
+  /* Card 1255: a retired desk paints struck, tagged "deleted" (lib/data.js). */
+  function del(row, name, html) { return global.wallDelName ? global.wallDelName(row, name, html) : html; }
   function ordTxt(o) { return o === UNPLACED ? "u" : "#" + o; }
   function cardRow(r, served) {
     var dim = [];
@@ -269,7 +273,7 @@
     return m < 60 ? m + "m" : Math.floor(m / 60) + "h " + (m % 60) + "m";
   }
   function deskCol(c, m) {
-    var head = '<header class="prio-head"><h3>' + h(c.desk) + "</h3>" +
+    var head = '<header class="prio-head"><h3>' + del(c, c.desk, h(c.desk)) + "</h3>" +
       '<span class="prio-meta">' + c.ranked + " ranked" + (c.parked ? " \u00b7 " + c.parked + " parked" : "") + "</span></header>";
     var facts = [];
     if (c.rerankedAt != null) facts.push('<span class="prio-fact">re-ranked ' + ago(m.now - c.rerankedAt) + " ago</span>");
@@ -298,7 +302,7 @@
     }
     var rows = hm.rows.map(function (r) {
       var c = r.card;
-      var who = c ? (c.volunteer ? h(c.volunteer) : "no desk") : "";
+      var who = c ? (c.volunteer ? del(c, c.volunteer, h(c.volunteer)) : "no desk") : "";
       return '<li class="prio-row" data-prio-card="' + r.id + '"><span class="prio-ord">' + h(ordTxt(r.ord)) + "</span>" +
         '<span class="prio-card"><b>' + r.id + "</b> " + (r.type === "mail" ? "letter" : h((c && title(c)) || DASH)) + "</span>" +
         (c ? '<span class="prio-st st-' + h(c.status) + '">' + h(c.status) + "</span>" : "") +

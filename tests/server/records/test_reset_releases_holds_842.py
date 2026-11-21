@@ -85,6 +85,7 @@ def test_reset_with_no_holds_frees_none(book) -> None:
     # Self-contained: earlier tests in this module may already have freed GONE.
     # Ensure GONE holds nothing, then reset must report released=0.
     for row in list(rec_hold.own(book, GONE)):
-        rec_hold.drop(book, R, GONE, row["resource"])
+        # Card 1267: no key kept here, so the Admin override frees it.
+        assert rec_hold.drop(book, R, admin_desk(book), row["resource"]).get("released") is True
     out = rec_join.reset(book, R, GONE)
     assert int(out[0].get("released", -1)) == 0

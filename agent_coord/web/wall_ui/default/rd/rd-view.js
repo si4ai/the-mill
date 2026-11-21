@@ -24,6 +24,9 @@
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getDate() + " " + mon + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
   }
+  /* Card 1242: a desk away whose webhook can wake it reads "reachable by wake". */
+  function stateWord(s) { return s === "wake" ? "reachable by wake" : s; }
+  function lastWake(r) { return r.lastWakeAt != null ? "last wake " + localWhen(r.lastWakeAt) : ""; }
   function rank(pos, ord) {
     return '<span class="rd-rank"' + (ord != null ? ' title="ord ' + h(ord) + '"' : "") + ">#" + h(pos) + "</span>";
   }
@@ -34,7 +37,9 @@
     return '<a class="rd-on-item" href="#' + tab + '" data-rd-go="' + h(tab) + '" data-rd-sel="' + h(it.key) + '">' + h(it.key) + "</a>";
   }
   function chip(text, cls) { return '<span class="rd-chip' + (cls ? " " + cls : "") + '">' + h(text) + "</span>"; }
-  function deskChip(name) { return '<button type="button" class="rd-chip rd-desk-chip" data-rd-desk="' + h(name) + '">' + h(name) + "</button>"; }
+  /* Card 1255: a name the row's deleted_names lists paints struck, tagged "deleted" (lib/data.js). */
+  function del(row, name, html) { return global.wallDelName ? global.wallDelName(row, name, html) : html; }
+  function deskChip(name, row) { return '<button type="button" class="rd-chip rd-desk-chip" data-rd-desk="' + h(name) + '">' + del(row, name, h(name)) + "</button>"; }
   function empty(text) { return '<p class="rd-empty-line">' + h(text) + "</p>"; }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
 
@@ -91,7 +96,8 @@
     if (!r.connected) {
       var last = r.leftover ? r.leftover : (r.recent && r.recent.thing ? r.recent.type + " " + r.recent.thing : "");
       doing = '<span class="rd-here-doing is-idle">' + (last ? "last: " + h(last) : "no recent activity") + "</span>";
-      meta = '<span class="rd-here-meta"><span class="rd-last-seen">last seen ' + h(R.ago(now - r.lastSeenAt)) + "</span>" +
+      meta = '<span class="rd-here-meta">' + (r.state === "wake" ? (r.lastWakeAt != null ? '<span class="rd-last-wake">' + h(lastWake(r)) + "</span>" : "")
+        : '<span class="rd-last-seen">last seen ' + h(R.ago(now - r.lastSeenAt)) + "</span>") +
         (r.leftoverOn ? '<span class="rd-on-item">' + h(r.leftoverOn) + "</span>" : "") + "</span>";
     } else {
       if (r.state === "working") doing = '<span class="rd-here-doing">' + h(r.doing) + "</span>";
@@ -102,11 +108,11 @@
       meta = '<span class="rd-here-meta">' + (r.on ? '<span class="rd-on-item">' + h(r.on) + "</span>" : "") +
         (r.age || r.idle ? '<span class="rd-age">' + h(r.age || r.idle) + "</span>" : "") + waitHtml(r.wait) + "</span>";
     }
-    var state = r.connected ? r.state : "disconnected";
-    return '<div class="rd-here-line' + (r.connected ? "" : " away") + '">' +
+    var state = r.connected || r.state === "wake" ? r.state : "disconnected";
+    return '<div class="rd-here-line' + (r.connected || state === "wake" ? "" : " away") + '">' +
       '<button type="button" class="rd-here-row' + on + '" data-rd-pickdesk="' + h(r.name) + '">' +
-      '<span class="rd-here-dot ' + h(state) + '"></span><span class="rd-here-name">' + h(r.name) + "</span>" +
-      '<span class="rd-here-state ' + h(state) + '">' + h(state) + "</span>" +
+      '<span class="rd-here-dot ' + h(state) + '"></span><span class="rd-here-name">' + del(r, r.name, h(r.name)) + "</span>" +
+      '<span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span>" +
       doing + meta + priosLine(r.prios) + (r.connected ? rowChips(r) : "") + "</button></div>";
   }
   /* One list, most active first: working, waiting, idle, then disconnected (dimmed, last seen). */
@@ -114,7 +120,7 @@
     if (!m.known) return '<div class="rd-loading">Loading desks\u2026</div>';
     var rows = m.connected.concat(m.away);
     if (!rows.length) return '<div class="rd-empty-line">No desk on this scope in this range.</div>';
-    return '<div class="rd-here-section">' + h(plural(rows.length, "desk")) + " \u00b7 " + m.connected.length + " connected</div>" +
+    return '<div class="rd-here-section">' + h(plural(rows.length, "desk")) + " \u00b7 " + m.connected.length + " connected" + (m.wake ? " \u00b7 " + m.wake + " reachable by wake" : "") + "</div>" +
       rows.map(function (r) { return deskRowHtml(r, m.selected, now); }).join("");
   }
   function srow(label, last, opts) {
@@ -137,7 +143,7 @@
     var D = s.doing;
     var nowLine = r.state === "working"
       ? (r.on ? "on " + item(r.on) + " \u00b7 " : "") + "running " + h(r.age) + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "")
-      : (r.connected ? h(r.state) + (r.idle ? " " + h(r.idle) : "") : "disconnected") + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "");
+      : (r.connected ? h(r.state) + (r.idle ? " " + h(r.idle) : "") : r.state === "wake" ? "reachable by wake" : "disconnected") + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "");
     /* A doing score the desk never sent has no row. */
     var leaf = function (k, fmt) { var x = D[k]; return x && String(x.value) !== "" ? srow(R.kpiLabel(k), fmt(x.value), { off: x.off, title: k }) : ""; };
     var ms = function (v) { return R.msText(v); };
@@ -166,7 +172,7 @@
   function deskDetailHtml(dd, now) {
     if (!dd) return '<div class="rd-empty-line">Pick a desk.</div>';
     var r = dd.desk;
-    var state = r.connected ? r.state : "disconnected";
+    var state = r.connected || r.state === "wake" ? r.state : "disconnected";
     var text = r.state === "working" ? h(r.doing)
       : r.connected ? h(r.state) + ((r.last && r.last.doing) || r.leftover ? " \u00b7 last: " + h(r.leftover || r.last.doing) : "")
       : "last: " + h(r.leftover || (r.recent ? r.recent.type + " " + r.recent.thing : "no recent activity"));
@@ -174,11 +180,12 @@
     if (r.connected && r.on) facts.push("on " + item(r.on));
     if (r.age) facts.push("for " + h(r.age));
     if (r.idle) facts.push("idle " + h(r.idle));
-    if (!r.connected && r.lastSeenAt != null) facts.push("last seen " + h(R.ago(now - r.lastSeenAt)));
+    if (state === "wake") { if (r.lastWakeAt != null) facts.push(h(lastWake(r))); }
+    else if (!r.connected && r.lastSeenAt != null) facts.push("last seen " + h(R.ago(now - r.lastSeenAt)));
     if (r.wait && r.wait.letters) facts.push(h(plural(r.wait.letters, "letter")) + " waiting");
     if (r.wait && r.wait.cards) facts.push(h(plural(r.wait.cards, "card")) + " waiting");
     if (r.rosters.length) facts.push("on " + h(r.rosters.join(", ")));
-    var html = '<div class="rd-desk-head"><b>' + h(r.name) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(state) + "</span></div>" +
+    var html = '<div class="rd-desk-head"><b>' + del(r, r.name, h(r.name)) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span></div>" +
       '<div class="rd-desk-doing">' + text + '<div class="rd-facts">' + facts.join(" \u00b7 ") + "</div></div>" + scoresBlock(dd);
     html += '<div class="rd-desk-grid">';
     html += '<section class="rd-block card"><h3>CARD <span class="rd-sub">current</span></h3>' + (dd.card
@@ -188,9 +195,9 @@
       : '<div class="rd-empty">' + (r.on ? "Doing is on " + item(r.on) + ", not a card." : "No current card.") + "</div>") + "</section>";
     if (dd.chat) {
       html += '<section class="rd-block chat"><h3>CHAT <span class="rd-sub">latest first</span></h3>' + (dd.chat.length ? dd.chat.slice(0, 4).map(function (m) {
-        var to = m.tos.map(function (t) { return t.desk; }).join(", ");
-        return '<div class="rd-letter"><b>' + h(m.from) + "</b> " + item("mail-" + m.id) + '<span class="rd-when">' + h(R.dur(now - m.at)) + "</span>" +
-          '<span class="rd-body">' + (m.from === r.name ? "to " + h(to) + ": " : "") + h(R.firstLine(m.body, 160) || "(no text)") + "</span></div>";
+        var to = m.tos.map(function (t) { return del(m, t.desk, h(t.desk)); }).join(", ");
+        return '<div class="rd-letter"><b>' + del(m, m.from, h(m.from)) + "</b> " + item("mail-" + m.id) + '<span class="rd-when">' + h(R.dur(now - m.at)) + "</span>" +
+          '<span class="rd-body">' + (m.from === r.name ? "to " + to + ": " : "") + h(R.firstLine(m.body, 160) || "(no text)") + "</span></div>";
       }).join("") + (dd.chat.length > 4 ? '<a class="rd-more-link" href="#mail" data-rd-go="mail">' + h(plural(dd.chat.length - 4, "older letter")) + "</a>" : "")
         : '<div class="rd-empty">No letters in this slice.</div>') + "</section>";
     }
@@ -210,7 +217,7 @@
   function feedHtml(rows) {
     if (rows == null) return "";
     return "<h3>OFFICE ACTIVITY <span class=\"rd-sub\">latest first</span></h3>" + (rows.length ? rows.map(function (f) {
-      return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(f.at)) + '</span><div><span class="rd-who">' + h(f.who) + '</span><span class="rd-k ' + h(f.kind) + '">' + h(f.kind) + '</span><span class="rd-text">' + h(f.text) + "</span></div></div>";
+      return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(f.at)) + '</span><div><span class="rd-who">' + del(f, f.who, h(f.who)) + '</span><span class="rd-k ' + h(f.kind) + '">' + h(f.kind) + '</span><span class="rd-text">' + h(f.text) + "</span></div></div>";
     }).join("") : '<p class="rd-empty">Nothing in the latest activity.</p>');
   }
   /* A tab's platform scores (rd-model SCORE_TABS), off target first. None served: no strip. */
@@ -258,7 +265,7 @@
     return split(cols, det, m.groups.length);
   }
   function feedLetter(m) {
-    return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + h(m.from) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
+    return '<div class="rd-feed-row"><span class="rd-when">' + h(clock(m.at)) + '</span><div><span class="rd-who">' + del(m, m.from, h(m.from)) + '</span><span class="rd-k mail">mail</span><span class="rd-text">' + h(R.firstLine(m.body || m.text, 120)) + "</span></div></div>";
   }
   function split(cols, detail, n, cls) {
     return '<div class="rd-tab-split' + (cls ? " " + cls : "") + '"><div class="rd-tab-groups' + (cls ? " " + cls : "") + '" data-groups="' + Math.max(1, Math.min(n, 6)) + '">' + cols + "</div>" +
@@ -346,7 +353,7 @@
         var at = {};
         r.cells.forEach(function (c) { at[c.name] = c; });
         var tds = m.shown.map(function (s) { return s.summary ? sumTd(r.byArea[s.area]) : cellTd(at[s.col.name]); }).join("");
-        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + h(r.desk) + (r.worse ? ' <span class="rd-sc-worse" title="' + h(plural(r.worse, "score") + " worse than median") + '">' + h(String(r.worse)) + "</span>" : "") + "</th>" + tds + "</tr>";
+        return '<tr class="rd-sc-row"><th class="rd-sc-desk" scope="row">' + del(r, r.desk, h(r.desk)) + (r.worse ? ' <span class="rd-sc-worse" title="' + h(plural(r.worse, "score") + " worse than median") + '">' + h(String(r.worse)) + "</span>" : "") + "</th>" + tds + "</tr>";
       }).join("");
       return '<tbody class="rd-sc-roster"><tr class="rd-sc-roster-h"><th class="rd-sc-desk">' + h(g.label) + ' <span class="rd-sub">' + h(String(g.rows.length)) + '</span></th><td colspan="' + nCols + '"></td></tr>' + rows + "</tbody>";
     }).join("");
@@ -363,7 +370,7 @@
           }).join("") || '<p class="rd-empty-line">No scores with a value.</p>';
           return head + '<div class="rd-sc-card-sec">' + list + "</div>";
         }).join("");
-        return '<article class="rd-sc-card"><h3>' + h(r.desk) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
+        return '<article class="rd-sc-card"><h3>' + del(r, r.desk, h(r.desk)) + ' <span class="rd-sub">' + h(r.roster || g.label) + (r.worse ? " \u00b7 " + r.worse + " worse" : "") + "</span></h3>" + secs + "</article>";
       }).join("");
     }).join("") + "</div>";
     function flagBtn(key, on, text, tip) {
@@ -399,7 +406,7 @@
     }
     var d = m.detail, det = "";
     if (d) {
-      var facts = [deskChip(d.desk)].concat(
+      var facts = [deskChip(d.desk, d)].concat(
         d.roster ? [chip(d.roster, "roster")] : [],
         ["<span>" + h(d.text) + "</span>"],
         d.kind === "age" && d.anchorMs != null ? ['<span title="anchor">since ' + h(localWhen(d.anchorMs)) + "</span>"] : [],
@@ -410,7 +417,7 @@
       var items = d.items && d.items.length ? '<h3>ITEMS <span class="rd-sub">' + h(String(d.items.length)) + (d.items.length >= 5 ? " (first 5)" : "") + '</span></h3><div class="rd-sc-items">' + d.items.map(function (it) {
         return '<a class="rd-on-item" href="#' + h(it.tab) + '" data-rd-go="' + h(it.tab) + '" data-rd-sel="' + h(it.sel) + '">' + h(it.text) + "</a>";
       }).join("") + "</div>" : "";
-      det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + h(d.desk) + "</div>" +
+      det = '<h3>SCORE <span class="rd-sub">' + h(d.area) + '</span></h3><div class="rd-detail-title">' + h(d.label) + " \u00b7 " + del(d, d.desk, h(d.desk)) + "</div>" +
         (d.desc ? '<p class="rd-sc-desc">' + h(d.desc) + ' <span class="rd-sc-better">Lower is better.</span></p>' : "") +
         '<div class="rd-detail-facts">' + facts + "</div>" + items;
     }
@@ -468,7 +475,7 @@
   function partHtml(p) {
     var role = p.role ? ' data-party="' + p.role + '"' : "";
     if (p.t === "score") return '<i class="rd-sdot' + (p.off ? " off" : " on") + '" title="' + (p.off ? "off target" : "on target") + '"></i>';
-    if (p.t === "desk") return '<button type="button"' + role + ' class="rd-pill st-' + h(p.state || "idle") + '" data-rd-desk="' + h(p.name) + '" title="' + h(p.name + ", " + (p.state || "idle")) + '">' + h(p.name) + "</button>";
+    if (p.t === "desk") return '<button type="button"' + role + ' class="rd-pill st-' + h(p.state || "idle") + '" data-rd-desk="' + h(p.name) + '" title="' + h(p.name + ", " + stateWord(p.state || "idle")) + '">' + h(p.name) + "</button>";
     if (p.t === "human") return '<span' + role + ' class="rd-pill rd-human" title="the person at this office"><i aria-hidden="true">\u263a</i>' + h(p.name) + "</span>";
     if (p.t === "cloud") return cloud(p.names || [p.name]).replace("<span ", "<span" + role + " ");
     if (p.t === "item") { var it = R.itemOf(p.key); return it ? '<a class="rd-on-item" href="#' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-go="' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-sel="' + h(it.key) + '">' + h(p.v) + "</a>" : "<span>" + h(p.v) + "</span>"; }

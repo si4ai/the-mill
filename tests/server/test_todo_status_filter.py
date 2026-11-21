@@ -1,6 +1,7 @@
 """mill todo --done / --status over /ws (agent-ux 1215)."""
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -142,10 +143,13 @@ def test_cli_peek_miss_prints_stderr_and_exits_1(capsys, monkeypatch):
     monkeypatch.setattr("agent_coord.client.http.mill_url", lambda: "http://127.0.0.1:9/")
     monkeypatch.setattr("agent_coord.client.http.mill_http_from_args", run)
     rc = cli.main(["todo", "the-mill", "-3"])
-    err = capsys.readouterr().err
+    cap = capsys.readouterr()
     assert rc == 1
-    assert "todo: no card -3 in the-mill" in err
-    assert err.strip() != "[]"
+    obj = json.loads(cap.out)
+    assert obj["code"] == "refused"
+    assert "todo: no card" in obj.get("refusal", "")
+    assert "todo: no card" not in cap.err
+    assert cap.err.strip() == "refused %s" % obj["id"]
 
 
 def test_peek_done_under_other_status_hints_done():

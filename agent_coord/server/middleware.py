@@ -482,6 +482,13 @@ def _json(obj: Any) -> bytes:
     return dumps_mill_bytes(obj)
 
 
+def _marked(cn, payload: Any) -> Any:
+    """Card 1255: activity rows keep a retired or trashed name, with deleted_names (records.name_marks)."""
+    from agent_coord.server.records.name_marks import mark_deleted
+
+    return mark_deleted(cn, payload)
+
+
 _LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
@@ -514,15 +521,24 @@ def _labels_read(qs: dict[str, list[str]]) -> tuple[int, Any]:
         return 400, {"error": f"GET /api/v1/labels: {e}"}
     page_lim, page_cur = rec_floor.parse_list_page(qs)
     with _office() as c:
-        return 200, rec_floor.v1_labels(
+        return 200, _marked(c._cn, rec_floor.v1_labels(
             c._cn, names=names or None, limit=page_lim, cursor=page_cur, projects=projects, scope=scope
-        )
+        ))
 
 
 _DOING_ITEM = re.compile(r"(mail|todo|hold|score)-([1-9][0-9]{0,18})")
 
 
 def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """Card 1255: _doing_read_raw, with deleted_names on rows that refer to a retired or trashed name."""
+    code, payload = _doing_read_raw(path, qs)
+    if code != 200:
+        return code, payload
+    with _office() as c:
+        return code, _marked(c._cn, payload)
+
+
+def _doing_read_raw(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     """#818 GET /api/v1/doing and /api/v1/doing/history: the `mill connected`
     views, read-only, for the Wall (PR C). Behind the same door and on the same
     office book as every other Wall GET; the Wall computes nothing itself.
@@ -530,6 +546,8 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     /api/v1/doing takes exactly one of all=1, desk=D or project=R and returns
     the _desk_view list. Card 1193 adds desks=d1,d2 and a comma project=R1,R2
     (either alone, both, or with all=1), and window=1d|7d|30d on the heartbeat.
+    ?run=WATCH_ID&desk=DESK (card 1239) returns that run's tree instead
+    ({runs, n}). run without desk, or with any other selector, is 400.
     /api/v1/doing/history takes desk=D and/or on=ITEM
     (mail-N, todo-N, hold-N, score-N), plus since= and page=, and returns
     {history, page} with ended_by. A refusal is 400 {"error"}.
@@ -550,6 +568,13 @@ def _doing_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
                 scope = wall_scope.parse_scope(qs)
             except wall_scope.ScopeError as e:
                 return 400, {"error": f"GET /api/v1/doing: {e}"}
+            run_id = one("run")
+            if run_id:
+                if (not desk or every or project or scope.desks is not None
+                        or len(projects) > 1 or scope.since is not None):
+                    return 400, {"error": "GET /api/v1/doing?run= takes ?desk= only"}
+                with _office() as c:
+                    return 200, rpc._h_session(c, {"desk": desk, "run": run_id}, "", None)
             if scope.desks is None and len(projects) <= 1:
                 if int(every) + int(bool(desk)) + int(bool(project)) != 1:
                     return 400, {"error": "GET /api/v1/doing requires one of ?all=1 or ?desk= or ?project= (or ?desks=)"}
@@ -605,6 +630,15 @@ _RUN_PHASES = ("start", "finished", "failed")
 
 
 def _score_tab_read(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
+    """Card 1255: _score_tab_read_raw, with deleted_names on rows that refer to a retired or trashed name."""
+    code, payload = _score_tab_read_raw(path, qs)
+    if code != 200:
+        return code, payload
+    with _office() as c:
+        return code, _marked(c._cn, payload)
+
+
+def _score_tab_read_raw(path: str, qs: dict[str, list[str]]) -> tuple[int, Any]:
     """Card 1160: GET /api/v1/activity-buckets and /api/v1/score-runs for the
     Wall Score tab. Read-only, one roster (?project=), {rows, next} pages.
 
@@ -2199,6 +2233,13 @@ def make_handler(roots: dict[str, Path], *, api_only: bool = False):
                 )
 
                 def load_payload() -> dict:
+                    # Card 1255: the pane cache key carries the name table version, so a trash or
+                    # restore re-reads and re-marks.
+                    payload = _load_raw()
+                    with _office() as c:
+                        return _marked(c._cn, payload)
+
+                def _load_raw() -> dict:
                     with _office() as c:
                         if role_name or lan:
                             from agent_coord.server.records.floor import v1_by_scope

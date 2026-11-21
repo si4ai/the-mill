@@ -278,6 +278,30 @@ def wake_state(cn, desk: str) -> dict:
     }
 
 
+def wake_reach(cn, desks: list[str]) -> dict[str, dict]:
+    """Card 1242: desk -> {armed, last_wake} in one read. armed as mill_join_wake_state;
+    last_wake is the newest lease ring (UTC ISO, Z) or None. Desks not found are absent."""
+    names = sorted({str(d) for d in desks or [] if d})
+    if not names:
+        return {}
+    sql = (
+        "SELECT n.name AS desk,"
+        " (j.delivery_mode = 'webhook' AND j.endpoint_url IS NOT NULL AND j.endpoint_key IS NOT NULL) AS armed,"
+        " (SELECT MAX(t.at) FROM transition t WHERE t.desk_id = n.id AND t.activity_type = 'wake'"
+        " AND t.to_state = 'lease_live') AS last_wake"
+        " FROM name n JOIN seat j ON j.desk_id = n.id"
+        " WHERE n.type = 'desk' AND n.name IN (" + ",".join(["%s"] * len(names)) + ")"
+    )
+    out: dict[str, dict] = {}
+    for r in rows_done(cn, sql, tuple(names)):
+        at = r.get("last_wake")
+        out[str(r.get("desk") or "")] = {
+            "armed": bool(int(r.get("armed") or 0)),
+            "last_wake": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at is not None else None,
+        }
+    return out
+
+
 def wake_target(cn, desk: str) -> tuple[str, str] | None:
     """(url, key) of an armed live desk, for the POST only. Never log or return it."""
     from agent_coord.server.records.name import bare

@@ -44,11 +44,11 @@ mill add mail:<id> <desk>    /  mill remove mail:<id> <desk>
 mill mark <mail_id> [<mail_id>...]
 mill todo <roster> [<need>] [--full | --page N]
 mill todo <roster> <need> [--eta E] [--started] [--progress P] | [--done-when TEXT]
-mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked]
+mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked] [--label NAME ...]
 mill claim <roster> <need> [--take-over]
 mill replace-body todo <id> TEXT
-mill hold [<resource>]
-mill drop <resource>
+mill hold [<resource>] [--key KEY]
+mill drop <resource> [--key KEY]
 mill wake-done [--lease TOKEN] [--note TEXT]
 mill pass <roster> <need> [--done | --back]
 mill unclaim <roster> <need>
@@ -79,8 +79,8 @@ mill create label <name> --yes
 - `drop` releases a hold. `unclaim` releases a card. `claim`, `assign` and `unclaim` move only an open or claimed card; a parked card is refused naming `mill unpark ROSTER NEED` (plus `--parent-type T --parent-id N` when it has no plan parent), a shipped or done card naming the `pass` form, and nothing changes (card 778, F131). `pass` moves claimed to shipped; the asker's `pass --done` moves shipped to done; `pass --back` steps a card back one stage (done to shipped, shipped to claimed). A step that does not fit the card is refused and changes nothing (F67).
 - `todo <roster> <need>` returns that card, including a done card. The board list hides done cards; add `--done` or `--status done` to list them.
 - The board list (`todo`, `todo <roster>`, `todo --all`) prints short rows by default: `id`, `need_id`, `status` and `volunteer` (empty when unclaimed), 50 cards a page in the wall's order, grouped as usual. A `page` block says `n`, `of`, `size`, `cards`, `next` (`--page N+1`, only when there is one) and, when every card on the page sits on one roster, `roster` once instead of `project_id` on each row. `--page N` reads page N; a page past the last is refused with the page count. `--full` prints every field of every card with no paging, the reply as it was before short rows. A one-card peek, `--find` and `--raw` keep their own shapes; `--page` with them is refused. Regression row F51 (todo-short-rows).
-- `todo --mine` lists this desk's cards, the desk of the sitting connect (or, with none sitting, the desk `--desk DESK` borrows): first its focus cards (the cards wearing the label named after the desk, skipping parked ones unless `--status parked` and ones another desk holds) in rank order, each with `focus` set to its `--ord`, then the cards whose `volunteer` is this desk (exact name; a desk whose name merely contains yours does not match), each card once. Without `--group-by` the list stays flat so the rank order holds. It is built before `--find` and paging, so the `page` block counts only these cards, and the note says how many of each. It combines with `--status`, `--done`, `--all`, `--find`, `--full`, `--page` and `--raw`; it lists only cards the board lists, so without `--done` done cards stay hidden. A one-card peek with `--mine` is refused. The wall sends only the cards this desk holds or that wear its label (the read carries `mine`), so the read costs this desk's cards, not the whole board; an older wall sends the board and the CLI trims it the same way. Pick your next card with `todo --mine`, not by reading the board. Regression rows F57 (todo-mine), F58 (desk-focus) and F83 (todo-mine-wire).
-- Desk focus: the label whose name is a desk id is that desk's priority list. Anyone ranks a card for a desk with `label todo <id> <desk> --ord N` (0 pinned, 65535 unplaced). Nothing creates that label for you: the first `label todo` that uses the desk's name creates it where trust allows; otherwise `create label <desk>` first (rights: [admin.md](../requirements/admin.md) (trust matrix)). Focus lists only cards the desk can work on: not done, not parked, and not held by another desk (unclaimed, or claimed by this desk). Rank is `ord` ascending (0 first), ties by card id. Once seated, `mill connect` prints one `{"kind": "focus", "label", "cards", "rest"}` line after the ready and sync lines: the top 5 such cards (`id`, `project_id`, `need_id`, `status`, `volunteer`, `rank`), so the desk knows what to work on next. It reads the same board as `todo --mine` (the desk's rosters), so focus cards on any of those rosters show. None: no line. When a focus read fails, connect keeps sitting and prints one stderr line, `connect: focus not shown: <cause>`. All of it runs in the client on reads the wall already serves. Regression row F59 (focus-any-roster). Regression row F58 (desk-focus).
+- `todo --mine` lists this desk's cards, the desk of the sitting connect (or, with none sitting, the desk `--desk DESK` borrows): first its legacy focus cards (a desk-named label made before 0.8.16; read-only, and another label does not feed it) in rank order, skipping parked ones unless `--status parked` and ones another desk holds, each with `focus` set to its `--ord`, then the cards whose `volunteer` is this desk (exact name; a desk whose name merely contains yours does not match), each card once. Without `--group-by` the list stays flat so the rank order holds. It is built before `--find` and paging, so the `page` block counts only these cards, and the note says how many of each. It combines with `--status`, `--done`, `--all`, `--find`, `--full`, `--page` and `--raw`; it lists only cards the board lists, so without `--done` done cards stay hidden. A one-card peek with `--mine` is refused. The wall sends only the cards this desk holds or that wear its label (the read carries `mine`), so the read costs this desk's cards, not the whole board; an older wall sends the board and the CLI trims it the same way. Pick your next card with `todo --mine`, not by reading the board. Regression rows F57 (todo-mine), F58 (desk-focus) and F83 (todo-mine-wire).
+- Desk focus: names are unique, so a desk name cannot be a label; `label todo <id> <desk>` is refused (the error names the type). Rank cards under another label; it does not feed connect's focus line. A desk-named label made before 0.8.16 still works, read-only. Focus lists only cards the desk can work on: not done, not parked, and not held by another desk (unclaimed, or claimed by this desk). Rank is `ord` ascending (0 first), ties by card id. Once seated, when that pre-0.8.16 list has entries, `mill connect` prints one `{"kind": "focus", "label", "cards", "rest"}` line after the ready and sync lines: the top 5 such cards (`id`, `project_id`, `need_id`, `status`, `volunteer`, `rank`), so the desk knows what to work on next. It reads the same board as `todo --mine` (the desk's rosters), so focus cards on any of those rosters show. None: no line. When a focus read fails, connect keeps sitting and prints one stderr line, `connect: focus not shown: <cause>`. All of it runs in the client on reads the wall already serves. Regression row F59 (focus-any-roster). Regression row F58 (desk-focus).
 - `inbox` and `mail-thread <id> --room` print short letter rows by default: `id`, `created`, `from` (desk), `parent_id`, `tree` (left out where the list or the room already names it) and `body`, the first 100 characters on one line, with `body_trunc` true when that is not the whole body. `mill mail-thread <id>` reads one letter whole. At most 50 letters a page with a `page` block (`n`, `of`, `size`, `letters`, `next` only when a next page exists). The inbox pages in the wall's order; a room's page 1 is its newest 50 letters, oldest first, and `--page 2` the 50 before them. Room pointers on the inbox cover every letter fetched (`--limit`), not only the page. `--full` (`--room --full` on mail-thread) prints the reply as before short rows; `--full` alone on mail-thread is still the whole branch. `--after`, `--subtree`, a branch read and a room summary are unchanged, and `--page` with them, or with `--raw`, is refused. Regression row F53 (mail-short-rows).
 - The stored card (detail and fields) is at most 4096 characters. Every `todo <roster> <need> --eta/--started/--progress` reply says `detail_left`. Card text changes only with `mill replace-body todo ID TEXT`. Put long text in a room letter (`mill reply <mail_id> --body-file PATH`) and put that mail id in the card with `replace-body`. The budget is the card's database column itself; there is no separate per-note cap, and `claim --msg` draws on the same budget. A `replace-body` body must be 1..4096 characters. Regression row F56 (note-detail-budget).
 - `todo --find TEXT` lists need-name hits first, then roster hits, then body-only hits, as one flat list (add `--group-by` to group it). Cards have no title (#818). Each card prints `match` (need, roster or detail) and a `snippet` of about 120 characters instead of its whole body. `watch` and `unwatch` replies and refusals name `watch`/`unwatch`, not the `add`/`remove` they ride. A `send` to a roster always says where the sender stands: `sender: excluded` (on the roster, left out), `sender: not a member`, or `sender: included` when the sender is its only member. Regression row F25 (ux12-polish).
@@ -196,12 +196,11 @@ Grouped by **table**. Day-one teaching first; tree/Admin when said, not day-one 
 
 | Human idiom | Command |
 | :--- | :--- |
-| *"create/file/add a bug"*, *"found an issue"* | `create todo` `<roster> <need>` then `label` `todo <id> bug` |
+| *"create/file/add a bug"*, *"found an issue"* | `create todo` `<roster> <need> --label bug` |
 | *"create/file/add a todo"*, *"new card"*, *"feature request"* | `create todo` `<roster> <need>` optional `--detail` |
 | *"park that"*, *"file for later"* | `create todo` `<roster> <need> --status parked` |
 | *"what's on the board"*, *"list the bugs"* | `todo` `<roster>` (bugs: the cards labelled bug). `todo <roster> <numeric-id>` returns that card, the same as a slug peek, including a done card. Filter the board by the slug (printed as `need_id`, stored as `body.slug`) or by status, or use the Wall. Plain `todo` and `todo --all` read every roster in one call (200 rosters per call; a wall that does not answer `{cards}` is an error); done cards, the status and a numeric id are filtered in the database. Regression row F22 (todo-one-read). |
 | *"what is mine"*, *"my cards"*, *"anything for me"*, *"what next"* | `todo --mine` (your focus cards in rank order, then your claimed and shipped cards; `--done` adds finished ones, `--all` every roster). |
-| *"make this X's priority"*, *"put it first for X"* | `label todo <id> <X> --ord 0` (the label named after desk X is its focus list). |
 | *"is it done"*, *"show done cards"* | `todo <roster> <need>` returns that card, including a done card. The board list `todo <roster>` hides done cards; add `--done` or `--status done` to list them. |
 | *"unpark"*, *"reopen that card"* | `unpark` `<roster> <need>` `[--parent-type mail|todo --parent-id ID]` |
 | *"I'll take it"*, *"claim that"* | `claim` `<roster> <need>` |
@@ -349,7 +348,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | command | intent | CALL |
 |---|---|---|
 | **`hold`** | Mutex on a res name. `desk_id` NULL means free. The project is not part of the lock. An unknown, retired, or empty project is refused and nothing is written. Release nulls `desk_id`; the row stays. `--peek` reads through `mill_hold_select` and does not call `mill_hold_upsert`; `hold` with no resource (with or without `--peek`) lists every lock held (read only; no locks is an empty list). | `mill_hold_upsert` |
-| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_delete` |
+| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_drop` |
 
 ### tree
 
@@ -359,13 +358,13 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | **`move`** | Move that under that. A card on two plans names those plans and `--tree` picks one. | `mill_tree_move` |
 | **`prune`** | Kill that branch | `mill_tree_prune` |
 | **`detach`** | Take off the plan, keep children | `mill_tree_remove` |
-| **`trail`** | Read only: `mill trail <id> [--json]` (a mail id or todo id) prints the branch under a finding or card, any depth: kind id [state] title, last note, desk, PT time. Done and shipped cards stay in. A last note that starts `dead-end:` or `solved:` shows [DEAD END] / [SOLVED]. Use `mail:N` or `todo:N` when both ids exist. `mill trail --label NAME` lists mail and todo wearing that label, by ord then created; a label nobody has used yet lists 0 rows and says first use creates it (`mill label TYPE ID NAME`), or under limited trust that an Admin makes it with `mill create label NAME` | `mill_tree_subtree` |
+| **`trail`** | Read only: `mill trail <id> [--json]` (a mail id or todo id) prints the branch under a finding or card, any depth: kind id [state] title, last note, desk, PT time. Done and shipped cards stay in. A last note that starts `dead-end:` or `solved:` shows [DEAD END] / [SOLVED]. Use `mail:N` or `todo:N` when both ids exist. `mill trail --label NAME` (repeatable; `--any` keeps one) lists mail and todo wearing every named label, by ord then created. An unknown label warns and does not create one (`mill create label NAME`) | `mill_tree_subtree` |
 
 ### activity
 
 | command | intent | CALL |
 |---|---|---|
-| **`connected`** | Each desk's live doings (its running tw runs, newest first, at most 20) and `n`, their count; roster optional (none = desks active in the last day, `--all` every desk, `--who D` one desk; `--desk` is the seat borrow, as on every desk command); `--history [--since DATE] [--page N]` lists past tw runs (`ended_by`: finished, failed, stale, cleared); card and hold moves show only on the Wall's item trail (`/api/v1/doing/history?on=`). A desk is alive while `seat.updated` is at most 15 minutes old. A missing time is stale. CLI word for the `session` RPC. | `mill_doing_now`, `mill_doing_history` |
+| **`connected`** | Each desk's live doings (its running tw runs, newest first, at most 20) and `n`, their count; roster optional (none = desks active in the last day, `--all` every desk, `--who D` one desk; `--desk` is the seat borrow, as on every desk command); `--history [--since DATE] [--page N]` lists past tw runs (`ended_by`: finished, failed, stale, cleared); `--run WATCH_ID [--who D]` lists that run and the runs nested under it, requested run first, then by start time (`n` is how many). Each run has `watch_id`, `parent_watch_id` (null on a root), `desk`, `start`, `end`, `ended_by`, `exit_code`, `state`, and the mill calls on that run (`calls_n`, `ok_n`, `failed_n`, newest 200 `calls`, each `at`, `verb`, `ok`, `err` refused or error; cards 1223 and 1239). A nested run's read does not include the run above it. The same object is `GET /api/v1/doing?run=WATCH_ID&desk=DESK`; card and hold moves show only on the Wall's item trail (`/api/v1/doing/history?on=`). A desk is alive while `seat.updated` is at most 15 minutes old. A missing time is stale. Each desk also has `reach`: `connect` while a connect sits, `wake` when none sits but its webhook is armed and its wakes are not failing (fewer than 3 in a row), else `offline`; and `last_wake`, its newest wake (UTC), or null (card 1242). CLI word for the `session` RPC. | `mill_doing_now`, `mill_doing_history` |
 | **`--doing` / `--waiting-on`** | Gone (card 1207). A doing is written only by `tw` (one row per run); every other command affects only its own type. A request body that still carries `doing` or `waiting_on` is refused: `COMMAND: --doing is gone (card 1207: doing is written only by tw); nothing was changed`. | `mill_doing_task` (tw only) |
 
 ### label / score / watcher
@@ -404,6 +403,34 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 **Chief / Wall:** not these commands. SESSION + kanban + MAIL. Chat to a desk.
 
 Python: `agent_coord/server/records/<table>.py`. SQL: `agent_coord/server/sql/`. mill-wall is FastAPI (HTML + `/api` + `/ws` in one process).
+
+## Failed command
+
+A failed desk command prints one UTF-8 JSON object on stdout (no byte-order mark) and one ASCII line on stderr. The process exits 1. A success prints on stdout as before. A usage error (the parser, exit 2) stays a usage error.
+
+The object is `ok` false, then:
+
+| field | what |
+|---|---|
+| `code` | `refused`, `tw_refused`, `transport`, `busy`, or `internal`. One registry. An uncaught error is `internal`. |
+| `refusal` | The office refusal text when `code` is `refused`. The same taint filter as the other fields, cut at 200 characters. `truncated` and `original_length` mark the cut. An internal error does not copy the server exception here. |
+| `class` | `refusal`, `transport`, `busy`, or `internal`. `transport` and `busy` are retryable. |
+| `applied` | false when nothing changed for sure (refused, transport, busy, or a connect the command does not share). Omitted when a commit may have happened (`internal`). |
+| `id` | The request id. The same id is on stderr and on the server log line for a failed `/ws` call. A retry is a new id. |
+| `command` | The command name and the flag names. Flag values are not included. |
+| `desk` | The desk name, when the command has one. |
+| `activity` | `type:id` when the command named an activity, for example `todo:1238`. |
+| `mill` | The server version, when the failure came from the server. |
+| `client_mill` | The client version, only when it differs from `mill`. |
+| `time` | UTC, timezone-aware (`Z`). |
+| `next` | One next step for that code. |
+| `sync` | The same sync list a success would carry, when the server sent one. A client-side failure omits it. |
+| `label_warnings` | Present when the server sent any. |
+| `truncated` | true when a field was cut, with `original_length` of the longest cut. |
+
+stderr is `code id` with no color. A command that does not share the connect is `tw_refused`. A dropped connect is `transport`. Neither carries `sync` or a server `mill`.
+
+Stdout and stderr never carry a secret, a home path, a host, an address, an email, a pipe name, a process id, a file path, or the raw argument values. The server log line for the failure is `failed rpc` with the id, the command, and the exception class. The exception text stays off that line.
 
 ## watcher
 

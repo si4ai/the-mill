@@ -11,6 +11,7 @@ def view(monkeypatch, live):
         {"part": "desk", "desk": "Validator", "heartbeat": None},
     ])
     monkeypatch.setattr(doing, "live_doings", lambda cn, desks: {d: live[d] for d in desks if d in live})
+    monkeypatch.setattr("agent_coord.server.records.join.wake_reach", lambda cn, desks: {})  # card 1242
     return rpc._h_session(SimpleNamespace(_cn=None), {"all": True}, "", None)
 
 

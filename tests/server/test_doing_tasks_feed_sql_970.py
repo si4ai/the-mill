@@ -1,4 +1,5 @@
 """Card 970 / card 1207: a desk's live doings are its tw runs (the wall-ui shape)."""
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +11,7 @@ from tests import sql_book
 
 pytestmark = pytest.mark.sql
 
-ROW = {"id", "created", "text", "state", "state_at", "card"}
+ROW = {"id", "created", "text", "state", "state_at", "card", "watch_id", "parent_watch_id"}
 
 
 @pytest.fixture
@@ -44,6 +45,8 @@ def test_live_runs_newest_first_with_state_and_no_card_link(cn, feed):
     assert [r["id"] for r in view["doings"]] == sorted((r["id"] for r in view["doings"]), reverse=True)
     assert all(r["created"].endswith("Z") and r["state_at"].endswith("Z") for r in view["doings"])
     assert all(r["card"] is None and r["text"] == "" for r in view["doings"])
+    assert {r["watch_id"] for r in view["doings"]} == {"a", "b"}
+    assert all(r["parent_watch_id"] is None for r in view["doings"])
     assert "doing" not in view and "tasks" not in view and "waiting_on_it" not in view
 
 
@@ -53,6 +56,48 @@ def test_terminal_run_is_not_listed(cn, feed, state):
     assert event("a", "start")["ok"]
     rows_done(cn, "UPDATE transition SET to_state=%s WHERE join_key=%s", (state, "task:Builder:a"))
     assert read()["doings"] == [] and read()["n"] == 0
+
+
+def _z(at) -> str:
+    return at.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+
+
+def test_state_at_converts_to_utc_with_created(cn, feed):
+    """A session clock that is not UTC must not leave state_at eight hours behind created."""
+    event, read = feed
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT @@session.time_zone")
+        previous = cur.fetchone()[0]
+        cur.execute("SET time_zone = '-08:00'")
+        assert event("z", "start")["ok"]
+        row = read()["doings"][0]
+        cur.execute(
+            "SELECT created, (SELECT at FROM transition WHERE activity_id = doing.id"
+            " AND activity_type = 'doing' ORDER BY id DESC LIMIT 1) FROM doing"
+            " WHERE id = %s",
+            (row["id"],),
+        )
+        raw_created, raw_at = cur.fetchone()
+        assert event("z", "exit", exit_code=0)["ok"]
+        cur.execute(
+            "SELECT at FROM transition WHERE activity_type='doing' AND activity_id=%s"
+            " AND to_state IN ('finished','failed','stale','cleared')"
+            " ORDER BY id DESC LIMIT 1",
+            (row["id"],),
+        )
+        raw_end = cur.fetchone()[0]
+        ended = doing.run_tree(cn, "Builder", "z")["runs"][0]["end"]
+    finally:
+        cur.execute("SET time_zone = %s", (previous,))
+        cur.close()
+    assert row["watch_id"] == "z"
+    assert row["created"] == _z(raw_created + timedelta(hours=8))
+    assert row["state_at"] == _z(raw_at + timedelta(hours=8))
+    assert row["created"] != _z(raw_created)
+    assert row["state_at"] != _z(raw_at)
+    assert ended == _z(raw_end + timedelta(hours=8))
+    assert ended != _z(raw_end)
 
 
 def test_list_caps_at_twenty_and_n_is_the_true_count(cn, feed):
@@ -67,4 +112,5 @@ def test_list_caps_at_twenty_and_n_is_the_true_count(cn, feed):
     assert views["Validator"]["n"] == 1
     only = views["Validator"]["doings"][0]
     assert only["state"] == "started" and only["state_at"] == only["created"]
+    assert only["watch_id"] is None and only["parent_watch_id"] is None
     assert read()["n"] == 23

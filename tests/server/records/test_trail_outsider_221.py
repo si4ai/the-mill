@@ -91,7 +91,7 @@ def test_outsider_todo_trail_still_reads(cn) -> None:
 
 def test_hold_id_is_not_a_trail_target(cn) -> None:
     book = _Book(cn)
-    held = rpc._h_hold(book, {"resource": "docs/a.md"}, "unit", "asker")
+    held = rpc._h_hold(book, {"kh": "0" * 64, "resource": "docs/a.md"}, "unit", "asker")
     hid = int(held["id"])
     with pytest.raises(CoordError) as ei:
         rpc._h_trail(book, {"node": f"hold:{hid}"}, "unit", "outsider")

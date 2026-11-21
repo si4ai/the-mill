@@ -32,6 +32,14 @@
 
   function has(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function str(v) { return String(v == null ? "" : v).trim(); }
+  /* Card 1255: carry the feed rows' deleted_names (names they spell that are retired or
+   * trashed) onto a record, one sorted list; no key when none, so the record is as before. */
+  function marked(rec, rows) {
+    var out = [];
+    rows.forEach(function (r) { ((r && r.deleted_names) || []).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); }); });
+    if (out.length) rec.deleted_names = out.sort();
+    return rec;
+  }
   function num(v) {
     if (v == null || v === "") return null;
     var n = Number(v);
@@ -178,7 +186,10 @@
     var top = runs[0] || null;
     var doingText = n ? (str(top && top.text) || plural(n, "doing")) : "";
     var waiting = runs.some(function (x) { return str(x.state) === "waiting"; });
-    var state = !connected ? "disconnected" : (doingText ? (waiting ? "waiting" : "working") : "idle");
+    /* Card 1242: no connect sits but the webhook can wake it (reach "wake"): not disconnected.
+     * A server that sends no reach keeps today's rows. */
+    var wake = !connected && !!view && view.reach === "wake";
+    var state = !connected ? (wake ? "wake" : "disconnected") : (doingText ? (waiting ? "waiting" : "working") : "idle");
     var lc = st ? utc(st.last_connected) : null;
     /* A last-connected time in the future is not a reading; the seat heartbeat stands in. */
     if (lc != null && lc > ctx.now + 5 * MIN) lc = null;
@@ -187,7 +198,7 @@
     var raAt = ra ? utc(ra.at) : null;
     if (raAt != null && raAt > ctx.now + 5 * MIN) raAt = null;
     var since = top ? utc(top.created) : null;
-    return {
+    return marked({
       name: owner,
       rosters: [],
       connected: connected,
@@ -204,9 +215,10 @@
       waitingOn: null,
       wait: null,
       lastSeenAt: lc,
+      lastWakeAt: wake ? utc(view.last_wake) : null,
       recentAt: raAt != null ? raAt : lc,
       recent: ra ? { type: str(ra.type), thing: str(ra.thing) } : null
-    };
+    }, [view].concat(seats, runs));
   }
 
   function base(data, scope, now) {
@@ -311,11 +323,11 @@
       rows.forEach(function (c) {
         if (!c || c.id == null || seen[c.id]) return;
         seen[c.id] = 1;
-        out.push({
+        out.push(marked({
           id: Number(c.id), roster: str(c.roster_id) || r, status: str(c.status) || "open",
           title: firstLine(c.detail, 110) || ("card " + c.id), detail: str(c.detail),
           trunc: !!c.detail_trunc, desk: str(c.assigned || c.volunteer), creator: str(c.creator)
-        });
+        }, [c]));
       });
     });
     if (!known) return null;
@@ -331,12 +343,12 @@
         if (!m || m.id == null || seen[m.id]) return;
         seen[m.id] = 1;
         var tos = Array.isArray(m.mail_tos) ? m.mail_tos : (m.to || []).map(function (t) { return { deskId: t, receipt: null }; });
-        out.push({
+        out.push(marked({
           id: Number(m.id), at: utc(m.created), from: str(m.from || (m.sender && m.sender.deskId)),
           tos: tos.map(function (t) { return { desk: str(t && (t.deskId || t.desk || t)), unread: t && t.receipt === 0 }; }),
           body: str(m.body), trunc: !!m.body_trunc, root: m.root_id != null ? Number(m.root_id) : Number(m.id),
           tree: str(m.tree), roster: str(m.sender && m.sender.roster)
-        });
+        }, [m, m.sender].concat(tos)));
       });
     });
     if (!known) return null;
@@ -419,10 +431,13 @@
     var rows = b.desks.map(function (d) { return deskRow(b, d); });
     var live = sortDesks(rows.filter(function (r) { return r.connected; }), sort, false);
     var away = sortDesks(rows.filter(function (r) { return !r.connected; }), sort, true);
+    var wake = away.filter(function (r) { return r.state === "wake"; });
+    /* Card 1242: by urgency, a desk reachable by wake leads the ones away. */
+    if (sort === "urgency") away = wake.concat(away.filter(function (r) { return r.state !== "wake"; }));
     var selected = str(opts.selected);
     if (!rows.some(function (r) { return r.name === selected; })) selected = (live[0] || away[0] || {}).name || "";
     return {
-      sort: sort, connected: live, away: away, selected: selected,
+      sort: sort, connected: live, away: away, wake: wake.length, selected: selected,
       known: b.agentsKnown,
       scoreOff: live.filter(function (r) { return r.scores && r.scores.off; }).length
     };
@@ -868,7 +883,7 @@
       if (!d || !str(d.desk)) return;
       var name = str(d.desk), roster = str(d.roster);
       if (!inScoreScope(b, name, roster)) return;
-      desks.push({ desk: name, roster: roster, scores: Array.isArray(d.scores) ? d.scores : [] });
+      desks.push(marked({ desk: name, roster: roster, scores: Array.isArray(d.scores) ? d.scores : [] }, [d]));
     });
     var names = [], seen = {};
     desks.forEach(function (d) {
@@ -881,7 +896,7 @@
     var byDesk = desks.map(function (d) {
       var map = {};
       d.scores.forEach(function (s) { if (s && s.name) map[s.name] = s; });
-      return { desk: d.desk, roster: d.roster, map: map };
+      return marked({ desk: d.desk, roster: d.roster, map: map }, [d]);
     });
     var nActive = byDesk.length;
     var cols = names.map(function (name) {
@@ -963,7 +978,7 @@
       });
       /* quiet: nothing worse than the median and no nonzero value anywhere. */
       var quiet = !worse && cells.every(function (x) { return x.empty || x.zero; });
-      return { desk: d.desk, roster: d.roster, worse: worse, quiet: quiet, cells: cells, byArea: byArea };
+      return marked({ desk: d.desk, roster: d.roster, worse: worse, quiet: quiet, cells: cells, byArea: byArea }, [d]);
     });
     var quietN = rows.filter(function (r) { return r.quiet; }).length;
     var allRows = rows;
@@ -1026,7 +1041,7 @@
             });
             var tab = scoreItemTab(cell.area), prefix = scoreItemPrefix(cell.area);
             var anchorMs = cell.anchor_at ? utc(cell.anchor_at) : null;
-            detail = {
+            detail = marked({
               key: cell.key, name: cell.name, label: cell.label, area: cell.area, kind: cell.kind,
               desc: colOf[cell.name] ? colOf[cell.name].desc : "", better: "lower", pending: !!(colOf[cell.name] && colOf[cell.name].pending),
               desk: r.desk, roster: r.roster, text: cell.text, empty: cell.empty, zero: cell.zero,
@@ -1037,7 +1052,7 @@
               items: ids.map(function (id) {
                 return { id: id, tab: tab, sel: prefix + id, text: prefix + id };
               })
-            };
+            }, [r]);
           }
         });
       });
@@ -1063,7 +1078,7 @@
       (rows || []).forEach(function (l) {
         if (!l || seen[l.id]) return;
         seen[l.id] = 1;
-        out.push({ id: l.id, resource: str(l.resource), desk: str(l.owner), dead: !!l.holder_dead, roster: str(l.roster_id) });
+        out.push(marked({ id: l.id, resource: str(l.resource), desk: str(l.owner), dead: !!l.holder_dead, roster: str(l.roster_id) }, [l]));
       });
     });
     return known ? out : null;
@@ -1092,7 +1107,7 @@
     (holds || []).forEach(function (l) {
       if (b.offDesk(l.desk)) return;
       var d = b.byName[l.desk];
-      var row = { key: "hold-" + l.id, kind: "hold", desk: l.desk, title: l.resource, id: l.id, note: "" };
+      var row = marked({ key: "hold-" + l.id, kind: "hold", desk: l.desk, title: l.resource, id: l.id, note: "" }, [l]);
       if (l.dead || !d || !d.connected) {
         row.note = l.dead ? "the holder is gone" : (d && d.lastSeenAt != null ? "away, seen " + ago(b.now - d.lastSeenAt) : "not seen in range");
         blocking.push(Object.assign({}, row, { title: l.resource, kind: "hold", me: party(b, l.desk) || { t: "text", v: l.desk }, since: null }));
@@ -1181,7 +1196,7 @@
       } else if (kind === "hold" || kind === "todo") {
         text = kind === "hold" ? "promise hold-" + e.id : "card todo-" + e.id + (e.state ? " " + str(e.state) : "");
       } else return;
-      out.push({ at: utc(e.at), who: who, kind: kind, text: text });
+      out.push(marked({ at: utc(e.at), who: who, kind: kind, text: text }, [e]));
     });
     return out;
   }
@@ -2062,7 +2077,7 @@
     if (tab === "score" && m) return { lead: plural(m.off, "score") + " worse than the median on " + R + ".", rest: "Desks are rows, grouped by roster. Columns are scores grouped by area. A cell tints when it is worse than the cross-desk median." };
     if (tab === "collab" && m) return { lead: m.blocking ? plural(m.blocking, "thing") + " blocking someone now." : "Nothing is blocking anyone now.", rest: "Replay plays the focused desks\u2019 letters, card moves and promises back in order; a desk off this scope shows as outside." };
     if (tab === "desks" && m) {
-      return { lead: plural(m.connected.length, "desk") + " connected, " + m.away.length + " disconnected on " + R + ".",
+      return { lead: plural(m.connected.length, "desk") + " connected, " + (m.wake ? m.wake + " reachable by wake, " : "") + (m.away.length - (m.wake || 0)) + " disconnected on " + R + ".",
         rest: "Most active first." };
     }
     return { lead: "Loading " + R + "\u2026", rest: "" };

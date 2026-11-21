@@ -197,4 +197,4 @@ def test_display_kind_is_doing_not_join_or_here():
 def test_doing_reads_are_get_only():
     src = DOING.read_text(encoding="utf-8")
     assert "method" not in src
-    assert re.findall(r'"/api/v1/doing[^"]*"', src) == ['"/api/v1/doing?all=1"', '"/api/v1/doing/history"']
+    assert re.findall(r'"/api/v1/doing[^"]*"', src) == ['"/api/v1/doing?all=1"', '"/api/v1/doing/history"', '"/api/v1/doing?run="']

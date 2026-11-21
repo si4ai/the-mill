@@ -221,8 +221,8 @@ def test_desk_commands_write_no_doing_row(w):
     w.ok(["pass", R, need])
     w.ok(["pass", R, need, "--done"], desk=PEER)
     res_name = "r1207-" + uuid.uuid4().hex[:6]
-    w.ok(["hold", res_name])
-    w.ok(["drop", res_name])
+    took = w.ok(["hold", res_name])
+    w.ok(["drop", res_name, "--key", (took.get("result") or took)["release_key"]])
     rec_score.point_add(w.cn, R, ME, "k1207", 3.0)
     w.cn.commit()
     w.ok(["score", R, "k1207"])
@@ -264,7 +264,7 @@ def test_connected_serves_n_and_doings_only(w):
     for gone in ("doing", "on", "act", "last", "waiting_on", "waiting_on_it", "tasks", "line", "age", "idle"):
         assert gone not in view, gone
     for row in view["doings"]:
-        assert set(row) == {"id", "created", "text", "state", "state_at", "card"}
+        assert set(row) == {"id", "created", "text", "state", "state_at", "card", "watch_id", "parent_watch_id"}
         assert row["created"].endswith("Z") and row["state_at"].endswith("Z")
 
 

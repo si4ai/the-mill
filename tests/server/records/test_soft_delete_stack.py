@@ -9,6 +9,7 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from agent_coord.helpers.hold_key import new_key
 from agent_coord.server.records import hold, join as here, label, score, todo
 from agent_coord.server.records import tree as rec_tree
 from agent_coord.server.records import watcher
@@ -194,14 +195,15 @@ def test_todo_delete_failure_rolls_back_detach_and_watchers(cn) -> None:
 
 def test_hold_delete_always_refused_release_still_works(cn) -> None:
     seed_names(cn, ("sh_proj", "roster"), ("sh_desk", "desk"), ("sh_tag", "label"))
-    hid = int(hold.upsert(cn, "sh_proj", "sh_desk", "sh_res")[0]["id"])
+    key, kh = new_key()
+    hid = int(hold.upsert(cn, "sh_proj", "sh_desk", "sh_res", kh)[0]["id"])
     label.put(cn, "hold", hid, "sh_tag")
     assert scalar(cn, "SELECT COUNT(*) FROM tree WHERE type='hold' AND id=%s", (hid,)) == 0
     with pytest.raises(Exception) as ei:
         _exec(cn, "DELETE FROM hold WHERE id=%s", (hid,))
     assert "release only" in str(ei.value)
     assert scalar(cn, "SELECT id FROM hold WHERE id=%s", (hid,)) == hid
-    out = hold.delete(cn, hid, "sh_desk")
+    out = hold.delete(cn, hid, "sh_desk", kh)
     assert int(out[0]["ok"]) == 1
     assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is None
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='hold' AND id=%s", (hid,)) is None

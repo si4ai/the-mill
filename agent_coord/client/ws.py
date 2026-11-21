@@ -1206,6 +1206,8 @@ async def _sit_session(
                                 client_mill = " ".join(str(req.get("mill") or "").split())[:64]
                                 if client_mill:
                                     wire["mill"] = client_mill
+                                if req.get("borrow") == 1:
+                                    wire["borrow"] = 1  # card 1242: a --desk borrow, not a sit
                                 wait_q: asyncio.Queue = asyncio.Queue(maxsize=1)
 
                                 async def _submit(
@@ -1712,11 +1714,16 @@ def start_ws_thread(
     return t
 
 
-def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> Any:
+def mill_ws_call(
+    body: dict[str, Any], *, token: str = "", desk: str = "", via_run: bool = True,
+    borrow: bool = False,
+) -> Any:
     """Desk-acting command over the sitting mill connect /ws via localhost bridge.
 
     Requires mill connect (bridge file). Does not open a second /ws (would kick).
     token is unused for bridge auth (local secret); kept for call-site compat.
+    borrow (card 1242): this call rides a one-command --desk seat borrow, so the
+    frame carries borrow 1 and the office may add its presence hint.
 
     Success returns the full host reply object (ok/mill/id/result/sync). Failure
     raises CoordError with sync (+ envelope) so the CLI can print the same shape.
@@ -1744,6 +1751,12 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
     req_id = load_retry_id(command, args) or str(uuid.uuid4())
 
     def _once() -> Any:
+        if via_run:
+            from agent_coord.client.tw.run_ipc import try_forward
+
+            forwarded = try_forward(dict(body))
+            if forwarded is not None:
+                return forwarded
         ep = bridge_for_parent()
         if not ep:
             died = dead_connect_for_parent()
@@ -1765,6 +1778,8 @@ def mill_ws_call(body: dict[str, Any], *, token: str = "", desk: str = "") -> An
             "secret": ep["secret"],
             "mill": package_version(),
         }
+        if borrow:
+            req["borrow"] = 1
         host = str(ep["host"])
         port = int(ep["port"])
         raw_req = (json.dumps(req, default=str) + "\n").encode("utf-8")

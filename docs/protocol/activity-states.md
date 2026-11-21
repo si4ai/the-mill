@@ -157,13 +157,14 @@ stateDiagram-v2
 | D1 | no seat | seated | `mill join --link-file LINKFILE` | `rpc.py` `_issue_here` -> `sp_join.sql` `mill_join_upsert` | `mill connected --who D` lists the desk, `"n": 0`, `"doings": []` |
 | D2 | seated | connected: on the first socket `seat.time_connect` stamped (`time_disconnect` cleared) | `mill connect D` | `records/join.py` `note_connect` / `mark_socket` -> `sp_join.sql` `mill_join_connect`, `mill_join_socket` | stderr `mill connect:` line, then `"ready": true` |
 | D3 | connected | disconnected: `seat.time_disconnect` stamped | stop the connect process | `push.py` `_mark_join_socket` -> `records/join.py` `mark_socket` | alive turns stale once the seat row is over 15 minutes old |
-| Tsk1 | none | active | `tw CMD ...` (tw start) | `_h_tw_event` kind `start` -> `mill_doing_task` (`tw_start`) | `mill connected --who D` shows the run in `doings` with `state` active |
+| Tsk1 | none | active | `tw CMD ...` (tw start) | `_h_tw_event` kind `start` -> `mill_doing_task` (`tw_start`) | `mill connected --who D` shows the run in `doings` with `state` active, `watch_id`, and `parent_watch_id` null on a root |
 | Tsk2 | active | waiting | tw stall | `tw_wait` | `state` waiting |
 | Tsk3 | waiting | active | tw resume | `tw_resume` | `state` active |
 | Tsk4 | active or waiting | finished | tw exit 0 | `tw_finished` | gone from `doings`; `--history` shows `ended_by` finished |
 | Tsk5 | active or waiting | failed | tw crash or non-zero exit | `tw_failed` | `ended_by` failed |
 | Tsk6 | active or waiting | stale | only once the desk has been offline 24h+ (a connected desk's runs are never stale): swept when a new start would pass the task cap, and by the score-tick sweep | `records/doing.py` `sweep_stale_tasks` / `sweep_offline_desks` (`score_tick.sweep_offline_tw`), `tw_stale` | `ended_by` stale |
 | Tsk7 | any live run | cleared | `mill reset seat D --yes`, `mill retire desk D --yes` (Admin); clock-out (`mill_join_delete`, no caller yet) | `sp_join.sql` `mill_join_reset` / `mill_join_delete`, `sp_name.sql` retire | `ended_by` cleared |
+| Tsk9 | active or waiting | same state | a run's descendant runs a mill command through tw's per-run endpoint (card 1223) | `rpc.py` `dispatch_ws` -> `records/doing.py` `open_call` / `note_call` (`tw_call`, meta `watch_id`, `verb`, `ok`, `err`) | `mill connected --run WATCH_ID` lists the call; a call on an ended run is refused, nothing changed. A nested run is its own row in that tree (card 1239) |
 | D11 | seated | reset: token cleared, webhook off, holds freed | `mill reset seat D --yes` (Admin) | `rpc.py` -> `sp_join.sql` `mill_join_reset` | output `"op": "reset"` and `released` count; D's next command fails until it joins again |
 
 Alive or stale in `mill connected` comes from the seat row's age (15 minutes).
@@ -198,8 +199,8 @@ stateDiagram-v2
 |---|------|----|---------|------|-------|
 | H1 | no row | held by caller | `mill hold NAME` | `rpc.py:2716` -> `sp_hold.sql:45` `mill_hold_upsert` (insert) | output `"held": true`; `mill hold --peek NAME` names the caller |
 | H2 | free | held by caller | `mill hold NAME` | `sp_hold.sql:53` | same as H1 |
-| H3 | held by caller | held by caller (`updated` refreshed) | `mill hold NAME` | `sp_hold.sql:67` | output `"held": true`; `mill hold` shows a newer `since` |
-| H4 | held by caller | free | `mill drop NAME` | `rpc.py:2763` -> `agent_coord/server/records/hold.py:136` -> `sp_hold.sql:79` `mill_hold_delete` | output `"released": true`; `mill hold` no longer lists NAME |
+| H3 | held by D | held by caller (hand-off; card 1267) | `mill hold NAME --key KEY` | `sp_hold.sql` `mill_hold_upsert` (`hold_refresh`, meta.kh new, meta.from D) | output `"handoff": true` and a new `release_key`; the old key is refused |
+| H4 | held | free | `mill drop NAME --key KEY` (any desk with the key) | `rpc._h_drop` -> `records/hold.py` `drop` -> `sp_hold.sql` `mill_hold_drop` | output `"released": true`; a second drop with the same key is refused |
 | H5 | held by D | free | `mill reset seat D --yes` or `mill retire desk D --yes` (Admin) | `sp_join.sql:222` and `sp_name.sql:54` -> `sp_hold.sql:113` `mill_hold_release_desk` | `mill hold` no longer lists D's holds |
 | H6 | any | same | `mill hold --peek NAME`, `mill hold` | `rpc.py:2730`, `rpc.py:2777` (reads only) | a peek at a name never held says so in `hint` |
 

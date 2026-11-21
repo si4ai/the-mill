@@ -147,6 +147,21 @@ def record_access(
 
 
 
+def _presence(c: Any, who: str, items: list) -> None:
+    """Card 1242: a borrow by a webhook desk gets the presence hint (once per lease).
+    Hint only: an error adds nothing and never fails the reply."""
+    try:
+        from agent_coord.server.wake import presence_hint
+
+        hint = presence_hint(c._cn, who)
+    except Exception as e:
+        err = type(e).__name__  # the class only; no exception text reaches the log
+        _log.warning("ws presence hint err=%s", err)
+        return
+    if hint:
+        items.append(hint)
+
+
 def _ack_rows(desk: str, ids: list) -> None:
     """#831: delete the queue rows a sent frame carried. An error leaves them queued."""
     try:
@@ -268,6 +283,7 @@ async def _ws_handle_client_text(
     if not isinstance(args, dict):
         return await _fail(req_id, "ws rpc: args must be an object")
     client_mill = " ".join(str(msg.get("mill") or "").split())[:64]
+    borrowed = msg.get("borrow") == 1  # card 1242: a one-command --desk seat borrow
 
     who = desk_name(desk)
     if not socket_seated(who, websocket) and not socket_seated(desk, websocket):
@@ -310,7 +326,10 @@ async def _ws_handle_client_text(
         from agent_coord.server.push import take_sync
 
         with Book() as c:
-            return _held(take_sync(c._cn, who, hold=acks is not None))
+            items = _held(take_sync(c._cn, who, hold=acks is not None))
+            if borrowed:
+                _presence(c, who, items)
+            return items
 
     t_q = time.perf_counter()
     try:

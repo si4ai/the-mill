@@ -17,7 +17,7 @@ from agent_coord.client.tokens import token_hash
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records.db import rows_done, scalar_done
-from tests.server.records.conftest import admin_desk, seed_names
+from tests.server.records.conftest import admin_desk, seed_names, take_hold
 
 pytestmark = pytest.mark.sql
 
@@ -46,8 +46,12 @@ def _disconnect(cn, desk: str) -> None:
     rec_join.mark_socket(cn, desk, up=False)
 
 
+KEYS: dict[str, str] = {}
+
+
 def _take(cn, desk: str, res: str) -> int:
-    out = rec_hold.upsert(cn, R, desk, res)
+    """Card 1267: keep the release key so the holder's own drop presents it."""
+    out, KEYS[res] = take_hold(cn, R, desk, res)
     assert int(out[0]["ok"]) == 1
     return int(out[0]["id"])
 
@@ -94,12 +98,13 @@ def _drop_row(cn, hid: int) -> dict | None:
     return {"actor": r["by_desk"], "peer": r["holder"]}
 
 
-def _drop(cn, desk: str, res: str) -> dict:
-    """Drop as rpc's _h_drop does: the records call, then its transition row (card 1207)."""
+def _drop(cn, desk: str, res: str, key: str | None = None) -> dict:
+    """Drop as rpc's _h_drop does: the records call, then its transition row (card 1207).
+    A key drop writes its row in mill_hold_drop; the override's row is written here."""
     from agent_coord.server.api.mill.rpc import emit_hold_release
 
-    out = rec_hold.drop(cn, R, desk, res)
-    if out.get("released"):
+    out = rec_hold.drop(cn, R, desk, res, key)
+    if out.get("released") and out.get("forced"):
         emit_hold_release(cn, out, desk)
         cn.commit()
     return out
@@ -120,7 +125,7 @@ def test_holder_drops_own_at_high_trust(book, monkeypatch) -> None:
     res = "h931/own-high"
     hid = _take(cn, HOLDER, res)
     _connect(cn, HOLDER)
-    out = _drop(cn, HOLDER, res)
+    out = _drop(cn, HOLDER, res, KEYS[res])
     assert out.get("released") is True
     assert _holder(cn, res) is None
     row = _drop_row(cn, hid)
@@ -134,7 +139,7 @@ def test_holder_drops_own_at_limited_trust(book, monkeypatch) -> None:
     res = "h931/own-limited"
     _take(cn, HOLDER, res)
     _connect(cn, HOLDER)
-    out = rec_hold.drop(cn, R, HOLDER, res)
+    out = rec_hold.drop(cn, R, HOLDER, res, KEYS[res])
     assert out.get("released") is True
     assert _holder(cn, res) is None
 
@@ -179,7 +184,7 @@ def test_non_admin_live_other_refused_both_trusts(book, monkeypatch) -> None:
         assert "Admin" in str(out.get("reason") or "") or "held by" in str(out.get("reason") or "")
     assert _holder(cn, res) == HOLDER
     # cleanup for later tests sharing the module book
-    assert rec_hold.drop(cn, R, HOLDER, res).get("released") is True
+    assert rec_hold.drop(cn, R, HOLDER, res, KEYS[res]).get("released") is True
 
 
 def test_non_admin_six_day_disconnected_refused_at_high(book, monkeypatch) -> None:
@@ -192,7 +197,7 @@ def test_non_admin_six_day_disconnected_refused_at_high(book, monkeypatch) -> No
     out = rec_hold.drop(cn, R, OTHER, res)
     assert out.get("released") is False, out
     assert _holder(cn, res) == HOLDER
-    assert rec_hold.drop(cn, R, HOLDER, res).get("released") is True
+    assert rec_hold.drop(cn, R, HOLDER, res, KEYS[res]).get("released") is True
 
 
 def test_non_admin_eight_day_disconnected_ok_at_high(book, monkeypatch) -> None:
@@ -221,7 +226,7 @@ def test_non_admin_eight_day_connected_refused(book, monkeypatch) -> None:
     out = rec_hold.drop(cn, R, OTHER, res)
     assert out.get("released") is False, out
     assert _holder(cn, res) == HOLDER
-    assert rec_hold.drop(cn, R, HOLDER, res).get("released") is True
+    assert rec_hold.drop(cn, R, HOLDER, res, KEYS[res]).get("released") is True
 
 
 def test_non_admin_eight_day_disconnected_refused_at_limited(book, monkeypatch) -> None:
@@ -245,7 +250,7 @@ def test_release_other_refuses_when_holder_changed(book, monkeypatch) -> None:
     res = "h931/race-holder"
     hid = _take(cn, HOLDER, res)
     # Free, then OTHER takes the same row (holder changed hands).
-    assert rec_hold.drop(cn, R, HOLDER, res).get("released") is True
+    assert rec_hold.drop(cn, R, HOLDER, res, KEYS[res]).get("released") is True
     hid2 = _take(cn, OTHER, res)
     assert hid2 == hid
     assert _holder(cn, res) == OTHER
@@ -257,7 +262,7 @@ def test_release_other_refuses_when_holder_changed(book, monkeypatch) -> None:
     assert "holder changed" in reason, rows[0]
     assert _holder(cn, res) == OTHER
     assert _token(cn, OTHER) == tok_before
-    assert rec_hold.drop(cn, R, OTHER, res).get("released") is True
+    assert rec_hold.drop(cn, R, OTHER, res, KEYS[res]).get("released") is True
 
 
 def test_drop_refuses_when_holder_changes_mid_drop(book, monkeypatch) -> None:
@@ -270,7 +275,7 @@ def test_drop_refuses_when_holder_changes_mid_drop(book, monkeypatch) -> None:
 
     def raced(cn_, hold_id, actor, *, expect):
         # Mid-drop: original holder frees, OTHER takes the same row.
-        assert rec_hold.drop(cn_, R, HOLDER, res).get("released") is True
+        assert rec_hold.drop(cn_, R, HOLDER, res, KEYS[res]).get("released") is True
         assert _take(cn_, OTHER, res) == hold_id
         assert _holder(cn_, res) == OTHER
         return real(cn_, hold_id, actor, expect=expect)
@@ -281,7 +286,7 @@ def test_drop_refuses_when_holder_changes_mid_drop(book, monkeypatch) -> None:
     reason = str(out.get("reason") or "").lower()
     assert "holder changed" in reason, out
     assert _holder(cn, res) == OTHER
-    assert rec_hold.drop(cn, R, OTHER, res).get("released") is True
+    assert rec_hold.drop(cn, R, OTHER, res, KEYS[res]).get("released") is True
 
 
 def test_drop_says_already_free_when_hold_gone_mid_drop(book, monkeypatch) -> None:
@@ -293,7 +298,7 @@ def test_drop_says_already_free_when_hold_gone_mid_drop(book, monkeypatch) -> No
     real = rec_hold.delete_other
 
     def raced(cn_, hold_id, actor, *, expect):
-        assert rec_hold.drop(cn_, R, HOLDER, res).get("released") is True
+        assert rec_hold.drop(cn_, R, HOLDER, res, KEYS[res]).get("released") is True
         assert _holder(cn_, res) is None
         return real(cn_, hold_id, actor, expect=expect)
 

@@ -1,6 +1,6 @@
 ---
 name: verify-hold-code-recovery
-description: Check that the mill's hold upsert/delete/release_other guards still enforce at most one holder, owner-only drop, expect-holder and already-free honesty on release-other, and drop idempotence, and that the known no-TTL stuck-hold finding still reproduces. Use when a change touches sp_hold.sql mill_hold_upsert/delete/release_desk/release_other, records/hold.py may_drop_other/delete_other/drop, or when someone asks whether two desks can both hold, a stale renew can extend another's hold, force-take can orphan a row, or a crashed holder blocks forever.
+description: Check that the mill's hold take, keyed drop, hand-off and release_other guards still enforce at most one holder, no second take, only the live release key frees or hands off (and is then spent), refusal rows in the refusing transaction, expect-holder and already-free honesty on release-other, and drop idempotence, and that the known no-TTL stuck-hold finding still reproduces. Use when a change touches sp_hold.sql MILL_HOLD_KH/mill_hold_upsert/mill_hold_drop/release_desk/release_other, records/hold.py may_drop_other/delete_other/drop, helpers/hold_key.py, or when someone asks whether two desks can both hold, a stale renew can extend another's hold, force-take can orphan a row, or a crashed holder blocks forever.
 ---
 
 # verify hold mutex and release-other against the code
@@ -20,17 +20,22 @@ those assume. Package:
 
 ## does my change touch the covered code?
 
-Sync commit (in `run.sh` as `SYNC`, currently ce115f8eb70e7e360b80974ec62e177e7771199f):
+Sync commit (in `run.sh` as `SYNC`, currently 047b9f50feff2928b96b04aa755d099c30ac350f,
+PR #490's head, card 1267; landed as a9d5f2e):
 
-- take when free: `sp_hold.sql` `mill_hold_upsert` (74)
-- own drop: `sp_hold.sql` `mill_hold_delete` (137)
-- release-other expect / already free: `sp_hold.sql` `mill_hold_release_other` (221, 228, 232)
-- stale age gate: `hold.py` `may_drop_other` (199, 217)
+- take, hand-off and refusal row: `sp_hold.sql` `mill_hold_upsert`
+- live key: `sp_hold.sql` `MILL_HOLD_KH`; key hash: `helpers/hold_key.py`
+- keyed drop and its refusal row: `sp_hold.sql` `mill_hold_drop`
+- release-other expect / already free / no own-desk kept: `sp_hold.sql` `mill_hold_release_other`
+- keyed or keyless drop routing and the stale age gate: `records/hold.py` `drop`, `may_drop_other`
 
 ## properties (plain)
 
-- `AtMostOneHolder` / `TakeFromFreeOrRefresh`: two holders, or a take that overwrote another desk
-- `OnlyOwnerDropReleases` / `DropFreesRow` / `DropIdempotent`: a non-owner drop frees, or a drop leaves the row held / invents a holder on free
+- `AtMostOneHolder` / `TakeFromFree`: two holders, or a take that overwrote another desk
+- `NoSecondTake`: a take of a held row succeeded without the live key (the old same-desk refresh)
+- `OnlyLiveKeyReleases` / `DropFreesRow` / `DropIdempotent`: a drop without the live key frees, or a drop leaves the row held / invents a holder on free
+- `HandoffSpendsKey`: after a hand-off the presented key still works
+- `RefusalRecorded`: a refused take, hand-off or keyed drop has no refusal row
 - `ExpectGuardHolds`: release-other frees a row whose holder was not the expected desk
 - `AlreadyFreeHonest`: release-other on a free row does not report already_free
 - `NoStuckHoldPastBound` (known): a hold stays held past the age bound with no actor
@@ -41,6 +46,7 @@ Sync commit (in `run.sh` as `SYNC`, currently ce115f8eb70e7e360b80974ec62e177e77
     verify/hold-code/run.sh anchors
     verify/hold-code/run.sh model
     verify/hold-code/run.sh mutant no_take_free
+    HOLD_CODE_ROOT=DIR verify/hold-code/run.sh   # another checkout
     verify/hold-code/run.sh known
 
 ## Read a result

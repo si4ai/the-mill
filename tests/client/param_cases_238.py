@@ -24,7 +24,7 @@ UNKNOWN = "zz238-nope"
 #   {LBL} live label  {BODY} body file
 BOOK = {
     "hold": ["{RES}"],
-    "drop": ["{HELD}"],
+    "drop": ["{HELD}", "--key", "{KEY}"],
     "send": ["--to-desk", "{PEER}", "--body-file", "{BODY}"],
     "reply": ["{MAIL}", "--body-file", "{BODY}"],
     "mail-thread": ["{MAIL}"],
@@ -45,15 +45,31 @@ BOOK = {
     "add": ["todo:{TID}"],
     "remove": ["todo:{TID}"],
     "score": ["{P}", "c238-kpi"],
-    "delete": ["roster", "{DEL}", "--yes"],
-    "restore": ["roster", "{TRASHED}", "--yes"],
-    "purge": ["roster", "{PURGEABLE}", "--yes"],
+    "delete": ["{DEL}", "--yes"],
+    "restore": ["{TRASHED_LABEL}", "--yes"],
 }
 
 KIND = {
     ("hold", "resource"): "newname",
+    ("hold", "label"): "labels",
+    ("drop", "label"): "labels",
+    ("send", "label"): "labels",
+    ("reply", "label"): "labels",
+    ("mail-thread", "label"): "labels",
+    ("inbox", "label"): "labels",
+    ("connected", "label"): "labels",
+    ("todo", "label"): "labels",
+    ("create todo", "label"): "labels",
+    ("claim", "label"): "labels",
+    ("unclaim", "label"): "labels",
+    ("unpark", "label"): "labels",
+    ("assign", "label"): "labels",
+    ("pass", "label"): "labels",
+    ("score", "label"): "labels",
     ("hold", "group_by"): "enum", ("inbox", "group_by"): "enum", ("todo", "group_by"): "enum",
     ("drop", "resource"): "name",
+    # Card 1267: the release key is opaque; a wrong one is refused with the hold unchanged.
+    ("hold", "key"): "uncapped", ("drop", "key"): "uncapped",
     ("send", "to_desk"): "name", ("send", "body_file"): "name",
     ("send", "roster"): "name", ("send", "name"): "newname", ("send", "to"): "name",
     ("reply", "mail_id"): "id",
@@ -91,7 +107,7 @@ KIND = {
     ("score", "target"): "int", ("score", "note"): "text",
     ("score", "better"): "enum", ("score", "unit"): "text", ("score", "limit"): "int",
     ("score", "at"): "text",
-    ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int",
+    ("connected", "desk"): "name", ("connected", "since"): "text", ("connected", "page"): "int", ("connected", "run"): "name",
     ("delete", "kind"): "enum", ("delete", "slug"): "name",
     ("restore", "kind"): "enum", ("restore", "slug"): "name",
     ("purge", "kind"): "enum", ("purge", "slug"): "name",
@@ -111,6 +127,9 @@ CASES = {
     "uncapped": ("missing",),
     "json": ("missing", "bad_format", "over_length"),
     "eta": ("missing", "bad_format", "over_length"),
+    # Card 1233: --label is optional and repeatable. A bare flag is a parse refusal.
+    # An unknown name warns and the write still happens, so it is not a refusal case.
+    "labels": ("missing",),
 }
 
 

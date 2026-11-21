@@ -42,6 +42,10 @@ KNOWN_CYCLES = {
     # (a hold's resource versus a roster, a score's roster versus a plan, a plan versus a
     # roster written after the tree row).
     ("hold", "name"), ("name", "score"), ("name", "tree"),
+    # Card 1241: mill delete locks the name, then removes that name's children.
+    # An insert locks the child, then the name. They meet when one session is
+    # deleting that name and another is adding a child of it.
+    ("human_member", "name"), ("label", "name"), ("name", "tree_read"),
 }
 
 # Card procedures: the acting desk's seat must come before the card row (F183).

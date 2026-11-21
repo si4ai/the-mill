@@ -197,7 +197,8 @@ def borrow(desk: str, token: str, body: dict[str, Any]) -> Any:
     running = open_session(desk, token, refuse=True, parent=_shell_ppid())
     try:
         wait_ready(running)
-        return mill_ws_call(body)
+        # card 1242: the office hints a webhook desk that a borrow is not presence.
+        return mill_ws_call(body, borrow=True)
     finally:
         release(running)
 

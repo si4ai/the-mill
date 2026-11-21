@@ -589,7 +589,7 @@ SELECT
   sn.name AS starter,
   SUBSTRING_INDEX(rm.body, CHAR(10), 1) AS root_line
 FROM tree root
-JOIN name n ON n.id = root.name_id AND n.type = 'tree'
+JOIN name n ON n.id = root.name_id AND n.type = 'tree' AND n.trashed IS NULL
 JOIN mail rm ON rm.type = 'mail' AND rm.id = root.id
 JOIN name sn ON sn.id = rm.desk_id
 WHERE root.type = 'mail' AND root.lft = 1

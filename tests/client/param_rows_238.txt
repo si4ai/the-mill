@@ -26,18 +26,24 @@ init office
 hold (command)
 hold resource
 hold peek
+hold key
 hold group_by
+hold label
+hold label_any
 hold office
 hold yes
 hold sender_desk
 drop (command)
 drop resource
+drop key
+drop label
 drop office
 drop yes
 drop sender_desk
 wake-done (command)
 wake-done note
 wake-done lease
+wake-done label
 wake-done office
 wake-done yes
 wake-done sender_desk
@@ -48,6 +54,7 @@ send body_file
 send roster
 send name
 send receipt
+send label
 send office
 send yes
 send sender_desk
@@ -57,6 +64,7 @@ reply body_file
 reply to_desk
 reply roster
 reply receipt
+reply label
 reply office
 reply yes
 reply sender_desk
@@ -66,6 +74,8 @@ mail-thread scope
 mail-thread full
 mail-thread page
 mail-thread after
+mail-thread label
+mail-thread label_any
 mail-thread office
 mail-thread yes
 mail-thread sender_desk
@@ -77,6 +87,7 @@ mark sender_desk
 trail (command)
 trail node
 trail label
+trail label_any
 trail as_json
 trail office
 trail yes
@@ -96,6 +107,8 @@ inbox limit
 inbox group_by
 inbox full
 inbox page
+inbox label
+inbox label_any
 inbox office
 inbox yes
 inbox sender_desk
@@ -119,6 +132,8 @@ score better
 score unit
 score limit
 score at
+score label
+score label_any
 score office
 score yes
 score sender_desk
@@ -232,6 +247,7 @@ reclaim kind
 reclaim slug
 reclaim need
 reclaim yes
+reclaim label
 reclaim office
 reclaim sender_desk
 rename (command)
@@ -241,23 +257,24 @@ rename new
 rename to
 rename why
 rename yes
+rename label
 rename office
 rename sender_desk
 delete (command)
-delete kind
 delete slug
+delete kind
 delete yes
 delete office
 delete sender_desk
 restore (command)
-restore kind
 restore slug
+restore kind
 restore yes
 restore office
 restore sender_desk
 purge (command)
-purge kind
 purge slug
+purge kind
 purge yes
 purge office
 purge sender_desk
@@ -266,6 +283,7 @@ retire kind
 retire slug
 retire score_name
 retire yes
+retire label
 retire office
 retire sender_desk
 member (command)
@@ -328,6 +346,7 @@ create todo parent_type
 create todo parent_id
 create todo done_when
 create todo yes
+create todo label
 create todo office
 create todo sender_desk
 create roster (command)
@@ -357,6 +376,8 @@ todo eta
 todo started
 todo progress
 todo done_when
+todo label
+todo label_any
 todo office
 todo yes
 todo sender_desk
@@ -367,6 +388,7 @@ replace-body text
 replace-body body_file
 replace-body history
 replace-body order
+replace-body label
 replace-body office
 replace-body yes
 replace-body sender_desk
@@ -376,12 +398,14 @@ claim need
 claim eta
 claim msg
 claim take_over
+claim label
 claim office
 claim yes
 claim sender_desk
 unclaim (command)
 unclaim project
 unclaim need
+unclaim label
 unclaim office
 unclaim yes
 unclaim sender_desk
@@ -390,6 +414,7 @@ unpark project
 unpark need
 unpark parent_type
 unpark parent_id
+unpark label
 unpark office
 unpark yes
 unpark sender_desk
@@ -397,6 +422,7 @@ assign (command)
 assign project
 assign need
 assign desk
+assign label
 assign office
 assign yes
 assign sender_desk
@@ -406,6 +432,7 @@ pass need
 pass done
 pass back
 pass evidence
+pass label
 pass office
 pass yes
 pass sender_desk
@@ -446,7 +473,10 @@ connected all
 connected history
 connected since
 connected page
+connected run
 connected limit
+connected label
+connected label_any
 connected office
 connected yes
 connected sender_desk
@@ -457,6 +487,7 @@ attach id_a
 attach type_b
 attach id_b
 attach tree
+attach label
 attach office
 attach yes
 attach sender_desk
@@ -467,6 +498,7 @@ move id
 move parent_type
 move parent_id
 move tree
+move label
 move office
 move yes
 move sender_desk
@@ -475,6 +507,7 @@ prune project
 prune type
 prune id
 prune tree
+prune label
 prune office
 prune yes
 prune sender_desk
@@ -483,6 +516,7 @@ detach project
 detach type
 detach id
 detach tree
+detach label
 detach office
 detach yes
 detach sender_desk
@@ -513,6 +547,9 @@ join websocket
 join wake_on
 join office
 join yes
+status (command)
+status office
+status yes
 local (command)
 local office
 local yes

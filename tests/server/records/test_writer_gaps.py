@@ -7,6 +7,7 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from agent_coord.helpers.hold_key import new_key
 from agent_coord.helpers.errors import CoordError
 from agent_coord.server.records import hold, join as here, mail, score, todo
 from agent_coord.server.records import name as rec_name
@@ -144,10 +145,11 @@ def test_join_reset_writes_no_doing_row(cn) -> None:
 
 def test_hold_release_keeps_activity_roster(cn) -> None:
     seed_names(cn, ("wg_hp", "roster"), ("wg_hd", "desk"))
-    hid = int(hold.upsert(cn, "wg_hp", "wg_hd", "wg_res")[0]["id"])
+    key, kh = new_key()
+    hid = int(hold.upsert(cn, "wg_hp", "wg_hd", "wg_res", kh)[0]["id"])
     proj = _id(cn, "roster", "wg_hp")
     _exec(cn, "UPDATE activity SET roster_id=%s WHERE type='hold' AND id=%s", (proj, hid))
-    out = hold.delete(cn, hid, "wg_hd")
+    out = hold.delete(cn, hid, "wg_hd", kh)
     assert int(out[0]["ok"]) == 1
     assert scalar(cn, "SELECT roster_id FROM activity WHERE type='hold' AND id=%s", (hid,)) == proj
     assert scalar(cn, "SELECT deleted FROM activity WHERE type='hold' AND id=%s", (hid,)) is None

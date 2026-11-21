@@ -34,13 +34,14 @@ CREATE FUNCTION MILL_NAME_GET(p_type VARCHAR(16), p_name VARCHAR(64)) RETURNS BI
 BEGIN
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_del DATETIME(6);
+  DECLARE v_tr DATETIME(6);
   IF p_type IS NULL OR p_type NOT IN ('desk','roster','label','tree','res') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name type is desk, roster, label, tree, or res';
   END IF;
   IF p_name IS NULL OR TRIM(p_name) = '' THEN
     RETURN NULL;
   END IF;
-  SELECT id, deleted INTO v_id, v_del
+  SELECT id, deleted, trashed INTO v_id, v_del, v_tr
     FROM name
    WHERE type = p_type AND name = TRIM(p_name)
    LIMIT 1;
@@ -55,6 +56,10 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'name retired: mill reclaim NAME NAME --yes (mill host only)';
   END IF;
+  IF v_tr IS NOT NULL THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'name trashed: mill restore NAME';
+  END IF;
   RETURN v_id;
 END //
 
@@ -65,7 +70,10 @@ BEGIN
   DECLARE v_id BIGINT UNSIGNED;
   DECLARE v_typ VARCHAR(16);
   DECLARE v_del DATETIME(6);
+  DECLARE v_tr DATETIME(6);
   DECLARE v_dup INT DEFAULT 0;
+  DECLARE v_have VARCHAR(16);
+  DECLARE v_msg VARCHAR(128);
   DECLARE CONTINUE HANDLER FOR 1062 SET v_dup = 1;
   IF p_type IS NULL OR p_type NOT IN ('desk','roster','label','tree','res') THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name type is desk, roster, label, tree, or res';
@@ -73,7 +81,7 @@ BEGIN
   IF p_name IS NULL OR TRIM(p_name) = '' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name is empty';
   END IF;
-  SELECT id, deleted INTO v_id, v_del
+  SELECT id, deleted, trashed INTO v_id, v_del, v_tr
     FROM name
    WHERE type = p_type AND name = TRIM(p_name)
    LIMIT 1;
@@ -81,6 +89,10 @@ BEGIN
     IF v_del IS NOT NULL THEN
       SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'name retired: mill reclaim NAME NAME --yes (mill host only)';
+    END IF;
+    IF v_tr IS NOT NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'name trashed: mill restore NAME';
     END IF;
     RETURN v_id;
   END IF;
@@ -92,12 +104,15 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill create roster NAME --yes)';
   END IF;
-  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+  SET v_have = NULL;
+  SELECT type INTO v_have FROM name WHERE name = TRIM(p_name) LIMIT 1;
+  IF v_have IS NOT NULL THEN
+    SET v_msg = LEFT(CONCAT('name in use: ', TRIM(p_name), ' is a ', v_have, '; pick another name'), 128);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name));
   IF v_dup = 1 THEN
-    SELECT id, type, deleted INTO v_id, v_typ, v_del
+    SELECT id, type, deleted, trashed INTO v_id, v_typ, v_del, v_tr
       FROM name
      WHERE name = TRIM(p_name)
      LIMIT 1;
@@ -106,11 +121,16 @@ BEGIN
         SET MESSAGE_TEXT = 'name insert lost a race';
     END IF;
     IF v_typ <> p_type THEN
-      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+      SET v_msg = LEFT(CONCAT('name in use: ', TRIM(p_name), ' is a ', v_typ, '; pick another name'), 128);
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
     END IF;
     IF v_del IS NOT NULL THEN
       SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'name retired: mill reclaim NAME NAME --yes (mill host only)';
+    END IF;
+    IF v_tr IS NOT NULL THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'name trashed: mill restore NAME';
     END IF;
     RETURN v_id;
   END IF;

@@ -282,8 +282,8 @@ DOINGS_CAP = 20
 
 
 def _utc_iso(at: Any, off: int = 0) -> str | None:
-    """A UTC DATETIME as ISO UTC with Z. doing.created (book clock) is converted per row in SQL first
-    (CONVERT_TZ from the session zone), so a run from the other side of a DST change reads right."""
+    """A UTC DATETIME as ISO UTC with Z. Book-clock values (doing.created and transition.at)
+    are converted to UTC in SQL first, so a stamp from the other side of a DST change reads right."""
     if at is None:
         return None
     from datetime import datetime, timedelta
@@ -295,26 +295,41 @@ def _utc_iso(at: Any, off: int = 0) -> str | None:
 
 def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
     """Card 1207 (wall-ui shape, 2026-11-13): each desk's live doings (tw runs with no terminal transition),
-    newest created first, at most DOINGS_CAP, plus n, the true count. A row: id, created (ISO UTC), text,
-    state (its latest transition's to_state, or 'started' when it has none yet), state_at (ISO UTC of that
-    transition, else created), card (None: the tw-to-card link is not decided)."""
+    newest created first, at most DOINGS_CAP, plus n, the true count of those live runs (not the nested-run
+    count from run_tree). A row: id, created (ISO UTC), text, state (its latest transition's to_state, or
+    'started' when it has none yet), state_at (ISO UTC of that transition, else created), card (None: the
+    tw-to-card link is not decided), watch_id (the run id, or None before the first transition), and
+    parent_watch_id (the nesting parent, or None). A tw_call row (card 1223) is a descendant's mill call,
+    not a state, so it never moves state_at."""
     out: dict[str, dict[str, Any]] = {str(d): {"n": 0, "doings": []} for d in desks}
     if not desks:
         return out
     live = ("NOT EXISTS (SELECT 1 FROM transition ended WHERE ended.activity_type='doing'"
             " AND ended.activity_id=g.id AND ended.to_state IN (%s, %s, %s, %s))")
     rows = rows_done(cn, """
-        SELECT d.name AS desk, x.id, x.created_utc, x.text, x.state, x.state_at, x.n
+        SELECT d.name AS desk, x.id, x.created_utc, x.text, x.state, x.state_at, x.n,
+               x.join_key, x.parent_watch_id
           FROM name d
           JOIN LATERAL (
-            SELECT g.id, g.created, g.text, t.to_state AS state, t.at AS state_at,
+            SELECT g.id, g.created, g.text, t.to_state AS state,
+                   IFNULL(CONVERT_TZ(t.at, @@session.time_zone, '+00:00'),
+                          t.at + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS state_at,
                    IFNULL(CONVERT_TZ(g.created, @@session.time_zone, '+00:00'),
                           g.created + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS created_utc,
-                   COUNT(*) OVER () AS n
+                   COUNT(*) OVER () AS n,
+                   (SELECT s.join_key FROM transition s
+                     WHERE s.activity_type='doing' AND s.activity_id=g.id
+                     ORDER BY s.id LIMIT 1) AS join_key,
+                   (SELECT JSON_UNQUOTE(JSON_EXTRACT(s.meta, '$.parent_watch_id'))
+                      FROM transition s
+                     WHERE s.activity_type='doing' AND s.activity_id=g.id AND s.reason='tw_start'
+                       AND JSON_TYPE(JSON_EXTRACT(s.meta, '$.parent_watch_id'))='STRING'
+                     ORDER BY s.id LIMIT 1) AS parent_watch_id
               FROM doing g
               LEFT JOIN transition t ON t.id=(
                 SELECT latest.id FROM transition latest
                  WHERE latest.activity_type='doing' AND latest.activity_id=g.id
+                   AND latest.reason <> 'tw_call'
                  ORDER BY latest.id DESC LIMIT 1)
              WHERE g.desk_id=d.id AND """ + live + """
              ORDER BY g.created DESC, g.id DESC
@@ -329,6 +344,11 @@ def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
         if len(slot["doings"]) >= DOINGS_CAP:
             continue
         created = _utc_iso(r.get("created_utc"))
+        watch = _watch_from_join(str(r["desk"]), r.get("join_key"))
+        parent_raw = r.get("parent_watch_id")
+        if isinstance(parent_raw, bytes):
+            parent_raw = parent_raw.decode("utf-8", "replace")
+        parent = parent_raw.strip() if isinstance(parent_raw, str) else ""
         slot["doings"].append({
             "id": int(r["id"]),
             "created": created,
@@ -336,6 +356,8 @@ def live_doings(cn, desks: list[str]) -> dict[str, dict[str, Any]]:
             "state": str(r.get("state") or "started"),
             "state_at": _utc_iso(r.get("state_at")) if r.get("state_at") is not None else created,
             "card": None,
+            "watch_id": watch,
+            "parent_watch_id": parent if parent and parent != watch else None,
         })
     return out
 
@@ -380,6 +402,9 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
         if state.value in _TASK_TERMINAL:
             return "noop"  # a replayed or late hop never reopens a terminal watch
         if kind == "start" and state != tr.State.idle:
+            # open_call may have written the one tw_start before tw's own start arrived.
+            # That repeat must keep the parent link instead of dropping it (card 1239).
+            _attach_parent(cn, int(row["id"]), meta.get("parent_watch_id"))
             return "noop"  # repeated delivery is not a second birth or transition
         to_state, reason = mapped[kind]
         if state == to_state:
@@ -405,6 +430,8 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
         waits: dict[str, int] = {}
         previous, prev_ts = row["created"], None
         for event in events:
+            if event["reason"] == "tw_call":
+                continue  # card 1223: a descendant's mill call is not a state change; dwell skips it
             emeta = json.loads(event["meta"]) if event["meta"] else {}
             ts = emeta.get("ts_ms") if isinstance(emeta, dict) else None
             ts = ts if isinstance(ts, int) and not isinstance(ts, bool) else None
@@ -491,3 +518,269 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
             continue  # already upserted above with the score transition
         score.upsert(cn, "Office", desk, "doing.task." + name, str(value))
     return "wrote" if kind in mapped else "metric"
+
+
+# Card 1223 part B: a mill call a run's descendant made through tw's per-run endpoint. tw stamps the run's
+# watch id on the call; the office keeps one tw_call row (same state in and out) on that run's doing row.
+# The row's meta is the watch id, the command word and ok, plus err (refused or error) on a failure.
+CALL_WATCH_MAX = 64
+RUN_CALLS_SHOWN = 200
+_LIVE = ("active", "waiting")
+
+
+def call_watch_id(raw: Any) -> str:
+    """The watch id a forwarded call carries, or a refusal (it never reaches the command)."""
+    import re
+
+    from agent_coord.helpers.errors import CoordError
+
+    wid = "" if raw is None or isinstance(raw, bool) else str(raw).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,%d}" % CALL_WATCH_MAX, wid):
+        raise CoordError("tw run: the watch id on this call is not a tw watch id; nothing was changed")
+    return wid
+
+
+def parent_watch_id(raw: Any, wid: str) -> str:
+    """The parent a nested start names. A start that omits the field has no parent link."""
+    import re
+
+    from agent_coord.helpers.errors import CoordError
+
+    if isinstance(raw, bool) or not isinstance(raw, str):
+        raise CoordError("tw.event: parent_watch_id must be a watch id")
+    parent = raw.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,%d}" % CALL_WATCH_MAX, parent):
+        raise CoordError("tw.event: parent_watch_id must be a watch id")
+    if parent == wid:
+        raise CoordError("tw.event: parent_watch_id must name another run")
+    return parent
+
+
+def open_call(cn, desk: str, wid: str) -> None:
+    """Inside the caller's request tx, before the command runs: the call's run must be live.
+
+    A run tw has not reported yet starts here (the hop that names it can land after its first child's
+    call); tw's own start then is a repeat. An ended run, or a start past the task cap, refuses.
+    """
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.records.name import bare
+
+    desk = bare(desk, CONST_DESK)
+    row = call(cn, "mill_doing_task", [desk, f"task:{desk}:{wid}", None, 0])[0]
+    if row["id"] is None:
+        done = task_event(cn, desk, {"watch_id": wid, "desk": desk, "kind": "start", "cause": "call"})
+        if done == "cap":
+            raise CoordError(cap_hint(cn, desk) + "; nothing was changed")
+        return
+    if str(row["state"]) not in _LIVE:
+        raise CoordError(f"tw run {wid} has ended ({row['state']}); nothing was changed")
+
+
+def note_call(cn, desk: str, wid: str, verb: str, ok: bool, err: str = "") -> str:
+    """Inside the caller's request tx, after the command: one tw_call row on the live run.
+
+    Returns "wrote", or "ended" when the run ended while the command ran (nothing written).
+    """
+    from agent_coord.server import transition as tr
+    from agent_coord.server.records.name import bare
+
+    desk = bare(desk, CONST_DESK)
+    key = f"task:{desk}:{wid}"
+    row = call(cn, "mill_doing_task", [desk, key, None, 0])[0]
+    if row["id"] is None or str(row["state"]) not in _LIVE:
+        return "ended"
+    meta: dict[str, Any] = {"watch_id": wid, "verb": str(verb)[:32], "ok": bool(ok)}
+    if not ok:
+        meta["err"] = err if err in ("refused", "error") else "error"
+    state = tr.State(row["state"])
+    tr.put(cn, activity_type=tr.ActivityType.doing, activity_id=row["id"], from_state=state,
+           to_state=state, reason=tr.Reason.tw_call, desk_id=row["desk_id"], join_key=key, meta=meta)
+    return "wrote"
+
+
+def _meta_obj(raw: Any) -> dict[str, Any]:
+    import json
+
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _watch_from_join(desk: str, join_key: Any) -> str | None:
+    prefix = f"task:{desk}:"
+    key = "" if join_key is None else str(join_key)
+    if not key.startswith(prefix):
+        return None
+    wid = key[len(prefix):]
+    return wid or None
+
+
+def _attach_parent(cn, doing_id: int, parent: Any) -> None:
+    """A later start is still one tw_start. Keep a parent link the first row did not have."""
+    import json
+
+    if not isinstance(parent, str) or not parent:
+        return
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT id, meta FROM transition"
+            " WHERE activity_type='doing' AND activity_id=%s AND reason='tw_start'"
+            " ORDER BY id LIMIT 1 FOR UPDATE",
+            (int(doing_id),),
+        )
+        start = cur.fetchone()
+        if not start:
+            return
+        existing = _meta_obj(start.get("meta"))
+        if existing.get("parent_watch_id"):
+            return
+        existing["parent_watch_id"] = parent
+        cur.execute(
+            "UPDATE transition SET meta=%s WHERE id=%s",
+            (json.dumps(existing), int(start["id"])),
+        )
+    finally:
+        cur.close()
+
+
+def _stored_parent(meta: dict[str, Any], wid: str) -> str | None:
+    raw = meta.get("parent_watch_id")
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if not isinstance(raw, str):
+        return None
+    parent = raw.strip()
+    if not parent or parent == wid:
+        return None
+    return parent
+
+
+def _run_from_hops(desk: str, wid: str, created: Any, hops: list[dict[str, Any]]) -> dict[str, Any]:
+    """One run. A tw_call is a call on this run, never a change of state or state time."""
+    state, end, ended_by, exit_code = "started", None, None, None
+    calls: list[dict[str, Any]] = []
+    ok_n = 0
+    parent = None
+    seen_start = False
+    for hop in hops:
+        meta = _meta_obj(hop.get("meta"))
+        if hop["reason"] == "tw_call":
+            good = meta.get("ok") is True
+            ok_n += 1 if good else 0
+            row: dict[str, Any] = {"at": _utc_iso(hop["at"]), "verb": str(meta.get("verb") or ""), "ok": good}
+            if not good:
+                row["err"] = str(meta.get("err") or "error")
+            calls.append(row)
+            continue
+        if hop["reason"] == "tw_start" and not seen_start:
+            parent = _stored_parent(meta, wid)
+            seen_start = True
+        state = str(hop["to_state"])
+        if state in _TASK_TERMINAL and end is None:
+            end, ended_by = _utc_iso(hop["at"]), state
+            code = meta.get("exit_code")
+            exit_code = code if isinstance(code, int) and not isinstance(code, bool) else None
+    return {
+        "watch_id": wid,
+        "parent_watch_id": parent,
+        "desk": desk,
+        "start": _utc_iso(created),
+        "end": end,
+        "ended_by": ended_by,
+        "exit_code": exit_code,
+        "state": state,
+        "calls_n": len(calls),
+        "ok_n": ok_n,
+        "failed_n": len(calls) - ok_n,
+        "calls": calls[-RUN_CALLS_SHOWN:],
+    }
+
+
+def _descendant_keys(cn, desk: str, root: str) -> list[tuple[Any, int, str]]:
+    """Runs nested under root on this desk, by start time then id. A cycle stops."""
+    found: list[tuple[Any, int, str]] = []
+    seen = {root}
+    frontier = [root]
+    while frontier:
+        marks = ",".join(["%s"] * len(frontier))
+        rows = rows_done(cn, f"""
+            SELECT g.id, t.join_key,
+                   IFNULL(CONVERT_TZ(g.created, @@session.time_zone, '+00:00'),
+                          g.created + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS created_utc
+              FROM transition t
+              JOIN doing g ON g.id = t.activity_id
+              JOIN name d ON d.id = g.desk_id AND d.type = 'desk'
+             WHERE d.name = %s AND t.activity_type = 'doing' AND t.reason = 'tw_start'
+               AND JSON_UNQUOTE(JSON_EXTRACT(t.meta, '$.parent_watch_id')) IN ({marks})
+             ORDER BY g.created, g.id""",
+            (desk, *frontier),
+        )
+        frontier = []
+        for row in rows:
+            wid = _watch_from_join(desk, row.get("join_key"))
+            if not wid or wid in seen:
+                continue
+            seen.add(wid)
+            found.append((row.get("created_utc"), int(row["id"]), wid))
+            frontier.append(wid)
+    found.sort(key=lambda item: (item[0] is None, item[0] or "", item[1]))
+    return found
+
+
+def run_tree(cn, desk: str, wid: str) -> dict[str, Any]:
+    """`mill connected --run WATCH_ID`: that run and the runs nested under it.
+
+    The requested run is first. Descendants follow by start time. Each run carries
+    parent_watch_id from its tw_start meta (null when it has none). n is how many
+    runs that is. Asking for a nested run does not include the run above it. A
+    parent id with no row is kept and is not an error. A tw_call stays a call on
+    its run (card 1239).
+    """
+    from agent_coord.helpers.errors import CoordError
+    from agent_coord.server.records.name import bare
+
+    desk = bare(desk, CONST_DESK)
+    wid = str(wid or "").strip()
+    key = f"task:{desk}:{wid}"
+    run = rows_done(cn, """
+        SELECT g.id,
+               IFNULL(CONVERT_TZ(g.created, @@session.time_zone, '+00:00'),
+                      g.created + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS created_utc
+          FROM doing g JOIN name d ON d.id = g.desk_id AND d.type = 'desk'
+         WHERE d.name = %s AND g.id = (
+           SELECT t.activity_id FROM transition t
+            WHERE t.activity_type = 'doing' AND t.join_key = %s ORDER BY t.id LIMIT 1)""",
+        (desk, key),
+    )
+    if not run:
+        raise CoordError(f"connected --run: no tw run {wid[:64]} for desk {desk}")
+    nodes = [(run[0].get("created_utc"), int(run[0]["id"]), wid)]
+    nodes.extend(_descendant_keys(cn, desk, wid))
+    keys = [f"task:{desk}:{node[2]}" for node in nodes]
+    marks = ",".join(["%s"] * len(keys))
+    hop_rows = rows_done(cn, f"""
+        SELECT join_key,
+               IFNULL(CONVERT_TZ(at, @@session.time_zone, '+00:00'),
+                      at + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND) AS at,
+               to_state, reason, meta FROM transition
+         WHERE activity_type = 'doing' AND join_key IN ({marks})
+         ORDER BY id""",
+        tuple(keys),
+    )
+    by_key: dict[str, list] = {one: [] for one in keys}
+    for hop in hop_rows:
+        by_key.setdefault(str(hop["join_key"]), []).append(hop)
+    runs = [
+        _run_from_hops(desk, node[2], node[0], by_key.get(f"task:{desk}:{node[2]}", []))
+        for node in nodes
+    ]
+    return {"runs": runs, "n": len(runs)}

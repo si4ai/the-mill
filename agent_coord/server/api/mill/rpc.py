@@ -377,6 +377,7 @@ def _join_delivery(c: Book, desk: str, delivery: dict[str, Any]) -> dict[str, An
 
 
 def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    from agent_coord.helpers import activity_label as al
     from agent_coord.server.records import mail as rec_mail
     from agent_coord.server.records.name import by_id as name_by_id
 
@@ -399,7 +400,22 @@ def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     # the newest `lim` unread, newest first (card 846); --all is the newest `lim`, newest
     # first. Bodies come on the same rows.
     page = max(1, lim or 100)
-    kept = rec_mail.inbox(c._cn, _stored(desk), all_mail=not unread_only, limit=page)
+    # Card 1260: --label narrows the letters in SQL before the page is cut, so an older
+    # labelled letter is found. activity_label still filters and stamps the reply.
+    label_sets = None
+    asked_labels = al.asked(body)
+    if asked_labels:
+        label_sets = al.label_id_sets(
+            c._cn, al.resolve(c._cn, asked_labels), any_mode=bool(body.get("label_any"))
+        )
+    kept = rec_mail.inbox(
+        c._cn,
+        _stored(desk),
+        all_mail=not unread_only,
+        limit=page,
+        label_sets=label_sets,
+        label_any=bool(body.get("label_any")),
+    )
     mids = [int(r["id"]) for r in kept]
     dests = rec_mail.tos_by_id(c._cn, mids) if mids else {}
     crumbs_by = rec_mail.tree_crumbs_batch(c._cn, mids) if mids else {}
@@ -696,8 +712,11 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     --limit N (card 647) is the wire key connected_limit: at most N live desks,
     newest heartbeat first. A body that only carries limit (a released client)
     is not capped and is not refused on --history.
+    --run WATCH_ID (cards 1223 and 1239) lists that run of this desk (or of --who
+    DESK) and the runs nested under it. Each run carries parent_watch_id.
     """
     from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records import join as rec_join
 
     roster = _stored(str(body.get("project") or "").strip())
     desk = _stored(str(body.get("desk") or "").strip())
@@ -710,6 +729,12 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
         _require_live_project(c._cn, roster, "connected")
     limit = _connected_limit(body)
     page = _doing_page(body.get("page"))
+    run = str(body.get("run") or "").strip()
+    if run:
+        # Cards 1223 and 1239: that run, the runs nested under it, and each run's calls.
+        if body.get("history") or body.get("since") or page or limit is not None or body.get("all") or roster:
+            raise CoordError("connected --run WATCH_ID takes only --who DESK")
+        return rec_doing.run_tree(c._cn, desk or (owner or ""), run)
     if body.get("history"):
         if limit is not None:
             raise CoordError("connected: --limit is for the live list, not --history")
@@ -717,8 +742,10 @@ def _h_session(c: Book, body: dict[str, Any], project: str, owner: str | None) -
     if body.get("since") or page:
         raise CoordError("connected: --since and --page go with --history")
     desks = [r for r in rec_doing.now(c._cn, desk, roster, bool(body.get("all"))) if r.get("part") == "desk"]
-    live = rec_doing.live_doings(c._cn, [str(r.get("desk") or "") for r in desks])
-    views = [_desk_view(r, roster, live.get(str(r.get("desk") or ""))) for r in desks]
+    names = [str(r.get("desk") or "") for r in desks]
+    live = rec_doing.live_doings(c._cn, names)
+    reach = rec_join.wake_reach(c._cn, names)  # card 1242
+    views = [_desk_view(r, roster, live.get(n), reach.get(n)) for r, n in zip(desks, names)]
     if limit is None:
         return views
     views.sort(key=_heartbeat_rank)
@@ -743,16 +770,32 @@ def _item(typ: Any, nid: Any) -> str | None:
     return f"{typ}-{int(nid)}" if typ and nid is not None else None
 
 
-def _desk_view(r: dict[str, Any], roster: str, live: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Card 1207 (wall-ui shape): n live doings and the newest DOINGS_CAP of them."""
+def _desk_view(
+    r: dict[str, Any], roster: str, live: dict[str, Any] | None = None, wake: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Card 1207 (wall-ui shape): n live doings and the newest DOINGS_CAP of them.
+
+    Card 1242: reach is connect (a live /ws), wake (no /ws, webhook armed and its
+    wakes not failing, #838) or offline; last_wake is the newest lease ring (UTC) or None.
+    """
     from agent_coord.lib.observe import heartbeat_flags
     from agent_coord.server.push import desk_sitting
+    from agent_coord.server.wake import wake_healthy
 
     who = _stored(r.get("desk") or "")
     hb = r.get("heartbeat")
+    sitting = desk_sitting(who)
     # Card 985: a live /ws counts as alive even when seat.updated is old.
-    alive, stale = heartbeat_flags(hb, sitting=desk_sitting(who))
+    alive, stale = heartbeat_flags(hb, sitting=sitting)
     out: dict[str, Any] = {"owner": who, "heartbeat": hb, "alive": alive, "stale": stale}
+    wake = wake or {}
+    if sitting:
+        out["reach"] = "connect"
+    elif wake.get("armed") and wake_healthy(who):
+        out["reach"] = "wake"
+    else:
+        out["reach"] = "offline"
+    out["last_wake"] = wake.get("last_wake")
     if roster:
         out["project_id"] = roster
     live = live or {"n": 0, "doings": []}
@@ -778,8 +821,11 @@ def _doing_history(c: Book, body: dict[str, Any], desk: str, on: tuple[str, int]
                 f"connected --since: {since_raw[:40]} is not a date; say 2026-10-22 or '2026-10-22 18:00' (office clock)"
             ) from None
     page = _doing_page(body.get("page")) or 1
-    size = DOING_PAGE
-    rows = rec_doing.history(c._cn, desk, since.isoformat(sep=" ") if since else None, page, size,
+    # #1233: a --label history read fetches one wide page, then keeps matches only.
+    wide = int(body.get("_label_hist_size") or 0)
+    size = wide if 0 < wide <= 5000 else DOING_PAGE
+    fetch = 1 if wide else page
+    rows = rec_doing.history(c._cn, desk, since.isoformat(sep=" ") if since else None, fetch, size,
                              on[0] if on else "", on[1] if on else None)
     total = int(rows[0].get("total") or 0) if rows else 0
     if not rows and page > 1:
@@ -853,9 +899,15 @@ def _refuse_gone_doing_keys(command: str, body: dict[str, Any]) -> None:
 
 
 def _run_command(c: Book, fn: Any, command: str, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Run a handler (card 1207: no doing side)."""
+    """Run a handler (card 1207: no doing side).
+
+    Card 1255: every reply row that refers to a retired or trashed name (a card's
+    roster, a letter's sender, a hold's desk) carries deleted_names.
+    """
+    from agent_coord.server.records.name_marks import mark_deleted
+
     _refuse_gone_doing_keys(command, body)
-    return fn(c, body, project, owner)
+    return mark_deleted(getattr(c, "_cn", None), fn(c, body, project, owner))
 
 
 def _h_project(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -873,6 +925,18 @@ def _h_project(c: Book, body: dict[str, Any], project: str, owner: str | None) -
 
 def _h_here(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     return _issue_here(c, body)
+
+
+def _occupant_type(cn, name: str) -> str:
+    """Type that already holds this bare name, or empty when the name is free."""
+    from agent_coord.server.records.db import scalar
+
+    rec = scalar(cn, "SELECT type FROM name WHERE name=%s LIMIT 1", (name,))
+    if rec is None:
+        return ""
+    if isinstance(rec, (bytes, bytearray)):
+        rec = rec.decode("utf-8")
+    return str(rec)
 
 
 def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -900,6 +964,10 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         from agent_coord.server.records.name import bare as _bare
 
         tag_b = _bare(tag, CONST_LABEL)
+        # A name another type already holds is refused. The error names that type (cards 1237, 1254).
+        other = _occupant_type(c._cn, tag_b)
+        if other and other != CONST_LABEL:
+            raise CoordError("name in use: %s is a %s; pick another name" % (tag_b, other))
         if (
             0 < len(tag_b) <= 64
             and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
@@ -2835,7 +2903,7 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     if not str(body.get("resource") or "").strip():
         return _hold_list(c, project)
     key = resource_name(str(body.get("resource") or ""))
-    # Read path. mill_hold_upsert inserts, takes, and refreshes (#223).
+    # Read path never takes (#223). Takes never refresh a held row (#1267).
     if body.get("peek"):
         out = rec_hold.peek(c._cn, _stored(project), key)
         if out.get("id") is None:
@@ -2845,65 +2913,37 @@ def _h_hold(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
             what = " (%s is a roster)" % key if rec_name.get(c._cn, key, CONST_ROSTER) is not None else ""
             out["hint"] = "no hold named %s%s; mill hold --peek lists every lock" % (key, what)
         return out
-    rows = rec_hold.upsert(c._cn, _stored(project), _stored(owner or ""), key)
+    from agent_coord.helpers.hold_key import is_kh, key_hash
+
+    kh = body.get("kh")
+    if not is_kh(kh):
+        raise CoordError("hold: kh must be a sha256; use mill hold NAME to make the release key")
+    old_key = body.get("key")
+    rows = rec_hold.upsert(
+        c._cn, _stored(project), _stored(owner or ""), key, kh,
+        old_kh=key_hash(old_key) if old_key is not None else None,
+    )
     rec = rows[0] if rows else {}
-    ok = int(rec.get("ok") if rec.get("ok") is not None else 1) == 1
-    owner_name = _stored(owner or "")
-    if not ok:
-        try:
-            holder_id = int(rec.get("desk_id") or 0)
-        except (TypeError, ValueError):
-            holder_id = 0
-        named = name_by_id(c._cn, holder_id) if holder_id else ""
-        owner_name = _stored(named or "")
+    ok = int(rec.get("ok") or 0) == 1
+    holder_id = int(rec.get("desk_id") or 0)
+    holder = _stored(name_by_id(c._cn, holder_id) or "") if holder_id else None
     out = {
         "ok": ok,
-        "resource": _stored(_stored(key)),
+        "resource": key,
         "id": rec.get("id"),
-        "owner": owner_name if not ok else owner,
+        "owner": owner if ok else holder,
         "held": ok,
-        # Card 853: callers dedupe wake holds via refreshed; since stays the take time.
-        "refreshed": bool(int(rec.get("refreshed") or 0)) if ok else False,
+        "since": str(rec.get("since"))[:26] if rec.get("since") is not None else None,
     }
-    if ok and rec.get("since") is not None:
-        out["since"] = str(rec.get("since"))[:26]
-    # Card 981: hold FEATURE transitions (existing H1-H8); soft-fail; ids only in meta.
-    try:
-        from agent_coord.server import hold_activity as ha
-        from agent_coord.server.transition_enums import State as TrState
-
-        hid = int(rec.get("id") or 0)
-        actor_id = int(ha.desk_id_for(c._cn, owner) or 0)
-        if hid > 0 and actor_id > 0:
-            if not ok:
-                holder_id = 0
-                try:
-                    holder_id = int(rec.get("desk_id") or 0)
-                except (TypeError, ValueError):
-                    holder_id = 0
-                ha.emit_refuse(
-                    c._cn, hold_id=hid, desk_id=actor_id, holder_desk_id=holder_id or None
-                )
-                ha.note_refused(actor_id, hid)
-            elif out.get("refreshed"):
-                ha.emit_refresh(c._cn, hold_id=hid, desk_id=actor_id)
-            elif ha.take_waited(actor_id, hid):
-                ha.emit_wait_acquire(c._cn, hold_id=hid, desk_id=actor_id)
-            else:
-                cur = c._cn.cursor()
-                try:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM transition"
-                        " WHERE activity_type='hold' AND activity_id=%s",
-                        (hid,),
-                    )
-                    n_prev = int((cur.fetchone() or [0])[0])
-                finally:
-                    cur.close()
-                from_state = TrState.no_row if n_prev == 0 else TrState.free
-                ha.emit_grant(c._cn, hold_id=hid, desk_id=actor_id, from_state=from_state)
-    except Exception:
-        pass
+    if not ok:
+        out.update({
+            "refused": "held",
+            "holder": holder,
+            "reason": f"{key} is already held by {holder or 'another caller'}; a second take never refreshes it",
+            "next": f"wait, or mill hold {key} --peek; the key holder may mill drop {key} --key KEY",
+        })
+    elif rec.get("handoff"):
+        out["handoff"] = True
     # A refused hold is not news. Poking would look like a new lease (#142).
     if ok:
         _poke(c, "hold", rec.get("id"), "hold", owner=owner)
@@ -2918,10 +2958,21 @@ def _h_drop(c: Book, body: dict[str, Any], project: str, owner: str | None) -> A
     project = project or _office(getattr(c, "_cn", None))
     _require_live_project(getattr(c, "_cn", None), project, "drop")
     key = resource_name(str(body.get("resource") or ""))
-    out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key)
+    out = rec_hold.drop(c._cn, _stored(project), _stored(owner or ""), key, body.get("key"))
     if out.get("released"):
-        emit_hold_release(c._cn, out, owner)
+        if out.get("forced"):
+            emit_hold_release(c._cn, out, owner)
         _poke(c, "hold", out.get("id"), "drop", owner=owner)
+    elif out.get("id") and body.get("key") is None:
+        # Key failures are logged atomically by mill_hold_drop. This is the Python
+        # authorization refusal of the keyless override (the hold was not changed).
+        from agent_coord.server import hold_activity as ha
+
+        actor_id = ha.desk_id_for(c._cn, owner)
+        holder_id = ha.desk_id_for(c._cn, out.get("owner"))
+        if actor_id:
+            ha.emit_refuse(c._cn, hold_id=int(out["id"]), desk_id=actor_id,
+                           holder_desk_id=holder_id, op="drop")
     return out
 
 
@@ -2936,7 +2987,7 @@ def emit_hold_release(cn, out: dict[str, Any], owner: str | None) -> None:
         was = str(out.get("was_owner") or "").strip()
         holder_id = int(ha.desk_id_for(cn, was) or 0)
         if hid > 0 and holder_id > 0:
-            if was and owner and was == str(owner).strip():
+            if not out.get("forced") and was and owner and was == str(owner).strip():
                 ha.emit_drop(cn, hold_id=hid, desk_id=holder_id)
             else:
                 ha.emit_force(cn, hold_id=hid, desk_id=holder_id, by_desk_id=actor_id or None)
@@ -3065,19 +3116,9 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
                 did = ma.desk_id_for(c._cn, owner)
                 return ma.score_view_for_name(c._cn, name, desk_id=did)
-            if name in (
-                "hold.wait_ms",
-                "hold.held_ms",
-                "hold.contention_n",
-                "hold.force_taken_n",
-                "hold.expired_n",
-                "hold-wait",
-                "hold-held",
-                "hold-contention",
-                "hold-force-taken",
-                "hold-expired",
-            ):
-                from agent_coord.server import hold_activity as ha
+            from agent_coord.server import hold_activity as ha
+
+            if name in ha.SCORE_NAMES:
 
                 did = ha.desk_id_for(c._cn, owner)
                 return ha.score_view_for_name(c._cn, name, desk_id=did)
@@ -3424,6 +3465,16 @@ def _add_who(c: Book, body: dict[str, Any], owner: str | None, command: str) -> 
     if not who or len(who) > 64:
         raise CoordError(f"{command}: WHO is a desk or roster name")
     kind = _live_dest_kind(c._cn, who)
+    if not kind and command == "remove":
+        from agent_coord.server.records.db import scalar
+
+        retired = scalar(
+            c._cn,
+            "SELECT id FROM name WHERE type = 'desk' AND name = %s AND deleted IS NOT NULL",
+            (who,),
+        )
+        if retired is not None:
+            return who, CONST_DESK, int(retired)
     if not kind:
         raise CoordError(f"{command}: no such desk or roster {who}")
     nid = rec_name.get(c._cn, who, kind)
@@ -3481,9 +3532,17 @@ def _add_remove(c: Book, body: dict[str, Any], owner: str | None) -> Any:
     has_hint = raw_hint is not None and str(raw_hint) != ""
     if has_hint and (command != "add" or typ == CONST_MAIL):
         raise CoordError(f"{command}: --hint is for add on a watched kind, not {typ}")
-    if not _activity_live(c._cn, typ, nid):
-        raise CoordError(f"{command}: no {typ} {nid}")
+    if command == "add":
+        if not _activity_live(c._cn, typ, nid):
+            raise CoordError(f"{command}: no {typ} {nid}")
+    else:
+        from agent_coord.server.records.db import scalar
+
+        if scalar(c._cn, "SELECT 1 FROM activity WHERE type = %s AND id = %s", (typ, nid)) is None:
+            raise CoordError(f"{command}: no {typ} {nid}")
     who, kind, who_id = _add_who(c, body, owner, command)
+    if typ != CONST_MAIL and kind == CONST_ROSTER:
+        raise CoordError(f"{command}: WHO is a roster; name a desk")
     out: dict[str, Any] = {"ok": True, "verb": command, "type": typ, "id": nid, "who": who, "kind": kind}
     if typ == CONST_MAIL:
         # #sec S-3: only a desk that can already read this letter may change who
@@ -3768,12 +3827,22 @@ def _h_trail(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     from agent_coord.server.records import todo as rec_todo
     from agent_coord.server.records import tree as rec_tree
 
-    label = str(body.get("label") or "").strip()
+    raw_labels = body.get("labels")
+    if isinstance(raw_labels, (list, tuple)) and raw_labels:
+        labels = [str(x).strip() for x in raw_labels if str(x).strip()]
+    else:
+        one_label = str(body.get("label") or "").strip()
+        labels = [one_label] if one_label else []
     node = str(body.get("node") or body.get("id") or "").strip()
-    if label and node:
+    if labels and node:
         raise CoordError("trail: say a node or --label, not both")
-    if label:
-        return _h_trail_label(c, body, project, owner, label)
+    if labels:
+        from agent_coord.helpers.activity_label import trail_read
+
+        return trail_read(
+            c, labels, bool(body.get("label_any")),
+            lambda tag: _h_trail_label(c, body, project, owner, tag),
+        )
     if not owner:
         raise CoordError("trail: owner required")
     kind, nid = _trail_target(c, body)
@@ -3957,36 +4026,31 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
 
 
 def _h_delete(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill delete roster|label|tree NAME stamps name.trashed (restorable)."""
+    """Card 1241: mill delete NAME empties a roster, label, or tree and stamps trashed."""
     from agent_coord.server.records import name as rec_name
 
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    kind = str(body.get("name_type") or "").strip().lower()
     raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("delete: mill delete roster|label|tree NAME")
+    if not raw:
+        raise CoordError("delete: mill delete NAME")
     return rec_name.trash(c._cn, raw, kind, by=owner or "")
 
 
 def _h_restore(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill restore roster|label|tree NAME clears name.trashed."""
+    """Card 1241: mill restore NAME clears trashed and does not put the contents back."""
     from agent_coord.server.records import name as rec_name
 
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    kind = str(body.get("name_type") or "").strip().lower()
     raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("restore: mill restore roster|label|tree NAME")
+    if not raw:
+        raise CoordError("restore: mill restore NAME")
     return rec_name.restore_trashed(c._cn, raw, kind, by=owner or "")
 
 
 def _h_purge(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill purge roster|label|tree NAME hard-deletes a trashed unreferenced name."""
-    from agent_coord.server.records import name as rec_name
-
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
-    raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("purge: mill purge roster|label|tree NAME")
-    return rec_name.purge_trashed(c._cn, raw, kind, by=owner or "")
+    """Card 1241: mill purge is removed."""
+    _ = (c, body, project, owner)
+    raise CoordError("purge is removed; mill delete NAME")
 
 
 
@@ -4060,6 +4124,9 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
     if kind not in ("start", "stall", "resume", "exit", "crash", "match", "overflow", "retry"):
         raise CoordError("tw.event: unknown kind")
     meta: dict[str, Any] = {"watch_id": wid, "desk": desk, "kind": kind}
+    if kind == "start" and clean.get("parent_watch_id") not in (None, ""):
+        # Card 1239: only a start stores the nesting parent. Other hops ignore the field.
+        meta["parent_watch_id"] = doing.parent_watch_id(clean.get("parent_watch_id"), wid)
     card = clean.get("card")
     if isinstance(card, int) and not isinstance(card, bool) and card > 0:
         meta["card"] = card
@@ -4160,7 +4227,8 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
 
     The text write is mill_body_replace. A duplicate key on the history stamp
     is body:stale plus the reread command. The unchanged sentence is the
-    office's own words.
+    office's own words. A letter replace tells desks that already opened it
+    (card 1236): their opened mark is cleared and they get one mail notice.
     """
     from agent_coord.client.body_read import map_refusal, never_read, stale_line
     from agent_coord.server.records import body as rec_body
@@ -4207,6 +4275,10 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
         if msg is None:
             raise
         raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+    if kind == "mail":
+        from agent_coord.server.mail_push import notify_replaced_readers
+
+        notify_replaced_readers(c._cn, item_id, owner or "")
     _poke(c, kind, item_id, "replace-body", owner=owner)
     return row
 
@@ -4369,7 +4441,12 @@ def dispatch(c: Book, body: dict[str, Any], *, token: str = "", client_mill: str
     if command in WRITE_COMMANDS or canonical_command(command) in WRITE_COMMANDS:
         scrub_request_body(body)
     try:
-        out = _run_command(c, fn, command, body, project, owner)
+        from agent_coord.helpers.activity_label import run_labeled
+
+        out = run_labeled(
+            c, command, body, owner,
+            lambda: _run_command(c, fn, command, body, project, owner),
+        )
         try:
             from agent_coord.server import wake_first
 
@@ -4476,7 +4553,68 @@ def rpc_abort(desk: str, req_id: str) -> None:
         ev.set()
 
 
+# Card 1223 part B: tw stamps its run's watch id on each call a run's descendant forwards through
+# the per-run endpoint. The session hops (tw.event, tw.reconcile) carry watch ids of their own.
+def _take_run_tag(command: str, body: dict[str, Any]) -> str:
+    if command in SESSION_HOPS or "watch_id" not in body:
+        return ""
+    from agent_coord.server.records import doing as rec_doing
+
+    return rec_doing.call_watch_id(body.pop("watch_id"))
+
+
+def _open_run_call(c: Book, owner: str, wid: str) -> None:
+    """The tagged call's run must be live before the command runs (an ended run or the cap refuses)."""
+    from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records.db import in_request_tx, request_tx
+
+    def run() -> None:
+        rec_doing.open_call(c._cn, owner, wid)
+
+    run() if in_request_tx(c._cn) else request_tx(c._cn, run)
+
+
+def _note_run_call(c: Book, owner: str, wid: str, command: str, exc: BaseException | None = None) -> None:
+    """One tw_call row on the run: the command word and its outcome. A failed record never changes the reply."""
+    from agent_coord.server.records import doing as rec_doing
+    from agent_coord.server.records.db import request_tx
+
+    err = "" if exc is None else ("refused" if isinstance(exc, CoordError) else "error")
+    try:
+        request_tx(c._cn, lambda: rec_doing.note_call(c._cn, owner, wid, command, exc is None, err))
+    except Exception as e:
+        _log.warning("tw_call not recorded desk=%s cmd=%s err=%s", owner, command, type(e).__name__)
+
+
 def dispatch_ws(
+    c: Book,
+    desk: str,
+    command: str,
+    args: dict[str, Any] | None = None,
+    req_id: str | None = None,
+    *,
+    peer: str = "",
+    forwarded: bool = False,
+    client_mill: str = "",
+) -> Any:
+    """Run a desk-acting command. A failed call logs id, command, and class (card 1238)."""
+    try:
+        return _dispatch_ws(
+            c, desk, command, args, req_id,
+            peer=peer, forwarded=forwarded, client_mill=client_mill,
+        )
+    except Exception as exc:
+        # The exception text can carry a secret. The id joins this line to the client failure.
+        _log.warning(
+            "failed rpc id=%s command=%s class=%s",
+            str(req_id or ""),
+            str(command or ""),
+            type(exc).__name__,
+        )
+        raise
+
+
+def _dispatch_ws(
     c: Book,
     desk: str,
     command: str,
@@ -4511,6 +4649,7 @@ def dispatch_ws(
     # verified loopback transport peer, never from the /ws args.
     _strip_server_only(body)
     _refuse_join_type(v, body)
+    run_wid = _take_run_tag(v, body)
     from agent_coord.server.admin.guard import mark_host
 
     if peer and not forwarded:
@@ -4546,8 +4685,20 @@ def dispatch_ws(
             raise CoordError("ws rpc: duplicate request still running")
         else:
             owns_id = True
+    opened = False
     try:
-        out = _run_command(c, fn, v, body, project, owner)
+        if run_wid:
+            _open_run_call(c, owner, run_wid)
+            opened = True
+        from agent_coord.helpers.activity_label import run_labeled
+
+        out = run_labeled(
+            c, v, body, owner,
+            lambda: _run_command(c, fn, v, body, project, owner),
+        )
+        if opened:
+            opened = False  # noted once: a later error in the bookkeeping below is not a second call
+            _note_run_call(c, owner, run_wid, v)
         try:
             from agent_coord.server import wake_first
 
@@ -4591,7 +4742,9 @@ def dispatch_ws(
         if owns_id:
             rpc_finish(owner, rid, out)
         return out
-    except Exception:
+    except Exception as exc:
+        if opened:
+            _note_run_call(c, owner, run_wid, v, exc)
         if owns_id:
             rpc_abort(owner, rid)
         try:

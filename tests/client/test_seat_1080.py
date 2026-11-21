@@ -113,8 +113,9 @@ def test_borrow_sends_one_call_and_releases(tmp_path, monkeypatch):
         state["thread"] = thread
         return thread
 
-    def fake_call(body, token="", desk=""):
+    def fake_call(body, token="", desk="", borrow=False):
         state["verb"] = body.get("verb")
+        state["borrow"] = borrow
         return {"ok": True, "result": {"n": 1}, "sync": []}
 
     monkeypatch.setattr(ws_cli, "start_ws_thread", fake_start)
@@ -122,6 +123,7 @@ def test_borrow_sends_one_call_and_releases(tmp_path, monkeypatch):
     out = borrow("alice", "seat-alice", {"verb": "hold"})
     assert out["result"]["n"] == 1
     assert state["verb"] == "hold"
+    assert state["borrow"] is True  # card 1242: the office is told this call is a borrow
     assert state["refuse"] is True
     assert state["thread"].is_alive() is False
 

@@ -21,6 +21,7 @@ import threading
 import mysql.connector
 import pytest
 
+from agent_coord.helpers.hold_key import new_key
 from agent_coord.client.tokens import token_hash
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
@@ -182,9 +183,10 @@ def test_folding_moves_rebuilds_status_volunteer_and_hold(book):
     take = [r for r in _moves(book, "todo", a) if r["reason"] == "take_over"][0]
     assert take["desk_id"] == _id(book, ANN)
     assert _doing_moves(book, "todo", a) == 0
-    h = int(rec_hold.upsert(book, ROSTER, BOB, "mv080-res")[-1]["id"])
+    key, kh = new_key()
+    h = int(rec_hold.upsert(book, ROSTER, BOB, "mv080-res", kh)[-1]["id"])
     book.commit()
-    rec_hold.delete(book, h, BOB)
+    rec_hold.delete(book, h, BOB, kh)
     book.commit()
     rec_hold.upsert(book, ROSTER, ANN, "mv080-res")
     book.commit()
@@ -198,7 +200,7 @@ def test_hold_moves_write_no_doing_row_and_reset_drops_by_the_desk(book):
     _seat(book, desk)
     h = int(rec_hold.upsert(book, ROSTER, desk, "mv080-hr-res")[-1]["id"])
     book.commit()
-    rec_hold.upsert(book, ROSTER, desk, "mv080-hr-res")  # refresh
+    rec_hold.upsert(book, ROSTER, desk, "mv080-hr-res")  # card 1267: refused, no refresh
     book.commit()
     assert _doing_moves(book, "hold", h) == 0
     rec_join.reset(book, ROSTER, desk)

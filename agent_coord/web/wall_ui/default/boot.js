@@ -1070,6 +1070,8 @@
     }
     const kindClass = k => "k k-" + (k || "");
     const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+    /* Card 1255: a name a row's deleted_names lists, struck and tagged "deleted" (lib/data.js). */
+    const nmDel = (rows, name, html) => typeof wallDelName === "function" ? wallDelName(rows, name, html) : html;
     const t = v => {
       if (!v) return "-";
       const s = String(v);
@@ -4103,12 +4105,12 @@
       const volunteer = String(r.assigned || r.volunteer || r.owner || "").trim();
       const human = /^\s*HUMAN\b/i.test(String(r.detail || ""));
       const meta = [];
-      if (asker) meta.push("asker " + asker);
-      if (volunteer && owned) meta.push("claimed by " + volunteer);
-      if (r.progress) meta.push(String(r.progress));
-      if (r.eta) meta.push("ETA " + t(r.eta));
+      if (asker) meta.push("asker " + nmDel(r, asker, esc(asker)));
+      if (volunteer && owned) meta.push("claimed by " + nmDel(r, volunteer, esc(volunteer)));
+      if (r.progress) meta.push(esc(String(r.progress)));
+      if (r.eta) meta.push(esc("ETA " + t(r.eta)));
       const claimedSlot = wallClaimedSlot(r);
-      const metaLine = meta.length ? `<div class="meta">${esc(meta.join(" | "))} ${claimedSlot}</div>` : claimedSlot;
+      const metaLine = meta.length ? `<div class="meta">${meta.join(" | ")} ${claimedSlot}</div>` : claimedSlot;
       const cues = [];
       if (r.stale) cues.push("stale");
       if (r.holder_dead) cues.push("holder_dead");
@@ -4202,13 +4204,13 @@
           `title="Sort by ${c.label.toLowerCase()}. Drag the heading, or Alt+Left / Alt+Right, to move the column.">${esc(c.label)}` +
           `<span class="todo-jira-mark" aria-hidden="true">${mark}</span></button></th>`;
       }).join("");
-      const cell = (row, c) => {
+      const cell = (row, c, r) => {
         const v = row[c.key];
         if (c.key === "state") return `<span class="todo-jira-st st-${esc(v)}">${esc(v)}</span>`;
         if (c.key === "title") return `<span class="todo-jira-ttl">${esc(v || "(no instructions)")}</span>` + millWatchBadge("todo", row.id);
         /* Each value sits in its own span so Overflow can draw it over the cells to its right. */
         if (c.key === "eta") return v ? `<span class="todo-jira-v">${esc(t(v))}</span>` : "";
-        return v ? `<span class="todo-jira-v">${esc(v)}</span>` : "";
+        return v ? `<span class="todo-jira-v">${nmDel(r, v, esc(v))}</span>` : "";
       };
       /* On a phone the row stacks; these cells carry their own label (shown there only). */
       const LABELLED = { claimant: 1, asker: 1, eta: 1 };
@@ -4218,7 +4220,7 @@
         const tr = `<tr class="todo-jira-row st-${esc(row.state)}${open ? " is-open" : ""}" data-todo-id="${esc(row.id)}" ` +
           `data-todo-trunc="${r.detail_trunc === true ? "1" : "0"}" tabindex="0" aria-expanded="${open ? "true" : "false"}">` +
           /* The full text on hover, for Clip and Overflow cells cut at the edge. */
-          cols.map(c => `<td class="c-${c.key}"${row[c.key] && c.key !== "state" ? ` title="${esc(row[c.key])}"` : ""}>${LABELLED[c.key] && row[c.key] ? `<span class="todo-jira-lbl">${esc(c.label)}</span>` : ""}${cell(row, c)}</td>`).join("") + `</tr>`;
+          cols.map(c => `<td class="c-${c.key}"${row[c.key] && c.key !== "state" ? ` title="${esc(row[c.key])}"` : ""}>${LABELLED[c.key] && row[c.key] ? `<span class="todo-jira-lbl">${esc(c.label)}</span>` : ""}${cell(row, c, r)}</td>`).join("") + `</tr>`;
         return open ? tr + todoListMoreHtml(r, cols.length) : tr;
       }).join("");
       /* A repaint keeps the reader's place: scroll, and focus on the same header, menu or row. */

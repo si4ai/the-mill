@@ -72,7 +72,10 @@ def test_send_roster_and_desk(body):
 
 
 def test_hold_drop_take_no_roster(body):
-    assert body("hold build") == {**body("hold build"), "project": CONST_OFFICE, "resource": "build"}
+    took = body("hold build")
+    assert took["project"] == CONST_OFFICE and took["resource"] == "build"
+    # Card 1267: each take sends a fresh sha256 of its one-use key, never the key.
+    assert len(took["kh"]) == 64 and took["kh"] != body("hold build")["kh"]
     assert body("drop build")["project"] == CONST_OFFICE
     assert body("hold --peek").get("peek") is True
 
@@ -85,12 +88,13 @@ def test_rename_retire_retype(body):
 
 
 def test_delete_retype(body):
-    """Card 879: mill delete roster|label|tree retypes NAME like retire."""
+    """Card 1241: mill delete NAME retypes the name. A second word is refused."""
     with pytest.raises(CoordError, match="did not match"):
-        body("delete roster a", ask=lambda q: "x")
-    assert body("delete roster a --yes")["confirm"] == "a"
-    assert body("delete label lab --yes")["confirm"] == "lab"
-    assert body("delete tree plan --yes")["confirm"] == "plan"
+        body("delete a", ask=lambda q: "x")
+    assert body("delete a --yes")["confirm"] == "a"
+    assert "name_type" not in body("delete lab --yes")
+    with pytest.raises(CoordError, match="mill delete NAME"):
+        body("delete roster a --yes")
 
 
 def test_reset_seat(body):
@@ -249,8 +253,9 @@ def test_watch_help_names_id_only():
 
 
 def test_restore_and_purge_retype(body):
-    """Card 879: mill restore / mill purge retype NAME like delete."""
-    with pytest.raises(CoordError):
-        body("restore label a", ask=lambda q: "x")
-    assert body("restore label a --yes")["confirm"] == "a"
-    assert body("purge tree plan --yes")["confirm"] == "plan"
+    """Card 1241: mill restore NAME. mill purge is removed."""
+    with pytest.raises(CoordError, match="did not match"):
+        body("restore a", ask=lambda q: "x")
+    assert body("restore a --yes")["confirm"] == "a"
+    with pytest.raises(CoordError, match="purge is removed"):
+        body("purge tree plan --yes")

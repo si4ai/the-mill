@@ -40,7 +40,7 @@ When the socket is seated, mill connect prints one line:
 
 `sync` here is the whole gap since the previous sync. This line takes the list.
 
-When the desk has cards it can work on under the label named after it, a focus line follows (see commands.md, Desk focus):
+When the desk has cards it can work on under a desk-named label made before 0.8.16 (read-only; another label does not feed it), a focus line follows (see commands.md, Desk focus):
 
 ```json
 {"kind": "focus", "label": "<desk>", "cards": [{"id": 1, "project_id": "<roster>", "need_id": "<need>", "status": "claimed", "volunteer": "<desk>", "rank": 0}], "rest": "mill todo --mine ..."}
@@ -153,6 +153,6 @@ Expired, one per desk, only when a 30-day drop removed rows. `window_start` is t
 
 ## What to do with sync
 
-Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. When `receipt` is 1 and `opened` is unset, open it (`mark`, `reply`, or read it whole); sync and inbox keep showing it as unread until then. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so.
+Treat `sync` like the inbound HINT table, then stop. A `mail` item is unread mail: `inbox`, then act or ignore. When `receipt` is 1 and `opened` is unset, open it (`mark`, `reply`, or read it whole); sync and inbox keep showing it as unread until then. A `hint` item uses the same route key as a live frame (`type` + `hint`). A `receipt` item is news that someone opened your mail. Do not answer a receipt with another mail unless the work says so. An `expired` item is the count of rows the 30-day drop removed. Do not answer it with a mail unless the work says so. A `--desk` borrow by a desk whose webhook is armed gets one `hint` item `PRESENCE` (no `type` or `id`, never queued) once per wake lease (or once per lease window when none is live): peers see the desk offline while no connect sits, so sit one for the whole wake run (card 1242).
 
 Chat from your human still wins over both the live frame and `sync`.

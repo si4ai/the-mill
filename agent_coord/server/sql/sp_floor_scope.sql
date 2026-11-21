@@ -120,6 +120,9 @@ BEGIN
     LEFT JOIN name sn ON sn.id = t.assigned_id
     LEFT JOIN name cn ON cn.id = t.creator_id
     LEFT JOIN name an ON an.id = t.roster_id
+    -- card 1258: a retired card is off the wall, as in mill_todo_select (one activity row per card: PK).
+    LEFT JOIN activity ra ON ra.type = 'todo' AND ra.id = t.id
+    WHERE ra.deleted IS NULL
     ORDER BY t.updated DESC
     LIMIT 200;
   ELSEIF p_part = 'holds' THEN
@@ -146,12 +149,19 @@ BEGIN
       IFNULL(an.name, '') AS roster_id, IFNULL(an.type, '') AS roster_id_type
     FROM score s
     LEFT JOIN name dn ON dn.id = s.desk_id
-    LEFT JOIN member mb ON mb.desk_id = s.desk_id
-    LEFT JOIN name an ON an.id = mb.name_id
+    -- card 1258: one row per score. The roster is the wall's role on a role wall; on a lan wall it is
+    -- the desk's lowest-id roster other than Office, else Office (a join to member gave one row per roster).
+    LEFT JOIN name an ON an.id = IF(p_kind = 'role',
+      (SELECT rr.id FROM name rr WHERE rr.type = 'roster' AND rr.name = p_id AND rr.deleted IS NULL LIMIT 1),
+      IFNULL((SELECT MIN(mb.name_id) FROM member mb WHERE mb.desk_id = s.desk_id AND mb.name_id <> 1),
+             (SELECT MIN(mb.name_id) FROM member mb WHERE mb.desk_id = s.desk_id)))
     LEFT JOIN score_point lp ON lp.id = (
       SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id
       ORDER BY p2.created DESC, p2.id DESC LIMIT 1)
     JOIN mill_floor_desk fd ON fd.desk_id = s.desk_id
+    -- card 1258: a retired or deleted score is off the wall, as in mill_score_points (activity PK: one row).
+    LEFT JOIN activity ra ON ra.type = 'score' AND ra.id = s.id
+    WHERE ra.deleted IS NULL
     ORDER BY s.updated DESC
     LIMIT 200;
   ELSEIF p_part = 'events' THEN
@@ -206,7 +216,12 @@ BEGIN
 
   IF p_kind = 'project' THEN
     IF IFNULL(p_id, '') <> '' THEN
-      SET v_proj = MILL_NAME_GET('roster', p_id);
+      -- A poll names a roster that may already be trashed. MILL_NAME_GET
+      -- signals on trashed, which refuses a new write. This read keeps the id
+      -- so the fingerprint of rows that still point at the roster can move.
+      SELECT id INTO v_proj FROM name
+       WHERE type = 'roster' AND name = TRIM(p_id)
+       LIMIT 1;
     END IF;
     IF p_part = 'mail' THEN
       SELECT 'mail' AS part, MILL_FP(CONCAT_WS(':',
@@ -258,7 +273,10 @@ BEGIN
       )) AS fp
       FROM score s
       JOIN member m ON m.desk_id = s.desk_id AND m.name_id = v_proj
-      WHERE v_proj IS NOT NULL;
+      WHERE v_proj IS NOT NULL
+        -- card 1258: live scores only, so a retire (an activity write) moves the fp.
+        AND NOT EXISTS (SELECT 1 FROM activity ra
+                         WHERE ra.type = 'score' AND ra.id = s.id AND ra.deleted IS NOT NULL);
     ELSEIF p_part = 'holds' THEN
       SELECT 'holds' AS part, MILL_FP(CONCAT_WS(':',
         COUNT(*),
@@ -336,7 +354,10 @@ BEGIN
       IFNULL(DATE_FORMAT(MAX(s.updated), '%Y%m%d%H%i%s%f'), '0')
     )) AS fp
     FROM score s
-    WHERE s.desk_id IN (SELECT desk_id FROM mill_floor_desk);
+    WHERE s.desk_id IN (SELECT desk_id FROM mill_floor_desk)
+      -- card 1258: live scores only, so a retire (an activity write) moves the fp.
+      AND NOT EXISTS (SELECT 1 FROM activity ra
+                       WHERE ra.type = 'score' AND ra.id = s.id AND ra.deleted IS NOT NULL);
   ELSEIF p_part = 'events' THEN
     SELECT 'events' AS part, MILL_FP(CONCAT_WS(':',
       COUNT(*),
