@@ -60,7 +60,8 @@ def list_rosters(cn) -> list[dict]:
     Same rows as GET /api/pov?part=rosters (card 1193): Office first, then
     name. Each row is {name, desks, members} where desks is the count and
     members is the sorted live desk names. Retired desks and retired
-    rosters are omitted (card 1204).
+    rosters are omitted (card 1204), and so are trashed rosters until
+    mill restore (card 1255).
     """
     from agent_coord.const import CONST_OFFICE, CONST_ROSTER
 
@@ -71,7 +72,7 @@ def list_rosters(cn) -> list[dict]:
             " LEFT JOIN member m ON m.name_id=n.id"
             " LEFT JOIN name d ON d.id=m.desk_id"
             "  AND d.deleted IS NULL AND d.type = 'desk'"
-            " WHERE n.deleted IS NULL AND n.type = %s"
+            " WHERE n.deleted IS NULL AND n.trashed IS NULL AND n.type = %s"
             " GROUP BY n.id, n.name"
             " ORDER BY n.name",
             (CONST_ROSTER,),
@@ -85,7 +86,7 @@ def list_rosters(cn) -> list[dict]:
             " JOIN member m ON m.name_id=n.id"
             " JOIN name d ON d.id=m.desk_id"
             "  AND d.deleted IS NULL AND d.type = 'desk'"
-            " WHERE n.deleted IS NULL AND n.type = %s"
+            " WHERE n.deleted IS NULL AND n.trashed IS NULL AND n.type = %s"
             " ORDER BY n.name, d.name",
             (CONST_ROSTER,),
         )
