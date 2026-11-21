@@ -45,7 +45,8 @@ def test_join_join_url_exits_1_on_stderr(monkeypatch, tmp_path, capsys):
     assert rc == 1
     obj = json.loads(out.out)
     assert obj["code"] == "refused"
-    assert "extra join word" not in out.out and "extra join word" not in out.err
+    assert "extra join word" in obj["refusal"]
+    assert "extra join word" not in out.err
     assert out.err.strip() == "refused %s" % obj["id"]
     assert list(tmp_path.iterdir()) == []
 
@@ -64,5 +65,6 @@ def test_join_failure_json_is_stderr_exit_1(monkeypatch, tmp_path, capsys):
     assert rc == 1
     obj = json.loads(out.out)
     assert obj["code"] == "refused"
-    assert "wall unreachable" not in out.out and "wall unreachable" not in out.err
+    assert obj["refusal"] == "wall unreachable"
+    assert "wall unreachable" not in out.err
     assert out.err.strip() == "refused %s" % obj["id"]

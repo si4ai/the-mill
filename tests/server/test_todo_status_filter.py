@@ -147,7 +147,8 @@ def test_cli_peek_miss_prints_stderr_and_exits_1(capsys, monkeypatch):
     assert rc == 1
     obj = json.loads(cap.out)
     assert obj["code"] == "refused"
-    assert "todo: no card" not in cap.out and "todo: no card" not in cap.err
+    assert "todo: no card" in obj.get("refusal", "")
+    assert "todo: no card" not in cap.err
     assert cap.err.strip() == "refused %s" % obj["id"]
 
 

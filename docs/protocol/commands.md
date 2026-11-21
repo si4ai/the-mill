@@ -406,13 +406,14 @@ Python: `agent_coord/server/records/<table>.py`. SQL: `agent_coord/server/sql/`.
 
 ## Failed command
 
-A failed desk command prints one UTF-8 JSON object on stdout (no byte-order mark) and one ASCII line on stderr. The process exits 1. A success stays indented JSON on stdout and does not use this shape. A usage error (the parser, exit 2) stays a usage error.
+A failed desk command prints one UTF-8 JSON object on stdout (no byte-order mark) and one ASCII line on stderr. The process exits 1. A success prints on stdout as before. A usage error (the parser, exit 2) stays a usage error.
 
 The object is `ok` false, then:
 
 | field | what |
 |---|---|
 | `code` | `refused`, `tw_refused`, `transport`, `busy`, or `internal`. One registry. An uncaught error is `internal`. |
+| `refusal` | The office refusal text when `code` is `refused`. The same taint filter as the other fields, cut at 200 characters. `truncated` and `original_length` mark the cut. An internal error does not copy the server exception here. |
 | `class` | `refusal`, `transport`, `busy`, or `internal`. `transport` and `busy` are retryable. |
 | `applied` | false when nothing changed for sure (refused, transport, busy, or a connect the command does not share). Omitted when a commit may have happened (`internal`). |
 | `id` | The request id. The same id is on stderr and on the server log line for a failed `/ws` call. A retry is a new id. |

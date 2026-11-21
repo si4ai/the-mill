@@ -124,8 +124,8 @@ def test_wall_check_office_without_alias_refuses(monkeypatch, capsys):
     assert rc == 1
     obj = json.loads(cap.out)
     assert obj["code"] == "refused"
-    assert "no local alias" not in cap.out and "no local alias" not in cap.err
-    assert "missing-office" not in cap.out and "missing-office" not in cap.err
+    assert obj["refusal"] == "wall-check: --office missing-office has no local alias; pass --base"
+    assert "no local alias" not in cap.err and "missing-office" not in cap.err
     assert cap.err.strip() == "refused %s" % obj["id"]
 
 

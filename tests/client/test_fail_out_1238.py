@@ -13,6 +13,22 @@ from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill.rpc import dispatch_ws
 
 
+def test_clean_refusal_text_is_on_stdout(capsys):
+    assert emit_failure(CoordError("send: To required")) == 1
+    cap = capsys.readouterr()
+    obj = json.loads(cap.out)
+    assert obj["code"] == "refused" and obj["refusal"] == "send: To required"
+    assert "send: To required" not in cap.err
+
+
+def test_refusal_text_is_capped(capsys):
+    reason = "n" * 250
+    assert emit_failure(CoordError(reason)) == 1
+    obj = json.loads(capsys.readouterr().out)
+    assert obj["refusal"] == reason[:200]
+    assert obj["truncated"] is True and obj["original_length"] == 250
+
+
 def test_text_capture_without_buffer_still_prints(monkeypatch):
     out, err = io.StringIO(), io.StringIO()
     monkeypatch.setattr("sys.stdout", out)

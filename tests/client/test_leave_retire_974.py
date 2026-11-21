@@ -22,7 +22,8 @@ def test_remove_roster_without_yes_exits_nonzero(monkeypatch, capsys) -> None:
     assert rc == 1
     obj = json.loads(cap.out)
     assert obj["code"] == "refused"
-    assert "add --yes" not in cap.out and "add --yes" not in cap.err
+    assert "add --yes" in obj["refusal"]
+    assert "add --yes" not in cap.err
     assert cap.err.strip() == "refused %s" % obj["id"]
 
 

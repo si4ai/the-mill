@@ -26,7 +26,8 @@ def test_error_row_on_stdout_exit_1(reply, capsys):
     cap = capsys.readouterr()
     obj = json.loads(cap.out)
     assert obj["ok"] is False and obj["code"] == "refused" and obj["applied"] is False
-    assert reply["error"] not in cap.out and reply["error"] not in cap.err
+    assert obj["refusal"] == reply["error"]
+    assert reply["error"] not in cap.err
     assert cap.err.strip() == "%s %s" % (obj["code"], obj["id"])
     assert not cap.out.startswith("\ufeff")
 
@@ -52,5 +53,6 @@ def test_main_coord_error_on_stderr(capsys):
     assert rc == 1
     obj = json.loads(cap.out)
     assert obj["code"] == "refused" and obj["command"] == "send --to-desk --body-file"
-    assert "send: To required" not in cap.out and "send: To required" not in cap.err
+    assert obj["refusal"] == "send: To required"
+    assert "send: To required" not in cap.err
     assert cap.err.strip() == "refused %s" % obj["id"]

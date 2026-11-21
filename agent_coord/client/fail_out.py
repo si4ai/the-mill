@@ -1,8 +1,9 @@
 """One failure shape for a desk command (card 1238).
 
 Stdout is one UTF-8 JSON object, no BOM. stderr is one ASCII line: code, then
-the request id. Success printing is unchanged. The office's own refusal text
-stays off both streams.
+the request id. Success printing is unchanged. A refusal keeps the office's
+text in the stdout field `refusal`, through the same filter and 200-character
+cap as the other fields. An internal error does not copy the exception text.
 """
 from __future__ import annotations
 
@@ -227,6 +228,13 @@ def emit_failure(
     if not when:
         when = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     obj["time"] = when
+    if code == "refused":
+        reason = ""
+        if isinstance(envelope, dict):
+            reason = str(envelope.get("error") or "").strip()
+        if not reason:
+            reason = str(text or "").strip()
+        _put(obj, "refusal", reason, secrets, cuts)
     _put(obj, "next", nxt, secrets, cuts)
     if cuts:
         obj["truncated"] = True
