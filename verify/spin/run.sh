@@ -142,27 +142,50 @@ V21|holds|-DREAD_DROP=1|ltl:sync_fresh|pass|F3: a sync whose hold read starts af
 V22|holds|-DREAD_DROP=1 -DMUT_SNAPSHOT_CARRY|ltl:sync_fresh|violated|mutation: the hold read reuses the first snapshot of the frame (REPEATABLE READ, no commit between reads)
 V23|holds|-DREAD_DROP=1|ltl:sync_after_reply|violated|F3 REACHABLE: a connect sync in a second shell, read before the drop commits, prints after the drop reply and shows the dropped hold
 V24|holds|-DREAD_DROP=1 -DSAME_SHELL=1|ltl:sync_after_reply|pass|F3: in one shell (connect after the drop reply) the sync never shows the dropped hold
-K01|holds|-DRUNS=1 -DSESSION=0|ltl:one_owner|violated|card 1267 COUNTEREXAMPLE (today): two runs of one desk both own the hold (the second take is refreshed, same id)
-K02|holds|-DRUNS=1 -DSESSION=0|ltl:keep|violated|card 1267 today: a losing run of the same desk drops the hold the other run still uses (drop checks the desk only)
-K03|holds|-DRUNS=1 -DSESSION=0 -DDIE=1|liveltl:dead_frees|violated|card 1267 today: no TTL, a dead run keeps its hold forever (as H11)
-K04|holds|-DRUNS=1 -DSESSION=0|ltl:refusals_logged|violated|FINDING (modelled): today the refusal transition is written after the hold commit and soft-fails, so a refusal can go unrecorded
-K05|holds|-DRUNS=1 -DSESSION=1|ltl:one_owner|pass|card 1267 design: at most one live run believes it owns the hold (same desk or not)
-K06|holds|-DRUNS=1 -DSESSION=1|ltl:keep|pass|card 1267 design: a slow live run never loses a hold it keeps renewing (one-shot borrows between commands)
-K07|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|liveltl:dead_frees|pass|card 1267 design: the hold of a dead run frees after the TTL
-K08|holds|-DRUNS=1 -DSESSION=1|ltl:refusals_logged|pass|card 1267 design: every refused take is logged in the same transaction
-K09|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|ltl:one_owner|pass|card 1267 design: single owner also with dead runs and TTL expiry
-K10|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|ltl:keep|pass|card 1267 design: TTL expiry never takes a hold from a live run
-K11|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|safety|pass|card 1267 design: no invalid end state (take never waits)
-K12|holds|-DRUNS=1 -DSESSION=1|ltl:no_same_refusal|violated|reachable: a same-desk refusal (two runs of one desk) is logged as same-desk
-K13|holds|-DRUNS=1 -DSESSION=1|ltl:no_cross_refusal|violated|reachable: a cross-desk refusal is logged as cross-desk
-K14|holds|-DRUNS=1 -DSESSION=1 -DADMIN=1|ltl:keep|violated|by design (trust matrix): an Admin force-drop takes the hold of a live run; the run learns only from refreshed:false on its next take
-M25|holds|-DRUNS=1 -DSESSION=1 -DMUT_SPLIT_TAKE|ltl:one_owner|violated|mutation of card 1267: read-then-write take (not atomic) gives two owners (keeps K05 from being vacuous)
-M26|holds|-DRUNS=1 -DSESSION=1 -DMUT_TAKE_DESK|ltl:one_owner|violated|mutation of card 1267: the take checks the desk, not the run (the rule today)
-M27|holds|-DRUNS=1 -DSESSION=1 -DMUT_DROP_DESK|ltl:one_owner|violated|mutation of card 1267: the drop checks the desk, not the run; a losing run frees the hold of the winner
-M28|holds|-DRUNS=1 -DSESSION=1 -DMUT_RENEW_BY_COMMAND_ONLY|ltl:keep|violated|mutation of card 1267: only an explicit take renews; a slow live run loses its hold to the TTL (keeps K06 from being vacuous)
-M29|holds|-DRUNS=1 -DSESSION=1 -DMUT_OWNER_IS_BORROW|ltl:keep|violated|mutation of card 1267: the owner is the one-shot borrow; the hold ends with the borrow
-M30|holds|-DRUNS=1 -DSESSION=1 -DDIE=1 -DMUT_NO_TTL|liveltl:dead_frees|violated|mutation of card 1267: no expiry (keeps K07 from being vacuous)
-M31|holds|-DRUNS=1 -DSESSION=1 -DMUT_LOG_AFTER|ltl:refusals_logged|violated|mutation of card 1267: the refusal log is written after the commit and may fail (keeps K08 from being vacuous)
+K01|holds|-DRUNS=1 -DOWNER=0|ltl:one_owner|violated|card 1267 COUNTEREXAMPLE (today): two runs of one desk both own the hold (the second take is refreshed, same id)
+K02|holds|-DRUNS=1 -DOWNER=0|ltl:keep|violated|card 1267 today: a losing run of the same desk drops the hold the other run still uses (drop checks the desk only)
+K03|holds|-DRUNS=1 -DOWNER=0 -DDIE=1|liveltl:dead_frees|violated|card 1267 today: no TTL, a dead run keeps its hold forever (as H11)
+K04|holds|-DRUNS=1 -DOWNER=0|ltl:refusals_logged|violated|FINDING (modelled): today the refusal transition is written after the hold commit and soft-fails, so a refusal can go unrecorded
+K05|holds|-DRUNS=1 -DOWNER=1|ltl:one_owner|pass|run-token design (letter 6649): at most one live run believes it owns the hold (same desk or not)
+K06|holds|-DRUNS=1 -DOWNER=1|ltl:keep|pass|run-token design (letter 6649): a slow live run never loses a hold it keeps renewing (one-shot borrows between commands)
+K07|holds|-DRUNS=1 -DOWNER=1 -DDIE=1|liveltl:dead_frees|pass|run-token design (letter 6649): the hold of a dead run frees after the TTL
+K08|holds|-DRUNS=1 -DOWNER=1|ltl:refusals_logged|pass|run-token design (letter 6649): every refused take is logged in the same transaction
+K09|holds|-DRUNS=1 -DOWNER=1 -DDIE=1|ltl:one_owner|pass|run-token design (letter 6649): single owner also with dead runs and TTL expiry
+K10|holds|-DRUNS=1 -DOWNER=1 -DDIE=1|ltl:keep|pass|run-token design (letter 6649): TTL expiry never takes a hold from a live run
+K11|holds|-DRUNS=1 -DOWNER=1 -DDIE=1|safety|pass|run-token design (letter 6649): no invalid end state (take never waits)
+K12|holds|-DRUNS=1 -DOWNER=1|ltl:no_same_refusal|violated|run-token design, reachable: a same-desk refusal (two runs of one desk) is logged as same-desk
+K13|holds|-DRUNS=1 -DOWNER=1|ltl:no_cross_refusal|violated|run-token design, reachable: a cross-desk refusal is logged as cross-desk
+K14|holds|-DRUNS=1 -DOWNER=1 -DADMIN=1|ltl:keep|violated|run-token design, by design (trust matrix): an Admin force-drop takes the hold of a live run; the run learns only from refreshed:false on its next take
+M25|holds|-DRUNS=1 -DOWNER=1 -DMUT_SPLIT_TAKE|ltl:one_owner|violated|mutation of the run-token design: read-then-write take (not atomic) gives two owners (keeps K05 from being vacuous)
+M26|holds|-DRUNS=1 -DOWNER=1 -DMUT_TAKE_DESK|ltl:one_owner|violated|mutation of the run-token design: the take checks the desk, not the run (the rule today)
+M27|holds|-DRUNS=1 -DOWNER=1 -DMUT_DROP_DESK|ltl:one_owner|violated|mutation of the run-token design: the drop checks the desk, not the run; a losing run frees the hold of the winner
+M28|holds|-DRUNS=1 -DOWNER=1 -DMUT_RENEW_BY_COMMAND_ONLY|ltl:keep|violated|mutation of the run-token design: only an explicit take renews; a slow live run loses its hold to the TTL (keeps K06 from being vacuous)
+M29|holds|-DRUNS=1 -DOWNER=1 -DMUT_OWNER_IS_BORROW|ltl:keep|violated|mutation of the run-token design: the owner is the one-shot borrow; the hold ends with the borrow
+M30|holds|-DRUNS=1 -DOWNER=1 -DDIE=1 -DMUT_NO_TTL|liveltl:dead_frees|violated|mutation of the run-token design: no expiry (keeps K07 from being vacuous)
+M31|holds|-DRUNS=1 -DOWNER=1 -DMUT_LOG_AFTER|ltl:refusals_logged|violated|mutation of the run-token design: the refusal log is written after the commit and may fail (keeps K08 from being vacuous)
+K15|holds|-DRUNS=1 -DOWNER=2|ltl:one_owner|pass|card 1267 key design: at most one live run believes it owns the hold (a held take is refused, same desk included)
+K16|holds|-DRUNS=1 -DOWNER=2|ltl:keep|pass|card 1267 key design: a live run (slow or not) never loses a hold it holds the key for; a losing run cannot drop it on its way out
+K17|holds|-DRUNS=1 -DOWNER=2|ltl:refusals_logged|pass|card 1267 key design: every refused take is recorded in the same transaction
+K18|holds|-DRUNS=1 -DOWNER=2|ltl:no_same_refusal|violated|card 1267 key design, reachable: a same-desk collision is now a refusal, recorded as same-desk
+K19|holds|-DRUNS=1 -DOWNER=2|ltl:no_cross_refusal|violated|card 1267 key design, reachable: a cross-desk refusal is recorded as cross-desk
+K20|holds|-DRUNS=1 -DOWNER=2 -DDIE=1|ltl:one_owner|pass|card 1267 key design: single owner also when runs die holding the key
+K21|holds|-DRUNS=1 -DOWNER=2 -DDIE=1|safety|pass|card 1267 key design: no invalid end state (a take never waits)
+K22|holds|-DRUNS=1 -DOWNER=2 -DDIE=1|liveltl:dead_frees|violated|card 1267 key design, by design: no expiry; a hold whose key died with its run stays held until an override
+K23|holds|-DRUNS=1 -DOWNER=2 -DDIE=1 -DSTALE=1|liveltl:dead_frees|violated|FINDING (key design): the stale rule is per desk (seat_connected), so a dead run keeps its hold while another run of the same desk lives
+K24|holds|-DRUNS=1 -DOWNER=2 -DKEYLESS_OWN=1|ltl:keep|violated|A6 counterfactual: if a keyless drop by the own desk freed the hold, the losing run would free the hold of the winner again (as K02); #490 makes it the override (KEYLESS_OWN 0, K16)
+K25|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1|ltl:keep|violated|key design: a receiver that relies on a key copied by letter, without mill hold X --key K first, loses the hold to the cleanup drop of the sender (the docs must say: take with --key first)
+K26|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1 -DREKEY=2|ltl:keep|violated|key design: a receiver that relies on the copy at once and re-keys later still leaves the window open
+K27|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1 -DREKEY=1|ltl:keep|pass|PR #490 hand-off: the receiver relies on the hold once mill hold X --key K answered handoff (K spent, new kh, holder moved, one transaction); the copy of the sender frees nothing
+K28|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1 -DREKEY=1|ltl:one_owner|pass|PR #490 hand-off: still one owner
+K29|holds|-DRUNS=1 -DOWNER=2 -DADMIN=1|ltl:keep|violated|key design, by design (trust matrix): an Admin keyless drop takes the hold of a live run; its key is then spent
+K30|holds|-DRUNS=1 -DOWNER=2|ltl:drop_refusals_logged|violated|FINDING (#490): a refused keyless drop is recorded by rpc.py _h_drop through emit_refuse (_safe_put, soft-fail) after the decision, so a refused drop can go unrecorded (card 1271)
+K31|holds|-DRUNS=1 -DOWNER=2 -DDROP_LOG_TX=1|ltl:drop_refusals_logged|pass|fix for K30: the keyless refusal row is written in the drop transaction, as #490 does for keyed drops and takes
+M32|holds|-DRUNS=1 -DOWNER=2 -DMUT_SPLIT_TAKE|ltl:one_owner|violated|mutation of the key design: read-then-write take gives two owners (keeps K15 from being vacuous)
+M33|holds|-DRUNS=1 -DOWNER=2 -DMUT_SAME_DESK_REFRESH|ltl:one_owner|violated|mutation of the key design: a same-desk take refreshes, as today (keeps K15 from being vacuous)
+M34|holds|-DRUNS=1 -DOWNER=2 -DMUT_DROP_DESK|ltl:keep|violated|mutation of the key design: the drop checks the desk, not the key (keeps K16 from being vacuous)
+M35|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1 -DREKEY=1 -DMUT_KEY_STATIC|ltl:keep|violated|mutation of the key design: one key per resource, not per take; an old copy still frees the hold (keeps K27 from being vacuous)
+M36|holds|-DRUNS=1 -DOWNER=2 -DMUT_LOG_AFTER|ltl:refusals_logged|violated|mutation of the key design: the refusal row is written after the commit and may fail (keeps K17 from being vacuous)
+M37|holds|-DRUNS=1 -DOWNER=2 -DHANDOFF=1 -DREKEY=1 -DMUT_HANDOFF_SAME_KEY|ltl:keep|violated|mutation of #490: the hand-off moves the holder but writes no new kh; the copy of the sender still frees the hold (keeps K27 from being vacuous)
 T01|todo|-DCHECK_EDGES|inv|pass|0.8.0 todo at 8a80dc1: every committed move is an edge (guards under the card lock; T8 from open with a volunteer)
 T02|todo|-DCHECK_EDGES -DUNPARK_GUARD=0|inv|violated|mutation (pre-F186): unpark has no status guard; a claimed, shipped or done card goes open
 T03|todo|-DCHECK_EDGES -DASSIGN_LOCKED=0|inv|violated|mutation (pre-F186): assign checks an unlocked read, then writes blind

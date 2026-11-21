@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Card 925 (hold slice): verify hold upsert/delete/release_other guards against
-# the 0.8.5 code at SYNC. Token-free, on demand, out of CI. Read TLC results with
-# the pstack /statechart skill (do not copy its flags here; they change).
+# Card 925 (hold slice), re-anchored for card 1267: verify the hold take, keyed
+# drop, hand-off, refusal rows and release_other guards against the code at SYNC
+# (PR #490 head). Token-free, on demand, out of CI. Read TLC results with the
+# pstack /statechart skill (do not copy its flags here; they change).
+#
+#   HOLD_CODE_ROOT=DIR verify/hold-code/run.sh   # check the code in another
+#                                                # checkout (e.g. PR #490 head)
 #
 #   verify/hold-code/run.sh              # anchors + model + mutants + known
 #   verify/hold-code/run.sh anchors      # code anchors only
@@ -16,10 +20,10 @@
 set -euo pipefail
 
 HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
+ROOT=${HOLD_CODE_ROOT:-$(CDPATH= cd -- "$HERE/../.." && pwd)}
 OUT=${HOLD_CODE_OUT:-$HERE/out}
-SYNC=ce115f8eb70e7e360b80974ec62e177e7771199f
-COVERED="agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py"
+SYNC=047b9f50feff2928b96b04aa755d099c30ac350f
+COVERED="agent_coord/server/sql/sp_hold.sql agent_coord/server/records/hold.py agent_coord/helpers/hold_key.py"
 
 JAVA=${JAVA:-}
 TLA2TOOLS=${TLA2TOOLS:-}
@@ -63,7 +67,9 @@ find_statechart() {
 }
 
 note_sync() {
-  if git -C "$ROOT" cat-file -e "$SYNC^{commit}" 2>/dev/null; then
+  if ! git -C "$ROOT" cat-file -e "$SYNC^{commit}" 2>/dev/null; then
+    echo "note: $SYNC is not in this checkout; anchors describe PR #490 (card 1267). Fetch it, or set HOLD_CODE_ROOT to a checkout of it"
+  else
     local changed
     changed=$(cd "$ROOT" && git diff --name-only "$SYNC" -- $COVERED | tr '\n' ' ')
     if [ -n "$changed" ]; then
@@ -156,7 +162,7 @@ run_mutants() {
   return $rc
 }
 
-# No TTL (SPIN H11): current code must still violate NoStuckHoldPastBound;
+# No TTL (SPIN H11; card 1267 K22: no expiry by design): the code must still violate NoStuckHoldPastBound;
 # the proposed GuardAutoExpire=TRUE cfg must pass it.
 run_known() {
   local sc mout inv
