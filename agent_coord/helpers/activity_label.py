@@ -1,8 +1,9 @@
 """Repeatable --label on the six activity writes and reads (#1233).
 
-One path validates, sets, and warns. --label never mints a label. A live label,
-or a desk that already has a focus list, is set. Anything else is skipped with
-a warning and the write still happens.
+One path validates, sets, and warns. --label never mints a label. A live label
+is set. On a write, a desk name is skipped like any other name of another kind.
+A read of a desk that already has a focus list still names that list.
+Anything else is skipped with a warning and the write still happens.
 """
 from __future__ import annotations
 
@@ -94,7 +95,12 @@ def warn_denied(name: str, label_names: list[str]) -> str:
     return "label '%s' may not be set. closest: %s. %s %s." % (name, closest(name, label_names), _CREATE, name)
 
 
-def classify(raw: Any, catalog: list[NameRow], label_names: list[str] | None = None) -> Classified:
+def classify(
+    raw: Any,
+    catalog: list[NameRow],
+    label_names: list[str] | None = None,
+    writing: bool = False,
+) -> Classified:
     """Split requested names into ones to set and ones to skip. Never mints."""
     names = clean(raw)
     by: dict[str, NameRow] = {}
@@ -120,7 +126,7 @@ def classify(raw: Any, catalog: list[NameRow], label_names: list[str] | None = N
             seen.add(key)
             accepted.append(Accepted(row.name, row.name, (row.name,)))
             continue
-        if row.kind == "desk" and row.focus:
+        if row.kind == "desk" and row.focus and not writing:
             key = row.name.casefold()
             if key in seen:
                 continue
@@ -491,12 +497,12 @@ def load_catalog(cn: Any, names: list[str]) -> tuple[list[NameRow], list[str]]:
     return rows, label_names
 
 
-def resolve(cn: Any, raw: Any) -> Classified:
+def resolve(cn: Any, raw: Any, writing: bool = False) -> Classified:
     names = clean(raw)
     if cn is None:
-        return classify(names, [])
+        return classify(names, [], writing=writing)
     rows, label_names = load_catalog(cn, names)
-    return classify(names, rows, label_names)
+    return classify(names, rows, label_names, writing=writing)
 
 
 def apply_names(cn: Any, typ: str, nid: int, names: list[str]) -> None:
@@ -752,7 +758,7 @@ def run_labeled(c: Any, command: str, body: dict[str, Any], owner: str | None, r
     reading = is_read(command, body)
     if writing is None and not reading:
         return _note_unused(run())
-    classified = resolve(cn, names)
+    classified = resolve(cn, names, writing=writing is not None and not reading)
     if reading:
         _prepare_history(command, body)
         return filter_read(cn, command, body, run(), classified)
