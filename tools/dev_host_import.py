@@ -86,6 +86,7 @@ def redact_output(text: str) -> str:
 
 
 def _print(text: str, file: TextIO | None = None) -> None:
+    # codeql[py/clear-text-logging-sensitive-data]: prints only after redact_output
     print(redact_output(text), file=file or sys.stdout)
 
 
