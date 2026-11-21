@@ -18,8 +18,12 @@ def key_hash(key: str) -> str:
 
 
 def new_key() -> tuple[str, str]:
-    """(release_key, kh): a fresh key and the hash the take sends."""
-    key = secrets.token_urlsafe(32)
+    """(release_key, kh): a fresh key and the hash the take sends.
+
+    The "hk_" prefix keeps a key that token_urlsafe starts with "-" from being read
+    as a flag by mill drop NAME --key KEY.
+    """
+    key = "hk_" + secrets.token_urlsafe(32)
     return key, key_hash(key)
 
 

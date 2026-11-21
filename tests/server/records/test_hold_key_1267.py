@@ -304,3 +304,11 @@ def test_contention_scores_read_by_name(book) -> None:
     got = ha.score_view_for_name(cn, "hold-same-desk")
     assert got["score"] == "hold-same-desk" and got["n"] >= 1 and got["why"], got
     assert "hold-same-desk" in ha.SCORE_NAMES
+
+
+def test_release_key_never_parses_as_a_flag() -> None:
+    from agent_coord.helpers.hold_key import new_key
+
+    keys = [new_key()[0] for _ in range(500)]
+    assert all(k.startswith("hk_") and len(k) > 40 for k in keys)
+    assert len(set(keys)) == len(keys)
