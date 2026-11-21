@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 from agent_coord.__main__ import main
 
@@ -42,8 +43,11 @@ def test_join_join_url_exits_1_on_stderr(monkeypatch, tmp_path, capsys):
     rc = main(["join", "join", "--office", "home"])
     out = capsys.readouterr()
     assert rc == 1
-    assert out.out.strip() == ""
-    assert "extra join word" in out.err
+    obj = json.loads(out.out)
+    assert obj["code"] == "refused"
+    assert "extra join word" in obj["refusal"]
+    assert "extra join word" not in out.err
+    assert out.err.strip() == "refused %s" % obj["id"]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -59,5 +63,8 @@ def test_join_failure_json_is_stderr_exit_1(monkeypatch, tmp_path, capsys):
     rc = main(["join", "--office", "home", "--link-file", str(link)])
     out = capsys.readouterr()
     assert rc == 1
-    assert out.out.strip() == ""
-    assert "wall unreachable" in out.err
+    obj = json.loads(out.out)
+    assert obj["code"] == "refused"
+    assert obj["refusal"] == "wall unreachable"
+    assert "wall unreachable" not in out.err
+    assert out.err.strip() == "refused %s" % obj["id"]
