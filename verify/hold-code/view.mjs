@@ -1,6 +1,6 @@
 /** Reader-facing labels for hold recovery guards (card 925). */
 
-export const title = "Hold mutex and release-other (0.8.5 / ce115f8)";
+export const title = "Hold mutex, one-use release key, release-other (card 1267 / PR #490 047b9f5)";
 
 export const state = (v) => {
   if (v.twoHolders) return "TWO_HOLDERS";
@@ -19,11 +19,11 @@ export const colors = { free: "blue", held: "yellow", bad: "pink" };
 
 export const step = (action) => {
   const a = String(action);
+  if (a.startsWith("TakeKey")) return "mill hold --key (hand-off)";
   if (a.startsWith("Take")) return "mill hold";
-  if (a.startsWith("DropOwn")) return "mill drop (own)";
-  if (a.startsWith("ReleaseOther")) return "mill drop (other)";
+  if (a.startsWith("DropKey")) return "mill drop --key";
+  if (a.startsWith("ReleaseOther")) return "mill drop (no key: override)";
   if (a === "Tick") return "time passes";
-  if (a === "Expire") return "auto-expire [proposed]";
   if (a === "Term") return null;
   return a;
 };
