@@ -172,7 +172,7 @@ def select(cn, *, include_deleted: bool = False) -> list[dict]:
     try:
         where = "" if include_deleted else " WHERE deleted IS NULL AND trashed IS NULL"
         cur.execute(
-            "SELECT id, type, updated, name, type AS name_type, deleted FROM name"
+            "SELECT id, type, updated, name, type AS name_type, deleted, trashed FROM name"
             + where
             + " ORDER BY id"
         )

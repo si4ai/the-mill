@@ -107,7 +107,7 @@ def rows_for(cn, tag: str) -> list[dict[str, Any]]:
             " FROM label l"
             " JOIN name n ON n.id = l.name_id"
             " JOIN activity a ON a.type = l.type AND a.id = l.id"
-            " WHERE n.type = 'label' AND n.deleted IS NULL AND " + pred +
+            " WHERE n.type = 'label' AND n.deleted IS NULL AND n.trashed IS NULL AND " + pred +
             " AND a.deleted IS NULL"
             " AND l.type IN ('mail', 'todo')"
             " ORDER BY l.ord, l.created, l.type, l.id",
@@ -160,6 +160,7 @@ def wall_rows(cn, names: list[str] | None = None) -> list[dict[str, Any]]:
             "   SELECT 1 FROM member m WHERE m.name_id = t.roster_id AND m.desk_id = dn.id)) AS off_roster"
             " FROM label l"
             " JOIN name n ON n.id = l.name_id AND n.type = 'label' AND n.deleted IS NULL"
+            "  AND n.trashed IS NULL"  # card 1255: a trashed list is not a live choice
             " JOIN activity a ON a.type = l.type AND a.id = l.id AND a.deleted IS NULL"
             " LEFT JOIN seat fs ON fs.focus_label_id = n.id"
             " LEFT JOIN name dn ON dn.id = fs.desk_id AND dn.deleted IS NULL"

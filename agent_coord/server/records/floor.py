@@ -72,15 +72,31 @@ def _part_fp(cn, kind: str, ident: str, part: str) -> str:
 
 
 def _projects_part_fp(cn, projects: list[str], part: str) -> str:
-    """Fingerprint one part across one or more project names (MySQL mill_fp owns hash)."""
+    """Fingerprint one part across one or more project names (MySQL mill_fp owns hash).
+
+    Card 1255: rows carry deleted_names, so a retire, trash or restore of any name
+    moves every part's fingerprint (_name_state), and a client holding the old one re-reads.
+    """
     from .db import scalar
     slugs = [p for p in projects if p]
     if not slugs:
-        return _part_fp(cn, "project", "", part)
-    fps = [_part_fp(cn, "project", s, part) for s in slugs]
-    if len(fps) == 1:
-        return fps[0]
-    return str(scalar(cn, "SELECT mill_fp(%s)", (":".join(fps),)) or "")
+        fps = [_part_fp(cn, "project", "", part)]
+    else:
+        fps = [_part_fp(cn, "project", s, part) for s in slugs]
+    if not any(fps):
+        return ""
+    return str(scalar(cn, "SELECT mill_fp(%s)", (":".join(fps + [_name_state(cn)]),)) or "")
+
+
+def _name_state(cn) -> str:
+    """How many names are retired or trashed and when the latest was: one small read of name."""
+    cur = cn.cursor()
+    try:
+        cur.execute("SELECT COUNT(deleted), MAX(deleted), COUNT(trashed), MAX(trashed) FROM name")
+        row = cur.fetchone() or ()
+    finally:
+        cur.close()
+    return "|".join(str(v) for v in row)
 
 
 def _nm(value: Any) -> str:
@@ -121,7 +137,7 @@ def _name_catalog(rows_in: list[dict]) -> list[dict]:
         if not shown:
             continue
         item = MillName(str(rec.get("name_type") or ""), shown)
-        gone = rec.get("deleted") is not None
+        gone = rec.get("deleted") is not None or rec.get("trashed") is not None  # card 1255
         if item.type == CONST_TREE and re.fullmatch(r"[0-9a-f]{10}", item.str, re.I):
             unnamed += 1
             continue
@@ -740,7 +756,7 @@ def build_watchers(
     todos = todos if todos is not None else {}
     mails = mails if mails is not None else {}
     if names is None:
-        names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn)}
+        names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn, include_deleted=True)}
     if roster_ids is None and want:
         roster_ids = [
             i for i, nm in names.items() if nm in want or _nm(nm) in want
@@ -1077,7 +1093,7 @@ def floor(
             if r.get("deleted") is None
         }
     elif need_names:
-        names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn)}
+        names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn, include_deleted=True)}
     aff_ids = None
     if want:
         aff_ids = [i for i, nm in names.items() if nm in want or _nm(nm) in want]
@@ -1669,7 +1685,7 @@ def build_trees_typed(
 ) -> list[dict]:
     """Full slice of glance trees for one activity type (mail|todo). Not progressive."""
     typ = (type_filter or "").strip().lower()
-    names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn)}
+    names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn, include_deleted=True)}
     whole = typ in ("mail", "todo")
     if typ == "mail":
         raw_rows = rec_tree.mail_forest_rows(cn, roster_ids)
@@ -1929,7 +1945,7 @@ def build_rooms(
     aff = roster_ids
     if aff is None and want:
         aff = _v1_aff_ids(cn, want)
-    names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn)}
+    names = {int(r["id"]): str(r.get("name") or "") for r in rec_name.select(cn, include_deleted=True)}
     rows = rec_tree.mail_room_root_rows(cn, aff)
     enriched: list[dict] = []
     for raw in rows:
