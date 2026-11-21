@@ -255,15 +255,22 @@ def _sql_refusal(exc: BaseException) -> str:
     return msg
 
 
+def _delete_kind(kind: str) -> str:
+    k = (kind or "").strip().lower()
+    if k in ("file", "resource"):
+        return "res"
+    return k
+
+
 def trash(cn, name: str, kind: str, *, by: str) -> dict:
-    """#879: mill delete - stamp name.trashed (hidden, restorable). Desks keep retire."""
+    """Card 1241: mill delete NAME empties a roster, label, or tree and stamps trashed."""
     from agent_coord.helpers.errors import CoordError
     from agent_coord.server.records.db import call
 
-    k = (kind or "").strip().lower()
-    if k not in ("roster", "label", "tree"):
-        raise CoordError("delete: type is roster, label or tree (desks keep mill retire)")
-    bare_name = bare(name, k)
+    k = _delete_kind(kind)
+    if k and k not in ("roster", "label", "tree", "desk", "res"):
+        raise CoordError("delete: mill delete NAME")
+    bare_name = bare(name, k) if k else (name or "").strip()
     if not bare_name:
         raise CoordError("delete: name is empty")
     if len(bare_name) > 64:
@@ -282,14 +289,14 @@ def trash(cn, name: str, kind: str, *, by: str) -> dict:
 
 
 def restore_trashed(cn, name: str, kind: str, *, by: str) -> dict:
-    """#879: mill restore - clear name.trashed."""
+    """Card 1241: mill restore NAME clears trashed and does not put the contents back."""
     from agent_coord.helpers.errors import CoordError
     from agent_coord.server.records.db import call
 
-    k = (kind or "").strip().lower()
-    if k not in ("roster", "label", "tree"):
-        raise CoordError("restore: type is roster, label or tree (desks keep mill retire)")
-    bare_name = bare(name, k)
+    k = _delete_kind(kind)
+    if k and k not in ("roster", "label", "tree", "desk", "res"):
+        raise CoordError("restore: mill restore NAME")
+    bare_name = bare(name, k) if k else (name or "").strip()
     if not bare_name:
         raise CoordError("restore: name is empty")
     if len(bare_name) > 64:
@@ -308,29 +315,11 @@ def restore_trashed(cn, name: str, kind: str, *, by: str) -> dict:
 
 
 def purge_trashed(cn, name: str, kind: str, *, by: str) -> dict:
-    """#879: mill purge - hard-delete a trashed unreferenced roster|label|tree via sp_name_purge."""
+    """Card 1241: mill purge is removed. Nothing is hard-deleted."""
     from agent_coord.helpers.errors import CoordError
-    from agent_coord.server.records.db import call
 
-    k = (kind or "").strip().lower()
-    if k not in ("roster", "label", "tree"):
-        raise CoordError("purge: type is roster, label or tree (desks keep mill retire)")
-    bare_name = bare(name, k)
-    if not bare_name:
-        raise CoordError("purge: name is empty")
-    if len(bare_name) > 64:
-        raise CoordError("purge: name is 1 to 64 characters")
-    try:
-        rows = call(cn, "sp_name_purge", [_by(by), k, bare_name])
-    except Exception as e:
-        raise CoordError(_sql_refusal(e)) from e
-    row = rows[0] if rows else {}
-    return {
-        "op": "purged",
-        "type": str(row.get("name_type") or k),
-        "name": str(row.get("name") or bare_name),
-        "id": int(row["id"]),
-    }
+    _ = (cn, name, kind, by)
+    raise CoordError("purge is removed; mill delete NAME")
 
 
 # Back-compat alias used by older call sites / docs while #256 lands.

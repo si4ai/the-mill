@@ -1221,29 +1221,28 @@ def _build_parser() -> MillArgumentParser:
 
     dele = sub.add_parser(
         "delete",
-        help="trash: mill delete roster|label|tree NAME stamps trashed (hidden, restorable); "
-        "desks keep mill retire; mill purge hard-deletes a trashed unreferenced name",
+        help="mill delete NAME empties a roster, label, or tree and stamps it trashed; "
+        "the name stays. A desk stays on mill retire. A second word is refused",
     )
-    dele.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
     dele.add_argument("slug", metavar="NAME")
+    dele.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
     dele.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     restor = sub.add_parser(
         "restore",
-        help="undo trash: mill restore roster|label|tree NAME clears name.trashed",
+        help="mill restore NAME clears trashed and does not put the contents back",
     )
-    restor.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
     restor.add_argument("slug", metavar="NAME")
+    restor.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
     restor.add_argument("--yes", action="store_true", help="skip the retype prompt")
 
     purg = sub.add_parser(
         "purge",
-        help="hard delete: mill purge roster|label|tree NAME removes a trashed unreferenced name; "
-        "creator stand-in (sole roster member) or Admin",
+        help="removed: mill purge is refused; mill delete NAME empties and trashes",
     )
-    purg.add_argument("kind", metavar="TYPE", choices=("roster", "label", "tree"))
-    purg.add_argument("slug", metavar="NAME")
-    purg.add_argument("--yes", action="store_true", help="skip the retype prompt")
+    purg.add_argument("slug", nargs="?", default="", metavar="NAME")
+    purg.add_argument("kind", nargs="?", default="", metavar="EXTRA", help=argparse.SUPPRESS)
+    purg.add_argument("--yes", action="store_true", help="unused; purge is removed")
 
     rtr = sub.add_parser(
         "retire",

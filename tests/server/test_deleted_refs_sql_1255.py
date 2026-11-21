@@ -3,8 +3,8 @@
 A trashed roster and a retired desk stay on the cards, letters, holds and
 scores that name them (a retired desk's holds are freed), in the Wall feeds (/api/v1/todos, mailbox, holds,
 scores, labels) and in a CLI reply, each row with deleted_names. A trashed
-label leaves the PRIORITIES lists and a trashed tree leaves mill rooms; both
-come back after mill restore.
+label leaves the PRIORITIES lists and a trashed tree leaves mill rooms.
+Card 1241 removes those rows, so mill restore does not put them back.
 """
 from __future__ import annotations
 
@@ -126,7 +126,8 @@ def test_trashed_label_leaves_priorities_until_restore(cn, monkeypatch) -> None:
     assert rec_label.rows_for(cn, lbl) == []
     rec_name.restore_trashed(cn, lbl, "label", by=admin)
     cn.commit()
-    assert [r["id"] for r in _rows(client, route, "rows")] == [w["todo"]]
+    assert _rows(client, route, "rows") == []
+    assert rec_label.rows_for(cn, lbl) == []
 
 
 def test_trashed_tree_leaves_rooms_until_restore(cn) -> None:
@@ -146,7 +147,7 @@ def test_trashed_tree_leaves_rooms_until_restore(cn) -> None:
     assert room not in rooms()
     rec_name.restore_trashed(cn, room, "tree", by=admin)
     cn.commit()
-    assert room in rooms()
+    assert room not in rooms()
 
 
 def test_part_fingerprints_move_on_retire_trash_and_restore(cn) -> None:

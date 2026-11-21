@@ -216,7 +216,12 @@ BEGIN
 
   IF p_kind = 'project' THEN
     IF IFNULL(p_id, '') <> '' THEN
-      SET v_proj = MILL_NAME_GET('roster', p_id);
+      -- A poll names a roster that may already be trashed. MILL_NAME_GET
+      -- signals on trashed, which refuses a new write. This read keeps the id
+      -- so the fingerprint of rows that still point at the roster can move.
+      SELECT id INTO v_proj FROM name
+       WHERE type = 'roster' AND name = TRIM(p_id)
+       LIMIT 1;
     END IF;
     IF p_part = 'mail' THEN
       SELECT 'mail' AS part, MILL_FP(CONCAT_WS(':',
