@@ -1,6 +1,6 @@
 /* PRIORITIES tab (card 1153, first slice): each desk's ranked list, as its connect focus line sees it.
  * Design: letters 5553 (ask), 5556 gardener, 5558 builder, 5559 auditor, 5566 validator.
- * - A desk's list is the todo label named after the desk (mill label todo <id> <desk> --ord N),
+ * - A desk name cannot be a label. A focus list stored before 0.8.16 is still read,
  *   the same source as the connect focus line and todo --mine (client/focus.py).
  * - One column per desk, top FOCUS_TOP workable cards: not done, not parked, not held by another
  *   desk; ord ascending (0 pinned, 65535 unplaced), ties by card id. Same rule as focus.order_mine.
@@ -243,7 +243,7 @@
     else if (col.parked === col.ranked) why = col.ranked + " ranked, all parked";
     else if (!col.parked) why = col.ranked + " ranked, all held by " + col.heldBy.join(", ");
     else why = col.ranked + " ranked, all parked or held (" + col.parked + " parked, " + col.held + " held by " + col.heldBy.join(", ") + ")";
-    return { why: why, fix: "mill label todo <id> " + desk + " --ord 0" };
+    return { why: why, fix: "pick another label; a desk name cannot be a label" };
   }
 
   /* ---- HTML. */

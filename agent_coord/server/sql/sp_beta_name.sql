@@ -70,6 +70,8 @@ DROP PROCEDURE IF EXISTS b_name_mint //
 CREATE PROCEDURE b_name_mint(IN p_by BIGINT UNSIGNED, IN p_type VARCHAR(8), IN p_name VARCHAR(64), OUT o_id BIGINT UNSIGNED, OUT o_op VARCHAR(8))
 BEGIN
   DECLARE v_del DATETIME(6);
+  DECLARE v_have VARCHAR(16);
+  DECLARE v_msg VARCHAR(128);
   CALL b_name_check(p_name);
   IF p_type NOT IN ('roster','label','tree','res') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name: a desk mints itself at connect'; END IF;
   SET o_id = NULL;
@@ -83,8 +85,11 @@ BEGIN
     IF p_type IN ('roster','label') AND b_trust() = 'limited' AND NOT b_is_admin(p_by) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'limited-trust: minting a roster or label is Admin (mill create roster NAME --yes)';
     END IF;
-    IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
-      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+    SET v_have = NULL;
+    SELECT type INTO v_have FROM name WHERE name = TRIM(p_name) LIMIT 1;
+    IF v_have IS NOT NULL THEN
+      SET v_msg = LEFT(CONCAT('name in use: ', TRIM(p_name), ' is a ', v_have, '; pick another name'), 128);
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
     END IF;
     INSERT INTO name (type, name) VALUES (p_type, TRIM(p_name)); SET o_id = LAST_INSERT_ID(); SET o_op = 'created';
   END IF;
@@ -101,13 +106,18 @@ DROP PROCEDURE IF EXISTS sp_name_mint_desk //
 CREATE PROCEDURE sp_name_mint_desk(IN p_name VARCHAR(64), IN p_token_hash CHAR(64))
 BEGIN
   DECLARE v BIGINT UNSIGNED; DECLARE v_del DATETIME(6);
+  DECLARE v_have VARCHAR(16);
+  DECLARE v_msg VARCHAR(128);
   CALL b_name_check(p_name);
   IF p_token_hash IS NULL OR CHAR_LENGTH(p_token_hash) <> 64 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'connect: seat token hash required'; END IF;
   SELECT id, deleted INTO v, v_del FROM name WHERE type = 'desk' AND name = TRIM(p_name) FOR UPDATE;
   IF v_del IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name retired: an Admin reclaims it (mill reclaim)'; END IF;
   IF v IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: that desk is minted'; END IF;
-  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_name)) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+  SET v_have = NULL;
+  SELECT type INTO v_have FROM name WHERE name = TRIM(p_name) LIMIT 1;
+  IF v_have IS NOT NULL THEN
+    SET v_msg = LEFT(CONCAT('name in use: ', TRIM(p_name), ' is a ', v_have, '; pick another name'), 128);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   INSERT INTO name (type, name) VALUES ('desk', TRIM(p_name)); SET v = LAST_INSERT_ID();
   INSERT INTO seat (desk_id, token_hash) VALUES (v, p_token_hash);
@@ -125,6 +135,8 @@ CREATE PROCEDURE sp_name_rename(IN p_by VARCHAR(64), IN p_by_hash CHAR(64), IN p
 BEGIN
   DECLARE v_by BIGINT UNSIGNED DEFAULT b_desk(p_by); DECLARE v_type VARCHAR(8) DEFAULT b_name_type(p_type);
   DECLARE v_id BIGINT UNSIGNED; DECLARE v_del DATETIME(6); DECLARE v_old VARCHAR(64); DECLARE v_self TINYINT DEFAULT 0;
+  DECLARE v_have VARCHAR(16);
+  DECLARE v_msg VARCHAR(128);
   CALL b_name_check(p_new);
   SELECT id, deleted, name INTO v_id, v_del, v_old FROM name WHERE type = v_type AND name = TRIM(p_old) FOR UPDATE;
   IF v_id IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name not found'; END IF;
@@ -139,8 +151,11 @@ BEGIN
   IF v_type = 'roster' AND v_id <> 1 AND TRIM(p_new) COLLATE utf8mb4_0900_ai_ci = 'Office' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use: Office names roster id 1';
   END IF;
-  IF EXISTS (SELECT 1 FROM name WHERE name = TRIM(p_new) AND id <> v_id) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'name in use';
+  SET v_have = NULL;
+  SELECT type INTO v_have FROM name WHERE name = TRIM(p_new) AND id <> v_id LIMIT 1;
+  IF v_have IS NOT NULL THEN
+    SET v_msg = LEFT(CONCAT('name in use: ', TRIM(p_new), ' is a ', v_have, '; pick another name'), 128);
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   UPDATE name SET name = TRIM(p_new) WHERE id = v_id;
   SELECT v_id AS id, TRIM(p_new) AS name, v_type AS name_type, 'renamed' AS op;

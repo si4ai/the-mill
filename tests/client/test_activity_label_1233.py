@@ -52,12 +52,16 @@ def test_disallowed_label_is_skipped():
     ]
 
 
-def test_focus_desk_is_set_and_a_desk_without_focus_is_not():
-    got = classify(["ada", "bob"], CATALOG, _labels())
-    assert got.set_names == ["ada"]
-    assert got.show == ["ada-1"]
-    assert got.accepted[0].aliases == ("ada", "ada-1")
-    assert any("desk" in w for w in got.warnings)
+def test_focus_desk_read_names_the_list_and_a_write_skips_it():
+    read = classify(["ada", "bob"], CATALOG, _labels())
+    assert read.set_names == ["ada"]
+    assert read.show == ["ada-1"]
+    assert read.accepted[0].aliases == ("ada", "ada-1")
+    assert any("desk" in w for w in read.warnings)
+    write = classify(["ada", "bob"], CATALOG, _labels(), writing=True)
+    assert write.set_names == []
+    assert "ada is a desk, not a label" in write.warnings[0]
+    assert "bob is a desk, not a label" in write.warnings[1]
 
 
 def test_blanks_and_dupes_drop():
@@ -127,12 +131,21 @@ def quiet_tx(monkeypatch):
 
 
 def _patch_catalog(monkeypatch, puts):
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
 
     def _apply(cn, typ, nid, names):
         puts.append((typ, nid, list(names)))
 
     monkeypatch.setattr(al, "apply_names", _apply)
+
+
+def test_write_desk_name_is_skipped(quiet_tx, monkeypatch):
+    puts = []
+    _patch_catalog(monkeypatch, puts)
+    out = al.run_labeled(_book(), "open", {"labels": ["ada"]}, "desk", lambda: {"id": 3})
+    assert puts == []
+    assert out["labels"] == []
+    assert any("ada is a desk, not a label" in w for w in out["label_warnings"])
 
 
 def test_write_zero_labels_leaves_the_result(quiet_tx):
@@ -272,7 +285,7 @@ def test_score_point_is_still_refused(quiet_tx, monkeypatch):
 
 def test_read_one_two_any_and_unknown(monkeypatch):
     items = [{"id": 1}, {"id": 2}]
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     monkeypatch.setattr(
         al, "names_on",
         lambda cn, typ, ids: {1: {"rco"}, 2: {"rco", "windows"}},
@@ -308,7 +321,7 @@ def test_read_label_with_status_sees_only_matches(monkeypatch):
         {"id": 2, "status": "open"},
         {"id": 3, "status": "done"},
     ]
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     monkeypatch.setattr(al, "names_on", lambda cn, typ, ids: {1: {"rco"}, 2: {"windows"}, 3: {"rco"}})
     wrapped = al.run_labeled(_book(), "todo", {"labels": ["rco"]}, "desk", lambda: items)
     opened = [r for r in wrapped["rows"] if r["status"] == "open"]
@@ -316,7 +329,7 @@ def test_read_label_with_status_sees_only_matches(monkeypatch):
 
 
 def test_hold_list_and_peek(monkeypatch):
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     monkeypatch.setattr(al, "names_on", lambda cn, typ, ids: {1: {"rco"}, 2: set()})
     listed = al.run_labeled(
         _book(), "hold", {"peek": True, "labels": ["rco"]}, "desk",
@@ -332,7 +345,7 @@ def test_hold_list_and_peek(monkeypatch):
 
 
 def test_connected_and_score_reads(monkeypatch):
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     monkeypatch.setattr(al, "names_on", lambda cn, typ, ids: {1: {"rco"}, 2: {"windows"}, 8: {"rco"}})
     live = al.run_labeled(
         _book(), "session", {"labels": ["windows"]}, "desk",
@@ -349,7 +362,7 @@ def test_connected_and_score_reads(monkeypatch):
 
 
 def test_mail_thread_and_history_any(monkeypatch):
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     monkeypatch.setattr(al, "names_on", lambda cn, typ, ids: {1: {"rco"}, 2: {"windows"}})
     thread = al.run_labeled(
         _book(), "mail-thread", {"labels": ["rco", "windows"], "label_any": True}, "desk",
@@ -440,7 +453,7 @@ def test_trail_two_labels_every_and_any(monkeypatch):
     def one(tag):
         return {"label": tag, "hint": "", "rows": rows[tag], "truncated": False}
 
-    monkeypatch.setattr(al, "resolve", lambda cn, raw: classify(raw, CATALOG, _labels()))
+    monkeypatch.setattr(al, "resolve", lambda cn, raw, writing=False: classify(raw, CATALOG, _labels(), writing=writing))
     book = SimpleNamespace(_cn=object())
     one_label = al.trail_read(book, ["rco"], False, one)
     assert [r["id"] for r in one_label["rows"]] == [1, 2]
