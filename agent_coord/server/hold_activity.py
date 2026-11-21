@@ -34,6 +34,10 @@ SCORE_NAMES = {
     "hold-contention",
     "hold-force-taken",
     "hold-expired",
+    # Card 1267: contention read from hold_refuse transitions (contention_view).
+    "hold-same-desk",
+    "hold-cross-desk",
+    "hold-refused-drop",
 }
 
 
@@ -154,14 +158,21 @@ def emit_refuse(
     hold_id: int,
     desk_id: int,
     holder_desk_id: int | None = None,
+    op: str | None = None,
 ) -> None:
-    """H7 any->refused / hold_refuse (waiter blocked)."""
+    """H7 any->refused / hold_refuse (waiter blocked).
+
+    Card 1267: takes and key drops are logged by sp_hold.sql in their own transaction.
+    op="drop" is the keyless override refused in Python; meta then matches the SQL rows.
+    """
     hid = int(hold_id)
     did = int(desk_id)
     if hid <= 0 or did <= 0:
         return
     meta = None
-    if holder_desk_id is not None and int(holder_desk_id) > 0:
+    if op:
+        meta = {"op": op, "asker": did, "holder": int(holder_desk_id) if holder_desk_id else None}
+    elif holder_desk_id is not None and int(holder_desk_id) > 0:
         meta = {"holder": int(holder_desk_id)}
     _safe_put(
         cn,
@@ -367,6 +378,11 @@ def score_view(cn, desk_id: int | None = None) -> dict[str, Any]:
 
 
 def score_view_for_name(cn, name: str, desk_id: int | None = None) -> dict[str, Any]:
+    part = {"hold-same-desk": "same_desk_n", "hold-cross-desk": "cross_desk_n",
+            "hold-refused-drop": "refused_drop_n"}.get(name)
+    if part:
+        view = contention_view(cn)
+        return {"score": name, **view[part], "top_resources": view["top_resources"]}
     view = score_view(cn, desk_id=desk_id)
     key = {
         KPI_WAIT: "wait_ms",
@@ -386,3 +402,64 @@ def score_view_for_name(cn, name: str, desk_id: int | None = None) -> dict[str, 
     if part is None:
         return {"score": name, "missing": True}
     return {"score": name, **part}
+
+
+CONTENTION_PARTS = {
+    "same_desk_n": (
+        "Same-desk hold collisions",
+        "A desk asked for a hold it already has: two of its runs are duplicating work; fix its wake or hand-off.",
+    ),
+    "cross_desk_n": (
+        "Cross-desk hold collisions",
+        "Two desks wanted one artifact: coordinate, or split the card.",
+    ),
+    "refused_drop_n": (
+        "Refused hold drops",
+        "A drop had a wrong or spent key, or no key: find the desk that has the release key.",
+    ),
+}
+
+
+def contention_view(cn, *, hours: int = 24, top: int = 5) -> dict[str, Any]:
+    """Card 1267: contention from hold_refuse transitions (no new tables or columns).
+
+    Same-desk vs cross-desk collisions, refused drops, and the top resources by
+    collisions with the current holder and since, for the Wall SCORE tab.
+    """
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT t.desk_id, t.meta, rn.name AS resource, h.desk_id AS now_desk, h.updated AS now_since,"
+            " dn.name AS now_holder"
+            " FROM transition t JOIN hold h ON h.id = t.activity_id"
+            " JOIN name rn ON rn.id = h.resource_id LEFT JOIN name dn ON dn.id = h.desk_id"
+            " WHERE t.activity_type = 'hold' AND t.reason = 'hold_refuse'"
+            "   AND t.at >= TIMESTAMPADD(HOUR, -%s, UTC_TIMESTAMP(6))",
+            (int(hours),),
+        )
+        rows = list(cur.fetchall())
+    finally:
+        cur.close()
+    import json
+
+    n = {"same_desk_n": 0, "cross_desk_n": 0, "refused_drop_n": 0}
+    by_res: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        raw = r.get("meta")
+        meta = raw if isinstance(raw, dict) else (json.loads(raw) if raw else {})
+        if (meta or {}).get("op") == "drop":
+            n["refused_drop_n"] += 1
+            continue
+        asker = int((meta or {}).get("asker") or r.get("desk_id") or 0)
+        holder = int((meta or {}).get("holder") or 0)
+        n["same_desk_n" if holder and holder == asker else "cross_desk_n"] += 1
+        res = str(r.get("resource") or "")
+        slot = by_res.setdefault(res, {"resource": res, "n": 0, "holder": r.get("now_holder"),
+                                       "since": str(r["now_since"])[:26] if r.get("now_desk") else None})
+        slot["n"] += 1
+    out: dict[str, Any] = {"unit": "hold", "window_hours": int(hours)}
+    for part, count in n.items():
+        name, why = CONTENTION_PARTS[part]
+        out[part] = {"n": count, "unit": "count", "name": name, "why": why}
+    out["top_resources"] = sorted(by_res.values(), key=lambda x: (-x["n"], x["resource"]))[:top]
+    return out

@@ -480,6 +480,18 @@ def body_from_args(args: Any) -> dict[str, Any]:
             body.pop("resource", None)
     if command == "hold" and (bool(getattr(args, "peek", False)) or "resource" not in body):
         body["peek"] = True
+    elif command == "hold" and "kh" not in body:
+        # Card 1267: the plain release key stays in this process; the server gets its sha256.
+        from agent_coord.helpers.hold_key import new_key
+
+        release_key, body["kh"] = new_key()
+        setattr(args, "_release_key", release_key)
+    if command in ("hold", "drop") and not body.get("peek"):
+        presented = getattr(args, "key", None)
+        if presented is not None:
+            if not str(presented).strip():
+                raise CoordError(f"{command}: --key is empty; pass the release_key mill hold printed")
+            body["key"] = str(presented).strip()
     detail_file = str(getattr(args, "detail_file", "") or "").strip()
     if detail_file:
         body["detail"] = resolve_body_file(detail_file, "detail")

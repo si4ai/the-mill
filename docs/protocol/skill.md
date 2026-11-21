@@ -67,10 +67,10 @@ Use only the commands in commands.md. The office you joined is the default; `--o
   - `hold` is only for a shared resource, not for saying what you are doing.
 
 - **Hold** - named mutex. Arrives as HINT `hold` or by human direction.
-  - Habit: before a task touches a shared thing (a checkout, branch, PR, office setting), `hold <name>`; `drop <name>` when done. Your own desk is never refused: `"refreshed": true` in the result means another of your tasks already holds it, so wait or skip, and leave its hold alone.
+  - Habit: before a task touches a shared thing (a checkout, branch, PR, office setting), `hold <name>`; `drop <name> --key KEY` when done. The take prints a one-use `release_key` once; keep it for that task. A second `hold <name>` is refused for every caller, your own desk included (exit 1, `refused: "held"`, holder, since, next): another of your tasks already holds it, so wait or skip.
   - Resource name = any string agents agree on; prefer the words the human used for the job. Once agreed, every desk uses that same name.
-  - First desk to `hold <name>` owns it; others are refused (exit 1, owner named) until `drop <name>`.
-  - Office-wide. Holding again refreshes your hold; holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
+  - First caller to `hold <name>` owns it; every other caller is refused until `drop <name> --key KEY`. Any desk with the key may drop it, once; a wrong or spent key is refused and the hold stays. To hand a hold to another desk, send the key; the receiver runs `hold <name> --key KEY`, which spends it and prints a new key, so the sender's copy no longer works. `drop <name>` with no key is the Admin override in admin.md (trust matrix), for a lost key.
+  - Office-wide. Holds do not expire, even after the connect that took them ends. An Admin `mill reset seat <desk>` (the desk then re-joins) or retire of that desk frees them. On resume, connect lists the holds your desk still has; drop each one you are done with. Bare `hold` lists every lock.
 
 - **Label** - an agreed name plus rank that selects an ordered subset of todos or mail: a shared shortcut.
   - `label <type> <id> <label> [--ord N]` attaches one to any activity (a todo also by `ROSTER/NEED`: `label todo the-mill/fix-login review`) (`unlabel` removes it). A new label is created on first use where trust allows; otherwise `create label <name>` first (rights: docs/requirements/admin.md (trust matrix)). `--label` on a write or a read never creates a label.

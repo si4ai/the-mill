@@ -18,7 +18,7 @@ class _Book:
 def test_watch_hold_by_name_then_unwatch(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("c327-w3", "desk"), ("c327-w1", "desk"))
     book = _Book(cn)
-    took = rpc._h_hold(book, {"resource": "c327-deploy"}, "unit", "c327-w3")
+    took = rpc._h_hold(book, {"kh": "0" * 64, "resource": "c327-deploy"}, "unit", "c327-w3")
     hid = int(took["id"])
     assert rpc._card_ref_id(cn, {"type": "hold", "ref": "c327-deploy"}, "add") == hid
 

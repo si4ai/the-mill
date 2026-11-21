@@ -18,9 +18,9 @@ def _rows():
 
 def test_drop_own_hold_reads_as_release():
     with patch.object(rec_hold, "find", return_value=_rows()), patch.object(
-        rec_hold, "delete", return_value=[{"ok": 1}]
+        rec_hold, "delete", return_value=[{"ok": 1, "was_holder": 0}]
     ):
-        out = rec_hold.drop(MagicMock(), "the-mill", "alice", "build")
+        out = rec_hold.drop(MagicMock(), "the-mill", "alice", "build", "the-key")
     assert out["ok"] is True
     assert out["released"] is True
     assert out["owner"] is None
@@ -54,9 +54,9 @@ def test_drop_free_resource_owner_null_not_caller():
 
 def test_drop_refused_by_sp():
     with patch.object(rec_hold, "find", return_value=_rows()), patch.object(
-        rec_hold, "delete", return_value=[{"ok": 0}]
-    ):
-        out = rec_hold.drop(MagicMock(), "the-mill", "alice", "build")
+        rec_hold, "delete", return_value=[{"ok": 0, "was_holder": 3, "reason": "wrong or spent release key"}]
+    ), patch("agent_coord.server.records.name.by_id", return_value="alice"):
+        out = rec_hold.drop(MagicMock(), "the-mill", "bob", "build", "wrong")
     assert out["released"] is False
     assert out["owner"] == "alice"
 
@@ -86,7 +86,7 @@ def test_h_hold_reply_says_held():
     with patch.object(rpc, "_poke"), patch.object(
         rec_hold, "upsert", return_value=[{"ok": 1, "id": 7, "desk_id": 1, "desk": "alice"}]
     ):
-        out = rpc._h_hold(_book(), {"resource": "x"}, "the-mill", "alice")
+        out = rpc._h_hold(_book(), {"resource": "x", "kh": "0" * 64}, "the-mill", "alice")
     assert out["held"] is True
     assert out["owner"] == "alice"
 

@@ -47,8 +47,8 @@ mill todo <roster> <need> [--eta E] [--started] [--progress P] | [--done-when TE
 mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked] [--label NAME ...]
 mill claim <roster> <need> [--take-over]
 mill replace-body todo <id> TEXT
-mill hold [<resource>]
-mill drop <resource>
+mill hold [<resource>] [--key KEY]
+mill drop <resource> [--key KEY]
 mill wake-done [--lease TOKEN] [--note TEXT]
 mill pass <roster> <need> [--done | --back]
 mill unclaim <roster> <need>

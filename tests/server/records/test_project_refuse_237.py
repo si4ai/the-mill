@@ -51,7 +51,7 @@ def test_unknown_retired_empty_and_valid(cn) -> None:
     assert _count(cn) == before
 
     taken = rpc._h_hold(
-        book, {"resource": "c237-lock"}, "c237", "c237-desk"
+        book, {"resource": "c237-lock", "kh": "0" * 64}, "c237", "c237-desk"
     )
     assert taken["ok"] is True
     assert _count(cn) == before + 1

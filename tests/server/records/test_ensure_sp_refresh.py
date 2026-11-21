@@ -132,12 +132,13 @@ def test_ensure_refreshes_every_sp_name_member_join_procedure(cn) -> None:
         assert _body(cn, n), n
 
 def test_ensure_refreshes_hold_upsert_rehold(cn) -> None:
-    """#194: an existing book that only runs ensure gets the same-holder refresh branch."""
+    """#1267: an existing book that only runs ensure gets key-owned holds, not same-desk refresh."""
     _exec(cn, "DROP PROCEDURE IF EXISTS mill_hold_upsert")
     _exec(cn, "CREATE PROCEDURE mill_hold_upsert(IN p_project VARCHAR(64), IN p_desk VARCHAR(64), IN p_resource VARCHAR(64)) SELECT 0 AS ok")
     assert "v_held = v_desk" not in _body(cn, "mill_hold_upsert")
     out = migrate.ensure(cn)
     assert "sp_hold.sql" in out["applied"], out["applied"]
     body = _body(cn, "mill_hold_upsert")
-    assert "v_held = v_desk" in body
-    assert "UPDATE hold SET updated = v_ts WHERE id = v_id" in body
+    assert "JSON_OBJECT('kh', p_kh)" in body
+    assert "ELSEIF v_held = v_desk THEN" not in body
+    assert "hold_refuse" in body

@@ -26,6 +26,7 @@ init office
 hold (command)
 hold resource
 hold peek
+hold key
 hold group_by
 hold label
 hold label_any
@@ -34,6 +35,7 @@ hold yes
 hold sender_desk
 drop (command)
 drop resource
+drop key
 drop label
 drop office
 drop yes

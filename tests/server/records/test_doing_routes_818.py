@@ -162,7 +162,7 @@ def test_history_on_hold_includes_move_rows(w, wall):
     """Card 901 / F213: GET /api/v1/doing/history?on=hold-N returns take/drop moves with act."""
     res = w.ok(["hold", "h901/lock"])
     hid = int(res["id"])
-    w.ok(["drop", "h901/lock"])
+    w.ok(["drop", "h901/lock", "--key", res["release_key"]])
     code, got = _get(wall, f"/api/v1/doing/history?on=hold-{hid}")
     assert code == 200, got
     rows = got["history"]
