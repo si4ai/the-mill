@@ -4611,6 +4611,34 @@ def dispatch_ws(
     forwarded: bool = False,
     client_mill: str = "",
 ) -> Any:
+    """Run a desk-acting command. A failed call logs id, command, and class (card 1238)."""
+    try:
+        return _dispatch_ws(
+            c, desk, command, args, req_id,
+            peer=peer, forwarded=forwarded, client_mill=client_mill,
+        )
+    except Exception as exc:
+        # The exception text can carry a secret. The id joins this line to the client failure.
+        _log.warning(
+            "failed rpc id=%s command=%s class=%s",
+            str(req_id or ""),
+            str(command or ""),
+            type(exc).__name__,
+        )
+        raise
+
+
+def _dispatch_ws(
+    c: Book,
+    desk: str,
+    command: str,
+    args: dict[str, Any] | None = None,
+    req_id: str | None = None,
+    *,
+    peer: str = "",
+    forwarded: bool = False,
+    client_mill: str = "",
+) -> Any:
     """Run a desk-acting command for the sitting /ws desk. Identity is desk, not body owner.
 
     A repeated req_id returns the first result and does not run the command again (#137).

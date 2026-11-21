@@ -783,7 +783,9 @@ def mill_http_from_args(args: Any) -> int:
     from agent_coord.helpers.activity_label import absorb_rows, emit_warnings
 
     row = absorb_rows(row)
-    emit_warnings(row)
+    # A failure keeps stderr to one ASCII line. label_warnings ride the stdout object.
+    if not (isinstance(row, dict) and (row.get("ok") is False or row.get("error"))):
+        emit_warnings(row)
     body_read.remember(str(body.get("sender_desk") or body.get("owner") or ""), args, row)
     if mine and isinstance(row, dict) and row.get("ok") is True:
         # #373: only the sitting desk's cards, before --find and paging cut the list.
@@ -954,15 +956,20 @@ def mill_http_from_args(args: Any) -> int:
             if isinstance(wire, int) and wire != n:
                 printed, n = with_bytes(dict(public, wire_bytes=wire))
             public = printed
-        # Error JSON goes to stderr. A refused hold or drop stays on stdout
-        # with ok false and exit 1 (#193, #227).
+        # A failure is one stdout object and one stderr line (card 1238).
+        # A refused hold or drop stays on stdout with ok false and exit 1 (#193, #227).
         failed = (
             (row.get("ok") is False or bool(row.get("error")))
             and not refused_hold
             and not refused_drop
         )
-        print(json.dumps(public, default=str), file=sys.stderr if failed else sys.stdout, flush=True)
-        if failed or refused_hold or _refused_drop(args, row):
+        if failed:
+            from agent_coord.client.fail_out import emit_failure
+
+            emit_failure(args=args, text=str(row.get("error") or ""), envelope=public)
+            return 1
+        print(json.dumps(public, default=str), flush=True)
+        if refused_hold or _refused_drop(args, row):
             return 1
         return 0
     print(json.dumps(row, default=str), flush=True)
