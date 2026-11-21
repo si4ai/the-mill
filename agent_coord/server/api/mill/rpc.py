@@ -377,6 +377,7 @@ def _join_delivery(c: Book, desk: str, delivery: dict[str, Any]) -> dict[str, An
 
 
 def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
+    from agent_coord.helpers import activity_label as al
     from agent_coord.server.records import mail as rec_mail
     from agent_coord.server.records.name import by_id as name_by_id
 
@@ -399,7 +400,22 @@ def _h_inbox(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
     # the newest `lim` unread, newest first (card 846); --all is the newest `lim`, newest
     # first. Bodies come on the same rows.
     page = max(1, lim or 100)
-    kept = rec_mail.inbox(c._cn, _stored(desk), all_mail=not unread_only, limit=page)
+    # Card 1260: --label narrows the letters in SQL before the page is cut, so an older
+    # labelled letter is found. activity_label still filters and stamps the reply.
+    label_sets = None
+    asked_labels = al.asked(body)
+    if asked_labels:
+        label_sets = al.label_id_sets(
+            c._cn, al.resolve(c._cn, asked_labels), any_mode=bool(body.get("label_any"))
+        )
+    kept = rec_mail.inbox(
+        c._cn,
+        _stored(desk),
+        all_mail=not unread_only,
+        limit=page,
+        label_sets=label_sets,
+        label_any=bool(body.get("label_any")),
+    )
     mids = [int(r["id"]) for r in kept]
     dests = rec_mail.tos_by_id(c._cn, mids) if mids else {}
     crumbs_by = rec_mail.tree_crumbs_batch(c._cn, mids) if mids else {}

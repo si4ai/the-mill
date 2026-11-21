@@ -548,6 +548,49 @@ def names_on(cn: Any, typ: str, ids: list[int]) -> dict[int, set[str]]:
     return out
 
 
+def label_id_sets(cn: Any, classified: Classified, *, any_mode: bool) -> list[list[int]] | None:
+    """Card 1260: the label name ids each accepted name matches, for a read that filters in SQL
+    before its page. names_on's rule: a live label by name, or a live desk's live focus list.
+
+    None: no label asked (read as usual). []: nothing can match (the post filter would drop
+    every row), so the read may skip SQL. Otherwise one id list per accepted name; every
+    list must hit, or with --any at least one.
+    """
+    if not classified.accepted and not classified.warnings:
+        return None
+    if not classified.accepted or (classified.warnings and not any_mode):
+        return []
+    if cn is None:
+        return None
+    out: list[list[int]] = []
+    cur = cn.cursor()
+    try:
+        for acc in classified.accepted:
+            names = [a for a in acc.aliases if str(a).strip()]
+            marks = ",".join(["%s"] * len(names))
+            cur.execute(
+                "SELECT n.id FROM name n"
+                " WHERE n.type = 'label' AND n.deleted IS NULL AND n.trashed IS NULL"
+                " AND n.name IN (" + marks + ")"
+                " UNION"
+                " SELECT ln.id FROM seat s"
+                " JOIN name d ON d.id = s.desk_id AND d.type = 'desk'"
+                "  AND d.deleted IS NULL AND d.trashed IS NULL"
+                " JOIN name ln ON ln.id = s.focus_label_id AND ln.type = 'label'"
+                "  AND ln.deleted IS NULL AND ln.trashed IS NULL"
+                " WHERE d.name IN (" + marks + ")",
+                (*names, *names),
+            )
+            out.append(sorted({int(r[0]) for r in cur.fetchall() if r and r[0]}))
+    finally:
+        cur.close()
+    if not any_mode and any(not ids for ids in out):
+        return []
+    if any_mode and not any(out):
+        return []
+    return out
+
+
 def _id_of(item: Any) -> int:
     if isinstance(item, dict):
         return _as_int(item.get("id"))

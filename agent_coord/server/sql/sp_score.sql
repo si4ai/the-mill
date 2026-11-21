@@ -182,6 +182,9 @@ BEGIN
     SELECT p2.id FROM score_point p2 WHERE p2.score_id = s.id
     ORDER BY p2.created DESC, p2.id DESC LIMIT 1)
   WHERE v_proj IS NOT NULL
+    -- card 1258: a retired or deleted score (activity.deleted) is off the list, as in mill_score_points.
+    AND NOT EXISTS (SELECT 1 FROM activity ra
+                     WHERE ra.type = 'score' AND ra.id = s.id AND ra.deleted IS NOT NULL)
   ORDER BY s.updated DESC;
 END //
 
