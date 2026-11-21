@@ -3492,6 +3492,16 @@ def _add_who(c: Book, body: dict[str, Any], owner: str | None, command: str) -> 
     if not who or len(who) > 64:
         raise CoordError(f"{command}: WHO is a desk or roster name")
     kind = _live_dest_kind(c._cn, who)
+    if not kind and command == "remove":
+        from agent_coord.server.records.db import scalar
+
+        retired = scalar(
+            c._cn,
+            "SELECT id FROM name WHERE type = 'desk' AND name = %s AND deleted IS NOT NULL",
+            (who,),
+        )
+        if retired is not None:
+            return who, CONST_DESK, int(retired)
     if not kind:
         raise CoordError(f"{command}: no such desk or roster {who}")
     nid = rec_name.get(c._cn, who, kind)
@@ -3549,9 +3559,17 @@ def _add_remove(c: Book, body: dict[str, Any], owner: str | None) -> Any:
     has_hint = raw_hint is not None and str(raw_hint) != ""
     if has_hint and (command != "add" or typ == CONST_MAIL):
         raise CoordError(f"{command}: --hint is for add on a watched kind, not {typ}")
-    if not _activity_live(c._cn, typ, nid):
-        raise CoordError(f"{command}: no {typ} {nid}")
+    if command == "add":
+        if not _activity_live(c._cn, typ, nid):
+            raise CoordError(f"{command}: no {typ} {nid}")
+    else:
+        from agent_coord.server.records.db import scalar
+
+        if scalar(c._cn, "SELECT 1 FROM activity WHERE type = %s AND id = %s", (typ, nid)) is None:
+            raise CoordError(f"{command}: no {typ} {nid}")
     who, kind, who_id = _add_who(c, body, owner, command)
+    if typ != CONST_MAIL and kind == CONST_ROSTER:
+        raise CoordError(f"{command}: WHO is a roster; name a desk")
     out: dict[str, Any] = {"ok": True, "verb": command, "type": typ, "id": nid, "who": who, "kind": kind}
     if typ == CONST_MAIL:
         # #sec S-3: only a desk that can already read this letter may change who
@@ -4035,36 +4053,31 @@ def _h_wake_done(c: Book, body: dict[str, Any], project: str, owner: str | None)
 
 
 def _h_delete(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill delete roster|label|tree NAME stamps name.trashed (restorable)."""
+    """Card 1241: mill delete NAME empties a roster, label, or tree and stamps trashed."""
     from agent_coord.server.records import name as rec_name
 
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    kind = str(body.get("name_type") or "").strip().lower()
     raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("delete: mill delete roster|label|tree NAME")
+    if not raw:
+        raise CoordError("delete: mill delete NAME")
     return rec_name.trash(c._cn, raw, kind, by=owner or "")
 
 
 def _h_restore(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill restore roster|label|tree NAME clears name.trashed."""
+    """Card 1241: mill restore NAME clears trashed and does not put the contents back."""
     from agent_coord.server.records import name as rec_name
 
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
+    kind = str(body.get("name_type") or "").strip().lower()
     raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("restore: mill restore roster|label|tree NAME")
+    if not raw:
+        raise CoordError("restore: mill restore NAME")
     return rec_name.restore_trashed(c._cn, raw, kind, by=owner or "")
 
 
 def _h_purge(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
-    """Card 879: mill purge roster|label|tree NAME hard-deletes a trashed unreferenced name."""
-    from agent_coord.server.records import name as rec_name
-
-    kind = str(body.get("name_type") or body.get("kind") or "").strip().lower()
-    raw = str(body.get("slug") or body.get("name") or "").strip()
-    if kind not in ("roster", "label", "tree") or not raw:
-        raise CoordError("purge: mill purge roster|label|tree NAME")
-    return rec_name.purge_trashed(c._cn, raw, kind, by=owner or "")
+    """Card 1241: mill purge is removed."""
+    _ = (c, body, project, owner)
+    raise CoordError("purge is removed; mill delete NAME")
 
 
 

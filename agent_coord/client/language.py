@@ -278,34 +278,28 @@ def translate(args: Any, ask: Callable[[str], str] | None = None) -> Any:
 
 
     if cmd == "delete":
-        # Card 879: mill delete roster|label|tree NAME stamps trashed (restorable).
-        kind = str(getattr(args, "kind", "") or "").strip().lower()
-        if kind not in ("roster", "label", "tree"):
-            raise CoordError("delete: mill delete roster|label|tree NAME")
+        # Card 1241: mill delete NAME. A second word is the removed typed form.
+        if str(getattr(args, "kind", "") or "").strip():
+            raise CoordError("delete: mill delete NAME")
         if str(getattr(args, "score_name", "") or getattr(args, "need", "") or ""):
-            raise CoordError(f"delete: {kind} takes one NAME")
-        retype(args.slug, f"delete {kind} {args.slug}", yes=yes, ask=ask)
+            raise CoordError("delete: mill delete NAME")
+        retype(args.slug, f"delete {args.slug}", yes=yes, ask=ask)
+        args.kind = ""
         args.confirm = args.slug
         args.yes = True
         return args
 
     if cmd == "restore":
-        kind = str(getattr(args, "kind", "") or "").strip().lower()
-        if kind not in ("roster", "label", "tree"):
-            raise CoordError("restore: mill restore roster|label|tree NAME")
-        retype(args.slug, f"restore {kind} {args.slug}", yes=yes, ask=ask)
+        if str(getattr(args, "kind", "") or "").strip():
+            raise CoordError("restore: mill restore NAME")
+        retype(args.slug, f"restore {args.slug}", yes=yes, ask=ask)
+        args.kind = ""
         args.confirm = args.slug
         args.yes = True
         return args
 
     if cmd == "purge":
-        kind = str(getattr(args, "kind", "") or "").strip().lower()
-        if kind not in ("roster", "label", "tree"):
-            raise CoordError("purge: mill purge roster|label|tree NAME")
-        retype(args.slug, f"purge {kind} {args.slug}", yes=yes, ask=ask)
-        args.confirm = args.slug
-        args.yes = True
-        return args
+        raise CoordError("purge is removed; mill delete NAME")
 
     if cmd == "reclaim":
         if args.kind == "todo":
