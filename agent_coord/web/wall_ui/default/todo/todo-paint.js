@@ -323,7 +323,9 @@
           const p = millTreePayload(d, n);
           const st = p.status || "todo";
           const card = todoTreeCardRow(d, n);
-          const holder = card ? todoTreeDesk(card.assigned || card.volunteer || card.owner || "") : todoTreeDesk(p.who);
+          const holderId = card ? (card.assigned || card.volunteer || card.owner || "") : p.who;
+          const holder = todoTreeDesk(holderId);
+          const holderHtml = nmDel(card, holderId, esc(holder));
           const open = !!_todoDetailId && L.id === String(_todoDetailId);
           const shut = L.collapsed || L.more;
           const twist = (L.kids > 0 || L.more)
@@ -338,15 +340,16 @@
             `<span class="todo-chip st-${esc(st)}">${esc(st)}</span>` +
             `<code class="todo-outline-id">${esc(L.id)}</code>` +
             `<span class="todo-outline-ttl">${esc(p.title)}</span>` +
-            (holder ? `<span class="todo-outline-who">${esc(holder)}</span>` : "") +
+            (holder ? `<span class="todo-outline-who">${holderHtml}</span>` : "") +
             `</div>` });
           if (!open) return;
           const detail = card ? String(card.detail || "").trim() : "";
-          const asker = card ? todoTreeDesk(card.creator || card.asker || card.src || "") : "";
+          const askerId = card ? (card.creator || card.asker || card.src || "") : "";
+          const asker = card ? todoTreeDesk(askerId) : "";
           rows.push({ key: "more:" + L.id, html: `<div class="todo-outline-more" data-depth="${Math.min(L.depth, 8)}">` +
             (detail && detail !== p.title ? `<div class="todo-card-note">${esc(detail)}</div>` : "") +
-            (asker ? `<span class="todo-tree-field"><span>asker</span> <b>${esc(asker)}</b></span>` : "") +
-            (holder ? `<span class="todo-tree-field"><span>holder</span> <b>${esc(holder)}</b></span>` : "") +
+            (asker ? `<span class="todo-tree-field"><span>asker</span> <b>${nmDel(card, askerId, esc(asker))}</b></span>` : "") +
+            (holder ? `<span class="todo-tree-field"><span>holder</span> <b>${holderHtml}</b></span>` : "") +
             (card ? wallClaimedSlot(card) : "") +
             wallDoingTrailSlot("todo-" + L.id) +
             `</div>` });
@@ -565,11 +568,11 @@
       return `<div class="plan-card ${cls}" data-id="${esc(String(r.id))}" data-sort="${esc(String(r.sort_order || 0))}">` +
         `<div class="plan-title">${esc(r.title || "")}</div>` +
         `<div class="plan-meta">` +
-          (label ? `<span>label <b>${esc(label)}</b></span>` : "") +
+          (label ? `<span>label <b>${nmDel(r, label, esc(label))}</b></span>` : "") +
           (cut ? `<span>cut <b>${esc(cut)}</b></span>` : `<span>cut <b>this</b></span>`) +
           `<span>${esc(st)}</span>` +
           (pulled ? `<span>pulled <b>${esc(pulled)}</b></span>` : "") +
-          (by ? `<span>by <b>${esc(by)}</b></span>` : "") +
+          (by ? `<span>by <b>${nmDel(r, by, esc(by))}</b></span>` : "") +
           (when ? `<span>${esc(dt(when))}</span>` : "") +
         `</div>${snip}</div>`;
     }

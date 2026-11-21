@@ -32,6 +32,14 @@
 
   function has(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function str(v) { return String(v == null ? "" : v).trim(); }
+  /* Card 1255: carry the feed rows' deleted_names (names they spell that are retired or
+   * trashed) onto a record, one sorted list; no key when none, so the record is as before. */
+  function marked(rec, rows) {
+    var out = [];
+    rows.forEach(function (r) { ((r && r.deleted_names) || []).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); }); });
+    if (out.length) rec.deleted_names = out.sort();
+    return rec;
+  }
   function num(v) {
     if (v == null || v === "") return null;
     var n = Number(v);
@@ -190,7 +198,7 @@
     var raAt = ra ? utc(ra.at) : null;
     if (raAt != null && raAt > ctx.now + 5 * MIN) raAt = null;
     var since = top ? utc(top.created) : null;
-    return {
+    return marked({
       name: owner,
       rosters: [],
       connected: connected,
@@ -210,7 +218,7 @@
       lastWakeAt: wake ? utc(view.last_wake) : null,
       recentAt: raAt != null ? raAt : lc,
       recent: ra ? { type: str(ra.type), thing: str(ra.thing) } : null
-    };
+    }, [view].concat(seats, runs));
   }
 
   function base(data, scope, now) {
@@ -315,11 +323,11 @@
       rows.forEach(function (c) {
         if (!c || c.id == null || seen[c.id]) return;
         seen[c.id] = 1;
-        out.push({
+        out.push(marked({
           id: Number(c.id), roster: str(c.roster_id) || r, status: str(c.status) || "open",
           title: firstLine(c.detail, 110) || ("card " + c.id), detail: str(c.detail),
           trunc: !!c.detail_trunc, desk: str(c.assigned || c.volunteer), creator: str(c.creator)
-        });
+        }, [c]));
       });
     });
     if (!known) return null;
@@ -335,12 +343,12 @@
         if (!m || m.id == null || seen[m.id]) return;
         seen[m.id] = 1;
         var tos = Array.isArray(m.mail_tos) ? m.mail_tos : (m.to || []).map(function (t) { return { deskId: t, receipt: null }; });
-        out.push({
+        out.push(marked({
           id: Number(m.id), at: utc(m.created), from: str(m.from || (m.sender && m.sender.deskId)),
           tos: tos.map(function (t) { return { desk: str(t && (t.deskId || t.desk || t)), unread: t && t.receipt === 0 }; }),
           body: str(m.body), trunc: !!m.body_trunc, root: m.root_id != null ? Number(m.root_id) : Number(m.id),
           tree: str(m.tree), roster: str(m.sender && m.sender.roster)
-        });
+        }, [m, m.sender].concat(tos)));
       });
     });
     if (!known) return null;
@@ -875,7 +883,7 @@
       if (!d || !str(d.desk)) return;
       var name = str(d.desk), roster = str(d.roster);
       if (!inScoreScope(b, name, roster)) return;
-      desks.push({ desk: name, roster: roster, scores: Array.isArray(d.scores) ? d.scores : [] });
+      desks.push(marked({ desk: name, roster: roster, scores: Array.isArray(d.scores) ? d.scores : [] }, [d]));
     });
     var names = [], seen = {};
     desks.forEach(function (d) {
@@ -888,7 +896,7 @@
     var byDesk = desks.map(function (d) {
       var map = {};
       d.scores.forEach(function (s) { if (s && s.name) map[s.name] = s; });
-      return { desk: d.desk, roster: d.roster, map: map };
+      return marked({ desk: d.desk, roster: d.roster, map: map }, [d]);
     });
     var nActive = byDesk.length;
     var cols = names.map(function (name) {
@@ -970,7 +978,7 @@
       });
       /* quiet: nothing worse than the median and no nonzero value anywhere. */
       var quiet = !worse && cells.every(function (x) { return x.empty || x.zero; });
-      return { desk: d.desk, roster: d.roster, worse: worse, quiet: quiet, cells: cells, byArea: byArea };
+      return marked({ desk: d.desk, roster: d.roster, worse: worse, quiet: quiet, cells: cells, byArea: byArea }, [d]);
     });
     var quietN = rows.filter(function (r) { return r.quiet; }).length;
     var allRows = rows;
@@ -1033,7 +1041,7 @@
             });
             var tab = scoreItemTab(cell.area), prefix = scoreItemPrefix(cell.area);
             var anchorMs = cell.anchor_at ? utc(cell.anchor_at) : null;
-            detail = {
+            detail = marked({
               key: cell.key, name: cell.name, label: cell.label, area: cell.area, kind: cell.kind,
               desc: colOf[cell.name] ? colOf[cell.name].desc : "", better: "lower", pending: !!(colOf[cell.name] && colOf[cell.name].pending),
               desk: r.desk, roster: r.roster, text: cell.text, empty: cell.empty, zero: cell.zero,
@@ -1044,7 +1052,7 @@
               items: ids.map(function (id) {
                 return { id: id, tab: tab, sel: prefix + id, text: prefix + id };
               })
-            };
+            }, [r]);
           }
         });
       });
@@ -1070,7 +1078,7 @@
       (rows || []).forEach(function (l) {
         if (!l || seen[l.id]) return;
         seen[l.id] = 1;
-        out.push({ id: l.id, resource: str(l.resource), desk: str(l.owner), dead: !!l.holder_dead, roster: str(l.roster_id) });
+        out.push(marked({ id: l.id, resource: str(l.resource), desk: str(l.owner), dead: !!l.holder_dead, roster: str(l.roster_id) }, [l]));
       });
     });
     return known ? out : null;
@@ -1099,7 +1107,7 @@
     (holds || []).forEach(function (l) {
       if (b.offDesk(l.desk)) return;
       var d = b.byName[l.desk];
-      var row = { key: "hold-" + l.id, kind: "hold", desk: l.desk, title: l.resource, id: l.id, note: "" };
+      var row = marked({ key: "hold-" + l.id, kind: "hold", desk: l.desk, title: l.resource, id: l.id, note: "" }, [l]);
       if (l.dead || !d || !d.connected) {
         row.note = l.dead ? "the holder is gone" : (d && d.lastSeenAt != null ? "away, seen " + ago(b.now - d.lastSeenAt) : "not seen in range");
         blocking.push(Object.assign({}, row, { title: l.resource, kind: "hold", me: party(b, l.desk) || { t: "text", v: l.desk }, since: null }));
@@ -1188,7 +1196,7 @@
       } else if (kind === "hold" || kind === "todo") {
         text = kind === "hold" ? "promise hold-" + e.id : "card todo-" + e.id + (e.state ? " " + str(e.state) : "");
       } else return;
-      out.push({ at: utc(e.at), who: who, kind: kind, text: text });
+      out.push(marked({ at: utc(e.at), who: who, kind: kind, text: text }, [e]));
     });
     return out;
   }

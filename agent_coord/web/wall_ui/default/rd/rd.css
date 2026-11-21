@@ -1391,3 +1391,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
   }
   #rd .rd-tab-split.score .rd-tab-detail:empty { display: none; }
 }
+/* Card 1255: a retired desk or trashed roster, label or tree that a row still names. */
+.nm-del, .nm-del-tag { color: var(--dim); }
+.nm-del { text-decoration: line-through; }
+.nm-del-tag { font-size: .8em; font-weight: 400; font-style: italic; }

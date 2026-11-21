@@ -111,7 +111,7 @@
       marker: "WALL_UI_DEFAULT_ADMIN_INVITE"
     },
     mailPaint: {
-      js: "/mail/mail-paint.js?v=wow376",
+      js: "/mail/mail-paint.js?v=wow383",
       marker: "WALL_UI_DEFAULT_MAIL_PAINT",
       domain: "mail"
     },
@@ -132,7 +132,7 @@
       with: ["floorMap"]
     },
     todoPaint: {
-      js: "/todo/todo-paint.js?v=wow374",
+      js: "/todo/todo-paint.js?v=wow383",
       marker: "WALL_UI_DEFAULT_TODO_PAINT",
       domain: "todo"
     },
@@ -161,7 +161,7 @@
     },
     /* Card 1153: PRIORITIES tab, each desk's ranked list. Loads on first open. */
     prioritiesPaint: {
-      js: "/priorities/priorities-paint.js?v=wow346",
+      js: "/priorities/priorities-paint.js?v=wow383",
       css: "/priorities/priorities.css?v=wow344",
       marker: "WALL_UI_DEFAULT_PRIORITIES_PAINT"
     }

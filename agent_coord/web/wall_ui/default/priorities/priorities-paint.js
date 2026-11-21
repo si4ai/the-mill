@@ -190,6 +190,8 @@
         conflicts: []
       };
       if (!top.length) col.empty = emptyFact(desk, col);
+      /* Card 1255: a list row or a human top card that marks this desk name deleted. */
+      if (rows.concat(hTop.map(function (r) { return r.card; })).some(function (r) { return r && (r.deleted_names || []).indexOf(desk) >= 0; })) col.deleted_names = [desk];
       if (top.length && served.last_activity_at) {
         var t0 = parseLocal(top[0].last_activity_at);
         var age = t0 == null ? null : now - t0;
@@ -247,6 +249,8 @@
   }
 
   /* ---- HTML. */
+  /* Card 1255: a retired desk paints struck, tagged "deleted" (lib/data.js). */
+  function del(row, name, html) { return global.wallDelName ? global.wallDelName(row, name, html) : html; }
   function ordTxt(o) { return o === UNPLACED ? "u" : "#" + o; }
   function cardRow(r, served) {
     var dim = [];
@@ -269,7 +273,7 @@
     return m < 60 ? m + "m" : Math.floor(m / 60) + "h " + (m % 60) + "m";
   }
   function deskCol(c, m) {
-    var head = '<header class="prio-head"><h3>' + h(c.desk) + "</h3>" +
+    var head = '<header class="prio-head"><h3>' + del(c, c.desk, h(c.desk)) + "</h3>" +
       '<span class="prio-meta">' + c.ranked + " ranked" + (c.parked ? " \u00b7 " + c.parked + " parked" : "") + "</span></header>";
     var facts = [];
     if (c.rerankedAt != null) facts.push('<span class="prio-fact">re-ranked ' + ago(m.now - c.rerankedAt) + " ago</span>");
@@ -298,7 +302,7 @@
     }
     var rows = hm.rows.map(function (r) {
       var c = r.card;
-      var who = c ? (c.volunteer ? h(c.volunteer) : "no desk") : "";
+      var who = c ? (c.volunteer ? del(c, c.volunteer, h(c.volunteer)) : "no desk") : "";
       return '<li class="prio-row" data-prio-card="' + r.id + '"><span class="prio-ord">' + h(ordTxt(r.ord)) + "</span>" +
         '<span class="prio-card"><b>' + r.id + "</b> " + (r.type === "mail" ? "letter" : h((c && title(c)) || DASH)) + "</span>" +
         (c ? '<span class="prio-st st-' + h(c.status) + '">' + h(c.status) + "</span>" : "") +
