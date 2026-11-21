@@ -120,9 +120,14 @@ class World:
         rec_name.trash(self.cn, r, "roster", by=self.desk)
         return r
 
-    def purgeable_roster(self):
-        """Trashed unreferenced roster (no cards/mail) for mill purge."""
-        return self.trashed_roster()
+    def trashed_label(self):
+        """A label this desk can restore. Delete removes no roster members."""
+        from agent_coord.server.records import name as rec_name
+
+        r = self.fresh("c238lab")
+        rec_name.get_or_insert(self.cn, r, "label")
+        rec_name.trash(self.cn, r, "label", by=self.desk)
+        return r
 
     def fill(self, argv):
         joined = " ".join(argv)
@@ -139,7 +144,7 @@ class World:
             ("KEY", lambda: getattr(self, "held_key", None) or (self.held(), self.held_key)[1]),
             ("DEL", self.del_roster),
             ("TRASHED", self.trashed_roster),
-            ("PURGEABLE", self.purgeable_roster),
+            ("TRASHED_LABEL", self.trashed_label),
         ]
         subs = {"P": pc.P, "ME": ME, "PEER": PEER, "LBL": "c238-lbl", "BODY": str(self.body)}
         for key, make in makers:

@@ -2,7 +2,8 @@
 
 GET /api/pov?part=rosters (the Wall's left pane) and mill member --all read
 records.member.list_rosters. A roster trashed by mill delete (card 879,
-name.trashed) is not listed; after mill restore it lists again with its members.
+name.trashed) is not listed. After mill restore it lists again. Card 1241
+removed its members, and restore does not put them back.
 """
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ def test_list_rosters_omits_trashed_and_lists_it_after_restore(cn) -> None:
     rec_name.restore_trashed(cn, roster, "roster", by=admin)
     cn.commit()
     by_name = {r["name"]: r for r in rec_member.list_rosters(cn)}
-    assert by_name[roster] == {"name": roster, "desks": 2, "members": desks}
+    assert by_name[roster] == {"name": roster, "desks": 0, "members": []}
 
 
 def test_pov_rosters_route_hides_trashed_until_restore(cn, monkeypatch) -> None:
@@ -66,5 +67,5 @@ def test_pov_rosters_route_hides_trashed_until_restore(cn, monkeypatch) -> None:
     cn.commit()
     rows = client.get("/api/pov?part=rosters").json()["rows"]
     assert [r for r in rows if r["name"] == roster] == [
-        {"name": roster, "desks": 2, "members": desks}
+        {"name": roster, "desks": 0, "members": []}
     ]

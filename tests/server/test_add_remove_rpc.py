@@ -79,13 +79,23 @@ def test_refusals(live, body, msg):
 
 
 def test_missing_activity_refused(live, monkeypatch):
-    monkeypatch.setattr("agent_coord.server.records.label._activity_live", lambda *a, **k: False)
+    def scalar(cn, sql, args=()):
+        if "FROM activity" in str(sql):
+            return None
+        return 1
+
+    monkeypatch.setattr("agent_coord.server.records.db.scalar", scalar)
     with pytest.raises(CoordError, match="remove: no hold 5"):
         _go({"verb": "remove", "type": "hold", "id": 5})
 
 
 def test_remove_when_not_watching_refused(live, monkeypatch):
-    monkeypatch.setattr("agent_coord.server.records.db.scalar", lambda *a, **k: None)
+    def scalar(cn, sql, args=()):
+        if "FROM watcher" in str(sql):
+            return None
+        return 1
+
+    monkeypatch.setattr("agent_coord.server.records.db.scalar", scalar)
     with pytest.raises(CoordError, match="builder is not watching todo:4"):
         _go({"verb": "remove", "type": "todo", "id": 4})
     assert live["del"] == []
