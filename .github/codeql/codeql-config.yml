@@ -2,8 +2,14 @@ name: mill-codeql
 # mill-home log appends run through redact_secrets first (dest_log). The clear-text
 # storage query still flags those sinks; they match standing alerts on main for push.py.
 # Ignore the same query on log_rotate helpers (rotate copies bytes of an already-redacted file).
+# tools/dev_host_import.py:_print only writes after redact_output (redact_secrets plus
+# 64-char hex hashes). The clear-text logging query still flags that sink.
 query-filters:
   - exclude:
       id: py/clear-text-storage-sensitive-data
       paths:
         - agent_coord/server/log_rotate.py
+  - exclude:
+      id: py/clear-text-logging-sensitive-data
+      paths:
+        - tools/dev_host_import.py
