@@ -199,8 +199,8 @@ stateDiagram-v2
 |---|------|----|---------|------|-------|
 | H1 | no row | held by caller | `mill hold NAME` | `rpc.py:2716` -> `sp_hold.sql:45` `mill_hold_upsert` (insert) | output `"held": true`; `mill hold --peek NAME` names the caller |
 | H2 | free | held by caller | `mill hold NAME` | `sp_hold.sql:53` | same as H1 |
-| H3 | held by caller | held by caller (`updated` refreshed) | `mill hold NAME` | `sp_hold.sql:67` | output `"held": true`; `mill hold` shows a newer `since` |
-| H4 | held by caller | free | `mill drop NAME` | `rpc.py:2763` -> `agent_coord/server/records/hold.py:136` -> `sp_hold.sql:79` `mill_hold_delete` | output `"released": true`; `mill hold` no longer lists NAME |
+| H3 | held by D | held by caller (hand-off; card 1267) | `mill hold NAME --key KEY` | `sp_hold.sql` `mill_hold_upsert` (`hold_refresh`, meta.kh new, meta.from D) | output `"handoff": true` and a new `release_key`; the old key is refused |
+| H4 | held | free | `mill drop NAME --key KEY` (any desk with the key) | `rpc._h_drop` -> `records/hold.py` `drop` -> `sp_hold.sql` `mill_hold_drop` | output `"released": true`; a second drop with the same key is refused |
 | H5 | held by D | free | `mill reset seat D --yes` or `mill retire desk D --yes` (Admin) | `sp_join.sql:222` and `sp_name.sql:54` -> `sp_hold.sql:113` `mill_hold_release_desk` | `mill hold` no longer lists D's holds |
 | H6 | any | same | `mill hold --peek NAME`, `mill hold` | `rpc.py:2730`, `rpc.py:2777` (reads only) | a peek at a name never held says so in `hint` |
 

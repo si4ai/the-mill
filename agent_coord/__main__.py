@@ -591,7 +591,7 @@ def _build_parser() -> MillArgumentParser:
 
     a = sub.add_parser(
         "hold",
-        help="take or refresh an office-wide lock: mill hold NAME (bare mill hold lists every lock)",
+        help="take a free office-wide lock and print its one-use release_key: mill hold NAME (bare mill hold lists every lock)",
     )
     a.add_argument(
         "resource",
@@ -602,7 +602,12 @@ def _build_parser() -> MillArgumentParser:
     a.add_argument(
         "--peek",
         action="store_true",
-        help="show who holds the resource, or every lock when no resource; never takes or refreshes",
+        help="show who holds the resource, or every lock when no resource; never takes",
+    )
+    a.add_argument(
+        "--key",
+        default=None,
+        help="hand off a held lock: spend its release key and print a new one for this caller",
     )
     a.add_argument(
         "--group-by",
@@ -615,9 +620,10 @@ def _build_parser() -> MillArgumentParser:
 
     r = sub.add_parser(
         "drop",
-        help="release a lock (own, or Admin / high-trust stale other): mill drop NAME",
+        help="release a lock with its one-use key: mill drop NAME --key KEY (no key: admin.md override)",
     )
     r.add_argument("resource")
+    r.add_argument("--key", default=None, help="the release_key printed by mill hold NAME; any desk may present it once")
     _label_flags(r, read=False)
 
     dn = sub.add_parser(

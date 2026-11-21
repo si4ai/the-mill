@@ -47,8 +47,8 @@ mill todo <roster> <need> [--eta E] [--started] [--progress P] | [--done-when TE
 mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked] [--label NAME ...]
 mill claim <roster> <need> [--take-over]
 mill replace-body todo <id> TEXT
-mill hold [<resource>]
-mill drop <resource>
+mill hold [<resource>] [--key KEY]
+mill drop <resource> [--key KEY]
 mill wake-done [--lease TOKEN] [--note TEXT]
 mill pass <roster> <need> [--done | --back]
 mill unclaim <roster> <need>
@@ -348,7 +348,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | command | intent | CALL |
 |---|---|---|
 | **`hold`** | Mutex on a res name. `desk_id` NULL means free. The project is not part of the lock. An unknown, retired, or empty project is refused and nothing is written. Release nulls `desk_id`; the row stays. `--peek` reads through `mill_hold_select` and does not call `mill_hold_upsert`; `hold` with no resource (with or without `--peek`) lists every lock held (read only; no locks is an empty list). | `mill_hold_upsert` |
-| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_delete` |
+| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_drop` |
 
 ### tree
 

@@ -6,7 +6,7 @@ import pytest
 pytestmark = pytest.mark.sql
 
 from agent_coord.server.records import hold
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import seed_names, take_hold
 
 
 def _row(cn, resource: str) -> dict | None:
@@ -52,8 +52,14 @@ def test_peek_sees_the_holder_and_does_not_refresh_or_take(cn) -> None:
 
 def test_peek_of_a_freed_row_is_free(cn) -> None:
     seed_names(cn, ("unit", "roster"), ("f16-free", "desk"))
-    assert int(hold.upsert(cn, "unit", "f16-free", "f16-free.res")[0]["ok"]) == 1
-    assert hold.drop(cn, "unit", "f16-free", "f16-free.res")["ok"] is True
+    taken, key = take_hold(cn, "unit", "f16-free", "f16-free.res")
+    assert int(taken[0]["ok"]) == 1
+    keyless = hold.drop(cn, "unit", "f16-free", "f16-free.res")
+    assert keyless["ok"] is False
+    still = hold.peek(cn, "unit", "f16-free.res")
+    assert still["held"] is True
+    assert still["owner"] == "f16-free"
+    assert hold.drop(cn, "unit", "f16-free", "f16-free.res", key)["ok"] is True
     seen = hold.peek(cn, "unit", "f16-free.res")
     assert seen["held"] is False
     assert seen["owner"] is None

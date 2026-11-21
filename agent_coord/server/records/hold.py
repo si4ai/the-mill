@@ -6,20 +6,35 @@ from agent_coord.const import CONST_DESK, CONST_ROSTER, CONST_RES
 from .db import call, rows_done
 
 
-def upsert(cn, project: str, desk: str, resource: str) -> list[dict]:
+def upsert(
+    cn, project: str, desk: str, resource: str, kh: str | None = None, *, old_kh: str | None = None
+) -> list[dict]:
+    """Take a free hold, or hand off a held one when old_kh is its live key hash (card 1267).
+
+    kh is the sha256 of the caller's new release key. A records caller without one
+    (tests, fixtures) gets a fresh key that nobody can present.
+    """
+    from agent_coord.helpers.hold_key import new_key
     from agent_coord.server.records.name import bare
 
     return call(
         cn,
         "mill_hold_upsert",
-        [bare(project, CONST_ROSTER), bare(desk, CONST_DESK), bare(resource, CONST_RES)],
+        [
+            bare(project, CONST_ROSTER),
+            bare(desk, CONST_DESK),
+            bare(resource, CONST_RES),
+            kh or new_key()[1],
+            old_kh,
+        ],
     )
 
 
-def delete(cn, hold_id: int, desk: str) -> list[dict]:
+def delete(cn, hold_id: int, desk: str, kh: str) -> list[dict]:
+    """Release when kh matches the live key generation; any desk may present it."""
     from agent_coord.server.records.name import bare
 
-    return call(cn, "mill_hold_delete", [int(hold_id), bare(desk, CONST_DESK)])
+    return call(cn, "mill_hold_drop", [int(hold_id), bare(desk, CONST_DESK), kh])
 
 
 def select(cn, project: str) -> list[dict]:
@@ -203,21 +218,23 @@ def may_drop_other(cn, actor: str, holder: str, *, hold_id: int = 0, since=None)
 
     if is_role_admin(cn, actor):
         return True, ""
+    # Card 1267 (K24): without the key the holder's own desk is an override too.
+    whose = "no release key for your desk's hold" if actor == holder else f"held by {holder}, not you"
     if mill_trust() == "limited":
         return False, (
-            f"drop: held by {holder}, not you "
-            f"(limited trust: only the holder or Admin may drop)"
+            f"drop: {whose} "
+            f"(limited trust: only the key or Admin may drop)"
         )
     if seat_connected(cn, holder):
         return False, (
-            f"drop: held by {holder}, not you "
+            f"drop: {whose} "
             f"(holder is connected; Admin only for a live hold)"
         )
     age = _hold_age_days(cn, hold_id, since)
     need = hold_stale_days()
     if age is None or age < float(need):
         return False, (
-            f"drop: held by {holder}, not you "
+            f"drop: {whose} "
             f"(stale needs holder disconnected and held {need}+ days; Admin only until then)"
         )
     return True, ""
@@ -238,15 +255,17 @@ def delete_other(cn, hold_id: int, actor: str, *, expect: str) -> list[dict]:
     )
 
 
-def drop(cn, project: str, desk: str, resource: str) -> dict:
-    """Release the lock. Own hold: always. Other desk's hold: Admin, or high-trust stale (F223).
+def drop(cn, project: str, desk: str, resource: str, key: str | None = None) -> dict:
+    """Release the lock (card 1267).
 
-    The row stays, desk_id NULL. Reply: released true/false, owner is who holds it
-    now (null once released), was_owner is the desk that let go. A drop of another's
-    hold writes the drop move by the acting desk with peer_id = the holder; the
-    holder's seat token is untouched.
+    With key: any desk that has the hold's live release key frees it once; a wrong
+    or spent key is refused and the hold stays (mill_hold_drop decides under the row
+    lock). Without key: the admin.md override, for every desk including the holder's
+    own (K24): Admin, or high-trust stale (F223). The row stays, desk_id NULL. Reply:
+    released true/false, owner is who holds it now, was_owner is the desk that held it.
     """
-    from agent_coord.server.records.name import bare
+    from agent_coord.helpers.hold_key import key_hash
+    from agent_coord.server.records.name import bare, by_id
 
     want = bare(resource, CONST_RES)
     who = bare(desk, CONST_DESK)
@@ -257,29 +276,37 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
         if got != want:
             continue
         nid = int(rec.get("id") or 0)
-        if not holder:
-            # Freed row still present; not held by anyone (same as a missing row).
-            continue
-        if holder == who:
-            released = delete(cn, nid, desk)
-            ok = bool(released) and int((released[0] or {}).get("ok") or 0) == 1
-            if ok:
+        if key is not None:
+            row = (delete(cn, nid, desk, key_hash(key)) or [{}])[0] or {}
+            if int(row.get("ok") or 0) == 1:
+                was = by_id(cn, int(row.get("was_holder") or 0)) or holder
                 return {
                     "ok": True,
                     "released": True,
                     "resource": got or resource,
                     "id": nid,
                     "owner": None,
-                    "was_owner": holder or desk,
+                    "was_owner": bare(str(was), CONST_DESK),
                 }
+            now = by_id(cn, int(row.get("was_holder") or 0)) if row.get("was_holder") else ""
             return {
                 "ok": False,
                 "released": False,
                 "resource": got or resource,
                 "id": nid,
-                "owner": holder or None,
-                "reason": "release refused",
+                "owner": bare(str(now), CONST_DESK) if now else None,
+                "reason": str(row.get("reason") or "wrong or spent release key"),
+                "next": (
+                    f"ask the desk that took {got or resource} for its release key, then "
+                    f"mill drop {got or resource} --key KEY; a lost key needs the override "
+                    f"(mill drop {got or resource}, admin.md)"
+                    if now
+                    else f"nothing to drop: {got or resource} is free"
+                ),
             }
+        if not holder:
+            # Freed row still present; not held by anyone (same as a missing row).
+            continue
         other = other or holder
         allowed, reason = may_drop_other(
             cn, who, holder, hold_id=nid, since=None
@@ -292,6 +319,10 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
                 "id": nid,
                 "owner": holder or None,
                 "reason": reason,
+                "next": (
+                    f"present the key: mill drop {got or resource} --key KEY "
+                    f"(the desk that took it has the key), or ask Admin"
+                ),
             }
         released = delete_other(cn, nid, desk, expect=holder)
         ok = bool(released) and int((released[0] or {}).get("ok") or 0) == 1
@@ -303,6 +334,7 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
                 "id": nid,
                 "owner": None,
                 "was_owner": holder,
+                "forced": True,
             }
         sp_reason = str((released[0] or {}).get("reason") or "").strip() if released else ""
         now_owner = holder
@@ -331,4 +363,5 @@ def drop(cn, project: str, desk: str, resource: str) -> dict:
         "resource": want or resource,
         "owner": other or None,
         "reason": f"held by {other}, not you" if other else "not held by you",
+        "next": f"mill hold {want or resource} --peek shows who holds it",
     }

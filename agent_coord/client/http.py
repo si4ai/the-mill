@@ -582,11 +582,12 @@ def _refused_hold(args: Any, row: dict[str, Any]) -> bool:
 
 def _hold_refusal(row: dict[str, Any]) -> dict[str, Any]:
     res = row.get("result") if isinstance(row.get("result"), dict) else row
-    owner = str((res or {}).get("owner") or "someone")
+    owner = str((res or {}).get("holder") or (res or {}).get("owner") or "someone")
     out = dict(row)
     result = dict(res or {})
     result["held"] = False
-    result["reason"] = f"held by {owner}, not you"
+    result.setdefault("refused", "held")
+    result.setdefault("reason", f"held by {owner}, not you")
     out["result"] = result
     return out
 
@@ -937,6 +938,11 @@ def mill_http_from_args(args: Any) -> int:
         row = _hold_refusal(row)
         # Envelope ok matches result.ok. The holder name stays on stdout (#207, #193).
         row["ok"] = False
+    release_key = getattr(args, "_release_key", None)
+    res_now = row.get("result") if isinstance(row, dict) else None
+    if release_key and isinstance(res_now, dict) and res_now.get("held") is True:
+        # Printed once to the caller; never stored or logged.
+        row = dict(row, result=dict(res_now, release_key=release_key))
     refused_drop = isinstance(row, dict) and _refused_drop(args, row)
     if refused_drop:
         row = dict(row)

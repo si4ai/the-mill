@@ -221,8 +221,8 @@ def test_desk_commands_write_no_doing_row(w):
     w.ok(["pass", R, need])
     w.ok(["pass", R, need, "--done"], desk=PEER)
     res_name = "r1207-" + uuid.uuid4().hex[:6]
-    w.ok(["hold", res_name])
-    w.ok(["drop", res_name])
+    took = w.ok(["hold", res_name])
+    w.ok(["drop", res_name, "--key", (took.get("result") or took)["release_key"]])
     rec_score.point_add(w.cn, R, ME, "k1207", 3.0)
     w.cn.commit()
     w.ok(["score", R, "k1207"])
