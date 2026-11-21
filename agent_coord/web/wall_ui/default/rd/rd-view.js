@@ -24,6 +24,9 @@
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getDate() + " " + mon + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
   }
+  /* Card 1242: a desk away whose webhook can wake it reads "reachable by wake". */
+  function stateWord(s) { return s === "wake" ? "reachable by wake" : s; }
+  function lastWake(r) { return r.lastWakeAt != null ? "last wake " + localWhen(r.lastWakeAt) : ""; }
   function rank(pos, ord) {
     return '<span class="rd-rank"' + (ord != null ? ' title="ord ' + h(ord) + '"' : "") + ">#" + h(pos) + "</span>";
   }
@@ -91,7 +94,8 @@
     if (!r.connected) {
       var last = r.leftover ? r.leftover : (r.recent && r.recent.thing ? r.recent.type + " " + r.recent.thing : "");
       doing = '<span class="rd-here-doing is-idle">' + (last ? "last: " + h(last) : "no recent activity") + "</span>";
-      meta = '<span class="rd-here-meta"><span class="rd-last-seen">last seen ' + h(R.ago(now - r.lastSeenAt)) + "</span>" +
+      meta = '<span class="rd-here-meta">' + (r.state === "wake" ? (r.lastWakeAt != null ? '<span class="rd-last-wake">' + h(lastWake(r)) + "</span>" : "")
+        : '<span class="rd-last-seen">last seen ' + h(R.ago(now - r.lastSeenAt)) + "</span>") +
         (r.leftoverOn ? '<span class="rd-on-item">' + h(r.leftoverOn) + "</span>" : "") + "</span>";
     } else {
       if (r.state === "working") doing = '<span class="rd-here-doing">' + h(r.doing) + "</span>";
@@ -102,11 +106,11 @@
       meta = '<span class="rd-here-meta">' + (r.on ? '<span class="rd-on-item">' + h(r.on) + "</span>" : "") +
         (r.age || r.idle ? '<span class="rd-age">' + h(r.age || r.idle) + "</span>" : "") + waitHtml(r.wait) + "</span>";
     }
-    var state = r.connected ? r.state : "disconnected";
-    return '<div class="rd-here-line' + (r.connected ? "" : " away") + '">' +
+    var state = r.connected || r.state === "wake" ? r.state : "disconnected";
+    return '<div class="rd-here-line' + (r.connected || state === "wake" ? "" : " away") + '">' +
       '<button type="button" class="rd-here-row' + on + '" data-rd-pickdesk="' + h(r.name) + '">' +
       '<span class="rd-here-dot ' + h(state) + '"></span><span class="rd-here-name">' + h(r.name) + "</span>" +
-      '<span class="rd-here-state ' + h(state) + '">' + h(state) + "</span>" +
+      '<span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span>" +
       doing + meta + priosLine(r.prios) + (r.connected ? rowChips(r) : "") + "</button></div>";
   }
   /* One list, most active first: working, waiting, idle, then disconnected (dimmed, last seen). */
@@ -114,7 +118,7 @@
     if (!m.known) return '<div class="rd-loading">Loading desks\u2026</div>';
     var rows = m.connected.concat(m.away);
     if (!rows.length) return '<div class="rd-empty-line">No desk on this scope in this range.</div>';
-    return '<div class="rd-here-section">' + h(plural(rows.length, "desk")) + " \u00b7 " + m.connected.length + " connected</div>" +
+    return '<div class="rd-here-section">' + h(plural(rows.length, "desk")) + " \u00b7 " + m.connected.length + " connected" + (m.wake ? " \u00b7 " + m.wake + " reachable by wake" : "") + "</div>" +
       rows.map(function (r) { return deskRowHtml(r, m.selected, now); }).join("");
   }
   function srow(label, last, opts) {
@@ -137,7 +141,7 @@
     var D = s.doing;
     var nowLine = r.state === "working"
       ? (r.on ? "on " + item(r.on) + " \u00b7 " : "") + "running " + h(r.age) + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "")
-      : (r.connected ? h(r.state) + (r.idle ? " " + h(r.idle) : "") : "disconnected") + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "");
+      : (r.connected ? h(r.state) + (r.idle ? " " + h(r.idle) : "") : r.state === "wake" ? "reachable by wake" : "disconnected") + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "");
     /* A doing score the desk never sent has no row. */
     var leaf = function (k, fmt) { var x = D[k]; return x && String(x.value) !== "" ? srow(R.kpiLabel(k), fmt(x.value), { off: x.off, title: k }) : ""; };
     var ms = function (v) { return R.msText(v); };
@@ -166,7 +170,7 @@
   function deskDetailHtml(dd, now) {
     if (!dd) return '<div class="rd-empty-line">Pick a desk.</div>';
     var r = dd.desk;
-    var state = r.connected ? r.state : "disconnected";
+    var state = r.connected || r.state === "wake" ? r.state : "disconnected";
     var text = r.state === "working" ? h(r.doing)
       : r.connected ? h(r.state) + ((r.last && r.last.doing) || r.leftover ? " \u00b7 last: " + h(r.leftover || r.last.doing) : "")
       : "last: " + h(r.leftover || (r.recent ? r.recent.type + " " + r.recent.thing : "no recent activity"));
@@ -174,11 +178,12 @@
     if (r.connected && r.on) facts.push("on " + item(r.on));
     if (r.age) facts.push("for " + h(r.age));
     if (r.idle) facts.push("idle " + h(r.idle));
-    if (!r.connected && r.lastSeenAt != null) facts.push("last seen " + h(R.ago(now - r.lastSeenAt)));
+    if (state === "wake") { if (r.lastWakeAt != null) facts.push(h(lastWake(r))); }
+    else if (!r.connected && r.lastSeenAt != null) facts.push("last seen " + h(R.ago(now - r.lastSeenAt)));
     if (r.wait && r.wait.letters) facts.push(h(plural(r.wait.letters, "letter")) + " waiting");
     if (r.wait && r.wait.cards) facts.push(h(plural(r.wait.cards, "card")) + " waiting");
     if (r.rosters.length) facts.push("on " + h(r.rosters.join(", ")));
-    var html = '<div class="rd-desk-head"><b>' + h(r.name) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(state) + "</span></div>" +
+    var html = '<div class="rd-desk-head"><b>' + h(r.name) + '</b> <span class="rd-here-state ' + h(state) + '">' + h(stateWord(state)) + "</span></div>" +
       '<div class="rd-desk-doing">' + text + '<div class="rd-facts">' + facts.join(" \u00b7 ") + "</div></div>" + scoresBlock(dd);
     html += '<div class="rd-desk-grid">';
     html += '<section class="rd-block card"><h3>CARD <span class="rd-sub">current</span></h3>' + (dd.card
@@ -468,7 +473,7 @@
   function partHtml(p) {
     var role = p.role ? ' data-party="' + p.role + '"' : "";
     if (p.t === "score") return '<i class="rd-sdot' + (p.off ? " off" : " on") + '" title="' + (p.off ? "off target" : "on target") + '"></i>';
-    if (p.t === "desk") return '<button type="button"' + role + ' class="rd-pill st-' + h(p.state || "idle") + '" data-rd-desk="' + h(p.name) + '" title="' + h(p.name + ", " + (p.state || "idle")) + '">' + h(p.name) + "</button>";
+    if (p.t === "desk") return '<button type="button"' + role + ' class="rd-pill st-' + h(p.state || "idle") + '" data-rd-desk="' + h(p.name) + '" title="' + h(p.name + ", " + stateWord(p.state || "idle")) + '">' + h(p.name) + "</button>";
     if (p.t === "human") return '<span' + role + ' class="rd-pill rd-human" title="the person at this office"><i aria-hidden="true">\u263a</i>' + h(p.name) + "</span>";
     if (p.t === "cloud") return cloud(p.names || [p.name]).replace("<span ", "<span" + role + " ");
     if (p.t === "item") { var it = R.itemOf(p.key); return it ? '<a class="rd-on-item" href="#' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-go="' + ({ mail: "mail", todo: "todo", hold: "collab", score: "score" }[it.kind]) + '" data-rd-sel="' + h(it.key) + '">' + h(p.v) + "</a>" : "<span>" + h(p.v) + "</span>"; }

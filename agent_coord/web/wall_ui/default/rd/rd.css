@@ -225,6 +225,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-here-dot.idle, #rd .rd-here-dot.here { background: var(--cyan); }
 #rd .rd-here-dot.gone { background: var(--red); }
 #rd .rd-here-dot.disconnected { background: var(--dim); }
+#rd .rd-here-dot.wake { background: var(--rd-k-wake); }
 #rd .rd-here-name {
   grid-area: name;
   font-weight: 650; color: var(--ink);
@@ -916,6 +917,7 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-dnm.st-waiting { border-color: var(--amber); }
 #rd .rd-dnm.st-idle { border-color: color-mix(in srgb, var(--dim) 55%, var(--edge)); }
 #rd .rd-dnm.st-disconnected { opacity: .5; border-style: dashed; }
+#rd .rd-pill.st-wake, #rd .rd-dnm.st-wake { border-color: var(--rd-k-wake); }
 #rd .rd-dnm.rd-cloud-nm { border-style: dashed; }
 #rd .rd-rp-to { color: var(--dim); font-size: 10px; }
 #rd .rd-rp-dchip .rd-dnm { border-color: var(--rd-k, var(--edge)); background: color-mix(in srgb, var(--rd-k, var(--panel)) 30%, var(--panel)); color: var(--ink); }
