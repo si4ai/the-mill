@@ -6,6 +6,7 @@ import pytest
 
 pytestmark = pytest.mark.sql
 
+from agent_coord.helpers.hold_key import new_key
 from agent_coord.server.records import hold, join as here, mail, name, opened, score, todo
 from agent_coord.server.records.db import conn_kwargs as _conn_kwargs
 from agent_coord.server.records.db import scalar
@@ -71,22 +72,23 @@ def test_todo_update_then_delete_keeps_activity_and_id(cn) -> None:
 
 def test_hold_release_nulls_desk_and_keeps_the_row(cn) -> None:
     seed_names(cn, ("life_hold", "roster"), ("life_hold_d", "desk"), ("life_hold_b", "desk"))
-    first = hold.upsert(cn, "life_hold", "life_hold_d", "gym")
+    key, kh = new_key()
+    first = hold.upsert(cn, "life_hold", "life_hold_d", "gym", kh)
     hid = int(first[0]["id"])
     assert int(first[0]["ok"]) == 1
     _has(cn, "hold", hid)
     again = hold.upsert(cn, "life_hold", "life_hold_d", "gym")
     assert int(again[0]["id"]) == hid
-    assert int(again[0]["ok"]) == 1
+    assert int(again[0]["ok"]) == 0  # card 1267: the holder's desk is refused too
     _has(cn, "hold", hid)
     blocked = hold.upsert(cn, "life_hold", "life_hold_b", "gym")
     assert int(blocked[0]["ok"]) == 0
     _has(cn, "hold", hid)
-    refused = hold.delete(cn, hid, "life_hold_b")
+    refused = hold.delete(cn, hid, "life_hold_b", new_key()[1])
     assert int(refused[0]["ok"]) == 0
     assert not _gone(cn, "hold", hid)
     _has(cn, "hold", hid)
-    released = hold.delete(cn, hid, "life_hold_d")
+    released = hold.delete(cn, hid, "life_hold_b", kh)  # any desk with the key
     assert int(released[0]["ok"]) == 1
     assert not _gone(cn, "hold", hid)
     assert scalar(cn, "SELECT desk_id FROM hold WHERE id=%s", (hid,)) is None

@@ -24,7 +24,7 @@ UNKNOWN = "zz238-nope"
 #   {LBL} live label  {BODY} body file
 BOOK = {
     "hold": ["{RES}"],
-    "drop": ["{HELD}"],
+    "drop": ["{HELD}", "--key", "{KEY}"],
     "send": ["--to-desk", "{PEER}", "--body-file", "{BODY}"],
     "reply": ["{MAIL}", "--body-file", "{BODY}"],
     "mail-thread": ["{MAIL}"],
@@ -68,6 +68,8 @@ KIND = {
     ("score", "label"): "labels",
     ("hold", "group_by"): "enum", ("inbox", "group_by"): "enum", ("todo", "group_by"): "enum",
     ("drop", "resource"): "name",
+    # Card 1267: the release key is opaque; a wrong one is refused with the hold unchanged.
+    ("hold", "key"): "uncapped", ("drop", "key"): "uncapped",
     ("send", "to_desk"): "name", ("send", "body_file"): "name",
     ("send", "roster"): "name", ("send", "name"): "newname", ("send", "to"): "name",
     ("reply", "mail_id"): "id",

@@ -16,7 +16,7 @@ from agent_coord.server.records import floor as rec_floor
 from agent_coord.server.records import hold as rec_hold
 from agent_coord.server.records import join as rec_join
 from agent_coord.server.records import name as rec_name
-from tests.server.records.conftest import seed_names
+from tests.server.records.conftest import take_hold, seed_names
 
 
 class _Book:
@@ -35,8 +35,8 @@ def book(cn):
     rec_hold.upsert(cn, "dl", "dl_a", "dl/one.md")
     rec_hold.upsert(cn, "dl", "dl_a", "dl/two.md")
     rec_hold.upsert(cn, "dl", "dl_b", "dl/three.md")
-    rec_hold.upsert(cn, "dl", "dl_c", "dl/free.md")
-    rec_hold.drop(cn, "dl", "dl_c", "dl/free.md")
+    _, key = take_hold(cn, "dl", "dl_c", "dl/free.md")
+    rec_hold.drop(cn, "dl", "dl_c", "dl/free.md", key)
     return _Book(cn)
 
 
@@ -127,6 +127,8 @@ def test_drop_refusals_read_one_resource(cn, book):
     refused = rec_hold.drop(cn, "dl", "dl_b", "dl/one.md")
     assert refused["released"] is False and "held by dl_a" in refused["reason"]
     assert rec_hold.drop(cn, "dl", "dl_b", "dl/free.md")["reason"] == "not held by you"
+    # Card 1267: a spent key on the free row says so and changes nothing.
+    assert "spent" in rec_hold.drop(cn, "dl", "dl_b", "dl/free.md", "spent-key")["reason"]
     assert rec_hold.drop(cn, "dl", "dl_b", "dl/missing.md")["reason"] == "not held by you"
     assert rec_hold.own(cn, "dl_a")  # nothing released
 

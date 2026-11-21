@@ -47,8 +47,8 @@ mill todo <roster> <need> [--eta E] [--started] [--progress P] | [--done-when TE
 mill create todo <roster> <need> [--detail TEXT | --detail-file PATH] [--status parked] [--label NAME ...]
 mill claim <roster> <need> [--take-over]
 mill replace-body todo <id> TEXT
-mill hold [<resource>]
-mill drop <resource>
+mill hold [<resource>] [--key KEY]
+mill drop <resource> [--key KEY]
 mill wake-done [--lease TOKEN] [--note TEXT]
 mill pass <roster> <need> [--done | --back]
 mill unclaim <roster> <need>
@@ -348,7 +348,7 @@ CLI `<roster>` = activity **roster_id** - one project name or one role name. Lab
 | command | intent | CALL |
 |---|---|---|
 | **`hold`** | Mutex on a res name. `desk_id` NULL means free. The project is not part of the lock. An unknown, retired, or empty project is refused and nothing is written. Release nulls `desk_id`; the row stays. `--peek` reads through `mill_hold_select` and does not call `mill_hold_upsert`; `hold` with no resource (with or without `--peek`) lists every lock held (read only; no locks is an empty list). | `mill_hold_upsert` |
-| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_delete` |
+| **`drop`** | Release a hold (not unclaim). Reply: `released` true/false; `owner` null once released, `was_owner` is who let go; a drop you do not own has top-level ok false, names the holder in `owner` + `reason`, and the CLI exits 1. HOLD hint only on a real release. `hold` reply carries `held`. | `mill_hold_drop` |
 
 ### tree
 
@@ -403,6 +403,34 @@ Trust default **high**; Admin may set **limited** (or back to high). Show: `mill
 **Chief / Wall:** not these commands. SESSION + kanban + MAIL. Chat to a desk.
 
 Python: `agent_coord/server/records/<table>.py`. SQL: `agent_coord/server/sql/`. mill-wall is FastAPI (HTML + `/api` + `/ws` in one process).
+
+## Failed command
+
+A failed desk command prints one UTF-8 JSON object on stdout (no byte-order mark) and one ASCII line on stderr. The process exits 1. A success prints on stdout as before. A usage error (the parser, exit 2) stays a usage error.
+
+The object is `ok` false, then:
+
+| field | what |
+|---|---|
+| `code` | `refused`, `tw_refused`, `transport`, `busy`, or `internal`. One registry. An uncaught error is `internal`. |
+| `refusal` | The office refusal text when `code` is `refused`. The same taint filter as the other fields, cut at 200 characters. `truncated` and `original_length` mark the cut. An internal error does not copy the server exception here. |
+| `class` | `refusal`, `transport`, `busy`, or `internal`. `transport` and `busy` are retryable. |
+| `applied` | false when nothing changed for sure (refused, transport, busy, or a connect the command does not share). Omitted when a commit may have happened (`internal`). |
+| `id` | The request id. The same id is on stderr and on the server log line for a failed `/ws` call. A retry is a new id. |
+| `command` | The command name and the flag names. Flag values are not included. |
+| `desk` | The desk name, when the command has one. |
+| `activity` | `type:id` when the command named an activity, for example `todo:1238`. |
+| `mill` | The server version, when the failure came from the server. |
+| `client_mill` | The client version, only when it differs from `mill`. |
+| `time` | UTC, timezone-aware (`Z`). |
+| `next` | One next step for that code. |
+| `sync` | The same sync list a success would carry, when the server sent one. A client-side failure omits it. |
+| `label_warnings` | Present when the server sent any. |
+| `truncated` | true when a field was cut, with `original_length` of the longest cut. |
+
+stderr is `code id` with no color. A command that does not share the connect is `tw_refused`. A dropped connect is `transport`. Neither carries `sync` or a server `mill`.
+
+Stdout and stderr never carry a secret, a home path, a host, an address, an email, a pipe name, a process id, a file path, or the raw argument values. The server log line for the failure is `failed rpc` with the id, the command, and the exception class. The exception text stays off that line.
 
 ## watcher
 

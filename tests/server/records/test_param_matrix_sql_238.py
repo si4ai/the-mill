@@ -92,7 +92,9 @@ class World:
 
     def held(self):
         r = self.fresh("c238r")
-        self.ok(["hold", r])
+        row = self.ok(["hold", r])
+        # Card 1267: the drop presents the one-use key this take printed.
+        self.held_key = (row.get("result") or {}).get("release_key")
         return r
 
     def tid_labeled(self):
@@ -139,6 +141,7 @@ class World:
             ("MAIL", self.mail),
             ("RES", lambda: self.fresh("c238r")),
             ("HELD", self.held),
+            ("KEY", lambda: getattr(self, "held_key", None) or (self.held(), self.held_key)[1]),
             ("DEL", self.del_roster),
             ("TRASHED", self.trashed_roster),
             ("TRASHED_LABEL", self.trashed_label),
