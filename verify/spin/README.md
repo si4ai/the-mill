@@ -9,7 +9,7 @@ in which the steps of the model can interleave, inside the stated bounds.
 | File | What it models |
 | :--- | :--- |
 | `wake.pml` | the wake path: push queue, webhook POST, the wake lease (card 886: ended by `mill wake-done` or its timeout, not by a connect), the trailing POST (#669), card 827's retry chain off the request (#300, live since 0.8.3), unread mail that resurfaces on connect and rings again (#297, card 949), wake-done inside a connect with no trailing POST to a sitting desk (#322, card 889, 0.8.5), connect sync, the seat rule (supersede, `-r` 4409), and the fixes for cards 831 and 832 (shipped; their switches default on); `LIVE`: the wake path at main 8bae076 and #416 for the live modes F1, F2, F7 (card 1144) |
-| `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal; `READ_DROP`: a connect sync against a committed drop (card 1144, F3) |
+| `holds.pml` | `mill hold` / `mill drop` (refuse at once, no TTL, only the owner drops, reset and retire free a desk's holds), with three desk policies for what to do after a refusal; `READ_DROP`: a connect sync against a committed drop (card 1144, F3); `RUNS`: card 1267, who owns a hold when one desk has two runs (today's desk-owned hold as the counterexample, the run-owned design behind `SESSION=1`) |
 | `todo.pml` | 0.8.0 card moves T1-T14: the card row lock, one move row per status or volunteer change, the act on the activity row, the migration seed |
 | `doing.pml` | 0.8.0 doing: focus rows and move rows, `seat.doing_id`, the seat row lock, finish (D8, D9), heartbeats, hold moves H1-H5, reset (D11) and retire (N1). History since card 1207 (0.8.15): the code has no focus rows, move rows, `seat.doing_id`, `--doing` or `--waiting-on`; a doing is one tw run. Not re-modelled yet. |
 | `mail.pml` | 0.8.0 recipient rows M1-M8: the first open kept, opening leaves activity alone, receipts |
@@ -22,17 +22,21 @@ in which the steps of the model can interleave, inside the stated bounds.
 Run: `verify/spin/run.sh` (about fifteen minutes, up to 4 GB of memory; needs `spin` 6.5.x and a C
 compiler). One check with its trail: `verify/spin/run.sh W07` (or `A01`, `X01`, ...).
 
-Last full run: 150 checks, every one matching its expectation (65 `pass`, 85
-`violated` as expected: findings, mutants, reachability goals, the card 1125
-design expected-violations and mutations, and the card 1144 live wake modes
-V01-V24), in 897 s (about 15 minutes), on main ec280da with
-`SYNC` = c1c1d87 (PR #322's head: 0.8.4 main plus card 889) and
-`SYNC_080` = 8a80dc1, 2026-11-11 (Pacific). The wake checks store states compressed
-(`-DCOLLAPSE`), as the 0.8.0 and activity_history checks do.
+Last full run: 171 checks on release/0.8.16 head 77ed251 plus the card 1267
+`RUNS` block, 2026-11-20 (Pacific), in 1069 s: 170 matched their expectation
+(71 `pass`, 99 `violated` as expected: findings, mutants, reachability goals,
+the card 1125 design expected-violations and mutations, the card 1144 live wake
+modes V01-V24, and the card 1267 rows K01-K14 and M25-M31). W04 gave no result:
+`pan` was killed by the out-of-memory killer at about 3 GB on a shared run host
+(`wake.pml` is unchanged by this pass; W04 passed in the run before, 150 checks
+on main ec280da with `SYNC` = c1c1d87 and `SYNC_080` = 8a80dc1, 2026-11-11, in
+897 s). The wake checks store states compressed (`-DCOLLAPSE`), as the 0.8.0
+and activity_history checks do.
 
 All searches are exhaustive (no `-DBITSTATE`, no depth cut). Liveness checks
 run with weak fairness (`pan -a -f`): every process that can always move
-eventually moves. The receiver's choice to fail a POST is not covered by
+eventually moves (a named liveness claim uses the `liveltl:NAME` mode of
+`run.sh`, the same `pan -a -f`). The receiver's choice to fail a POST is not covered by
 fairness; it is bounded by `MAXFAIL`, the most POSTs in a row it may fail.
 
 ## Properties and results (wake and holds at PR #322's head c1c1d87: 0.8.4 main plus card 889; the 0.8.0 activity models at 8a80dc1)
@@ -434,6 +438,79 @@ command reply sync that acks a row sent live before the tw exit hop goes out
 timer length, the token reuse of the model's three lease tokens, F4 (a stale
 wake-done on an ordinary run, card 1140), F5 (no-route queue, card 1142), F6
 and F8 (tw ready race, card 1154).
+
+## Card 1267: a hold owned by the run (RUNS)
+
+Letter 6649 (builder): a hold is owned by the desk, so two runs of one desk
+(a wake and a foreground job, or two wakes) both believe they own it; a
+second take from the same desk returns `ok`, `held: true`, `refreshed: true`
+and the same id. Card 1256's double drafts are the live trace. The `RUNS`
+block of `holds.pml` models three runs (runs 0 and 1 of desk 0, run 2 of
+desk 1) on one resource. Every command is a one-shot `--desk` borrow, and a
+run may be slow: any number of clock ticks may pass between two of its
+commands. `SESSION=0` is the code today (release/0.8.16 head 77ed251, hold
+code unchanged since 0.8.15: `mill_hold_upsert` and `mill_hold_delete` in
+`sp_hold.sql`, `_h_hold` in `rpc.py`). `SESSION=1` is the card 1267 design;
+nothing is built, so it has no covered-code pin. `-DRUNS=0`, the default,
+leaves the models above unchanged.
+
+Assumptions (the field contract is not settled; builder mails the owner-run
+field and the refusal rows, and the model is tightened then):
+
+- A1. The owner field is a run token, recorded with the desk (card 1267 point
+  5 leaves run token or connect session to the claimer).
+- A2. A live run's renewal beats the TTL: something renews on the run's
+  behalf while it lives (a run heartbeat carrying the token, or the client).
+  Without it a slow run loses its hold (M28).
+- A3. Expiry is done by a sweeper or by any read, not only by the next take.
+- A4. The trust matrix row for a non-owner drop: an Admin may force-drop a
+  live hold (`ADMIN=1`); the stale rule is covered by the TTL and not
+  modelled apart.
+- A5. A refusal carries the reason and the next step; reply text is not
+  modelled.
+
+| Property | Result |
+| :--- | :--- |
+| At most one live run believes it owns a hold | **violated** today (K01, the counterexample): run 0 of desk 0 takes the free row; run 1 of desk 0 takes it again and the same-desk branch of `mill_hold_upsert` answers ok (refreshed, same id); both runs believe they own it. Proved for the design (K05), also with dead runs and TTL expiry (K09); fails when the take reads then writes (M25), when the take checks the desk and not the run (M26), and when the drop checks the desk and not the run (M27) |
+| A live run that believes it owns a hold still owns it (a slow live run never loses a hold it keeps renewing) | **violated** today (K02): the losing run of the same desk runs `mill drop` on its way out, `mill_hold_delete` matches the desk, and the hold the other run still uses is freed. Proved for the design (K06), and TTL expiry never takes a live run's hold (K10); fails when only an explicit `mill hold` renews (M28, assumption A2) and when the owner is the one-shot borrow, so the hold ends with the borrow (M29). **Violated by design** with an Admin force-drop (K14): the run learns it only from `refreshed: false` on its next take |
+| The hold of a dead run is freed | **violated** today (K03): no TTL, as H11. Proved for the design (K07, weak fairness); fails with no expiry (M30) |
+| Every refused take has its refusal row | **violated** today (K04, FINDING, modelled not measured): `_h_hold` writes the refusal transition (`emit_refuse`) after the procedure committed, inside `try`/`except: pass`, so a refusal can go unrecorded. Proved for the design, where the row is written in the take's transaction (K08); fails when the log is written after the commit (M31) |
+| Same-desk and cross-desk refusals are both reachable and logged apart (scored apart) | reachable: same-desk (K12), cross-desk (K13). Each is a "never" rule expected to be violated |
+| No invalid end state | proved for the design (K11): a take never waits |
+
+| Id | Defines | Expect | Got | States | Depth | What it shows |
+| :--- | :--- | :--- | :--- | ---: | ---: | :--- |
+| K01 | RUNS=1 SESSION=0 | violated | violated | 120 | 253 | card 1267 COUNTEREXAMPLE (today): two runs of one desk both own the hold (the second take is refreshed, same id) |
+| K02 | RUNS=1 SESSION=0 | violated | violated | 140 | 297 | card 1267 today: a losing run of the same desk drops the hold the other run still uses (drop checks the desk only) |
+| K03 | RUNS=1 SESSION=0 DIE=1 | violated | violated | 743 | 1532 | card 1267 today: no TTL, a dead run keeps its hold forever (as H11) |
+| K04 | RUNS=1 SESSION=0 | violated | violated | 136 | 288 | FINDING (modelled): today the refusal transition is written after the hold commit and soft-fails, so a refusal can go unrecorded |
+| K05 | RUNS=1 SESSION=1 | pass | pass | 3,227 | 1261 | card 1267 design: at most one live run believes it owns the hold (same desk or not) |
+| K06 | RUNS=1 SESSION=1 | pass | pass | 3,227 | 1261 | card 1267 design: a slow live run never loses a hold it keeps renewing (one-shot borrows between commands) |
+| K07 | RUNS=1 SESSION=1 DIE=1 | pass | pass | 10,140 | 1587 | card 1267 design: the hold of a dead run frees after the TTL |
+| K08 | RUNS=1 SESSION=1 | pass | pass | 3,227 | 1261 | card 1267 design: every refused take is logged in the same transaction |
+| K09 | RUNS=1 SESSION=1 DIE=1 | pass | pass | 7,916 | 1569 | card 1267 design: single owner also with dead runs and TTL expiry |
+| K10 | RUNS=1 SESSION=1 DIE=1 | pass | pass | 7,916 | 1569 | card 1267 design: TTL expiry never takes a hold from a live run |
+| K11 | RUNS=1 SESSION=1 DIE=1 | pass | pass | 7,916 | 916 | card 1267 design: no invalid end state (take never waits) |
+| K12 | RUNS=1 SESSION=1 | violated | violated | 90 | 216 | reachable: a same-desk refusal (two runs of one desk) is logged as same-desk |
+| K13 | RUNS=1 SESSION=1 | violated | violated | 9 | 23 | reachable: a cross-desk refusal is logged as cross-desk |
+| K14 | RUNS=1 SESSION=1 ADMIN=1 | violated | violated | 8 | 19 | by design (trust matrix): an Admin force-drop takes the hold of a live run; the run learns only from refreshed:false on its next take |
+| M25 | RUNS=1 SESSION=1 MUT_SPLIT_TAKE | violated | violated | 75 | 166 | mutation of card 1267: read-then-write take (not atomic) gives two owners (keeps K05 from being vacuous) |
+| M26 | RUNS=1 SESSION=1 MUT_TAKE_DESK | violated | violated | 90 | 214 | mutation of card 1267: the take checks the desk, not the run (the rule today) |
+| M27 | RUNS=1 SESSION=1 MUT_DROP_DESK | violated | violated | 145 | 351 | mutation of card 1267: the drop checks the desk, not the run; a losing run frees the hold of the winner |
+| M28 | RUNS=1 SESSION=1 MUT_RENEW_BY_COMMAND_ONLY | violated | violated | 10 | 22 | mutation of card 1267: only an explicit take renews; a slow live run loses its hold to the TTL (keeps K06 from being vacuous) |
+| M29 | RUNS=1 SESSION=1 MUT_OWNER_IS_BORROW | violated | violated | 8 | 18 | mutation of card 1267: the owner is the one-shot borrow; the hold ends with the borrow |
+| M30 | RUNS=1 SESSION=1 DIE=1 MUT_NO_TTL | violated | violated | 657 | 1499 | mutation of card 1267: no expiry (keeps K07 from being vacuous) |
+| M31 | RUNS=1 SESSION=1 MUT_LOG_AFTER | violated | violated | 77 | 171 | mutation of card 1267: the refusal log is written after the commit and may fail (keeps K08 from being vacuous) |
+
+Each design `pass` has a `violated` partner, so no pass is vacuous: K05 and
+K09 (M25, M26, M27), K06 and K10 (M28, M29), K07 (M30), K08 (M31).
+
+What is not modelled here: the reply text and its next step (A5); the exact
+owner field and refusal rows (pending); a run token presented under another
+desk's borrow (the design should bind the token to its desk); the stale rule
+of the trust matrix apart from the TTL; more than one resource per run (H01-H13
+cover lock order); the collision score itself (a read over the refusal rows,
+card 1267 point 8).
 
 ## Product-edge sync (card 916)
 

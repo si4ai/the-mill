@@ -93,4 +93,14 @@ modelled), V07 (busy on its own exited connect), V12 (unclear: a send into a
 socket the office has not closed), V14 and V15 (`pending()` counts rows sent
 live), V23 (a second-shell sync printed after a drop reply). See `README.md`.
 
+Card 1267 runs (K01-K14, M25-M31): the `RUNS` block of `holds.pml`, off by
+default. `SESSION=0` is today's desk-owned hold (release/0.8.16 head 77ed251):
+K01-K04 are `violated` (two runs of one desk both own the hold, a same-desk
+drop frees the other run's hold, no TTL, a soft-fail refusal log).
+`SESSION=1` is the card 1267 design, not built: K05-K11 pass, K12-K13 are
+reachability goals, K14 is the Admin force-drop by design, and M25-M31 are its
+mutations. When the card 1267 code lands, add the new procedures to the
+`holds.pml` row above, flip the `SESSION` default to 1, and keep `SESSION=0`
+rows as the old shape. Liveness claims run in the `liveltl:NAME` mode.
+
 Card 1125 activity_history MVP design (no code pin): every A01-A09 and X01-X15 row matches its expectation. A07 and A08 are expected violations; X01-X15 are mutations that must stay violated. See `README.md`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh - run every SPIN check of the wake path, holds, 0.8.0 activity models, and the card 1125 activity_history MVP design model, with fixed flags.
+# run.sh - run every SPIN check of the wake path, holds (card 1267 runs included), 0.8.0 activity models, and the card 1125 activity_history MVP design model, with fixed flags.
 #
 # Each check has an expected result: pass, or violated (a known finding or a
 # mutation that must fail). The run exits nonzero when any check differs from
@@ -142,6 +142,27 @@ V21|holds|-DREAD_DROP=1|ltl:sync_fresh|pass|F3: a sync whose hold read starts af
 V22|holds|-DREAD_DROP=1 -DMUT_SNAPSHOT_CARRY|ltl:sync_fresh|violated|mutation: the hold read reuses the first snapshot of the frame (REPEATABLE READ, no commit between reads)
 V23|holds|-DREAD_DROP=1|ltl:sync_after_reply|violated|F3 REACHABLE: a connect sync in a second shell, read before the drop commits, prints after the drop reply and shows the dropped hold
 V24|holds|-DREAD_DROP=1 -DSAME_SHELL=1|ltl:sync_after_reply|pass|F3: in one shell (connect after the drop reply) the sync never shows the dropped hold
+K01|holds|-DRUNS=1 -DSESSION=0|ltl:one_owner|violated|card 1267 COUNTEREXAMPLE (today): two runs of one desk both own the hold (the second take is refreshed, same id)
+K02|holds|-DRUNS=1 -DSESSION=0|ltl:keep|violated|card 1267 today: a losing run of the same desk drops the hold the other run still uses (drop checks the desk only)
+K03|holds|-DRUNS=1 -DSESSION=0 -DDIE=1|liveltl:dead_frees|violated|card 1267 today: no TTL, a dead run keeps its hold forever (as H11)
+K04|holds|-DRUNS=1 -DSESSION=0|ltl:refusals_logged|violated|FINDING (modelled): today the refusal transition is written after the hold commit and soft-fails, so a refusal can go unrecorded
+K05|holds|-DRUNS=1 -DSESSION=1|ltl:one_owner|pass|card 1267 design: at most one live run believes it owns the hold (same desk or not)
+K06|holds|-DRUNS=1 -DSESSION=1|ltl:keep|pass|card 1267 design: a slow live run never loses a hold it keeps renewing (one-shot borrows between commands)
+K07|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|liveltl:dead_frees|pass|card 1267 design: the hold of a dead run frees after the TTL
+K08|holds|-DRUNS=1 -DSESSION=1|ltl:refusals_logged|pass|card 1267 design: every refused take is logged in the same transaction
+K09|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|ltl:one_owner|pass|card 1267 design: single owner also with dead runs and TTL expiry
+K10|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|ltl:keep|pass|card 1267 design: TTL expiry never takes a hold from a live run
+K11|holds|-DRUNS=1 -DSESSION=1 -DDIE=1|safety|pass|card 1267 design: no invalid end state (take never waits)
+K12|holds|-DRUNS=1 -DSESSION=1|ltl:no_same_refusal|violated|reachable: a same-desk refusal (two runs of one desk) is logged as same-desk
+K13|holds|-DRUNS=1 -DSESSION=1|ltl:no_cross_refusal|violated|reachable: a cross-desk refusal is logged as cross-desk
+K14|holds|-DRUNS=1 -DSESSION=1 -DADMIN=1|ltl:keep|violated|by design (trust matrix): an Admin force-drop takes the hold of a live run; the run learns only from refreshed:false on its next take
+M25|holds|-DRUNS=1 -DSESSION=1 -DMUT_SPLIT_TAKE|ltl:one_owner|violated|mutation of card 1267: read-then-write take (not atomic) gives two owners (keeps K05 from being vacuous)
+M26|holds|-DRUNS=1 -DSESSION=1 -DMUT_TAKE_DESK|ltl:one_owner|violated|mutation of card 1267: the take checks the desk, not the run (the rule today)
+M27|holds|-DRUNS=1 -DSESSION=1 -DMUT_DROP_DESK|ltl:one_owner|violated|mutation of card 1267: the drop checks the desk, not the run; a losing run frees the hold of the winner
+M28|holds|-DRUNS=1 -DSESSION=1 -DMUT_RENEW_BY_COMMAND_ONLY|ltl:keep|violated|mutation of card 1267: only an explicit take renews; a slow live run loses its hold to the TTL (keeps K06 from being vacuous)
+M29|holds|-DRUNS=1 -DSESSION=1 -DMUT_OWNER_IS_BORROW|ltl:keep|violated|mutation of card 1267: the owner is the one-shot borrow; the hold ends with the borrow
+M30|holds|-DRUNS=1 -DSESSION=1 -DDIE=1 -DMUT_NO_TTL|liveltl:dead_frees|violated|mutation of card 1267: no expiry (keeps K07 from being vacuous)
+M31|holds|-DRUNS=1 -DSESSION=1 -DMUT_LOG_AFTER|ltl:refusals_logged|violated|mutation of card 1267: the refusal log is written after the commit and may fail (keeps K08 from being vacuous)
 T01|todo|-DCHECK_EDGES|inv|pass|0.8.0 todo at 8a80dc1: every committed move is an edge (guards under the card lock; T8 from open with a volunteer)
 T02|todo|-DCHECK_EDGES -DUNPARK_GUARD=0|inv|violated|mutation (pre-F186): unpark has no status guard; a claimed, shipped or done card goes open
 T03|todo|-DCHECK_EDGES -DASSIGN_LOCKED=0|inv|violated|mutation (pre-F186): assign checks an unlocked read, then writes blind
@@ -227,6 +248,7 @@ while IFS='|' read -r id model defs mode expect what; do
       np) flags="-DNP -DNOCLAIM -DNFAIR=3"; run="-l -f -m$DEPTH";;
       inv) flags="-DNOCLAIM -DSAFETY"; run="-m$DEPTH -E";;       # assertions only (a lock cycle is D03's)
       ltl:*) flags="-DSAFETY"; run="-m$DEPTH -N ${mode#ltl:}";;  # a safety claim named after ltl:
+      liveltl:*) flags="-DNFAIR=3"; run="-a -f -m$DEPTH -N ${mode#liveltl:}";;  # a liveness claim, weak fairness
     esac
     # The 0.8.0 models store states compressed (their vectors are larger).
     case "$model" in holds) ;; *) flags="$flags -DCOLLAPSE";; esac
