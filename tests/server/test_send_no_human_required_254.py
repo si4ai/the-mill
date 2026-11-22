@@ -51,7 +51,7 @@ def test_h_send_ignores_human_required(monkeypatch):
 
     inserted = {}
 
-    def fake_insert(cn, project, desk, dst, body, receipt=0, dst_kind="desk"):
+    def fake_insert(cn, project, desk, dst, body, receipt=0, dst_kind="desk", read_stamp=None):
         inserted["receipt"] = receipt
         inserted["body"] = body
         inserted["dst"] = dst

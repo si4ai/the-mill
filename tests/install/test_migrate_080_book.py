@@ -284,6 +284,7 @@ def _apply_1022_after_080(cn) -> None:
     migrate.apply_transition_1022(cn)
     migrate.apply_task_970(cn)
     migrate.apply_history_1133(cn)
+    migrate._ensure_mail_read_stamp(cn)  # card 1276 (ensure runs it earlier; append after the 1133 stamps)
     migrate._ensure_label_updated(cn)  # card 1153 (ensure runs it before apply_080; 0.8.0 keeps the column)
     migrate.apply_1163(cn)
     migrate._ensure_name_type_idx(cn)  # card 1234
