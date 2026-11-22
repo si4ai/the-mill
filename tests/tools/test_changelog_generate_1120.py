@@ -285,3 +285,14 @@ def test_mixed_window_dedupes_by_pr_and_applies_reverts_across_flows():
         "card 31: folded work",
         "Reverts #9",
     ]
+
+
+def test_hotfix_version_is_read_and_rotates_once():
+    assert cg.VERSION_RE.fullmatch("0.8.16.1")
+    assert cg.SHIPPED_HEAD.fullmatch("0.8.16.1 (2026-11-21)").group(1) == "0.8.16.1"
+    assert cg.BUMP_SUBJECT.match("the mill 0.8.16.1: tw hotfix")
+    assert not cg.VERSION_RE.fullmatch("0.8.16.1.2")
+    text = (cg.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    updated = cg.apply_rotation(text, version="0.8.16.1", date="2026-11-21", bullets=["card 1223: hotfix"])
+    assert updated.count("0.8.16.1 (2026-11-21)") == 1
+    assert cg.already_has_version(cg.split_changelog(updated)[1], "0.8.16.1")

@@ -97,12 +97,15 @@ HOME_MARKERS = (
 )
 
 # RFC 5737 and RFC 3849. Loopback and unspecified are product binds, not hosts.
+# 0.0.0.0/8 (RFC 1122 "this network") names no host; a four-part version such
+# as 0.8.16.1 has that shape.
 # Mill-join prefixes 192.168.1. / 192.168.1.% / 192.168.1.* are not complete addresses.
 _DOC_V4 = (
     ipaddress.ip_network("192.0.2.0/24"),
     ipaddress.ip_network("198.51.100.0/24"),
     ipaddress.ip_network("203.0.113.0/24"),
 )
+_THIS_NET_V4 = ipaddress.ip_network("0.0.0.0/8")
 _DOC_V6 = ipaddress.ip_network("2001:db8::/32")
 _IPV4_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d{1,3}){3})(?!\d)")
 # Two or more colon groups. A clock time has no hex letter and no '::'.
@@ -118,7 +121,7 @@ def _ipv4_allowed(text: str) -> bool:
         return True
     if not isinstance(ip, ipaddress.IPv4Address):
         return True
-    if ip.is_loopback or ip.is_unspecified:
+    if ip.is_loopback or ip.is_unspecified or ip in _THIS_NET_V4:
         return True
     return any(ip in net for net in _DOC_V4)
 

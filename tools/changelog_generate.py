@@ -58,9 +58,9 @@ DISCLAIMER = (
     "they can change or move at release time."
 )
 
-VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:\.\d+)?$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-SHIPPED_HEAD = re.compile(r"^(\d+\.\d+\.\d+)(?:\s+\(([^)]+)\))?\s*$")
+SHIPPED_HEAD = re.compile(r"^(\d+\.\d+\.\d+(?:\.\d+)?)(?:\s+\(([^)]+)\))?\s*$")
 PR_IN_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")
 PR_HASH = re.compile(r"#(\d+)\b")
 SECTION_HEAD = re.compile(r"^## (.+)$")
@@ -70,7 +70,7 @@ HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 REVERTS_LINE = re.compile(r"(?i)^reverts?\s+#(\d+)\s*$")
 REVERT_TITLE = re.compile(r"""(?i)^Revert\s+["'](.+?)["']\s*$""")
 REVERT_COMMIT = re.compile(r"(?i)This reverts commit ([0-9a-f]{7,40})\.")
-BUMP_SUBJECT = re.compile(r"(?i)^the mill \d+\.\d+\.\d+:")
+BUMP_SUBJECT = re.compile(r"(?i)^the mill \d+\.\d+\.\d+(?:\.\d+)?:")
 MERGE_PR = re.compile(r"(?i)^Merge pull request #(\d+) from \S+")
 RELEASE_MERGE = re.compile(r"(?i)^Merge pull request #(\d+) from \S+/release/")
 BULLET_PREFIX = re.compile(r"^[-*]\s+")
@@ -496,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if not VERSION_RE.match(args.version):
-        print("changelog-generate: --version must be X.Y.Z", file=sys.stderr)
+        print("changelog-generate: --version must be X.Y.Z or X.Y.Z.N", file=sys.stderr)
         return 2
     if not DATE_RE.match(args.date):
         print("changelog-generate: --date must be YYYY-MM-DD", file=sys.stderr)

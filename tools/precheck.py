@@ -66,7 +66,7 @@ COL_ID = re.compile(
     r"|(?P<col>^\s*`?(?P<cname>\w+)`?\s+(?P<ctype>[A-Za-z]+(?:\s+UNSIGNED)?))",
     re.M | re.I,
 )
-SHIPPED_HEAD = re.compile(r"^(\d+\.\d+\.\d+)(?:\s+\(([^)]+)\))?\s*$")
+SHIPPED_HEAD = re.compile(r"^(\d+\.\d+\.\d+(?:\.\d+)?)(?:\s+\(([^)]+)\))?\s*$")
 SECTION = re.compile(r"^## (.+)$")
 
 
