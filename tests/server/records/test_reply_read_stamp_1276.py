@@ -1,4 +1,4 @@
-"""Card 1276: a reply stores the body stamp of the letter it answers. Row F229.
+"""Card 1276: a reply stores the body stamp of the letter it answers. Row F-reply-read-stamp.
 
 A root send leaves read_stamp NULL. A reply stores the answered letter's
 body_updated, or created when that body was never replaced. Replacing the
