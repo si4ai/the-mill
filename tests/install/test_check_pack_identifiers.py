@@ -142,7 +142,7 @@ def test_addresses_loopback_and_doc_ranges_only() -> None:
     mod = _mod()
     for octets in ((10, 0, 0, 5), (172, 16, 4, 2), (192, 168, 0, 9), (8, 8, 4, 4)):
         assert mod.text_has_forbidden_address("host " + ".".join(map(str, octets)))
-    for text in ("127.0.0.1", "0.0.0.0", "203.0.113.5", "198.51.100.7", "192.0.2.1", "v1.2.3", "1.2.3"):
+    for text in ("127.0.0.1", "0.0.0.0", "203.0.113.5", "198.51.100.7", "192.0.2.1", "v1.2.3", "1.2.3", "0.8.16.1"):
         assert not mod.text_has_forbidden_address(text), text
 
 
