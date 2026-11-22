@@ -17,7 +17,7 @@ file wins: fix this page.
 
 ## Workflows
 
-Six files live under `.github/workflows/`:
+Seven files live under `.github/workflows/`:
 
 | File | Starts on | Jobs |
 | :--- | :--- | :--- |
@@ -27,6 +27,7 @@ Six files live under `.github/workflows/`:
 | `pr_text.yml` | pull request (opened, edited, synchronize, reopened), issue opened or edited, issue comment, daily (06:17 UTC), manual run | `event`, `sweep` |
 | `release.yml` | push of a `v*` tag, manual run (dry run) | `ci` (calls `ci.yml`), `verify`, `publish_pypi` |
 | `copilot-setup-steps.yml` | push or pull request that changes this file, manual run | `copilot-setup-steps` |
+| `rco.yml` | pull request, push to `main` | `rco` (report only) |
 
 Rules every workflow keeps, and why:
 
@@ -328,6 +329,33 @@ The ship path; details in [BUILD.md](BUILD.md#ci-ship-path).
 
 Why: PyPI never takes the same version twice, so a bad upload costs a
 new version. Every gate runs again on the exact tagged commit first.
+
+### `rco.yml`
+
+The rco report (card 1228). rco is the PyPI release pinned in
+`tools/ci-lock/rco.txt` (`repo-context-optimizer==0.1.6`, hash-checked).
+
+- On a pull request: `rco diff`, `rco affected`, `rco drift pins`
+  (the pin files under `pins/`) and the cross-PR notice
+  (`python -m rco.notice_report`, which needs `pull-requests: read`).
+  Each report goes to the job summary and in full to the `rco-report`
+  artifact, with `rco-metrics.json`: bytes and tokens an agent reads
+  without rco (changed files plus their imports, one hop) and with
+  `rco pack --for` on the same files (`tools/rco_metrics.py`). The job
+  fails if that file is missing.
+- On a push to `main`: `rco update --name main` refreshes the cached
+  store (`.rco`, through `actions/cache`).
+- Exit 1 from rco (findings) passes. Exit 2 or 3 (usage error, crash)
+  fails this job only.
+
+It is not a required check, has no `merge_group` trigger, is not called
+by `release.yml` and is not in `ci/test-select.toml`, so it never holds a
+merge. Re-pin with `rco pin --for FILES --format json --out pins/AREA.json`
+when a contract change is intended. Bot desks read the artifact
+(`gh run download RUN -n rco-report`); the job summary needs a browser.
+
+Why: contract changes, drift and cross-PR overlap show up on every PR as
+hints, and the metrics measure whether rco saves an agent tokens.
 
 ### `copilot-setup-steps.yml`
 
