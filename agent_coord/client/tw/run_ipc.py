@@ -899,7 +899,9 @@ class RunGate:
         issued = self.children.get(watch_id)
         if not watch_id or not isinstance(inner, dict) or not issued:
             return {"ok": False, "error": ERR_REFUSED}
-        if not is_descendant(
+        # Only the process the watch id was issued to (the child's own gate)
+        # relays for it; a process below that gate talks to that gate.
+        if int(peer_pid) != int(issued["pid"]) or not is_descendant(
             peer_pid,
             int(issued["pid"]),
             table=table,
@@ -924,7 +926,31 @@ class RunGate:
                 mine = origin == self.watch_id or origin in self.children
                 if not parent or parent == origin or mine:
                     return {"ok": False, "error": ERR_REFUSED}
-                self.below.setdefault(origin, watch_id)
+                known = self.below.get(origin)
+                if known is None:
+                    # A new origin opens only with the start the child's gate
+                    # sends when it issues a run: under a run of this child,
+                    # for a live process below that gate (card 1281).
+                    pid = event.get("pid")
+                    if (
+                        str(event.get("kind") or "") != "start"
+                        or (parent != watch_id and self.below.get(parent) != watch_id)
+                        or not isinstance(pid, int)
+                        or isinstance(pid, bool)
+                        or pid == int(issued["pid"])
+                        or not is_descendant(
+                            pid,
+                            int(issued["pid"]),
+                            table=table,
+                            starts=starts,
+                            root_start=int(issued["start"]),
+                            fetch=fetch,
+                        )
+                    ):
+                        return {"ok": False, "error": ERR_REFUSED}
+                    self.below[origin] = watch_id
+                elif known != watch_id:
+                    return {"ok": False, "error": ERR_REFUSED}
             ok = bool(self.event_fn(event)) if self.event_fn is not None else False
             if not ok:
                 return {"ok": False, "error": ERR_ENDED}
