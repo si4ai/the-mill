@@ -335,6 +335,10 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-tl .rd-how { color: var(--dim); }
 #rd .rd-tl .rd-on-item { color: var(--cyan); font-family: var(--font-mono); font-size: 11px; }
 #rd .rd-tl.current .rd-how { color: var(--green); }
+#rd .rd-tl.rd-d1 { margin-left: .9rem; } #rd .rd-tl.rd-d2 { margin-left: 1.8rem; } #rd .rd-tl.rd-d3 { margin-left: 2.7rem; }
+#rd .rd-tl.rd-d1, #rd .rd-tl.rd-d2, #rd .rd-tl.rd-d3 { padding-left: .45rem; border-left: 1px solid var(--edge); }
+#rd .rd-tl .dt-child-of { color: var(--mag); font-family: var(--font-mono); font-size: 11px; }
+#rd .doing-run-tree:empty { display: none; }
 /* office feed */
 #rd .rd-office-feed h3 {
   margin: 0 0 .4rem;

@@ -169,6 +169,12 @@
       (rost ? '<div class="rd-sg rosters"><h4>Rosters <span class="rd-sub">the roster\u2019s scores, not this desk\u2019s</span></h4><div class="rd-roster-cols">' + rost + "</div></div>" : "") +
       "</div></section>";
   }
+  /* Card 1240's "runs" toggle: doing-paint.js paints and wires it once loaded (rd-app loads it on first click). */
+  function runsBtn(desk, watch) {
+    if (!watch) return "";
+    if (typeof wallDoingRunButton === "function") return " " + wallDoingRunButton(desk, watch);
+    return ' <button type="button" class="dt-tree" data-doing-run="' + h(watch) + '" data-doing-desk="' + h(desk) + '" aria-expanded="false">runs</button>';
+  }
   function deskDetailHtml(dd, now) {
     if (!dd) return '<div class="rd-empty-line">Pick a desk.</div>';
     var r = dd.desk;
@@ -208,8 +214,10 @@
     }
     if (dd.trail) {
       html += '<section class="rd-block trail"><h3>DOING TRAIL <span class="rd-sub">last ' + dd.trail.length + "</span></h3>" + (dd.trail.length ? dd.trail.map(function (t) {
-        return '<div class="rd-tl' + (t.current ? " current" : "") + '"><span class="rd-when">' + h(clock(t.at)) + '</span><span class="rd-text">' + h(t.doing) +
-          (t.on ? " " + item(t.on) : "") + ' <span class="rd-how">' + (t.current ? "current" : "ended: " + h(t.ended)) + "</span></span></div>";
+        return '<div class="rd-tl' + (t.current ? " current" : "") + (t.depth ? " rd-d" + Math.min(t.depth, 3) : "") + '"' + (t.watch ? ' data-watch="' + h(t.watch) + '"' : "") + '><span class="rd-when">' + h(clock(t.at)) + '</span><span class="rd-text">' + h(t.doing) +
+          (t.on ? " " + item(t.on) : "") + ' <span class="rd-how">' + (t.current ? "current" : "ended: " + h(t.ended)) + "</span>" +
+          (t.childOf ? ' <span class="dt-child-of" title="its parent run is not live">' + h("child of " + t.childOf) + "</span>" : "") + runsBtn(r.name, t.watch) + "</span></div>" +
+          (t.watch ? (typeof wallDoingRunSlot === "function" ? wallDoingRunSlot(r.name, t.watch) : '<div class="doing-run-tree" data-doing-run-tree="' + h(r.name + "|" + t.watch) + '"></div>') : "");
       }).join("") : '<div class="rd-empty">No doing rows yet.</div>') + "</section>";
     }
     return html + "</div>";

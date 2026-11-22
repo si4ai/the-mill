@@ -462,19 +462,46 @@
     }
     var holds = collectHolds(b);
     var trail = Array.isArray((b.data.history || {})[d.name]) ? b.data.history[d.name] : null;
+    /* A live trail row is a doing in the live view (same id): take its watch_id and parent_watch_id. */
+    var liveRun = {}, dv = (b.data.doing || {})[d.name];
+    (dv && Array.isArray(dv.doings) ? dv.doings : []).forEach(function (x) {
+      if (x && x.id != null && Object.prototype.hasOwnProperty.call(x, "watch_id")) liveRun[String(x.id)] = x;
+    });
     var rost = d.rosters.map(function (ro) { return { roster: ro, rows: rosterScores(b, ro) }; })
       .filter(function (x) { return x.rows && x.rows.length; });
     var runs = deskRuns(b, d.name);
     return {
       desk: r,
       card: card, chat: chat, holds: holds ? holds.filter(function (h0) { return h0.desk === d.name; }) : null,
-      trail: trail ? trail.slice(0, 6).map(function (t) {
+      trail: trail ? runTrail(trail.slice(0, 6).map(function (t) {
         /* Card 1207: a tw run row (src doing) has text; a move row (src transition) has act. */
         var move = str(t.src) === "transition";
-        return { at: utc(t.at), doing: move ? str(t.act) : (str(t.text) || "tw run"), on: str(t.on), ended: !move && t.ended ? endWord(t.ended_by) : "", current: !move && !t.ended };
-      }) : null,
+        var lr = !move && !t.ended ? liveRun[String(t.id)] : null;
+        return { at: utc(t.at), doing: move ? str(t.act) : (str(t.text) || "tw run"), on: str(t.on), ended: !move && t.ended ? endWord(t.ended_by) : "", current: !move && !t.ended,
+          watch: lr ? str(lr.watch_id) : "", parent: lr ? str(lr.parent_watch_id) : "" };
+      })) : null,
       rosterScores: rost, runs: runs
     };
+  }
+  /* The tw run tree (card 1240) in the trail: a live run sits under its live parent (parent_watch_id),
+   * children oldest first, depth set; one whose parent is not live here keeps its place with childOf.
+   * Ended rows and rows with no watch (an older server) keep the trail's order, flat. */
+  function runTrail(rows) {
+    var live = {}, kids = {}, seen = [], out = [];
+    rows.forEach(function (t) { if (t.watch) live[t.watch] = t; });
+    function kid(t) { return t.parent && t.parent !== t.watch && live[t.parent]; }
+    rows.forEach(function (t) { if (kid(t)) (kids[t.parent] = kids[t.parent] || []).unshift(t); });
+    function put(t, depth) {
+      if (seen.indexOf(t) >= 0) return;
+      seen.push(t);
+      t.depth = depth;
+      t.childOf = t.parent && !live[t.parent] ? t.parent : "";
+      out.push(t);
+      (kids[t.watch] || []).forEach(function (k) { put(k, depth + 1); });
+    }
+    rows.forEach(function (t) { if (!kid(t)) put(t, 0); });
+    rows.forEach(function (t) { put(t, 0); }); /* a parent loop has no top: never drop a row */
+    return out;
   }
   function prioNote(p, desk) {
     var st = p.cardStatus || p.status;
