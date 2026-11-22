@@ -176,3 +176,55 @@ def test_write_two_tw_levels_down_reaches_the_root_handler(tmp_path, monkeypatch
 
 def test_gate_threads_are_not_left_running() -> None:
     assert not [t for t in threading.enumerate() if t.name == "mill-tw-run"]
+
+
+def test_desk_link_keeps_a_nested_start_parent(tmp_path, monkeypatch) -> None:
+    from agent_coord.client.tw.link import Session, serve
+
+    monkeypatch.setattr("agent_coord.config.mill_home", lambda: tmp_path)
+    monkeypatch.setattr("agent_coord.client.offices.desk_local_file", lambda *a, **k: None)
+    hops: list = []
+    monkeypatch.setattr(
+        "agent_coord.client.http.mill_http_call",
+        lambda body: hops.append(dict(body)) or {"ok": True, "result": {"ok": True}},
+    )
+    link = serve("tw-parent-link")
+    session = Session(link)
+    try:
+        session.request({"type": "register", "key": "tw:p", "argv": ["tw", "run"]})
+        got = session.request(
+            {"type": "event", "watch_id": "tw-child", "kind": "start", "parent_watch_id": "tw-root"}
+        )
+        assert got["ok"] is True
+        assert link.drain() == "empty"
+        events = [hop for hop in hops if hop.get("verb") == "tw.event"]
+        assert [e.get("parent_watch_id") for e in events] == ["tw-root"]
+    finally:
+        session.close()
+        link.close()
+
+
+def test_hop_file_from_0816_gains_the_parent_column(tmp_path) -> None:
+    import sqlite3
+
+    from agent_coord.client.tw.outbox import Outbox, _post_body
+
+    path = tmp_path / "old.hops.sqlite"
+    db = sqlite3.connect(str(path))
+    db.execute(
+        "CREATE TABLE hop (id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, kind TEXT NOT NULL,"
+        " cause TEXT, exit_code INTEGER, wake INTEGER, counts TEXT, desk TEXT, card INTEGER,"
+        " ts_ms INTEGER)"
+    )
+    db.execute("INSERT INTO hop (watch_id, kind) VALUES ('tw-old', 'exit')")
+    db.commit()
+    db.close()
+    box = Outbox(path)
+    try:
+        box.add({"watch_id": "tw-child", "kind": "start", "parent_watch_id": "tw-root"})
+        old = box.next_row(set())
+        assert _post_body(old) == {"verb": "tw.event", "watch_id": "tw-old", "kind": "exit"}
+        box.drop(int(old["id"]))
+        assert _post_body(box.next_row(set()))["parent_watch_id"] == "tw-root"
+    finally:
+        box.close()
