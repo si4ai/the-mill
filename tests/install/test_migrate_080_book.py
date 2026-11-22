@@ -301,8 +301,9 @@ DROPPED_PLAN = ("todo_event", "doing_now", "vote", "vote_option", "vote_cast", "
 ADDED = {"desk_key", "act", "peer_id", "doing_id", "focus_label_id", "trashed",
          "meta", "body_updated", "body_updater_id"}  # card 1133 (a plain-text card body stays as it is)
 DROPPED = {"evidence", "weight", "n"}
-# Added on one table only, where the name is common elsewhere: label.updated (card 1153).
-ADDED_IN = {"label": {"updated"}}
+# Added on one table only, where the name is common elsewhere: label.updated (card 1153),
+# mail.read_stamp (card 1276). Old rows keep NULL; the row compare ignores the new column.
+ADDED_IN = {"label": {"updated"}, "mail": {"read_stamp"}}
 # A card's status -> the act of its one seeded move row (BETA-CHANGES.md, the act list; claimed by another desk is
 # assign).
 SEED_ACT = {"open": "create", "parked": "park", "claimed": "claim", "shipped": "ship", "done": "done"}
