@@ -68,10 +68,15 @@ class Outbox:
                 counts TEXT,
                 desk TEXT,
                 card INTEGER,
-                ts_ms INTEGER
+                ts_ms INTEGER,
+                parent_watch_id TEXT
             )
             """
         )
+        cols = {str(row[1]) for row in self._db.execute("PRAGMA table_info(hop)").fetchall()}
+        if "parent_watch_id" not in cols:
+            # A hop file from 0.8.16 or older (card 1279).
+            self._db.execute("ALTER TABLE hop ADD COLUMN parent_watch_id TEXT")
         self._db.commit()
 
     def close(self) -> None:
@@ -86,13 +91,17 @@ class Outbox:
         desk = body.get("desk")
         if not isinstance(desk, str) or not desk.strip():
             desk = None
+        parent = body.get("parent_watch_id")
+        if not isinstance(parent, str) or not parent.strip():
+            parent = None
         with self._lock:
             cur = self._db.execute(
                 """
                 INSERT INTO hop (
-                    watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
+                    watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
+                    parent_watch_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(body.get("watch_id") or ""),
@@ -104,6 +113,7 @@ class Outbox:
                     desk,
                     card,
                     _ts_ms(body.get("ts_ms")),
+                    parent,
                 ),
             )
             self._db.commit()
@@ -113,7 +123,8 @@ class Outbox:
         with self._lock:
             row = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
+                       parent_watch_id
                 FROM hop ORDER BY id LIMIT 1
                 """
             ).fetchone()
@@ -125,7 +136,8 @@ class Outbox:
         with self._lock:
             rows = self._db.execute(
                 """
-                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms
+                SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
+                       parent_watch_id
                 FROM hop ORDER BY id
                 """
             ).fetchall()
@@ -152,6 +164,8 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
         body["desk"] = item["desk"]
     if item.get("card") is not None:
         body["card"] = item["card"]
+    if item.get("parent_watch_id"):
+        body["parent_watch_id"] = item["parent_watch_id"]
     if item.get("cause"):
         body["cause"] = item["cause"]
     if item.get("exit_code") is not None:

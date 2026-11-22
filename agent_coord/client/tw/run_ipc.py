@@ -348,11 +348,21 @@ def lookup_parent(
     return None
 
 
+def _clean(raw: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in raw.items() if key not in _DROP}
+
+
 def _args(frame: dict[str, Any]) -> dict[str, Any]:
     raw = frame.get("args")
     if not isinstance(raw, dict):
         return {}
-    return {key: value for key, value in raw.items() if key not in _DROP}
+    return _clean(raw)
+
+
+def call_frame(body: dict[str, Any]) -> dict[str, Any]:
+    """The one call frame for a CLI body. The CLI body is flat: verb plus fields."""
+    verb = canonical_command(str(body.get("verb") or body.get("cmd") or ""))
+    return {"type": "call", "verb": verb, "args": _clean(body)}
 
 
 def _read_line(conn: Any, limit: int = LINE_MAX) -> bytes | None:
@@ -485,8 +495,7 @@ def try_forward(body: dict[str, Any]) -> Any | None:
     found = lookup_parent()
     if not found:
         return None
-    verb = canonical_command(str(body.get("verb") or body.get("cmd") or ""))
-    frame = {"type": "call", "verb": verb, "args": _args(body)}
+    frame = call_frame(body)
     try:
         reply = call_parent(found, frame)
     except CoordError:
@@ -556,8 +565,15 @@ class RelaySession:
         return None
 
 
-def relay_call(pointer: dict[str, Any]) -> Callable[[str, dict[str, Any], str], Any]:
-    """call_fn for a nested run: the parent stamps the watch id it issued."""
+def relay_call(
+    pointer: dict[str, Any], own_watch_id: str
+) -> Callable[[str, dict[str, Any], str], Any]:
+    """call_fn for a nested run.
+
+    The envelope names this run's own watch id, the one the parent issued and
+    can check. The frame names the run the call came from (this run or one
+    below it); the parent accepts it only for a run it saw start under this one.
+    """
 
     def call(verb: str, args: dict[str, Any], watch_id: str) -> Any:
         from agent_coord.helpers.errors import CoordError
@@ -566,8 +582,8 @@ def relay_call(pointer: dict[str, Any]) -> Callable[[str, dict[str, Any], str], 
             pointer,
             {
                 "type": "relay",
-                "watch_id": watch_id,
-                "frame": {"type": "call", "verb": verb, "args": args},
+                "watch_id": str(own_watch_id),
+                "frame": {"type": "call", "verb": verb, "args": args, "watch_id": watch_id},
             },
         )
         if not isinstance(reply, dict) or reply.get("ok") is not True:
@@ -615,6 +631,7 @@ class RunGate:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.children: dict[str, dict[str, int]] = {}
+        self.below: dict[str, str] = {}
         self.ready = threading.Event()
         self.error: BaseException | None = None
         self.kind = ""
@@ -896,13 +913,27 @@ class RunGate:
             if self.exiting:
                 return {"ok": False, "error": ERR_ENDED}
             event = dict(inner)
-            event.setdefault("parent_watch_id", watch_id)
+            origin = str(event.get("watch_id") or "") or watch_id
+            event["watch_id"] = origin
+            if origin == watch_id:
+                # The child this run issued: its parent is this run.
+                event["parent_watch_id"] = self.watch_id
+            else:
+                # A run below that child, stamped by the gate that issued it.
+                parent = str(event.get("parent_watch_id") or "")
+                mine = origin == self.watch_id or origin in self.children
+                if not parent or parent == origin or mine:
+                    return {"ok": False, "error": ERR_REFUSED}
+                self.below.setdefault(origin, watch_id)
             ok = bool(self.event_fn(event)) if self.event_fn is not None else False
             if not ok:
                 return {"ok": False, "error": ERR_ENDED}
             return {"ok": True}
         if inner_type == "call":
-            return self._forward_call(inner, watch_id)
+            origin = str(inner.get("watch_id") or "") or watch_id
+            if origin != watch_id and self.below.get(origin) != watch_id:
+                return {"ok": False, "error": ERR_REFUSED}
+            return self._forward_call(inner, origin)
         return {"ok": False, "error": ERR_REFUSED}
 
     def _write_pointer(self) -> None:
