@@ -59,7 +59,15 @@ def seat_after(saw_drop: bool, restarts: int) -> str:
     return "hold-end"
 
 
-def classify(text: str, seen: set[str], sit: set[str]) -> list[str]:
+def _other_desk(sender: str, desk: str) -> str:
+    """`` from NAME`` when NAME is not the desk this shell sits."""
+    who = (sender or "").strip().split()
+    if not who or who[0] == desk:
+        return ""
+    return " from " + who[0]
+
+
+def classify(text: str, seen: set[str], sit: set[str], desk: str = "") -> list[str]:
     """Safe lines for one connect stdout line. ``seen`` and ``sit`` accumulate."""
     raw = (text or "").strip()
     if not raw:
@@ -72,7 +80,7 @@ def classify(text: str, seen: set[str], sit: set[str]) -> list[str]:
         except json.JSONDecodeError:
             obj = None
         if isinstance(obj, dict):
-            return _from_json(obj, seen, sit)
+            return _from_json(obj, seen, sit, desk)
     if "HINT" not in raw:
         return []
     kind_m = _HINT_KIND.search(raw)
@@ -81,15 +89,15 @@ def classify(text: str, seen: set[str], sit: set[str]) -> list[str]:
         return []
     brief = kind_m.group(1).lower() + " " + id_m.group(1)
     from_m = _HINT_FROM.search(raw)
-    if from_m and from_m.group(1) != "grok-tui":
-        brief += " from " + from_m.group(1).split()[0]
+    if from_m:
+        brief += _other_desk(from_m.group(1), desk)
     if brief in seen:
         return []
     seen.add(brief)
     return ["HINT " + brief]
 
 
-def _brief(obj: dict) -> str | None:
+def _brief(obj: dict, desk: str) -> str | None:
     kind = str(obj.get("kind") or obj.get("type") or "").strip().lower()
     if kind in ("", "ping", "sync", "heartbeat", "session"):
         return None
@@ -98,23 +106,22 @@ def _brief(obj: dict) -> str | None:
         return None
     line = kind + " " + str(ident)
     sender = str(obj.get("from") or obj.get("sender") or "").strip()
-    if sender and sender != "grok-tui":
-        line += " from " + sender.split()[0]
+    line += _other_desk(sender, desk)
     return line
 
 
-def _from_json(obj: dict, seen: set[str], sit: set[str]) -> list[str]:
+def _from_json(obj: dict, seen: set[str], sit: set[str], desk: str) -> list[str]:
     if obj.get("mode") == "ws" or obj.get("backchannel") or obj.get("ready") is True:
         if obj.get("ready") is True:
-            desk = str(obj.get("desk") or "").strip()
-            return ["SEATED " + desk] if desk else ["SEATED"]
+            seated = str(obj.get("desk") or "").strip()
+            return ["SEATED " + seated] if seated else ["SEATED"]
         return []
     if obj.get("connector") == "error":
         return ["POKE error"]
     if obj.get("error") == "connect closed":
         return ["CONNECT_CLOSED"]
     if obj.get("mode") == "sit-exit" and isinstance(obj.get("hint"), dict):
-        brief = _brief(obj["hint"])
+        brief = _brief(obj["hint"], desk)
         if brief is None or brief in sit:
             return []
         seen.add(brief)
@@ -134,7 +141,7 @@ def _from_json(obj: dict, seen: set[str], sit: set[str]) -> list[str]:
             if str(row.get("kind") or "").lower() == "mail":
                 mail += 1
         return ["SYNC n=%d newest=%d mail=%d" % (len(rows), newest, mail)]
-    brief = _brief(obj)
+    brief = _brief(obj, desk)
     if brief is None or brief in seen:
         return []
     seen.add(brief)
@@ -196,7 +203,15 @@ def _run_req(mill: str, spec: dict, out_path: Path, err_path: Path) -> int:
     return int(proc.returncode or 0)
 
 
-def _serve_one(proc: subprocess.Popen, req: Path, done: Path, out_path: Path, err_path: Path, mill: str) -> bool:
+def _serve_one(
+    proc: subprocess.Popen,
+    req: Path,
+    done: Path,
+    out_path: Path,
+    err_path: Path,
+    mill: str,
+    desk: str,
+) -> bool:
     """Read hints until connect exits. Return true when the exit was a drop."""
     seen: set[str] = set()
     sit: set[str] = set()
@@ -211,7 +226,7 @@ def _serve_one(proc: subprocess.Popen, req: Path, done: Path, out_path: Path, er
         if line is None:
             break
         if line:
-            for event in classify(line, seen, sit):
+            for event in classify(line, seen, sit, desk):
                 _say(event)
                 if event.endswith(" sit-exit") or event == "CONNECT_CLOSED":
                     drop = True
@@ -247,7 +262,7 @@ def run_shell(desk: str, office: str, req: Path, done: Path, out_path: Path, err
         argv.extend(["connect", desk])
         proc = _popen(argv)
         try:
-            drop = _serve_one(proc, req, done, out_path, err_path, mill)
+            drop = _serve_one(proc, req, done, out_path, err_path, mill, desk)
         finally:
             if proc.poll() is None:
                 proc.kill()

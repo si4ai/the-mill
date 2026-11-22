@@ -36,7 +36,7 @@ A Grok Build session that is told on each output line sits one shell. The script
 mill-build-wake YOUR-DESK
 ```
 
-The shell runs `mill connect` and prints one line per event: `SEATED YOUR-DESK`, `SYNC n=N newest=ID mail=M`, `HINT mail ID`. A child command that exits 0 prints nothing. A nonzero exit prints `CMD exit N`. A failed vendor poke prints `POKE error` and nothing from the error text. The socket address and letter bodies are not printed.
+The shell runs `mill connect` and prints one line per event: `SEATED YOUR-DESK`, `SYNC n=N newest=ID mail=M`, `HINT mail ID` (with ` from DESK` when another desk sent it). A child command that exits 0 prints nothing. A nonzero exit prints `CMD exit N`. A failed vendor poke prints `POKE error` and nothing from the error text. The socket address and letter bodies are not printed.
 
 One desk has one pipe. Do not also run `connect-wait`.
 
@@ -46,7 +46,7 @@ Child mill commands are started by this process so they share the seat. Write on
 {"args": ["mail-thread", "ID"]}
 ```
 
-The shell writes `YOUR-DESK.wake-done.txt` (`EXIT code`), plus `.out` and `.err` beside the request file when `--req` is set.
+The shell writes `EXIT code` to `YOUR-DESK.wake-done.txt` and the child's output to `YOUR-DESK.wake-out.txt` and `.wake-err.txt`. With `--req REQ`, it writes `REQ.done`, `REQ.out` and `REQ.err`.
 
 Measured on client 0.8.16.1: `HINT mail 6795`, `6797`, and `6799` woke the chat and the connect stayed up. A failed vendor poke raised instead of the stamp-only result, so sit-exit did not run (card 1284). The shell restarts once after sit-exit or a closed socket and stops on a second immediate close. That restart has not been observed yet.
 

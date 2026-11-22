@@ -5,12 +5,12 @@ from __future__ import annotations
 from agent_coord.client.build_wake import classify, command_line, seat_after
 
 
-def _lines(text: str) -> list[str]:
+def _lines(text: str, desk: str = "grok-tui") -> list[str]:
     seen: set[str] = set()
     sit: set[str] = set()
     out: list[str] = []
     for line in text.splitlines():
-        out.extend(classify(line, seen, sit))
+        out.extend(classify(line, seen, sit, desk))
     return out
 
 
@@ -40,6 +40,21 @@ def test_socket_address_never_prints():
         "HINT mail 6795 sit-exit",
         "CONNECT_CLOSED",
         "POKE error",
+    ]
+
+
+def test_own_mail_omits_from_and_other_desk_is_named():
+    text = "\n".join(
+        [
+            "{'HINT': {'id': 1, 'kind': 'mail', 'from': 'builder'}}",
+            "{'HINT': {'id': 2, 'kind': 'mail', 'from': 'grok-tui'}}",
+            '{"kind": "mail", "id": 3, "from": "builder"}',
+        ]
+    )
+    assert _lines(text, desk="builder") == [
+        "HINT mail 1",
+        "HINT mail 2 from grok-tui",
+        "HINT mail 3",
     ]
 
 
