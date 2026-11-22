@@ -4219,7 +4219,8 @@ def _body_editor(cn, kind: str, item_id: int) -> tuple[str, str] | None:
     stamp = "IFNULL(x.body_updated, x.created)"
     utc = (f"IFNULL(CONVERT_TZ({stamp}, @@session.time_zone, '+00:00'),"
            f" {stamp} + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND)")
-    sql = (f"SELECT n.name, DATE_FORMAT({utc}, '%%Y-%%m-%%d %%H:%%i:%%s') FROM {kind} x"
+    # No DATE_FORMAT: a percent sign in the query text is taken by the connector's %s substitution (card 1160).
+    sql = (f"SELECT n.name, {utc} FROM {kind} x"
            f" JOIN name n ON n.id = IFNULL(x.body_updater_id, x.{owner_col}) WHERE x.id = %s")
     try:
         cur = cn.cursor()
@@ -4230,9 +4231,9 @@ def _body_editor(cn, kind: str, item_id: int) -> tuple[str, str] | None:
             cur.close()
     except Exception:
         return None
-    if not rec or not rec[0] or not rec[1]:
+    if not rec or not rec[0] or not hasattr(rec[1], "strftime"):
         return None
-    return str(rec[0]), str(rec[1])
+    return str(rec[0]), rec[1].strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _todo_roster_name(cn, item_id: int) -> str:

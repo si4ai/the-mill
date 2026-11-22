@@ -113,3 +113,29 @@ def test_editor_lookup_swallows_a_failed_query():
             raise RuntimeError("gone")
 
     assert rpc._body_editor(_Broken(), "todo", 1270) is None
+
+
+def test_editor_lookup_has_one_placeholder_and_formats_the_time():
+    """The connector substitutes every %s in the text, so the query holds no other percent sign."""
+    from datetime import datetime
+
+    seen = []
+
+    class _Cur:
+        def execute(self, sql, args):
+            seen.append((sql, args))
+
+        def fetchone(self):
+            return ("validator", datetime(2026, 11, 22, 19, 58, 10, 123456))
+
+        def close(self):
+            pass
+
+    class _Cn:
+        def cursor(self, *a, **k):
+            return _Cur()
+
+    for kind in ("todo", "mail"):
+        assert rpc._body_editor(_Cn(), kind, 1270) == ("validator", "2026-11-22 19:58:10")
+    assert all(sql.count("%") == 1 and "%s" in sql and args == (1270,) for sql, args in seen)
+    assert rpc._body_editor(_Cn(), "hold", 1) is None
