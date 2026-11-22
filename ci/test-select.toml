@@ -60,6 +60,7 @@ paths = [
   "tests/install/test_migrate_080_book.py",
   "tests/install/test_migrate_1059_watcher_name.py",
   "tests/install/test_migrate_1133_history.py",
+  "tests/server/records/test_body_stale_hint_1288.py",
   "tests/install/test_migrate_1163_retired.py",
   "tests/install/test_replay_1206.py",
   "tests/install/test_migrate_1200.py",
@@ -91,6 +92,7 @@ jobs = ["pytest_no_sql_run", "pytest_sql_run"]
 paths = [
   "tests/client/test_tw_forward_08161.py",
   "tests/client/test_tw_origin_1281.py",
+  "tests/client/test_body_stale_hint_1288.py",
   "tests/install/test_rco_workflow_1228.py",
   "pins/**",
   "tests/tools/test_check_hidden_code.py",

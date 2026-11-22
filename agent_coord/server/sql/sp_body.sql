@@ -90,8 +90,8 @@ END //
 -- Rights follow b_trust() (docs/requirements/admin.md section 2): at high trust any seated desk; at limited trust
 -- only the item's creator (a letter's sender, a card's asker) or an Admin desk. A letter's opened and receipt
 -- marks (mail_to) are not touched. Refusals, nothing written: body:type, body:no_desk, body:no_text,
--- body:no_such_item, body:deleted, body:rights, body:stale, body:unchanged (the new text is the same as the
--- current text, so the replace did nothing; its message says so in plain words).
+-- body:no_such_item, body:deleted, body:rights, body:stale (by DESK at TIME, card 1288), body:unchanged (the new
+-- text is the same as the current text, so the replace did nothing; its message says so in plain words).
 CREATE PROCEDURE mill_body_replace(
   IN p_type     VARCHAR(8),
   IN p_id       BIGINT UNSIGNED,
@@ -109,6 +109,8 @@ BEGIN
   DECLARE v_old_ts DATETIME(6);
   DECLARE v_old_by BIGINT UNSIGNED;
   DECLARE v_hist BIGINT UNSIGNED;
+  DECLARE v_by VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  DECLARE v_msg VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -152,7 +154,17 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:rights';
   END IF;
   IF NOT (p_expected <=> v_old_ts) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:stale';
+    -- Card 1288: name the desk whose edit won and the stamp compared (UTC, to the second); the server turns it
+    -- into the one-line refusal with the next step. No name found: bare body:stale, never a guess.
+    SET v_by = (SELECT name FROM name WHERE id = v_old_by);
+    IF v_by IS NULL THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'body:stale';
+    END IF;
+    SET v_msg = CONCAT('body:stale by ', v_by, ' at ', DATE_FORMAT(
+      IFNULL(CONVERT_TZ(v_old_ts, @@session.time_zone, '+00:00'),
+             v_old_ts + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND),
+      '%Y-%m-%d %H:%i:%s'));
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
   END IF;
   IF CAST(p_body AS BINARY) = CAST(v_old AS BINARY) THEN
     SIGNAL SQLSTATE '45000'
