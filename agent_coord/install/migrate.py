@@ -565,6 +565,33 @@ def _ensure_fk_rules(cn) -> list[str]:
     return applied
 
 
+def _ensure_mail_read_stamp(cn) -> list[str]:
+    """Card 1276: mail.read_stamp, the body stamp a reply was written against.
+
+    NULL on a root send and on every letter written before this column.
+    Idempotent. Must run before _ensure_mail_sp reloads mill_mail_insert.
+    """
+    applied: list[str] = []
+    cur = cn.cursor()
+    try:
+        if not _table_exists(cur, "mail"):
+            return applied
+        if not _column_exists(cur, "mail", "read_stamp"):
+            # Append. On a book that already has the card 1133 stamps, this lands
+            # after body_updater_id. On an older book, card 1133 then inserts
+            # body_updated and body_updater_id ahead of it. Both end in the
+            # tables.sql order. AFTER body_updater_id fails before that column exists.
+            cur.execute("ALTER TABLE mail ADD COLUMN read_stamp DATETIME(6) NULL")
+            applied.append("mail.read_stamp")
+            cn.commit()
+    except Exception:
+        cn.rollback()
+        raise
+    finally:
+        cur.close()
+    return applied
+
+
 def _ensure_mail_sp(cn) -> list[str]:
     """Alpha: refresh mill_mail_* (fail-closed empty mail_to)."""
     applied: list[str] = []
@@ -3103,6 +3130,8 @@ def _ensure_steps(cn) -> dict[str, Any]:
             applied.extend(_ensure_watcher_hint(cn))
             applied.extend(_ensure_fn_refresh(cn))
             applied.extend(_ensure_sp_full(cn))
+            # card 1276: the column before mill_mail_insert names it.
+            applied.extend(_ensure_mail_read_stamp(cn))
             applied.extend(_ensure_mail_sp(cn))
             applied.extend(_ensure_push_expired(cn))
             applied.extend(_ensure_activity_soft_delete(cn))

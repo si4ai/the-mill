@@ -1550,6 +1550,13 @@ def _h_send(
 
     # One mail row; first dest via insert; remaining via mill_mail_to_put.
     first_kind, first_to = resolved[0]
+    # Card 1276: a letter under a mail parent stores that letter's body stamp.
+    # Computed here from the parent row. A client field is not read.
+    read_stamp = None
+    if parent_t.strip().lower() == CONST_MAIL and parent_id:
+        parent = rec_mail.letter_row(c._cn, int(parent_id))
+        if parent:
+            read_stamp = parent.get("body_updated") or parent.get("created")
     # #867: the sender roster goes in the insert (no follow-up UPDATE).
     rows = rec_mail.insert(
         c._cn,
@@ -1559,6 +1566,7 @@ def _h_send(
         raw,
         receipt=receipt,
         dst_kind=first_kind,
+        read_stamp=read_stamp,
     )
     mid = int(rows[0]["id"]) if rows else 0
     if not mid:
@@ -1621,6 +1629,9 @@ def _h_send(
     )
     if room:
         rec["room"] = True
+    stored_stamp = rows[0].get("read_stamp") if rows else None
+    if stored_stamp is not None:
+        rec["read_stamp"] = rec_mail.stamp_text(stored_stamp)
     if warnings:
         rec["warnings"] = warnings
     if receipt:

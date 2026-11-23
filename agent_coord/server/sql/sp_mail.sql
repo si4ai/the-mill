@@ -238,7 +238,8 @@ CREATE PROCEDURE mill_mail_insert(
   IN p_dst_type VARCHAR(16),
   IN p_dst     VARCHAR(64),
   IN p_body    VARCHAR(4096),
-  IN p_receipt TINYINT
+  IN p_receipt TINYINT,
+  IN p_read_stamp DATETIME(6)
 )
 BEGIN
   -- Payload first (#216). The mail table assigns the id; LAST_INSERT_ID() is that id.
@@ -268,7 +269,8 @@ BEGIN
   IF v_desk IS NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such desk (MILL_NAME_GET)';
   END IF;
-  INSERT INTO mail (desk_id, roster_id, body) VALUES (v_desk, v_proj, p_body);
+  -- read_stamp is the answered letter's body stamp, or NULL on a root send (card 1276).
+  INSERT INTO mail (desk_id, roster_id, body, read_stamp) VALUES (v_desk, v_proj, p_body, p_read_stamp);
   SET v_id = LAST_INSERT_ID();
   CALL mill_activity_put('mail', v_id, v_ts, v_desk, v_proj, 'send', LENGTH(IFNULL(p_body, '')));
   SET v_to = IFNULL(p_dst, '');
@@ -283,7 +285,8 @@ BEGIN
       SET MESSAGE_TEXT = 'mail: no recipients (empty mail_to; refuse orphan mail)';
   END IF;
   IF @mill_req_tx IS NULL THEN COMMIT; END IF;
-  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, MILL_NAME_GET(v_to_type, v_to) AS dest_id;
+  SELECT v_id AS id, v_ts AS updated, v_desk AS desk_id, MILL_NAME_GET(v_to_type, v_to) AS dest_id,
+         p_read_stamp AS read_stamp;
 END //
 
 CREATE PROCEDURE mill_mail_delete(

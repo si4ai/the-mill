@@ -338,3 +338,9 @@ Data no longer kept: a rename's `why` text (transition meta holds no text); evid
 | 1223a | `transition_edge` has no doing edge for a mill call a run's descendant makes | two seed rows, `('doing','active','active','tw_call')` and `('doing','waiting','waiting','tw_call')` (Tsk9); existing books via `migrate._ensure_tw_call_edges` (INSERT IGNORE) | one same-state row per forwarded call on the run's doing row (meta `watch_id`, `verb`, `ok`, `err`), read by `mill connected --run` | proposed |
 
 No table, column or index changes. The parent-link column on the doing row waits on card 1207.
+
+## card 1276 (reply keeps the body stamp it read)
+
+| # | Was | Now | Why | Status |
+|---|-----|-----|-----|--------|
+| 1276a | a reply stores only the tree edge (`parent_id`); after `mill_body_replace` the reply still shows the new text | `mail.read_stamp DATETIME(6) NULL` after `body_updater_id`. `rpc._h_send` reads the stamp from the parent letter (`body_updated`, or `created` when never replaced); `mill_mail_insert` stores it. NULL unless the parent is a letter. A later replace copies that stamp to `activity_history.old_updated`, so the reply still resolves to the old text. Existing books: `migrate._ensure_mail_read_stamp` adds the nullable column once, before the mail procedures reload; old letters stay NULL | the reply should keep the text it answered; the column name is not an edge (no `parent` in the name; the tree already holds the link) | proposed |
