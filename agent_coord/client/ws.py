@@ -28,7 +28,7 @@ from agent_coord.helpers.ident import desk as slug_desk
 
 def _stored_desk(value: str) -> str:
     return (value or "").strip()
-from agent_coord.server.hint_buf import HintBuf, drain_loop, drop_notice
+from agent_coord.server.hint_buf import HintBuf, drain_loop, drop_notice, finish_sit_exit
 from agent_coord.server.push import dest_log, perf_log
 
 
@@ -1036,6 +1036,16 @@ async def _sit_session(
 
         buf.set_sender(_send_exit)
 
+    def _release_rpc(rid: str) -> None:
+        """Card 1283: once the reply is queued, a held self-hint may close the sit."""
+        if buf is None:
+            return
+        held = buf.rpc_release(rid)
+        if held is None:
+            return
+        frame, hint, t0 = held
+        finish_sit_exit(buf, frame, hint, t0, stop, outcome)
+
     async def on_frame(msg: dict[str, Any]) -> None:
         if str(msg.get("kind") or "") == "sync" and "sync" in msg:
             line = json.dumps(sync_view(msg), default=str)
@@ -1057,6 +1067,8 @@ async def _sit_session(
                     q.put_nowait(msg)
                 except asyncio.QueueFull:
                     stash_rpc_reply(late_box, msg)
+                else:
+                    _release_rpc(rid)
             elif rid:
                 stash_rpc_reply(late_box, msg)
             return
@@ -1110,6 +1122,8 @@ async def _sit_session(
                         break
                     req_id = str((wire or {}).get("id") or "")
                     pending[req_id] = wait_q
+                    if buf is not None:
+                        buf.rpc_hold(req_id)
                     try:
                         await ws.send(json.dumps(wire, default=str))
                         _bc_log(
@@ -1123,6 +1137,7 @@ async def _sit_session(
                         except asyncio.QueueFull:
                             pass
                         pending.pop(req_id, None)
+                        _release_rpc(req_id)
                     rpc_task = asyncio.create_task(rpc_reqs.get())
         finally:
             for t in (ws_task, rpc_task):
@@ -1131,6 +1146,7 @@ async def _sit_session(
             # Prefer superseded/token-rejected over opaque "sitting socket closed" (#66).
             closed_err = bridge_close_error(err_box.get("exc"))
             for rid, q in list(pending.items()):
+                _release_rpc(rid)
                 try:
                     q.put_nowait(
                         {
@@ -1223,6 +1239,7 @@ async def _sit_session(
                                         return await asyncio.wait_for(_q.get(), timeout=30.0)
                                     except TimeoutError:
                                         pending.pop(_rid, None)
+                                        _release_rpc(_rid)
                                         try:
                                             return _q.get_nowait()
                                         except asyncio.QueueEmpty:
@@ -1236,6 +1253,7 @@ async def _sit_session(
                                     reply = fut.result(timeout=35.0)
                                 except TimeoutError:
                                     pending.pop(req_id, None)
+                                    _release_rpc(req_id)
                                     reply = {
                                         "id": req_id,
                                         "ok": False,
