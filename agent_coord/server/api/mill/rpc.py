@@ -968,13 +968,25 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         other = _occupant_type(c._cn, tag_b)
         if other and other != CONST_LABEL:
             raise CoordError("name in use: %s is a %s; pick another name" % (tag_b, other))
-        if (
-            0 < len(tag_b) <= 64
-            and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
-            and mill_catalog_open(CONST_LABEL)
-        ):
-            rec_name.host_put(c._cn, tag_b, CONST_LABEL)
-        rec = rec_label.put(c._cn, typ, nid, tag, body.get("ord"))
+        from agent_coord.helpers.label_ord import TRASHED_LABEL
+
+        if rec_label.trashed_name(c._cn, tag_b):
+            raise CoordError(TRASHED_LABEL)
+        try:
+            if (
+                0 < len(tag_b) <= 64
+                and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
+                and mill_catalog_open(CONST_LABEL)
+            ):
+                rec_name.host_put(c._cn, tag_b, CONST_LABEL)
+            rec = rec_label.put(c._cn, typ, nid, tag, body.get("ord"))
+        except CoordError:
+            raise
+        except Exception as exc:
+            msg = _sql_refusal(exc)
+            if msg:
+                raise CoordError(msg) from exc
+            raise
     else:
         rec = rec_label.delete(c._cn, typ, nid, tag)
         # A label that is not on the node is a refusal on the call, not ok (#245).

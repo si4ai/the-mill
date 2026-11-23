@@ -14,6 +14,19 @@ def _no_activity(type: str, id: int) -> str:
     return "label-add: no %s %s" % (type, int(id))
 
 
+def trashed_name(cn, name: str) -> bool:
+    """True when this label name is trashed and not deleted (card 1280)."""
+    from .db import scalar
+
+    rec = scalar(
+        cn,
+        "SELECT 1 FROM name WHERE type = 'label' AND name = %s"
+        " AND deleted IS NULL AND trashed IS NOT NULL",
+        (name,),
+    )
+    return rec is not None
+
+
 def _activity_live(cn, type: str, id: int) -> bool:
     from .db import scalar
 
