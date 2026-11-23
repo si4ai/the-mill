@@ -1,9 +1,15 @@
 name: mill-codeql
-# mill-home log appends run through redact_secrets first (dest_log). The clear-text
-# storage query still flags those sinks; they match standing alerts on main for push.py.
-# Ignore the same query on log_rotate helpers (rotate copies bytes of an already-redacted file).
+# Card 1273: the two stock clear-text queries do not know the mill redactor.
+# The mill/cleartext-redactor pack extends their sanitizer class and is the
+# one that runs. query-filters match query metadata only (id, tags, ...); a
+# paths key under exclude does not scope an exclude to one file, so the old
+# log_rotate.py filter was not a path filter. log_rotate copytruncate is
+# instead a sanitizer in the replacement storage query, with a reason there.
+queries:
+  - name: mill-cleartext-redactor
+    uses: ./.github/codeql/mill-cleartext
 query-filters:
   - exclude:
-      id: py/clear-text-storage-sensitive-data
-      paths:
-        - agent_coord/server/log_rotate.py
+      id: py/clear-text-logging-sensitive-data  # replaced by mill/cleartext-redactor
+  - exclude:
+      id: py/clear-text-storage-sensitive-data  # replaced by mill/cleartext-redactor
