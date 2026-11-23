@@ -1309,6 +1309,80 @@ def _offline_warning(desks: list[str]) -> str:
     return f"desks {listed} look offline {tail}"
 
 
+def _webhook_wake_line(rows: list[tuple[str, str | None]]) -> str:
+    """Card 1277: an armed desk will wake by webhook. Last stamp only when the book has one."""
+    parts: list[str] = []
+    for name, last in rows:
+        bit = repr(name)
+        if last:
+            bit = f"{bit} (last {last})"
+        parts.append(bit)
+    noun = "desk" if len(parts) == 1 else "desks"
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts)
+    return f"{noun} {listed} will wake by webhook"
+
+
+def _webhook_fail_line(rows: list[tuple[str, str]]) -> str:
+    """Card 1277: a recent failure replaces the wake line. The note is the server's own run text."""
+    parts = [f"{name!r} {note}" for name, note in rows]
+    if len(parts) == 1:
+        return f"desk {parts[0]}"
+    return "desks " + "; ".join(parts)
+
+
+def _presence_lines(c: Book, offline: list[str]) -> list[str]:
+    """Card 1277: split the offline list by the book.
+
+    Armed is the seat webhook (wake_reach). A desk with no wake keeps the offline
+    line. An armed desk says it will wake by webhook, unless the server still has
+    a failing run (fail_note), in which case that failure is the line.
+    A reach miss leaves the old offline line.
+    """
+    if not offline:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in offline:
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    try:
+        from agent_coord.server.records import join as rec_join
+
+        reach = rec_join.wake_reach(c._cn, names) or {}
+    except Exception:
+        reach = {}
+    from agent_coord.server.wake import fail_note
+
+    quiet: list[str] = []
+    waking: list[tuple[str, str | None]] = []
+    failing: list[tuple[str, str]] = []
+    for name in names:
+        row = reach.get(name) or {}
+        if not row.get("armed"):
+            quiet.append(name)
+            continue
+        note = ""
+        try:
+            note = str(fail_note(name) or "")
+        except Exception:
+            note = ""
+        if note:
+            failing.append((name, note))
+            continue
+        last = row.get("last_wake")
+        waking.append((name, str(last) if last else None))
+    lines: list[str] = []
+    if quiet:
+        lines.append(_offline_warning(quiet))
+    if waking:
+        lines.append(_webhook_wake_line(waking))
+    if failing:
+        lines.append(_webhook_fail_line(failing))
+    return lines
+
+
 def _offline_dests(c: Book, project: str, resolved, via_roster) -> list[str]:
     """Explicit desk targets that look offline, in send order (#152).
 
@@ -1605,10 +1679,8 @@ def _h_send(
                 raise
             room = True
 
-    # Offline warn for explicit desk targets. One line for the whole list (#152).
-    offline = _offline_dests(c, project, resolved, via_roster)
-    if offline:
-        warnings.append(_offline_warning(offline))
+    # Card 1277: a webhook desk is not called offline. One line per kind (#152).
+    warnings.extend(_presence_lines(c, _offline_dests(c, project, resolved, via_roster)))
 
     crumbs = rec_mail.tree_crumbs(c._cn, mid) if (parent_t and parent_id) or room else {}
     created = None
