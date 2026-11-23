@@ -4208,6 +4208,34 @@ def _body_duplicate(exc: BaseException) -> bool:
     return False
 
 
+def _body_editor(cn, kind: str, item_id: int) -> tuple[str, str] | None:
+    """Who last changed this text and when (UTC, to the second), for the duplicate-key stale line (card 1288).
+
+    The same fields mill_body_replace compares. None when the lookup fails: the caller names no one.
+    """
+    owner_col = {"mail": "desk_id", "todo": "creator_id"}.get(kind)
+    if owner_col is None:
+        return None
+    stamp = "IFNULL(x.body_updated, x.created)"
+    utc = (f"IFNULL(CONVERT_TZ({stamp}, @@session.time_zone, '+00:00'),"
+           f" {stamp} + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND)")
+    # No DATE_FORMAT: a percent sign in the query text is taken by the connector's %s substitution (card 1160).
+    sql = (f"SELECT n.name, {utc} FROM {kind} x"
+           f" JOIN name n ON n.id = IFNULL(x.body_updater_id, x.{owner_col}) WHERE x.id = %s")
+    try:
+        cur = cn.cursor()
+        try:
+            cur.execute(sql, (int(item_id),))
+            rec = cur.fetchone()
+        finally:
+            cur.close()
+    except Exception:
+        return None
+    if not rec or not rec[0] or not hasattr(rec[1], "strftime"):
+        return None
+    return str(rec[0]), rec[1].strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _todo_roster_name(cn, item_id: int) -> str:
     try:
         from agent_coord.server.records.db import scalar
@@ -4226,7 +4254,8 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
     """Replace one letter or card body, or list its old text (card 1125).
 
     The text write is mill_body_replace. A duplicate key on the history stamp
-    is body:stale plus the reread command. The unchanged sentence is the
+    is body:stale plus the reread command; both stale paths name the editor and the
+    UTC time when known (card 1288). The unchanged sentence is the
     office's own words. A letter replace tells desks that already opened it
     (card 1236): their opened mark is cleared and they get one mail notice.
     """
@@ -4270,11 +4299,12 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
         if kind == "todo":
             roster = _todo_roster_name(c._cn, item_id) or str(project or "")
         if _body_duplicate(exc):
-            raise CoordError(stale_line(kind, item_id, roster)) from exc
+            by, at = _body_editor(c._cn, kind, item_id) or ("", "")
+            raise CoordError(stale_line(kind, item_id, roster, by, at, str(owner))) from exc
         msg = _sql_refusal(exc)
         if msg is None:
             raise
-        raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+        raise CoordError(map_refusal(msg, kind, item_id, roster, str(owner)) or msg) from exc
     if kind == "mail":
         from agent_coord.server.mail_push import notify_replaced_readers
 
