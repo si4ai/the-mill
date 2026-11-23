@@ -24,7 +24,8 @@ def trashed_name(cn, name: str) -> bool:
         " AND deleted IS NULL AND trashed IS NOT NULL",
         (name,),
     )
-    return rec is not None
+    # A stand-in book (unit tests) has no row. Only a real 1 means trashed.
+    return type(rec) is int and rec == 1
 
 
 def _activity_live(cn, type: str, id: int) -> bool:
