@@ -9,6 +9,7 @@ refuses before the office is called. A stored created time is a real read.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -51,14 +52,35 @@ def never_read(kind: str, item_id: int) -> str:
     return f"replace-body: read it first: {read_hint(kind, item_id)}"
 
 
-def stale_line(kind: str, item_id: int, roster: str = "") -> str:
-    return f"body:stale: read it again: {read_hint(kind, item_id, roster)}"
+_STALE_BY = re.compile(r"^body:stale by (\S+) at (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)$")
 
 
-def map_refusal(msg: str | None, kind: str, item_id: int, roster: str = "") -> str | None:
-    """body:stale names the reread. Every other refusal, including unchanged, stays as the office wrote it."""
+def stale_line(kind: str, item_id: int, roster: str = "", by: str = "", at: str = "", me: str = "") -> str:
+    """The stale refusal (card 1288): who edited it, when (UTC), nothing written, the next step.
+
+    With no editor or time it is the reread line alone; it never guesses a name.
+    """
+    read = read_hint(kind, item_id, roster)
+    if not by or not at:
+        return f"body:stale: read it again: {read}"
+    who = "this desk (another session)" if me and by == me else by
+    noun = "letter" if kind == "mail" else "card"
+    return (
+        f"body:stale: {noun} {int(item_id)} changed after your read: {who} edited it at {at} UTC. "
+        f"Nothing was written. Next: read it again ({read}), put your edit on top of that text, "
+        f"then run replace-body again. Their old text: mill replace-body {kind} {int(item_id)} --history"
+    )
+
+
+def map_refusal(
+    msg: str | None, kind: str, item_id: int, roster: str = "", me: str = ""
+) -> str | None:
+    """body:stale names the editor, the time and the reread. Every other refusal stays as the office wrote it."""
     if msg == "body:stale":
         return stale_line(kind, item_id, roster)
+    hit = _STALE_BY.match(msg or "")
+    if hit:
+        return stale_line(kind, item_id, roster, hit.group(1), hit.group(2), me)
     return msg
 
 

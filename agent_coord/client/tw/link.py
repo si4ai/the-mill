@@ -577,7 +577,7 @@ class Link:
         # Write the hop, ack, then the sender posts it. argv and streams stay here.
         wid = _watch_id(msg)
         body: dict[str, Any] = {}
-        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts"):
+        for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts", "parent_watch_id"):
             if key in msg:
                 body[key] = msg[key]
         ts_ms = msg.get("ts_ms")
@@ -587,6 +587,9 @@ class Link:
             body["wake"] = False
         if wid and "watch_id" not in body:
             body["watch_id"] = wid
+        if body.get("parent_watch_id") == body.get("watch_id"):
+            # Not a nesting link; the office refuses a run that names itself.
+            body.pop("parent_watch_id", None)
         if self._outbox is None:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)

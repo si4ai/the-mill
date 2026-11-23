@@ -53,3 +53,7 @@ tools/wall-validators/node_modules/
 # human_desk has no committed writer. The live seat is join.token_hash.
 # Door code still deletes and updates agent_human, agent_human_device, and agent_human_collect. Those tables are not in tables.sql. The errors are swallowed.
 .mill/
+
+# Local RCO cache and report output
+.rco/
+rco-report/

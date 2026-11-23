@@ -74,7 +74,7 @@ def test_a_send_receipt_sets_every_dest(monkeypatch):
     inserted: dict = {}
     puts: list[dict] = []
 
-    def fake_insert(cn, project, desk, dst, body, receipt=0, dst_kind="desk"):
+    def fake_insert(cn, project, desk, dst, body, receipt=0, dst_kind="desk", read_stamp=None):
         inserted["receipt"] = receipt
         inserted["dst"] = dst
         return [{"id": 1093, "created": "t"}]

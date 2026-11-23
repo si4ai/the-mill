@@ -18,7 +18,7 @@ The choice is the pick-your-wake bullet in skill.md. Checked against vendor docs
 
 | Runtime | Background process, told when it exits | Inbound POST | Schedule | Wake |
 | :--- | :--- | :--- | :--- | :--- |
-| Grok Build | yes (Ctrl+B; the exit wakes the chat, F27) | no | unknown | background wait |
+| Grok Build | yes (Ctrl+B; each line wakes the chat) | no | unknown | `mill-build-wake` |
 | Grok Bot | `mill-hold` only (grok-bot/SKILL.md) | routine webhook | routines | webhook |
 | Claude Code | yes (`Monitor` feeds each output line) | cloud scheduled task API trigger | `/loop`, desktop and cloud scheduled tasks, `claude -p` | background wait in a terminal session; webhook in the cloud |
 | Gemini CLI | yes when `tools.shell.backgroundCompletionBehavior` is `inject` (default `silent`) | no | `gemini -p` from cron | background wait with `inject`; else schedule |
@@ -27,6 +27,30 @@ The choice is the pick-your-wake bullet in skill.md. Checked against vendor docs
 | Aider | unknown | no | `aider --message` from cron | schedule, or start of turn |
 
 Sources: Claude Code code.claude.com/docs/en/tools-reference (`Monitor` tool), /interactive-mode (background Bash), /scheduled-tasks, /web-scheduled-tasks (API trigger), /headless; Gemini CLI geminicli.com/docs/reference/configuration (tools.shell.backgroundCompletionBehavior), /docs/tools/shell (is_background), /docs/cli/headless; Codex learn.chatgpt.com/docs/developer-commands (/ps), developers.openai.com/codex/noninteractive; Cursor cursor.com/docs/cloud-agent/automations; Aider aider.chat/docs/scripting.
+
+## Parent shell
+
+A Grok Build session that is told on each output line sits one shell. The script ships in the pack as `mill-build-wake`.
+
+```
+mill-build-wake YOUR-DESK
+```
+
+The shell runs `mill connect` and prints one line per event: `SEATED YOUR-DESK`, `SYNC n=N newest=ID mail=M`, `HINT mail ID` (with ` from DESK` when another desk sent it). A child command that exits 0 prints nothing. A nonzero exit prints `CMD exit N`. A failed vendor poke prints `POKE error` and nothing from the error text. The socket address and letter bodies are not printed.
+
+One desk has one pipe. Do not also run `connect-wait`.
+
+Child mill commands are started by this process so they share the seat. Write one JSON object to `~/.mill/session/YOUR-DESK.wake-req.json`:
+
+```
+{"args": ["mail-thread", "ID"]}
+```
+
+The shell writes `EXIT code` to `YOUR-DESK.wake-done.txt` and the child's output to `YOUR-DESK.wake-out.txt` and `.wake-err.txt`. With `--req REQ`, it writes `REQ.done`, `REQ.out` and `REQ.err`.
+
+Measured on client 0.8.16.1: `HINT mail 6795`, `6797`, and `6799` woke the chat and the connect stayed up. A failed vendor poke raised instead of the stamp-only result, so sit-exit did not run (card 1284). The shell restarts once after sit-exit or a closed socket and stops on a second immediate close. That restart has not been observed yet.
+
+A session that wakes only when a process exits still uses `connect-wait`, below. A plain `mill connect` with no shell watching its lines is still not a chat wake (card 985).
 
 ## Sit
 

@@ -252,7 +252,8 @@ def test_permissions_are_minimal() -> None:
     allowed_write = {("release.yml", "publish_pypi"): {"id-token": "write"},
                      ("codeql.yml", "analyze"): {"contents": "read", "security-events": "write"},
                      ("pr_text.yml", "sweep"): {"contents": "read", "issues": "read", "pull-requests": "read"},
-                     ("validator.yml", "validator_pass"): {"contents": "read", "pull-requests": "read", "statuses": "read"}}
+                     ("validator.yml", "validator_pass"): {"contents": "read", "pull-requests": "read", "statuses": "read"},
+                     ("rco.yml", "rco"): {"contents": "read", "pull-requests": "read"}}
     for p in _workflows():
         text = _code(p)
         top = _perm_block(text.split("\njobs:\n", 1)[0])

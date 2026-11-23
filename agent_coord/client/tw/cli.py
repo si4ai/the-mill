@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
                 arm_forward=True,
                 linked=linked,
                 watch_id=watch_id,
-                call_fn=relay_call(parent),
+                call_fn=relay_call(parent, watch_id),
             )
         from agent_coord.client.ws import wait_for_sitting_desk
 

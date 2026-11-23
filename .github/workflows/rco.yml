@@ -1,0 +1,131 @@
+# rco report job (card 1228): contract diff, affected tests, drift from
+# pins/, the cross-PR notice and token-efficiency metrics on every pull
+# request, and `rco update` after a push to main. A report, never a gate:
+# it is not a required check, has no merge_group trigger (the queue never
+# waits for it), is not called by release.yml, and is not in
+# ci/test-select.toml. Exit 1 from rco (findings) passes; a usage error or
+# crash (2 or 3) fails this job only. rco is the PyPI release pinned in
+# tools/ci-lock/rco.txt, installed hash-checked like every CI install.
+# Bot desks read the reports from the rco-report artifact (the job summary
+# needs a browser); rco-metrics.json must be in it or the job fails.
+name: rco
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rco-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  rco:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python -m pip install --require-hashes -r tools/ci-lock/rco.txt
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .rco
+          key: rco-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            rco-${{ github.ref_name }}-
+            rco-main-
+      # Each report goes to rco-report/ in full and to the job summary cut
+      # at 200000 bytes (the summary holds 1 MiB per step).
+      - name: Contract report
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          mkdir -p rco-report
+          base=$(git merge-base "$PR_BASE" "$PR_HEAD")
+          worst=0
+          run() {
+            out=rco-report/$1
+            shift
+            code=0
+            "$@" > "$out" || code=$?
+            head -c 200000 "$out" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(wc -c < "$out")" -gt 200000 ]; then
+              printf '\n\n(cut; the full %s is in the rco-report artifact)\n' "$out" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "$out: exit $code"
+            if [ "$code" -ge 2 ]; then worst=$code; fi
+          }
+          run diff.md rco diff "$base" "$PR_HEAD"
+          run affected.md rco affected "$base" "$PR_HEAD"
+          run drift.md rco drift pins --at "$PR_HEAD"
+          # notice_report writes its own summary section; keep stdout here.
+          code=0
+          python -m rco.notice_report > rco-report/notice.md || code=$?
+          echo "rco-report/notice.md: exit $code"
+          if [ "$code" -ge 2 ]; then worst=$code; fi
+          exit "$worst"
+      # Bytes and tokens an agent reads without rco (changed files plus
+      # their imports) and with the rco pack for the same files.
+      - name: Token metrics
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          mkdir -p rco-report
+          base=$(git merge-base "$PR_BASE" "$PR_HEAD")
+          git diff --name-only -z --no-renames "$base" "$PR_HEAD" --diff-filter=d > rco-report/changed.z
+          if [ -s rco-report/changed.z ]; then
+            xargs -0 rco pack "$PR_HEAD" --out rco-report/pack.md --for < rco-report/changed.z
+          else
+            : > rco-report/pack.md
+          fi
+          python tools/rco_metrics.py measure --base "$base" --head "$PR_HEAD" \
+            --pr "$PR_NUMBER" --pack rco-report/pack.md --out rco-report/rco-metrics.json
+      - name: Metrics file present
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        run: python tools/rco_metrics.py check rco-report/rco-metrics.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        with:
+          name: rco-report
+          path: rco-report/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Update the store
+        if: github.event_name == 'push'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -u
+          code=0
+          rco update --name "$REF_NAME" || code=$?
+          case "$code" in
+            0|1) exit 0 ;;
+            *) exit "$code" ;;
+          esac

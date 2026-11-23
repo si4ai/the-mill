@@ -222,6 +222,9 @@ CREATE TABLE IF NOT EXISTS mail (
   -- card 1133: when and by whom the body was last replaced (mill_body_replace). NULL = never edited (created stands).
   body_updated    DATETIME(6) NULL,
   body_updater_id BIGINT UNSIGNED NULL,
+  -- card 1276: body stamp of the letter this one answers (body_updated, else created).
+  -- NULL on a root send. A later replace copies that stamp to activity_history.old_updated.
+  read_stamp      DATETIME(6) NULL,
   PRIMARY KEY (type, id),
   UNIQUE KEY idx_id (id),
   KEY idx_desk (desk_id, created),
