@@ -142,6 +142,23 @@ jobs:
           MILL_PRIVATE_NAMES: ${{ secrets.MILL_PRIVATE_NAMES }}
           MILL_PRIVATE_NAMES_REQUIRED: ${{ github.event.pull_request.head.repo.fork && '0' || '1' }}
         run: python tools/check_pack.py --pr-message
+      # Card 1273: a PR that adds a silencer without a written reason does not
+      # pass. Existing silencers on the base are left alone. check_pack is
+      # already a required status check on main.
+      - name: Silencers need a reason (card 1273)
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MQ_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE" ;;
+            merge_group) base="$MQ_BASE" ;;
+            *) exit 0 ;;
+          esac
+          git fetch --no-tags origin "$base"
+          python tools/check_silencers.py --base "$base" --head HEAD
       # Whole-tree comment and prose hygiene, the same scan as the pre-commit hook.
       - run: python tools/precommit_hygiene.py tree
       # Audit without installing anything: the runtime floors (the oldest a
