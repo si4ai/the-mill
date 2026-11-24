@@ -39,5 +39,18 @@ def line_too_long() -> dict[str, Any]:
     return {"type": "error", "code": "line_too_long", "max": LINE_MAX}
 
 
+# JSON numbers the office stores. A bool is an int in Python and is not one of these.
+_OFFICE_INT_MAX = 2**53 - 1
+
+
+def bounded_int(value: Any, *, positive: bool = False) -> int | None:
+    """A plain integer in range, or None when the office would drop the key."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0 or (positive and value < 1) or value > _OFFICE_INT_MAX:
+        return None
+    return value
+
+
 def stop_frame(watch_id: str, reason: str) -> dict[str, Any]:
     return {"type": "stop", "watch_id": watch_id, "reason": reason}
