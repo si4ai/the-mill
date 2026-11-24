@@ -101,7 +101,12 @@ jobs:
           base=$(git merge-base "$PR_BASE" "$PR_HEAD")
           git diff --name-only -z --no-renames "$base" "$PR_HEAD" --diff-filter=d > rco-report/changed.z
           if [ -s rco-report/changed.z ]; then
-            xargs -0 rco pack "$PR_HEAD" --out rco-report/pack.md --for < rco-report/changed.z
+            # Exit 1 is findings (a changed module reads stale against the main store), not an error;
+            # xargs would fold it into 123, so rco runs directly. 2 and up still fail.
+            mapfile -d '' changed < rco-report/changed.z
+            code=0
+            rco pack "$PR_HEAD" --out rco-report/pack.md --for "${changed[@]}" || code=$?
+            if [ "$code" -gt 1 ]; then exit "$code"; fi
           else
             : > rco-report/pack.md
           fi
