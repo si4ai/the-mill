@@ -4,7 +4,9 @@
 # it is not a required check, has no merge_group trigger (the queue never
 # waits for it), is not called by release.yml, and is not in
 # ci/test-select.toml. Exit 1 from rco (findings) passes; a usage error or
-# crash (2 or 3) fails this job only. rco is the PyPI release pinned in
+# crash (2 or 3) fails this job only. A pack over its token budget is a
+# warning in the job summary and in rco-metrics.json (pack_overrun), never
+# a failed step (card 1304). rco is the PyPI release pinned in
 # tools/ci-lock/rco.txt, installed hash-checked like every CI install.
 # Bot desks read the reports from the rco-report artifact (the job summary
 # needs a browser); rco-metrics.json must be in it or the job fails.
@@ -109,6 +111,15 @@ jobs:
             if [ "$code" -gt 1 ]; then exit "$code"; fi
           else
             : > rco-report/pack.md
+          fi
+          line=$(grep -E '^# budget used:' rco-report/pack.md || true)
+          if [ -n "$line" ]; then
+            printf '%s\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+            python3 -c 'import re,sys
+m=re.search(r"~(\d+) / (\d+)", sys.argv[1])
+if m and int(m.group(1))>int(m.group(2)):
+    print("::warning title=rco pack budget::"+sys.argv[1])
+' "$line"
           fi
           python tools/rco_metrics.py measure --base "$base" --head "$PR_HEAD" \
             --pr "$PR_NUMBER" --pack rco-report/pack.md --out rco-report/rco-metrics.json
