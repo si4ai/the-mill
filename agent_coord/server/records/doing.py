@@ -623,8 +623,8 @@ def _watch_from_join(desk: str, join_key: Any) -> str | None:
     return wid or None
 
 
-# Start keys a repeated start may add to the one tw_start (cards 1239 and 1289).
-_START_KEYS = ("parent_watch_id", "card", "pr")
+# Start keys a repeated start may add to the one tw_start (cards 1239, 1289 and 1303).
+_START_KEYS = ("parent_watch_id", "card", "pr", "cmd")
 
 
 def _attach_start(cn, doing_id: int, meta: dict[str, Any]) -> None:

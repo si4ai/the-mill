@@ -185,6 +185,15 @@ def _desk_scores(cn, desk_id: int, window: str, active: set[int]) -> list[dict]:
     return [scores[name] for name in SCORE_NAMES]
 
 
+def _doing_errors(cn, desk_id: int) -> dict | None:
+    from agent_coord.server.records import doing_errors
+
+    try:
+        return doing_errors.desk_errors(cn, desk_id)
+    except Exception:
+        return None
+
+
 def _ensure_view_table(cn) -> None:
     return None
 
@@ -216,6 +225,8 @@ def read_scores(cn, window: str = "7d", viewer: str | None = None) -> dict[str, 
             "desk": str(desk["name"]),
             "roster": roster_of.get(did, ""),
             "scores": rows,
+            # Card 1303: the doing-error block of this desk's doing.task.end_reason score, same keys.
+            "doing_errors": _doing_errors(cn, did),
         })
     n_active = len(out_desks)
     for desk in out_desks:
