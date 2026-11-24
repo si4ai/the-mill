@@ -443,6 +443,52 @@
     };
   }
 
+  /* Card 1303: the doing-error block of a desk's pov scores row (GET /api/pov?part=scores,
+   * doing_errors). What to fix next, not a grade. undefined: not read, or an older server
+   * (no pane); null: the server's read failed (said in words). Kinds keep the server order. */
+  var ERR_LABEL = { usage: "Usage errors (exit 4)", git_fatal: "Git errors (exit 128)", other_nonzero: "Other failures",
+    reruns_2m: "Quick reruns (within 2 min)", left_open: "Left open (no end reported)" };
+  var ERR_FAILED = { usage: 1, git_fatal: 1, other_nonzero: 1 };
+  function errCount(w, k) {
+    if (!w) return 0;
+    return num(ERR_FAILED[k] ? (w.failed || {})[k] : w[k]) || 0;
+  }
+  function errWin(e, key) {
+    var w = (e.windows || {})[key] || null;
+    return {
+      reason: w ? "" : str((e.reasons || {})[key]) || "no tw runs in this window",
+      runs: w ? num(w.runs) || 0 : 0, failed: w ? num(w.failed_n) || 0 : 0,
+      kinds: w ? e.kinds.map(function (k) { return { key: k, label: ERR_LABEL[k] || k.replace(/_/g, " "), n: errCount(w, k), items: ((w.items || {})[k] || []).slice(0, 5) }; }) : [],
+      byCmd: w && Array.isArray(w.by_cmd) ? w.by_cmd.map(function (c) {
+        return { cmd: str(c.cmd), runs: num(c.runs) || 0, failed: num(c.failed_n) || 0, reruns: num(c.reruns_2m) || 0, open: num(c.left_open) || 0,
+          p50: c.p50_s == null ? "" : msText(num(c.p50_s) * 1000), max: c.max_s == null ? "" : msText(num(c.max_s) * 1000) };
+      }) : []
+    };
+  }
+  function spanText(s) {
+    if (s == null || !Number.isFinite(s)) return "";
+    if (s < HOUR / 1000) return Math.max(1, Math.round(s / 60)) + "m";
+    return s < 2 * DAY / 1000 ? Math.round(s / 3600) + "h" : Math.round(s / 86400) + "d";
+  }
+  function deskErrors(b, name) {
+    var p = b.data.povScores, rows = p && Array.isArray(p.desks) ? p.desks : [];
+    var row = rows.filter(function (d) { return d && str(d.desk) === name; })[0];
+    if (!row || !Object.prototype.hasOwnProperty.call(row, "doing_errors")) return undefined;
+    var e = row.doing_errors;
+    if (!e || typeof e !== "object") return null;
+    e = Object.assign({}, e, { kinds: Array.isArray(e.kinds) ? e.kinds.map(str) : [] });
+    var lw = (e.windows || {}).last_n || null, last = errWin(e, "last_n");
+    var next = e.next || {};
+    var tally = function (bs) { return Array.isArray(bs) ? bs.map(function (x) { return num(x && x.failed_n) || 0; }) : []; };
+    return {
+      desk: name, reason: str(e.reason),
+      head: lw ? { n: num(lw.n) || 0, of: num(e.n) || 0, span: spanText(num(lw.span_s)), runs: last.runs, failed: last.failed } : null,
+      kinds: e.kinds.map(function (k, i) { var x = last.kinds[i] || { n: 0, items: [] }; return { key: k, label: ERR_LABEL[k] || k.replace(/_/g, " "), next: str(next[k]), n: x.n, items: x.items }; }),
+      win: { "7d": errWin(e, "7d"), "30d": errWin(e, "30d") },
+      hourly: tally(e.hourly), daily: tally(e.daily)
+    };
+  }
+
   function deskDetail(b, name) {
     var d = b.byName[str(name)];
     if (!d) return null;
@@ -480,7 +526,7 @@
         return { at: utc(t.at), doing: move ? str(t.act) : (str(t.text) || "tw run"), on: str(t.on), ended: !move && t.ended ? endWord(t.ended_by) : "", current: !move && !t.ended,
           watch: lr ? str(lr.watch_id) : "", parent: lr ? str(lr.parent_watch_id) : "" };
       })) : null,
-      rosterScores: rost, runs: runs
+      rosterScores: rost, runs: runs, errors: deskErrors(b, d.name)
     };
   }
   /* The tw run tree (card 1240) in the trail: a live run sits under its live parent (parent_watch_id),
@@ -2325,6 +2371,7 @@
     base: base, desks: desks, deskDetail: deskDetail, todo: todo, mail: mail, priorities: priorities,
     score: score, collab: collab, collabReplay: collabReplay, replayAt: replayAt, replayWaitingAt: replayWaitingAt, replayLocksAt: replayLocksAt, replayPan: replayPan, replayPanRows: replayPanRows, replayPanCan: replayPanCan, REPLAY_PAN_ROWS: REPLAY_PAN_ROWS, stateDesks: stateDesks, itemTags: itemTags, tagsOf: tagsOf, replayStateAt: replayStateAt,
     REPLAY_DIR_DEFAULT: REPLAY_DIR_DEFAULT, replayAxis: replayAxis, REPLAY_COUNTS: REPLAY_COUNTS, REPLAY_COUNT_DEFAULT: REPLAY_COUNT_DEFAULT, replayCount: replayCount, replayAge: replayAge, timeScale: timeScale, replayScale: replayScale, replayPlayhead: replayPlayhead, replayScaledAge: replayScaledAge, replayRulerTimes: replayRulerTimes, replayDoingIntervals: replayDoingIntervals, REPLAY_VOID_MIN_MS: REPLAY_VOID_MIN_MS, REPLAY_VOID_FRAC: REPLAY_VOID_FRAC, REPLAY_VOID_MARK_FRAC: REPLAY_VOID_MARK_FRAC, replayItemsAt: replayItemsAt, replayPack: replayPack, REPLAY_PACK_ROWS: REPLAY_PACK_ROWS, replayGroup: replayGroup, groupScale: groupScale, replayCluster: replayCluster, REPLAY_CLUSTER_DEFAULT: REPLAY_CLUSTER_DEFAULT, REPLAY_GROUP_BUCKETS: REPLAY_GROUP_BUCKETS, replayVisibleKeys: replayVisibleKeys, replayKindLanes: replayKindLanes, replayOverview: replayOverview, replayViewport: replayViewport, REPLAY_LINK_FADE: REPLAY_LINK_FADE, replayLinkFade: replayLinkFade, REPLAY_PLAY_MS: REPLAY_PLAY_MS, REPLAY_LEAD_PLAY_MS: REPLAY_LEAD_PLAY_MS, REPLAY_SETTLE_PLAY_MS: REPLAY_SETTLE_PLAY_MS, replayDoingEnd: replayDoingEnd, replayDoingLastRun: replayDoingLastRun, REPLAY_DOING_GRACE_MS: REPLAY_DOING_GRACE_MS, replayDoingSpans: replayDoingSpans, replayAnticipate: replayAnticipate, replayAnticipateScale: replayAnticipateScale, replayLeadMs: replayLeadMs, REPLAY_SPEEDS: REPLAY_SPEEDS, replaySince: replaySince, REPLAY_KINDS: REPLAY_KINDS, feed: feed, strip: strip, hero: hero, tabScores: tabScores, scoreTabs: scoreTabs,
+    deskErrors: deskErrors, spanText: spanText,
     normScope: normScope, kpiMiss: kpiMiss, kpiLabel: kpiLabel, todoView: todoView,
     scoreLabel: scoreLabel, scoreInfo: scoreInfo, scoreReason: scoreReason, scoreOlder: scoreOlder, scoreArea: scoreArea, SCORE_AREAS: SCORE_AREAS.slice(), SCORE_OPEN_MAX: SCORE_OPEN_MAX, scoreKind: scoreKind, scoreComparable: scoreComparable, scoreTint: scoreTint, scoreMedian: scoreMedian,
     dur: dur, ago: ago, msText: msText, utc: utc, firstLine: firstLine, itemOf: itemOf, rangeText: rangeText,

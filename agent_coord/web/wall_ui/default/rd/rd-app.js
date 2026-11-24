@@ -68,11 +68,12 @@
   var RANGE_KEY = "rd-range", TAB_KEY = "rd-tab", COLLAB_VIEW_KEY = "rd-collab-subtab", RP_COUNT_KEY = "rd-replay-count", RP_SPEED_KEY = "rd-replay-speed", RP_DIR_KEY = "rd-replay-dir-", RP_CLUSTER_KEY = "rd-replay-cluster-";
   /* Score tab: which area groups the reader opened or shut ({mail: true, cards: false}). */
   var SCORE_OPEN_KEY = "rd-score-open";
+  var ERR_WIN_KEY = "rd-derr-win";
 
   var data = { agents: {}, names: {}, todos: {}, mail: {}, labels: {}, scores: {}, holds: {}, rooms: {}, trees: {}, events: {}, runs: {}, history: {}, replay: null, doing: null, stations: null, rosterList: null };
   var winData = {}, noWindow = {};
   var gotAt = {}, inflight = {};
-  var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false, scoreOpen: loadScoreOpen() };
+  var state = { tab: "desks", legacy: false, pick: loadPick(), range: loadRange(), sel: {}, phoneDesk: false, scoreOpen: loadScoreOpen(), errWin: load(ERR_WIN_KEY, "7d") === "30d" ? "30d" : "7d" };
 
   function load(k, d) { try { var v = localStorage.getItem(k); return v == null || v === "" ? d : v; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
@@ -369,6 +370,7 @@
       var dm = m.desks;
       state.sel.desks = dm.selected;
       var dd = dm.selected ? R.deskDetail(b, dm.selected) : null;
+      if (dd) dd.errWin = state.errWin;
       if (dm.selected) fetchHistory(dm.selected);
       html = V.paneHead("desks", b) +
         '<div class="rd-pane-body"><div class="rd-here-split">' +
@@ -1476,6 +1478,13 @@
     if ((el = closest(t, "button[data-doing-run]")) && typeof wallEnsureModule === "function") {
       var rDesk = el.getAttribute("data-doing-desk") || "", rRun = el.getAttribute("data-doing-run") || "";
       wallEnsureModule("doingPaint").then(function () { if (typeof wallDoingRunToggle === "function") wallDoingRunToggle(rDesk, rRun); });
+      return;
+    }
+    /* Card 1303: the doing-errors 7d / 30d toggle (kept across reloads). */
+    if ((el = closest(t, "[data-rd-derr-win]"))) {
+      state.errWin = el.getAttribute("data-rd-derr-win") === "30d" ? "30d" : "7d";
+      save(ERR_WIN_KEY, state.errWin);
+      paint();
       return;
     }
     if ((el = closest(t, "[data-rd-range]"))) {

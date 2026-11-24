@@ -466,6 +466,23 @@ body:not(.rd-legacy) #shell > .shell-main { display: none !important; }
 #rd .rd-sg.system h4, #rd .rd-sg.rosters h4 { color: var(--dim); }
 #rd .rd-sg.rosters { border-top: 1px solid var(--edge); padding-top: .4rem; }
 #rd .rd-sg.rosters > h4 .rd-sub { color: var(--amber); font-weight: 400; letter-spacing: 0; text-transform: none; margin-left: .35rem; font-size: 11px; }
+/* Card 1303: doing errors, what to fix next (amber on a hit, never a red grade). */
+#rd .rd-sg.errs { border-top: 1px solid var(--edge); padding-top: .4rem; }
+#rd .rd-sg.errs h4 .rd-sub, #rd .rd-de-what, #rd .rd-de-sum { color: var(--dim); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 11px; margin: 0 0 .2rem; }
+#rd .rd-de-head { color: var(--ink); font-size: 12px; margin: 0 0 .15rem; }
+#rd .rd-de-k { display: grid; grid-template-columns: minmax(11rem, 1fr) 2.5rem minmax(0, 2fr); gap: .45rem; padding: .1rem 0; font-size: 11.5px; color: var(--dim); }
+#rd .rd-de-k.hit { color: var(--ink); }
+#rd .rd-de-k .rd-de-n { text-align: right; font-variant-numeric: tabular-nums; }
+#rd .rd-de-k.hit .rd-de-n { color: var(--amber); }
+#rd .rd-de-id { color: var(--cyan); font-family: var(--font-mono); font-size: 11px; }
+#rd .rd-de-win h5 { margin: .3rem 0 .1rem; color: var(--dim); font-size: 11px; font-weight: 650; }
+#rd .rd-de-tog button { font: inherit; font-size: 10px; color: var(--dim); background: none; border: 1px solid var(--edge); padding: 0 .35rem; cursor: pointer; }
+#rd .rd-de-tog button.on { color: var(--cyan); border-color: var(--cyan); }
+#rd .rd-de-cmd { border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+#rd .rd-de-cmd th, #rd .rd-de-cmd td { padding: .05rem .5rem .05rem 0; text-align: right; color: var(--dim); font-weight: 400; }
+#rd .rd-de-cmd th:first-child, #rd .rd-de-cmd td:first-child { text-align: left; }
+#rd .rd-de-cmd tr.hit td { color: var(--ink); }
+@media (max-width: 720px) { #rd .rd-de-k { grid-template-columns: minmax(0, 1fr) 2.5rem; } #rd .rd-de-k .rd-de-next { grid-column: 1 / -1; } }
 #rd .rd-roster-cols { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem .75rem; }
 #rd .rd-roster-cols h5 {
   margin: 0 0 .1rem;
