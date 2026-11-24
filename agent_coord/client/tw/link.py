@@ -587,6 +587,10 @@ class Link:
             count = protocol.bounded_int(msg.get(key))
             if count is not None:
                 body[key] = count
+        if body.get("kind") == "start":
+            cmd = protocol.command_text(msg.get("cmd"))
+            if cmd is not None:
+                body["cmd"] = cmd
         ts_ms = msg.get("ts_ms")
         if isinstance(ts_ms, int) and not isinstance(ts_ms, bool) and ts_ms >= 0:
             body["ts_ms"] = ts_ms
@@ -600,8 +604,12 @@ class Link:
         if self._outbox is None:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)
+        errors = None
         try:
-            self._outbox.add(body)
+            if protocol.wait_for_errors(body.get("kind"), body.get("exit_code")) and self._hop_can_send():
+                errors = self._post_for_errors(body)
+            else:
+                self._outbox.add(body)
         except OSError:
             self.marks.append("tw.event")
             return protocol.reply(False, "hop failed", wid or None)
@@ -611,7 +619,23 @@ class Link:
                 self._by_watch[wid] = peer
             self._remember(wid, msg)
         self._kick.set()
-        return protocol.reply(True, "accepted", wid or None)
+        ack = protocol.reply(True, "accepted", wid or None)
+        if errors:
+            ack["errors"] = errors
+        return ack
+
+    def _post_for_errors(self, body: dict[str, Any]) -> dict[str, Any] | None:
+        """Post this hop before the ack, so a nonzero exit can print the office count.
+
+        The sender lock is held across the add, so the background sender cannot
+        take the row and drop the reply. A not-ok post leaves the row queued.
+        """
+        from agent_coord.client.tw.outbox import post_through
+
+        with self._send_lock:
+            row_id = self._outbox.add(body)
+            _status, got = post_through(self._outbox, self._call, row_id)
+        return protocol.relay_errors(got)
 
     def _call(self, body: dict[str, Any]) -> Any:
         from agent_coord.client.http import mill_http_call
