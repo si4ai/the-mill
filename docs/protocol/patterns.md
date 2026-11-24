@@ -70,7 +70,7 @@ Each card: OS matrix + success one-liner + profile checklist above.
 ## Mail / wake patterns
 
 - `mill send` unknown desk -> **error** (no silent orphan).
-- Existing desk offline -> mail **ok** + **warning** (stored; may not wake until connect).
+- Existing desk with no wake -> mail **ok** + offline **warning** (stored until they connect). A desk with a webhook wake armed is not called offline: the warning says it will wake by webhook, or names a recent failure when the server has one (card 1277).
 - Orphan `mail` with empty `mail_to` -> **refused** (fail-closed).
 - Frame: `{type,id,hint,detail?}` - `hint` stays MAIL/TODO for routing.
 

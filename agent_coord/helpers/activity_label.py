@@ -25,6 +25,7 @@ class NameRow:
     focus: bool = False
     may_set: bool = True
     focus_name: str = ""
+    trashed: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,13 +87,22 @@ def warn_unknown(name: str, label_names: list[str]) -> str:
 
 
 def warn_other(name: str, kind: str, label_names: list[str]) -> str:
-    return "label '%s' does not exist. %s is a %s, not a label. closest: %s. %s %s." % (
-        name, name, kind, closest(name, label_names), _CREATE, name,
+    """Card 1280: the name belongs to another type. Creating that label is refused."""
+    return "label '%s' does not exist. %s is a %s, not a label. closest: %s. pick another label name." % (
+        name, name, kind, closest(name, label_names),
     )
 
 
 def warn_denied(name: str, label_names: list[str]) -> str:
-    return "label '%s' may not be set. closest: %s. %s %s." % (name, closest(name, label_names), _CREATE, name)
+    """A label that cannot be set. Do not suggest a create the office will refuse."""
+    return "label '%s' may not be set. closest: %s." % (name, closest(name, label_names))
+
+
+def warn_trashed(name: str) -> str:
+    """Card 1280: a trashed label gets restore advice, not create."""
+    from agent_coord.helpers.label_ord import restore_advice
+
+    return restore_advice(name)
 
 
 def classify(
@@ -117,6 +127,9 @@ def classify(
             warnings.append(warn_unknown(name, label_names))
             continue
         if row.kind == "label":
+            if row.trashed:
+                warnings.append(warn_trashed(row.name))
+                continue
             if not row.may_set:
                 warnings.append(warn_denied(name, label_names))
                 continue
@@ -493,7 +506,10 @@ def load_catalog(cn: Any, names: list[str]) -> tuple[list[NameRow], list[str]]:
                 focus = True
                 focus_name = str(by_id(cn, fid) or "")
         may = typ == "label" and live and not_trash
-        rows.append(NameRow(stored, typ, focus=focus, may_set=may, focus_name=focus_name))
+        trashed = typ == "label" and live and not not_trash
+        rows.append(NameRow(
+            stored, typ, focus=focus, may_set=may, focus_name=focus_name, trashed=trashed,
+        ))
     return rows, label_names
 
 

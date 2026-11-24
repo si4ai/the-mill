@@ -36,6 +36,16 @@ def missing_label(name: str) -> str:
     return "label: no name %s. mill create label %s" % (who, who)
 
 
+# Card 1280. The office sentence for a trashed label. NAME stays the office word.
+TRASHED_LABEL = "name trashed: mill restore NAME"
+
+
+def restore_advice(name: str) -> str:
+    """A trashed label is restored. Creating it again is refused."""
+    who = str(name or "").strip()
+    return "label '%s' is trashed. mill restore %s" % (who, who)
+
+
 def unused_label(name: str, first_use_creates: bool) -> str:
     """trail --label on a label nobody has used yet (#709).
 

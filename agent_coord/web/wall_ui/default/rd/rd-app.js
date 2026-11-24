@@ -1472,6 +1472,12 @@
   root.addEventListener("click", function (ev) {
     var t = ev.target, el;
     if ((el = closest(t, "[data-rd-tab]"))) { setTab(el.getAttribute("data-rd-tab")); return; }
+    /* A "runs" toggle before doing-paint.js is here (once here, its own click handler takes it). */
+    if ((el = closest(t, "button[data-doing-run]")) && typeof wallEnsureModule === "function") {
+      var rDesk = el.getAttribute("data-doing-desk") || "", rRun = el.getAttribute("data-doing-run") || "";
+      wallEnsureModule("doingPaint").then(function () { if (typeof wallDoingRunToggle === "function") wallDoingRunToggle(rDesk, rRun); });
+      return;
+    }
     if ((el = closest(t, "[data-rd-range]"))) {
       state.range[state.tab] = el.getAttribute("data-rd-range");
       save(RANGE_KEY, JSON.stringify(state.range));
