@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
-from agent_coord.client.tw.protocol import bounded_int
+from agent_coord.client.tw.protocol import bounded_int, command_word, error_lines
 
 
 def runs_path(desk: str):
@@ -865,21 +865,23 @@ def run_argv(
 
             print(tw_link_lost(), file=sys.stderr)
 
-        def _send(body: dict[str, Any]) -> bool:
+        def _send(body: dict[str, Any]) -> dict[str, Any] | None:
             if session is None:
                 _note()
-                return False
+                return None
             try:
                 with session_lock:
                     if session is None:
                         _note()
-                        return False
+                        return None
                     reply = session.request(body)
             except OSError:
                 _lose()
                 _note()
-                return False
-            return isinstance(reply, dict) and reply.get("ok") is True
+                return None
+            if isinstance(reply, dict) and reply.get("ok") is True:
+                return reply
+            return None
 
         from agent_coord.client.tw.run_ipc import RunGate
 
@@ -958,6 +960,9 @@ def run_argv(
             start_body["card"] = card_id
         if pr_id is not None:
             start_body["pr"] = pr_id
+        word = command_word(argv)
+        if word is not None:
+            start_body["cmd"] = word
         _send(start_body)
         stopped = False
         crashed = False
@@ -1022,7 +1027,10 @@ def run_argv(
         body["stdout_bytes"] = stdout_bytes
         body["stderr_bytes"] = stderr_bytes
         body["log"] = True
-        _send(body)
+        got = _send(body)
+        if isinstance(got, dict):
+            for line in error_lines(got.get("errors")):
+                print(line, file=sys.stderr)
         finished = {
             "pid": proc.pid,
             "argv": list(argv),
