@@ -3173,6 +3173,21 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
     return out
 
 
+# Card 1303: the doing-error counts ride the per-desk score that records how tw runs end.
+DOING_ERRORS_SCORE = "doing.task.end_reason"
+
+
+def _with_doing_errors(c: "Book", one: dict) -> dict:
+    """Add the errors block (read at request time) for the score's owner desk. Read-only, no wake."""
+    from agent_coord.server import todo_activity as ta
+    from agent_coord.server.records import doing_errors
+
+    did = ta.desk_id_for(c._cn, one.get("owner"))
+    if did is None:
+        return one
+    return {**one, "errors": doing_errors.desk_errors(c._cn, did)}
+
+
 def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """#288 / card 1021: NAME reads the series; neither lists the roster.
     Desk VALUE / define / retire writes are refused; the server tick writes points."""
@@ -3264,6 +3279,10 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         one = got[0]
         if name == "cards":
             one = _cards_score_view(c, one, project, owner)
+        if name == DOING_ERRORS_SCORE:
+            # One row per desk; the caller's own row when it has one.
+            mine = [g for g in got if g.get("owner") == _stored(owner or "")]
+            one = _with_doing_errors(c, mine[0] if mine else one)
         if name in ("wasted-wake", "wasted_wake", "mill-office.wasted_wake_n"):
             try:
                 from agent_coord.server import wasted_wake
@@ -3354,6 +3373,7 @@ def _h_score(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
                 pass
         return one
     shaped = ss.shape(rec_score.points(c._cn, roster, "", ss.TREND_POINTS), 0)
+    shaped = [_with_doing_errors(c, s) if s.get("score") == DOING_ERRORS_SCORE else s for s in shaped]
     out = {"roster": project, "scores": shaped}
     try:
         cmds = rec_score.system_commands_today(c._cn, _stored(owner or ""))
@@ -4205,6 +4225,30 @@ _TW_EVENT_PRIVACY = ("argv", "title", "pattern", "stdout", "stderr", "log", "sam
 _TW_COUNT_MAX = 2**53 - 1
 
 
+def _tw_exit_errors(c: Book, desk: str, watch_id: str) -> dict | None:
+    from agent_coord.server.records import doing_errors
+    from agent_coord.server.records.name import bare
+
+    if not watch_id:
+        return None
+    try:
+        cur = c._cn.cursor()
+        try:
+            cur.execute(
+                "SELECT activity_id, desk_id FROM transition WHERE activity_type = 'doing' AND join_key = %s"
+                " ORDER BY id LIMIT 1",
+                (f"task:{bare(desk, CONST_DESK)}:{watch_id}",),
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+        if not row:
+            return None
+        return doing_errors.exit_count(c._cn, int(row[1]), int(row[0]))
+    except Exception:
+        return None
+
+
 def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """Card 970: accept metadata, persist task edges and use the shared wake path."""
     import re
@@ -4240,6 +4284,15 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
     # A bad value drops that key and the event is still stored: a refusal would block the head of
     # tw's hop queue. The dropped key names go in meta "dropped" so the loss stays visible.
     dropped = []
+    # Card 1303: the command word rides the start only (no argument, path or value); same drop rule.
+    cmd = clean.get("cmd")
+    if cmd is not None and kind == "start":
+        from agent_coord.server.records import doing_errors
+
+        if isinstance(cmd, str) and doing_errors.CMD_RE.fullmatch(cmd):
+            meta["cmd"] = cmd
+        else:
+            dropped.append("cmd")
     for name, kinds, low in (("pr", ("start",), 1), ("bytes_in", ("exit", "crash"), 0),
                              ("bytes_out", ("exit", "crash"), 0)):
         val = clean.get(name)
@@ -4285,7 +4338,14 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
         if (clean.get("wake") is not False and kind in ("stall", "match", "exit", "crash")
                 and done != "noop"):
             after_commit(c._cn, lambda: wake.post_desk(c._cn, desk, dict(meta)))
-        return {"ok": True, **meta}
+        reply = {"ok": True, **meta}
+        if kind in ("exit", "crash") and done != "noop":
+            # Card 1303: how often this desk hit the same error kind in its last N runs; tw prints it
+            # when count is above 1. A read; a failure here never costs the stored event.
+            errors = _tw_exit_errors(c, desk, str(meta.get("watch_id") or ""))
+            if errors:
+                reply["errors"] = errors
+        return reply
 
     return run() if in_request_tx(c._cn) else request_tx(c._cn, run)
 
