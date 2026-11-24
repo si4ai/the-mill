@@ -404,7 +404,7 @@ def task_event(cn, desk: str, meta: dict[str, Any], *, outcome: str = "") -> str
         if kind == "start" and state != tr.State.idle:
             # open_call may have written the one tw_start before tw's own start arrived.
             # That repeat must keep the parent link instead of dropping it (card 1239).
-            _attach_parent(cn, int(row["id"]), meta.get("parent_watch_id"))
+            _attach_start(cn, int(row["id"]), meta)
             return "noop"  # repeated delivery is not a second birth or transition
         to_state, reason = mapped[kind]
         if state == to_state:
@@ -623,11 +623,16 @@ def _watch_from_join(desk: str, join_key: Any) -> str | None:
     return wid or None
 
 
-def _attach_parent(cn, doing_id: int, parent: Any) -> None:
-    """A later start is still one tw_start. Keep a parent link the first row did not have."""
+# Start keys a repeated start may add to the one tw_start (cards 1239 and 1289).
+_START_KEYS = ("parent_watch_id", "card", "pr")
+
+
+def _attach_start(cn, doing_id: int, meta: dict[str, Any]) -> None:
+    """A later start is still one tw_start. Keep a parent, card or pr the first row did not have."""
     import json
 
-    if not isinstance(parent, str) or not parent:
+    extra = {k: meta[k] for k in _START_KEYS if meta.get(k)}
+    if not extra:
         return
     cur = cn.cursor(dictionary=True)
     try:
@@ -641,9 +646,10 @@ def _attach_parent(cn, doing_id: int, parent: Any) -> None:
         if not start:
             return
         existing = _meta_obj(start.get("meta"))
-        if existing.get("parent_watch_id"):
+        missing = {k: v for k, v in extra.items() if not existing.get(k)}
+        if not missing:
             return
-        existing["parent_watch_id"] = parent
+        existing.update(missing)
         cur.execute(
             "UPDATE transition SET meta=%s WHERE id=%s",
             (json.dumps(existing), int(start["id"])),
@@ -784,3 +790,45 @@ def run_tree(cn, desk: str, wid: str) -> dict[str, Any]:
         for node in nodes
     ]
     return {"runs": runs, "n": len(runs)}
+
+
+# Card 1289: bytes and minutes of tw runs per card or per PR. The card and pr ride the tw_start meta,
+# bytes_in and bytes_out the tw_finished or tw_failed meta. A run with no terminal row yet counts as a
+# run with no bytes and no minutes. Read-only.
+RUN_ROLLUP_KEYS = ("card", "pr")
+
+
+def run_rollup(cn, by: str, days: int = 30, limit: int = 20) -> list[dict[str, Any]]:
+    """Per card or per PR over the last DAYS days: runs, bytes_in, bytes_out, run_min; most bytes first."""
+    if by not in RUN_ROLLUP_KEYS:
+        raise ValueError(f"run_rollup: by must be one of {RUN_ROLLUP_KEYS}")
+    path = "$." + by
+    cur = cn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            "SELECT CAST(JSON_EXTRACT(s.meta, %s) AS UNSIGNED) AS k, COUNT(*) AS runs,"
+            " COALESCE(SUM(CAST(JSON_EXTRACT(e.meta, '$.bytes_in') AS UNSIGNED)), 0) AS bytes_in,"
+            " COALESCE(SUM(CAST(JSON_EXTRACT(e.meta, '$.bytes_out') AS UNSIGNED)), 0) AS bytes_out,"
+            " COALESCE(SUM(TIMESTAMPDIFF(MICROSECOND, s.at, e.at)), 0) AS run_us"
+            " FROM transition s"
+            " LEFT JOIN transition e ON e.activity_type = 'doing' AND e.activity_id = s.activity_id"
+            "  AND e.reason IN ('tw_finished', 'tw_failed')"
+            " WHERE s.activity_type = 'doing' AND s.to_state = 'active' AND s.reason = 'tw_start'"
+            "  AND JSON_TYPE(JSON_EXTRACT(s.meta, %s)) = 'INTEGER'"
+            "  AND s.at >= UTC_TIMESTAMP(6) - INTERVAL %s DAY"
+            " GROUP BY k ORDER BY bytes_in + bytes_out DESC, runs DESC, k LIMIT %s",
+            (path, path, int(days), int(limit)),
+        )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+    return [
+        {
+            by: int(r["k"]),
+            "runs": int(r["runs"]),
+            "bytes_in": int(r["bytes_in"]),
+            "bytes_out": int(r["bytes_out"]),
+            "run_min": round(int(r["run_us"]) / 60e6, 1),
+        }
+        for r in rows
+    ]

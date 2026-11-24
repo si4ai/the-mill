@@ -3120,6 +3120,9 @@ def _hold_list(c: Book, project: str) -> Any:
     return {"ok": True, "project": who, "holds": holds}
 
 
+# Card 1289: the window of the per-card and per-PR tw run rollup on the cards score view.
+TW_ROLLUP_DAYS = 30
+
 
 def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) -> dict:
     """Card 955: attach cards/day and guards from today's evidence; surface commands-used."""
@@ -3159,6 +3162,12 @@ def _cards_score_view(c: "Book", shaped: dict, project: str, owner: str | None) 
         cmds = None
     if cmds is not None:
         out["commands_used"] = cmds
+    # Card 1289: tw run bytes and minutes per card and per PR, office-wide, read at request time.
+    from agent_coord.server.records import doing as rec_doing
+
+    out["tw_runs"] = {"days": TW_ROLLUP_DAYS, **{
+        "by_" + by: rec_doing.run_rollup(c._cn, by, days=TW_ROLLUP_DAYS) for by in rec_doing.RUN_ROLLUP_KEYS
+    }}
     if not out.get("unit"):
         out["unit"] = "cards/day"
     return out
@@ -4192,6 +4201,8 @@ def _h_rooms(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
 
 # Card 970: local-only tw.event keys, dropped before building stored/hopped meta.
 _TW_EVENT_PRIVACY = ("argv", "title", "pattern", "stdout", "stderr", "log", "sample", "pid")
+# Card 1289: the largest count JSON readers keep exact (2**53 - 1).
+_TW_COUNT_MAX = 2**53 - 1
 
 
 def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
@@ -4225,6 +4236,16 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
     card = clean.get("card")
     if isinstance(card, int) and not isinstance(card, bool) and card > 0:
         meta["card"] = card
+    # Card 1289: the PR rides the start; the byte counts ride the terminal hop. Integers only.
+    for name, kinds, low in (("pr", ("start",), 1), ("bytes_in", ("exit", "crash"), 0),
+                             ("bytes_out", ("exit", "crash"), 0)):
+        val = clean.get(name)
+        if val is None or kind not in kinds:
+            continue
+        if not isinstance(val, int) or isinstance(val, bool) or not low <= val <= _TW_COUNT_MAX:
+            word = "a positive" if low else "a non-negative"
+            raise CoordError(f"tw.event: {name} must be {word} integer")
+        meta[name] = val
     cause = clean.get("cause")
     if cause is not None:
         if not isinstance(cause, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", cause):
