@@ -77,6 +77,7 @@ def _pack_scan(repo: Path) -> list[str]:
 PASS = [
     "title\n\nScope is main.\n",
     "#338 Scope the hook\n\nFinding: the hook read the word as a name.\nLive check done.\n",
+    "title\n\n1273 Scope the hook\nFinding first.\n",
     "title\n\n- Behavior stays the same\n* Scope is main\n1. Finding first\n2) History second\n",
 ]
 FAIL = [

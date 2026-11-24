@@ -428,9 +428,11 @@ NAME_TOKEN_REVIEWED = frozenset(
 
 
 # The first word of a line, after an optional bullet, list number, card
-# number ("- ", "1. ", "2) ", "#338 ") or Markdown heading marks ("# " to
-# "###### "). Sentence case puts a capital there.
-_LINE_START_RE = re.compile(r"^[ \t]*(?:(?:[-*+>]|\d+[.)]|#\d+:?|#{1,6})[ \t]+)*([A-Z][a-z]{2,20})\b", re.MULTILINE)
+# number ("- ", "1. ", "2) ", "#338 ", "1273 ", "1273: ") or Markdown heading
+# marks ("# " to "###### "). Sentence case puts a capital there. A bare card
+# number is included so a GitHub merge body that copies a "1273 verb ..."
+# title gets the same line-start rule as #338.
+_LINE_START_RE = re.compile(r"^[ \t]*(?:(?:[-*+>]|\d+[.)]|#?\d+:?|#{1,6})[ \t]+)*([A-Z][a-z]{2,20})\b", re.MULTILINE)
 # The first word of a sentence inside a line: after ".", "!" or "?" (and an
 # optional closing quote or bracket) and a space. Sentence case puts a capital
 # there too, mid-line (#724: "... under 2 KB. Live 0.7.14, ...").

@@ -129,7 +129,7 @@ def test_mail_insert_sp_letter_allocates_id() -> None:
     body = text.split("CREATE PROCEDURE mill_mail_insert", 1)[1].split("CREATE PROCEDURE", 1)[0]
     for gone in ("MAX(", "GET_LOCK", "MILL_NEXT_ID", "FOREIGN_KEY_CHECKS", "information_schema", "FOR UPDATE"):
         assert gone not in body
-    ins = body.index("INSERT INTO mail (desk_id, roster_id, body)")
+    ins = body.index("INSERT INTO mail (desk_id, roster_id, body, read_stamp)")
     lid = body.index("SET v_id = LAST_INSERT_ID()")
     put = body.index("CALL mill_activity_put")
     assert ins < lid < put < body.index("CALL mill_mail_to_put")

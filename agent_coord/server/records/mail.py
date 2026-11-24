@@ -20,6 +20,7 @@ def insert(
     body: str,
     receipt: int = 0,
     dst_kind: str = CONST_DESK,
+    read_stamp=None,
 ) -> list[dict]:
     from agent_coord.server.records.name import roster_name, pair
 
@@ -29,7 +30,7 @@ def insert(
     return call(
         cn,
         "mill_mail_insert",
-        [project_b, desk_b, dst_type, dst_b, body, int(receipt or 0)],
+        [project_b, desk_b, dst_type, dst_b, body, int(receipt or 0), read_stamp],
     )
 
 
@@ -431,6 +432,46 @@ def letters_by_id(cn, mail_ids: list[int]) -> dict[int, dict]:
 def letter_row(cn, mail_id: int) -> dict | None:
     """One letter row: id, created, desk (sender slug), sender_roster, body."""
     return letters_by_id(cn, [int(mail_id)]).get(int(mail_id))
+
+
+def stamp_text(value) -> str:
+    """Datetime as the public letter prints `created` (space, not T)."""
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat(sep=" ")
+        except TypeError:
+            return value.isoformat()
+    return str(value)
+
+
+def text_at_stamp(cn, mail_id: int, stamp) -> str | None:
+    """The letter text that stood at `stamp` (card 1276).
+
+    `stamp` is `body_updated`, or `created` when the body was never replaced.
+    A later replace copies that stamp into `activity_history.old_updated`.
+    The history row wins. The live body is used only while
+    IFNULL(body_updated, created) still equals `stamp`.
+    """
+    mid = int(mail_id or 0)
+    if stamp is None or not mid:
+        return None
+    old = scalar_done(
+        cn,
+        "SELECT old_body FROM activity_history"
+        " WHERE type = 'mail' AND activity_id = %s AND old_updated = %s",
+        (mid, stamp),
+    )
+    if old is not None:
+        return str(old)
+    live = scalar_done(
+        cn,
+        "SELECT body FROM mail WHERE type = 'mail' AND id = %s"
+        " AND IFNULL(body_updated, created) = %s",
+        (mid, stamp),
+    )
+    if live is None:
+        return None
+    return str(live)
 
 
 def tos_by_id(cn, mail_ids: list[int]) -> dict[int, list[dict]]:

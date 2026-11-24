@@ -42,13 +42,27 @@ def test_other_kind_is_named():
     assert got.set_names == []
     assert "bob is a desk, not a label" in got.warnings[0]
     assert "crew is a roster, not a label" in got.warnings[1]
+    assert "pick another label name." in got.warnings[0]
+    assert "mill create label" not in got.warnings[0]
+    assert "mill create label" not in got.warnings[1]
+    res = classify(["file1"], [NameRow("file1", "res")], [])
+    assert "file1 is a res, not a label" in res.warnings[0]
+    assert "pick another label name." in res.warnings[0]
+    assert "mill create label" not in res.warnings[0]
+
+
+def test_trashed_label_says_restore_not_create():
+    got = classify(["old"], [NameRow("old", "label", may_set=False, trashed=True)], ["windows"])
+    assert got.set_names == []
+    assert got.warnings == ["label 'old' is trashed. mill restore old"]
+    assert "mill create label" not in got.warnings[0]
 
 
 def test_disallowed_label_is_skipped():
     got = classify(["old"], CATALOG, _labels())
     assert got.set_names == []
     assert got.warnings == [
-        "label 'old' may not be set. closest: none. mill create label old."
+        "label 'old' may not be set. closest: none."
     ]
 
 

@@ -62,6 +62,38 @@ class HintBuf:
         self._exit_lock = threading.Lock()
         self._exit_sender: Any = None
         self._exit_wait: list[dict[str, Any]] = []
+        # Card 1283: a sit-exit waits while a bridge RPC has not got its reply.
+        self._rpc_lock = threading.Lock()
+        self._rpc_open: set[str] = set()
+        self._held_exit: tuple[dict[str, Any], str, float] | None = None
+
+    def rpc_hold(self, rid: str) -> None:
+        """This bridge request is on the wire. A self hint must not close the sit yet."""
+        who = str(rid or "").strip()
+        if not who:
+            return
+        with self._rpc_lock:
+            self._rpc_open.add(who)
+
+    def rpc_release(self, rid: str) -> tuple[dict[str, Any], str, float] | None:
+        """The request finished. Return a sit-exit that was waiting for it, if this was the last."""
+        who = str(rid or "").strip()
+        with self._rpc_lock:
+            if who:
+                self._rpc_open.discard(who)
+            if self._rpc_open or self._held_exit is None:
+                return None
+            held = self._held_exit
+            self._held_exit = None
+            return held
+
+    def hold_sit_exit(self, frame: dict[str, Any], hint: str, t0: float) -> bool:
+        """True when an open RPC should hear its reply before this sit-exit closes the socket."""
+        with self._rpc_lock:
+            if not self._rpc_open:
+                return False
+            self._held_exit = (frame, hint, t0)
+            return True
 
     def put_recv(self, msg: dict[str, Any]) -> None:
         """Recv thread only. Never poke, never print, never mill leftover.
@@ -160,6 +192,52 @@ class HintBuf:
             pass
 
 
+def finish_sit_exit(
+    buf: HintBuf,
+    frame: dict[str, Any],
+    hint: str,
+    t0: float,
+    stop: threading.Event | None,
+    outcome: dict[str, Any] | None,
+    *,
+    ok: int = 1,
+) -> None:
+    """Card 985: plain connect with no chat-wake path exits like connect-wait."""
+    import time
+
+    line = {
+        "ok": True,
+        "mode": "sit-exit",
+        "desk": buf.desk,
+        "hint": frame,
+        "next": (
+            "plain mill connect cannot wake a chat for this HINT; "
+            "use mill connect-wait DESK, or mill connect DESK "
+            "--vendor grok-build --session UUID"
+        ),
+    }
+    print(json.dumps(line, default=str), flush=True)
+    if outcome is not None:
+        outcome["exit"] = 0
+        outcome["sit_exit"] = frame
+    if stop is not None:
+        stop.set()
+    ms = (time.perf_counter() - t0) * 1000.0
+    _bc_log(
+        f"hint drain desk={buf.desk} hint={hint} id={frame.get('id')} ok={ok} sit-exit=1 q={buf.q.qsize()}"
+    )
+    perf_log(
+        "hint.drain",
+        ms,
+        desk=buf.desk,
+        hint=hint,
+        id=frame.get("id"),
+        ok=ok,
+        sit_exit=1,
+        q=buf.q.qsize(),
+    )
+
+
 def _drain_one(
     buf: HintBuf,
     frame: dict[str, Any],
@@ -201,38 +279,10 @@ def _drain_one(
             )
             return
         if kind == "sit-exit":
-            # Card 985: plain connect with no chat-wake path exits like connect-wait.
-            line = {
-                "ok": True,
-                "mode": "sit-exit",
-                "desk": buf.desk,
-                "hint": frame,
-                "next": (
-                    "plain mill connect cannot wake a chat for this HINT; "
-                    "use mill connect-wait DESK, or mill connect DESK "
-                    "--vendor grok-build --session UUID"
-                ),
-            }
-            print(json.dumps(line, default=str), flush=True)
-            if outcome is not None:
-                outcome["exit"] = 0
-                outcome["sit_exit"] = frame
-            if stop is not None:
-                stop.set()
-            ms = (time.perf_counter() - t0) * 1000.0
-            _bc_log(
-                f"hint drain desk={buf.desk} hint={hint} id={frame.get('id')} ok={ok} sit-exit=1 q={buf.q.qsize()}"
-            )
-            perf_log(
-                "hint.drain",
-                ms,
-                desk=buf.desk,
-                hint=hint,
-                id=frame.get("id"),
-                ok=ok,
-                sit_exit=1,
-                q=buf.q.qsize(),
-            )
+            # Card 1283: the reply for an open command has to land before the sit closes.
+            if buf.hold_sit_exit(frame, hint, t0):
+                return
+            finish_sit_exit(buf, frame, hint, t0, stop, outcome, ok=ok)
             return
         if kind == "work":
             print({"route": "hit", "desk": buf.desk}, flush=True)

@@ -968,13 +968,25 @@ def _h_label(c: Book, body: dict[str, Any], project: str, owner: str | None) -> 
         other = _occupant_type(c._cn, tag_b)
         if other and other != CONST_LABEL:
             raise CoordError("name in use: %s is a %s; pick another name" % (tag_b, other))
-        if (
-            0 < len(tag_b) <= 64
-            and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
-            and mill_catalog_open(CONST_LABEL)
-        ):
-            rec_name.host_put(c._cn, tag_b, CONST_LABEL)
-        rec = rec_label.put(c._cn, typ, nid, tag, body.get("ord"))
+        from agent_coord.helpers.label_ord import TRASHED_LABEL
+
+        if rec_label.trashed_name(c._cn, tag_b):
+            raise CoordError(TRASHED_LABEL)
+        try:
+            if (
+                0 < len(tag_b) <= 64
+                and rec_name.get(c._cn, tag_b, CONST_LABEL) is None
+                and mill_catalog_open(CONST_LABEL)
+            ):
+                rec_name.host_put(c._cn, tag_b, CONST_LABEL)
+            rec = rec_label.put(c._cn, typ, nid, tag, body.get("ord"))
+        except CoordError:
+            raise
+        except Exception as exc:
+            msg = _sql_refusal(exc)
+            if msg:
+                raise CoordError(msg) from exc
+            raise
     else:
         rec = rec_label.delete(c._cn, typ, nid, tag)
         # A label that is not on the node is a refusal on the call, not ok (#245).
@@ -1309,6 +1321,80 @@ def _offline_warning(desks: list[str]) -> str:
     return f"desks {listed} look offline {tail}"
 
 
+def _webhook_wake_line(rows: list[tuple[str, str | None]]) -> str:
+    """Card 1277: an armed desk will wake by webhook. Last stamp only when the book has one."""
+    parts: list[str] = []
+    for name, last in rows:
+        bit = repr(name)
+        if last:
+            bit = f"{bit} (last {last})"
+        parts.append(bit)
+    noun = "desk" if len(parts) == 1 else "desks"
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts)
+    return f"{noun} {listed} will wake by webhook"
+
+
+def _webhook_fail_line(rows: list[tuple[str, str]]) -> str:
+    """Card 1277: a recent failure replaces the wake line. The note is the server's own run text."""
+    parts = [f"{name!r} {note}" for name, note in rows]
+    if len(parts) == 1:
+        return f"desk {parts[0]}"
+    return "desks " + "; ".join(parts)
+
+
+def _presence_lines(c: Book, offline: list[str]) -> list[str]:
+    """Card 1277: split the offline list by the book.
+
+    Armed is the seat webhook (wake_reach). A desk with no wake keeps the offline
+    line. An armed desk says it will wake by webhook, unless the server still has
+    a failing run (fail_note), in which case that failure is the line.
+    A reach miss leaves the old offline line.
+    """
+    if not offline:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in offline:
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    try:
+        from agent_coord.server.records import join as rec_join
+
+        reach = rec_join.wake_reach(c._cn, names) or {}
+    except Exception:
+        reach = {}
+    from agent_coord.server.wake import fail_note
+
+    quiet: list[str] = []
+    waking: list[tuple[str, str | None]] = []
+    failing: list[tuple[str, str]] = []
+    for name in names:
+        row = reach.get(name) or {}
+        if not row.get("armed"):
+            quiet.append(name)
+            continue
+        note = ""
+        try:
+            note = str(fail_note(name) or "")
+        except Exception:
+            note = ""
+        if note:
+            failing.append((name, note))
+            continue
+        last = row.get("last_wake")
+        waking.append((name, str(last) if last else None))
+    lines: list[str] = []
+    if quiet:
+        lines.append(_offline_warning(quiet))
+    if waking:
+        lines.append(_webhook_wake_line(waking))
+    if failing:
+        lines.append(_webhook_fail_line(failing))
+    return lines
+
+
 def _offline_dests(c: Book, project: str, resolved, via_roster) -> list[str]:
     """Explicit desk targets that look offline, in send order (#152).
 
@@ -1550,6 +1636,13 @@ def _h_send(
 
     # One mail row; first dest via insert; remaining via mill_mail_to_put.
     first_kind, first_to = resolved[0]
+    # Card 1276: a letter under a mail parent stores that letter's body stamp.
+    # Computed here from the parent row. A client field is not read.
+    read_stamp = None
+    if parent_t.strip().lower() == CONST_MAIL and parent_id:
+        parent = rec_mail.letter_row(c._cn, int(parent_id))
+        if parent:
+            read_stamp = parent.get("body_updated") or parent.get("created")
     # #867: the sender roster goes in the insert (no follow-up UPDATE).
     rows = rec_mail.insert(
         c._cn,
@@ -1559,6 +1652,7 @@ def _h_send(
         raw,
         receipt=receipt,
         dst_kind=first_kind,
+        read_stamp=read_stamp,
     )
     mid = int(rows[0]["id"]) if rows else 0
     if not mid:
@@ -1597,10 +1691,8 @@ def _h_send(
                 raise
             room = True
 
-    # Offline warn for explicit desk targets. One line for the whole list (#152).
-    offline = _offline_dests(c, project, resolved, via_roster)
-    if offline:
-        warnings.append(_offline_warning(offline))
+    # Card 1277: a webhook desk is not called offline. One line per kind (#152).
+    warnings.extend(_presence_lines(c, _offline_dests(c, project, resolved, via_roster)))
 
     crumbs = rec_mail.tree_crumbs(c._cn, mid) if (parent_t and parent_id) or room else {}
     created = None
@@ -1621,6 +1713,9 @@ def _h_send(
     )
     if room:
         rec["room"] = True
+    stored_stamp = rows[0].get("read_stamp") if rows else None
+    if stored_stamp is not None:
+        rec["read_stamp"] = rec_mail.stamp_text(stored_stamp)
     if warnings:
         rec["warnings"] = warnings
     if receipt:
@@ -4208,6 +4303,34 @@ def _body_duplicate(exc: BaseException) -> bool:
     return False
 
 
+def _body_editor(cn, kind: str, item_id: int) -> tuple[str, str] | None:
+    """Who last changed this text and when (UTC, to the second), for the duplicate-key stale line (card 1288).
+
+    The same fields mill_body_replace compares. None when the lookup fails: the caller names no one.
+    """
+    owner_col = {"mail": "desk_id", "todo": "creator_id"}.get(kind)
+    if owner_col is None:
+        return None
+    stamp = "IFNULL(x.body_updated, x.created)"
+    utc = (f"IFNULL(CONVERT_TZ({stamp}, @@session.time_zone, '+00:00'),"
+           f" {stamp} + INTERVAL TIMESTAMPDIFF(SECOND, NOW(6), UTC_TIMESTAMP(6)) SECOND)")
+    # No DATE_FORMAT: a percent sign in the query text is taken by the connector's %s substitution (card 1160).
+    sql = (f"SELECT n.name, {utc} FROM {kind} x"
+           f" JOIN name n ON n.id = IFNULL(x.body_updater_id, x.{owner_col}) WHERE x.id = %s")
+    try:
+        cur = cn.cursor()
+        try:
+            cur.execute(sql, (int(item_id),))
+            rec = cur.fetchone()
+        finally:
+            cur.close()
+    except Exception:
+        return None
+    if not rec or not rec[0] or not hasattr(rec[1], "strftime"):
+        return None
+    return str(rec[0]), rec[1].strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _todo_roster_name(cn, item_id: int) -> str:
     try:
         from agent_coord.server.records.db import scalar
@@ -4226,7 +4349,8 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
     """Replace one letter or card body, or list its old text (card 1125).
 
     The text write is mill_body_replace. A duplicate key on the history stamp
-    is body:stale plus the reread command. The unchanged sentence is the
+    is body:stale plus the reread command; both stale paths name the editor and the
+    UTC time when known (card 1288). The unchanged sentence is the
     office's own words. A letter replace tells desks that already opened it
     (card 1236): their opened mark is cleared and they get one mail notice.
     """
@@ -4270,11 +4394,12 @@ def _h_replace_body(c: Book, body: dict[str, Any], project: str, owner: str | No
         if kind == "todo":
             roster = _todo_roster_name(c._cn, item_id) or str(project or "")
         if _body_duplicate(exc):
-            raise CoordError(stale_line(kind, item_id, roster)) from exc
+            by, at = _body_editor(c._cn, kind, item_id) or ("", "")
+            raise CoordError(stale_line(kind, item_id, roster, by, at, str(owner))) from exc
         msg = _sql_refusal(exc)
         if msg is None:
             raise
-        raise CoordError(map_refusal(msg, kind, item_id, roster) or msg) from exc
+        raise CoordError(map_refusal(msg, kind, item_id, roster, str(owner)) or msg) from exc
     if kind == "mail":
         from agent_coord.server.mail_push import notify_replaced_readers
 

@@ -6,7 +6,7 @@ failed. One to six "#" marks followed by a space now get the same
 line-start rule as a bullet, list number or card number: the word passes
 only when its lower-case form is an ordinary word. A heading whose first
 word is not in the vocab still fails, a bare "#Name" (no space) still
-fails, and the "#N" card-ref form is unchanged.
+fails, and the "#N" or bare "N" / "N:" card-ref forms are accepted.
 """
 from __future__ import annotations
 
@@ -44,11 +44,17 @@ CARD_REF_PASS = [
     "#338 Scope the hook",
     "#338: Scope the hook",
     "title\n\n#338 Scope the hook\nFinding first.\n",
+    "1273 Scope the hook",
+    "1273: Scope the hook",
+    "title\n\n1273 Scope the hook\nFinding first.\n",
+    "Merge pull request #503 from si4ai/card/example\n\n1273 Scope the hook\n",
 ]
 
 CARD_REF_FAIL = [
     f"#338 {NAME} the hook",
     f"#338: {NAME} the hook",
+    f"1273 {NAME} the hook",
+    f"1273: {NAME} the hook",
 ]
 
 
