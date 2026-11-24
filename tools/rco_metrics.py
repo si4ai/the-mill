@@ -14,12 +14,15 @@ in tokens of one tokenizer.
 `measure` runs in the rco job, where the rco lock (tools/ci-lock/rco.txt)
 is installed: the import hop uses rco's own resolver, so both sides see
 the same graph. `check` exits 1 when the file is missing or a field is
-absent, so the job fails instead of uploading nothing. Standard library
-only for `check` and for the counting itself.
+absent, so the job fails instead of uploading nothing. `pack_overrun` is
+recorded when the pack footer is over budget; it is not required by
+`check` and does not fail the job. Standard library only for `check`
+and for the counting itself.
 """
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import subprocess
 import sys
@@ -31,6 +34,16 @@ TOKENIZER = "tiktoken o200k_base"
 FIELDS = ("schema", "pr", "base_sha", "head_sha", "rco_version", "tokenizer",
           "changed_files", "without_rco", "with_rco", "ratio_tokens")
 SIDE_FIELDS = ("files", "bytes", "tokens")
+_PACK_USED = re.compile(r"^# budget used: ~(\d+) / (\d+) estimated tokens", re.M)
+
+
+def pack_footer(text: str) -> tuple[int | None, int | None]:
+    """used and budget from a pack markdown footer; (None, None) if absent."""
+    m = _PACK_USED.search(text or "")
+    if not m:
+        return None, None
+    return int(m.group(1)), int(m.group(2))
+
 
 
 def estimate(text: str) -> int:
@@ -123,11 +136,20 @@ def _measure_cmd(a: argparse.Namespace) -> int:
     blobs = _blobs(tree, read_set(first, graph))
     name, count = counter()
     pack_text = Path(a.pack).read_text(encoding="utf-8") if a.pack else ""
+    used, footer_budget = pack_footer(pack_text)
+    pack_budget = a.budget if footer_budget is None else footer_budget
+    overrun = 0 if used is None else max(0, used - pack_budget)
     doc = {"schema": SCHEMA, "pr": a.pr, "base_sha": a.base, "head_sha": a.head,
-           "rco_version": rco_version, "tokenizer": name, "pack_budget": a.budget,
+           "rco_version": rco_version, "tokenizer": name, "pack_budget": pack_budget,
+           "pack_overrun": overrun,
            **measure(changed, graph, blobs, pack_text, count)}
+    if used is not None:
+        doc["pack_used"] = used
     Path(a.out).write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(doc, sort_keys=True))
+    if overrun:
+        print(f"rco_metrics: pack used ~{used} estimated tokens, over the budget of {pack_budget}",
+              file=sys.stderr)
     return 0
 
 

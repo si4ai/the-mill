@@ -69,7 +69,11 @@ class Outbox:
                 desk TEXT,
                 card INTEGER,
                 ts_ms INTEGER,
-                parent_watch_id TEXT
+                parent_watch_id TEXT,
+                pr INTEGER,
+                bytes_in INTEGER,
+                bytes_out INTEGER,
+                cmd TEXT
             )
             """
         )
@@ -77,6 +81,11 @@ class Outbox:
         if "parent_watch_id" not in cols:
             # A hop file from 0.8.16 or older (card 1279).
             self._db.execute("ALTER TABLE hop ADD COLUMN parent_watch_id TEXT")
+        for col in ("pr", "bytes_in", "bytes_out"):
+            if col not in cols:
+                self._db.execute("ALTER TABLE hop ADD COLUMN %s INTEGER" % col)
+        if "cmd" not in cols:
+            self._db.execute("ALTER TABLE hop ADD COLUMN cmd TEXT")
         self._db.commit()
 
     def close(self) -> None:
@@ -85,9 +94,15 @@ class Outbox:
 
     def add(self, body: dict[str, Any]) -> int:
         counts = body.get("counts")
+        from agent_coord.client.tw.protocol import bounded_int, command_text
+
         card = body.get("card")
         if isinstance(card, bool) or not isinstance(card, int):
             card = None
+        pr = bounded_int(body.get("pr"), positive=True)
+        bytes_in = bounded_int(body.get("bytes_in"))
+        bytes_out = bounded_int(body.get("bytes_out"))
+        cmd = command_text(body.get("cmd"))
         desk = body.get("desk")
         if not isinstance(desk, str) or not desk.strip():
             desk = None
@@ -99,9 +114,9 @@ class Outbox:
                 """
                 INSERT INTO hop (
                     watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                    parent_watch_id
+                    parent_watch_id, pr, bytes_in, bytes_out, cmd
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(body.get("watch_id") or ""),
@@ -114,6 +129,10 @@ class Outbox:
                     card,
                     _ts_ms(body.get("ts_ms")),
                     parent,
+                    pr,
+                    bytes_in,
+                    bytes_out,
+                    cmd,
                 ),
             )
             self._db.commit()
@@ -124,7 +143,7 @@ class Outbox:
             row = self._db.execute(
                 """
                 SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                       parent_watch_id
+                       parent_watch_id, pr, bytes_in, bytes_out, cmd
                 FROM hop ORDER BY id LIMIT 1
                 """
             ).fetchone()
@@ -137,7 +156,7 @@ class Outbox:
             rows = self._db.execute(
                 """
                 SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                       parent_watch_id
+                       parent_watch_id, pr, bytes_in, bytes_out, cmd
                 FROM hop ORDER BY id
                 """
             ).fetchall()
@@ -164,6 +183,11 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
         body["desk"] = item["desk"]
     if item.get("card") is not None:
         body["card"] = item["card"]
+    for key in ("pr", "bytes_in", "bytes_out"):
+        if item.get(key) is not None:
+            body[key] = item[key]
+    if isinstance(item.get("cmd"), str) and item["cmd"]:
+        body["cmd"] = item["cmd"]
     if item.get("parent_watch_id"):
         body["parent_watch_id"] = item["parent_watch_id"]
     if item.get("cause"):
@@ -180,6 +204,20 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _classify(item: dict[str, Any], got: Any) -> str:
+    if isinstance(got, dict) and got.get("ok") is True:
+        return "ok"
+    code = str(got.get("code") or "") if isinstance(got, dict) else ""
+    msg = str(got.get("msg") or "") if isinstance(got, dict) else ""
+    if code == "cap" and str(item.get("kind") or "") == "start":
+        return "skip"
+    if code == "cap":
+        return "cap"
+    if code == "busy" or "busy" in msg.casefold() or "slow" in msg.casefold():
+        return "busy"
+    return "down"
+
+
 def send_pending(box: Outbox, call) -> str:
     """Send one row. ok deletes it. A capped start is skipped for this pass.
 
@@ -190,21 +228,44 @@ def send_pending(box: Outbox, call) -> str:
         item = box.next_row(skipped)
         if item is None:
             return "cap" if skipped else "empty"
-        body = _post_body(item)
         try:
-            got = call(body)
+            got = call(_post_body(item))
         except Exception:
             return "down"
-        if isinstance(got, dict) and got.get("ok") is True:
+        status = _classify(item, got)
+        if status == "ok":
             box.drop(int(item["id"]))
             return "ok"
-        code = str(got.get("code") or "") if isinstance(got, dict) else ""
-        msg = str(got.get("msg") or "") if isinstance(got, dict) else ""
-        if code == "cap" and str(item.get("kind") or "") == "start":
+        if status == "skip":
             skipped.add(str(item.get("watch_id") or ""))
             continue
-        if code == "cap":
-            return "cap"
-        if code == "busy" or "busy" in msg.casefold() or "slow" in msg.casefold():
-            return "busy"
-        return "down"
+        return status
+
+
+def post_through(box: Outbox, call, row_id: int) -> tuple[str, Any]:
+    """Post queued hops until row_id is accepted. The second value is that reply.
+
+    A not-ok post stops and keeps every unsent row, including row_id.
+    A capped start ahead of row_id is skipped for this pass, as send_pending does.
+    """
+    skipped: set[str] = set()
+    while True:
+        item = box.next_row(skipped)
+        if item is None:
+            return ("cap" if skipped else "empty"), None
+        try:
+            got = call(_post_body(item))
+        except Exception:
+            return "down", None
+        status = _classify(item, got)
+        if status == "ok":
+            box.drop(int(item["id"]))
+            if int(item["id"]) == int(row_id):
+                return "ok", got
+            continue
+        if status == "skip":
+            if int(item["id"]) == int(row_id):
+                return "cap", None
+            skipped.add(str(item.get("watch_id") or ""))
+            continue
+        return status, None

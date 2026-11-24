@@ -103,7 +103,11 @@ def test_push_updates_the_store_and_passes_on_findings() -> None:
 
 def test_metrics_are_measured_checked_and_uploaded() -> None:
     code = _code(RCO)
-    assert "python tools/rco_metrics.py measure" in _step(code, "Token metrics")
+    step = _step(code, "Token metrics")
+    assert "python tools/rco_metrics.py measure" in step
+    # exit 1 (findings) must not fail the step; 2 and up still do
+    assert '"$code" -gt 1' in step
+    assert "::warning title=rco pack budget::" in step
     assert "python tools/rco_metrics.py check rco-report/rco-metrics.json" in \
         _step(code, "Metrics file present")
     up = code.split("actions/upload-artifact@", 1)[1].split("\n      - ", 1)[0]
@@ -141,3 +145,20 @@ def test_check_fails_when_the_metrics_file_is_missing_or_short(tmp_path: Path) -
                              "without_rco": side, "with_rco": side, "ratio_tokens": 1.0}),
                  encoding="utf-8")
     assert rco_metrics.main(["check", str(p)]) == 0
+
+
+def test_pack_footer_records_overrun_and_check_stays_optional() -> None:
+    used, budget = rco_metrics.pack_footer(
+        "# rco pack  (SHA=abc1234, budget=8000 estimated tokens)\n\n"
+        "# budget used: ~8064 / 8000 estimated tokens\n"
+    )
+    assert (used, budget) == (8064, 8000)
+    assert rco_metrics.pack_footer("") == (None, None)
+    side = {"files": 1, "bytes": 2, "tokens": 3}
+    doc = {"schema": 1, "pr": 515, "base_sha": "a", "head_sha": "b",
+           "rco_version": "0.1.6", "tokenizer": "t", "changed_files": 1,
+           "without_rco": side, "with_rco": side, "ratio_tokens": 1.0,
+           "pack_budget": 8000, "pack_used": 8064, "pack_overrun": 64}
+    assert rco_metrics.check(doc) == []
+    old = {k: doc[k] for k in doc if k not in ("pack_overrun", "pack_used")}
+    assert rco_metrics.check(old) == []

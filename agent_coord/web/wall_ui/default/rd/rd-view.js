@@ -137,9 +137,42 @@
       return '<i class="s' + Math.max(0, Math.round((x / max) * 8)) + '"></i>';
     }).join("") + "</span>";
   }
+  /* Card 1303: doing errors, what this desk can fix next (not a grade). Server order, one next line each. */
+  var ERR_WHAT = "How often this desk\u2019s own tw runs went wrong, by kind, with the next step for each. It points at what to fix; it is not a grade, and nothing wakes on it.";
+  function errIds(desk, ids) {
+    return ids.map(function (id) {
+      return '<a class="rd-de-id" href="/api/v1/doing/history?desk=' + encodeURIComponent(desk) + '" target="_blank" rel="noopener" data-doing-id="' + h(id) + '" title="doing ' + h(id) + ' in this desk\u2019s doing history">#' + h(id) + "</a>";
+    }).join(" ");
+  }
+  function errorsGroup(dd) {
+    var e = dd.errors;
+    if (e === undefined) return "";
+    var top = '<div class="rd-sg errs"><h4 title="' + h(ERR_WHAT) + '">Doing errors <span class="rd-sub">what to fix next, not a grade</span></h4><p class="rd-de-what">' + h(ERR_WHAT) + "</p>";
+    if (e === null) return top + empty("The office could not read this desk\u2019s doing errors just now.") + "</div>";
+    if (!e.head) return top + empty(e.reason === "no tw runs" ? "No tw runs from this desk yet, so nothing to fix here." : (e.reason || "No tw runs counted.")) + "</div>";
+    var hd = e.head, wk = dd.errWin === "30d" ? "30d" : "7d", w = e.win[wk];
+    var lead = (hd.n < hd.of ? "All " + plural(hd.n, "run") : "Last " + plural(hd.n, "run")) + (hd.span ? " over " + hd.span : "") + ": " +
+      (hd.failed ? plural(hd.failed, "failed run") : "no failed run");
+    var rows = e.kinds.map(function (k) {
+      return '<div class="rd-de-k' + (k.n ? " hit" : "") + '" data-kind="' + h(k.key) + '"><span class="rd-sname">' + h(k.label) + '</span><b class="rd-de-n">' + h(k.n) + "</b>" +
+        '<span class="rd-de-next">' + h(k.next) + (k.items.length ? ' <span class="rd-de-ids">' + errIds(e.desk, k.items) + "</span>" : "") + "</span></div>";
+    }).join("");
+    var tog = '<span class="rd-de-tog" role="group" aria-label="Doing errors window">' + ["7d", "30d"].map(function (x) {
+      return '<button type="button" data-rd-derr-win="' + x + '" aria-pressed="' + (x === wk) + '"' + (x === wk ? ' class="on"' : "") + ">" + x + "</button>";
+    }).join("") + "</span>";
+    var winBody = w.reason ? empty(w.reason) : '<p class="rd-de-sum">' + h(plural(w.runs, "run") + " \u00b7 " + w.kinds.map(function (k) { return k.label.replace(/ \(.*\)$/, "").toLowerCase() + " " + k.n; }).join(" \u00b7 ")) + "</p>" +
+      (w.byCmd.length ? '<table class="rd-de-cmd"><thead><tr><th>command</th><th>runs</th><th>failed</th><th>reruns</th><th>left open</th><th>p50</th><th>max</th></tr></thead><tbody>' + w.byCmd.map(function (c) {
+        return '<tr class="' + (c.failed ? "hit" : "") + '"><td><code>' + h(c.cmd) + "</code></td><td>" + c.runs + "</td><td>" + c.failed + "</td><td>" + c.reruns + "</td><td>" + c.open + "</td><td>" + h(c.p50) + "</td><td>" + h(c.max) + "</td></tr>";
+      }).join("") + "</tbody></table>" : empty("No run in this window carries a command word yet."));
+    return top + '<div class="rd-de-head">' + h(lead) + "</div>" + rows +
+      srow("Failed runs per hour", "", { spark: spark(e.hourly, "failed runs per UTC hour, last 24 hours, oldest first"), vol: "last 24h" }).replace('<span class="rd-lt rd-gap">not sent</span>', '<span class="rd-lt"></span>') +
+      srow("Failed runs per day", "", { spark: spark(e.daily, "failed runs per UTC day, last 30 days, oldest first"), vol: "last 30d" }).replace('<span class="rd-lt rd-gap">not sent</span>', '<span class="rd-lt"></span>') +
+      '<div class="rd-de-win"><h5>By window ' + tog + "</h5>" + winBody + "</div></div>";
+  }
   function scoresBlock(dd) {
     var r = dd.desk, s = r.scores;
-    if (!s) return "";
+    var errs = errorsGroup(dd);
+    if (!s) return errs ? '<section class="rd-block scores"><h3>SCORES <span class="rd-sub">platform scores for this desk</span></h3><div class="rd-score-stack">' + errs + "</div></section>" : "";
     var D = s.doing;
     var nowLine = r.state === "working"
       ? (r.on ? "on " + item(r.on) + " \u00b7 " : "") + "running " + h(r.age) + (s.lastRun ? ' \u00b7 last run <span class="rd-how' + (s.lastRunOff ? " off" : "") + '">' + h(s.lastRun) + "</span>" : "")
@@ -164,7 +197,7 @@
     }).join("");
     var offN = s.off;
     return '<section class="rd-block scores"><h3>SCORES <span class="rd-sub">' + (offN ? '<span class="offn">' + offN + " off target</span> \u00b7 " : "on target \u00b7 ") + "platform scores for this desk</span></h3>" +
-      '<div class="rd-score-stack"><div class="rd-sg lead"><h4>Doing</h4><div class="rd-doing-now">' + nowLine + "</div>" + rows + "</div>" +
+      '<div class="rd-score-stack"><div class="rd-sg lead"><h4>Doing</h4><div class="rd-doing-now">' + nowLine + "</div>" + rows + "</div>" + errs +
       (sys || health ? '<div class="rd-sg system"><h4>System</h4>' + sys + health + "</div>" : "") +
       (rost ? '<div class="rd-sg rosters"><h4>Rosters <span class="rd-sub">the roster\u2019s scores, not this desk\u2019s</span></h4><div class="rd-roster-cols">' + rost + "</div></div>" : "") +
       "</div></section>";

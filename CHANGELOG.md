@@ -10,6 +10,20 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.18 (2026-11-24)
+
+- card 1293: record the 0.8.17 failure-class list
+- 1302: rco token metrics step accepts rco pack findings exit
+- 1289: tw run bytes per card and per PR (server half)
+- A tw run records byte counts, and can name its card and pull.
+- 1303: tw command word and doing-error counts (server half)
+- 1304: warn when an rco pack is over its token budget
+- A tw run records its command word and prints a repeated error count.
+- #1303 Wall desks: paint doing errors in the desk score row
+- 1303 add the repeat-errors habit and name both doing-error score keys
+
+## Last changes
+
 0.8.17 (2026-11-23)
 
 - card 1281: a tw descendant cannot forge a start to take a run credit
@@ -25,12 +39,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - A label skip names the type or the restore, and a trashed label-add drops the code prefix.
 - card 1273: teach CodeQL the redactor and gate new silencers
 - check_pack: a bare card number at the start of a line is a line-start prefix, the same as #338
-
-## Last changes
-
-0.8.16.1 (2026-11-21)
-
-- card 1223: a mill command from a tw run's descendant is forwarded with its arguments; 0.8.16 sent the bare verb and still printed ok
-- card 1239: a mill write two or more tw levels down reaches the office; 0.8.16 refused it with "command refused"
-- card 1239: a nested tw run's start and exit events name the run above it as parent, never the run itself, and the desk link passes that parent to the office (card 1279)
-- tools: changelog_generate and precheck read a four-part version such as 0.8.16.1
