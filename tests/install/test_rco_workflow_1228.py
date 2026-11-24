@@ -23,7 +23,7 @@ PIN_FILES = ("core.json", "server.json", "client.json")
 REPORT_JOBS = ("rco",)
 
 sys.path.insert(0, str(ROOT))
-from tools import rco_metrics  # noqa: E402
+from tools import rco_metrics  # noqa: E402  # imported after sys.path insert so the tree copy of tools is used
 
 
 def _code(p: Path) -> str:
