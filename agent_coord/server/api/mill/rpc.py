@@ -4237,15 +4237,20 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
     if isinstance(card, int) and not isinstance(card, bool) and card > 0:
         meta["card"] = card
     # Card 1289: the PR rides the start; the byte counts ride the terminal hop. Integers only.
+    # A bad value drops that key and the event is still stored: a refusal would block the head of
+    # tw's hop queue. The dropped key names go in meta "dropped" so the loss stays visible.
+    dropped = []
     for name, kinds, low in (("pr", ("start",), 1), ("bytes_in", ("exit", "crash"), 0),
                              ("bytes_out", ("exit", "crash"), 0)):
         val = clean.get(name)
         if val is None or kind not in kinds:
             continue
         if not isinstance(val, int) or isinstance(val, bool) or not low <= val <= _TW_COUNT_MAX:
-            word = "a positive" if low else "a non-negative"
-            raise CoordError(f"tw.event: {name} must be {word} integer")
+            dropped.append(name)
+            continue
         meta[name] = val
+    if dropped:
+        meta["dropped"] = dropped
     cause = clean.get("cause")
     if cause is not None:
         if not isinstance(cause, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", cause):

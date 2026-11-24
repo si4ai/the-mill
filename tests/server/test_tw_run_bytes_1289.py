@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from agent_coord.helpers.errors import CoordError
 from agent_coord.server.api.mill import rpc
 
 
@@ -57,7 +56,20 @@ def test_keys_on_other_kinds_are_not_stored(stored):
     ("start", "pr", False),
     ("start", "pr", "512"),
 ])
-def test_bad_counts_are_refused_and_nothing_is_stored(stored, kind, name, bad):
-    with pytest.raises(CoordError, match=f"tw.event: {name} must be a"):
-        _send(kind, exit_code=0, **{name: bad})
-    assert stored == []
+def test_bad_value_drops_the_key_and_still_stores_the_event(stored, kind, name, bad):
+    good = {"start": {"card": 1289}, "exit": {"exit_code": 0, "bytes_out": 9}, "crash": {"bytes_out": 9}}[kind]
+    if name in good:
+        good = {"exit_code": 0} if kind == "exit" else {}
+    out = _send(kind, **good, **{name: bad})
+    assert out["ok"] is True
+    assert len(stored) == 1
+    meta = stored[0]
+    assert name not in meta
+    assert meta["dropped"] == [name]
+    for key, val in good.items():
+        assert meta[key] == val  # the good keys ride the same stored event
+
+
+def test_good_values_carry_no_dropped_flag(stored):
+    _send("exit", exit_code=0, bytes_in=1, bytes_out=2)
+    assert "dropped" not in stored[-1]

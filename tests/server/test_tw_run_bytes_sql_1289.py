@@ -123,3 +123,14 @@ def test_cards_score_view_carries_the_rollup(cn, desk):
     assert runs["days"] == 30
     assert set(runs) == {"days", "by_card", "by_pr"}
     assert {"runs", "bytes_in", "bytes_out", "run_min"} <= set(runs["by_card"][0])
+
+
+def test_bad_count_is_dropped_and_the_end_row_is_still_stored(cn, desk):
+    wid = "bad" + uuid4().hex[:6]
+    _event(cn, desk, wid, "start", card=_card(), pr="nope")
+    assert "pr" not in _meta(cn, desk, wid, "tw_start")
+    assert _meta(cn, desk, wid, "tw_start")["dropped"] == ["pr"]
+    assert _event(cn, desk, wid, "crash", cause="lost", bytes_in=-5, bytes_out=7)["ok"] is True
+    meta = _meta(cn, desk, wid, "tw_failed")
+    assert meta["bytes_out"] == 7 and "bytes_in" not in meta
+    assert meta["dropped"] == ["bytes_in"]
