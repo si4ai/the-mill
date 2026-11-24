@@ -115,11 +115,7 @@ jobs:
           line=$(grep -E '^# budget used:' rco-report/pack.md || true)
           if [ -n "$line" ]; then
             printf '%s\n' "$line" >> "$GITHUB_STEP_SUMMARY"
-            python3 -c 'import re,sys
-m=re.search(r"~(\d+) / (\d+)", sys.argv[1])
-if m and int(m.group(1))>int(m.group(2)):
-    print("::warning title=rco pack budget::"+sys.argv[1])
-' "$line"
+            python3 -c 'import re,sys;m=re.search(r"~(\d+) / (\d+)", sys.argv[1]);print("::warning title=rco pack budget::"+sys.argv[1]) if m and int(m.group(1))>int(m.group(2)) else None' "$line"
           fi
           python tools/rco_metrics.py measure --base "$base" --head "$PR_HEAD" \
             --pr "$PR_NUMBER" --pack rco-report/pack.md --out rco-report/rco-metrics.json
