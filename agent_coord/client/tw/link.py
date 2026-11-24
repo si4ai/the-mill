@@ -580,6 +580,13 @@ class Link:
         for key in ("watch_id", "desk", "card", "kind", "cause", "exit_code", "counts", "parent_watch_id"):
             if key in msg:
                 body[key] = msg[key]
+        pr = protocol.bounded_int(msg.get("pr"), positive=True)
+        if pr is not None:
+            body["pr"] = pr
+        for key in ("bytes_in", "bytes_out"):
+            count = protocol.bounded_int(msg.get(key))
+            if count is not None:
+                body[key] = count
         ts_ms = msg.get("ts_ms")
         if isinstance(ts_ms, int) and not isinstance(ts_ms, bool) and ts_ms >= 0:
             body["ts_ms"] = ts_ms

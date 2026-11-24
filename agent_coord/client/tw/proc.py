@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
+from agent_coord.client.tw.protocol import bounded_int
 
 
 def runs_path(desk: str):
@@ -577,6 +578,34 @@ def _pump(stream: Any, sink: Any, key: str, lock: Any, counters: dict[str, int],
                     pass
 
 
+def _argv_bytes(argv: list[str]) -> int:
+    """Byte length of the arguments handed to the child. Separators are not counted."""
+    total = 0
+    for part in argv:
+        total += len(part.encode("utf-8"))
+    return total
+
+
+def _feed_stdin(stream: Any, proc_stdin: Any, lock: Any, counters: dict[str, int]) -> None:
+    """Copy the caller's stdin to the child and count the bytes that were written."""
+    try:
+        while True:
+            chunk = stream.read(1)
+            if not chunk:
+                break
+            proc_stdin.write(chunk)
+            proc_stdin.flush()
+            with lock:
+                counters["stdin"] = counters.get("stdin", 0) + len(chunk)
+    except OSError:
+        pass
+    finally:
+        try:
+            proc_stdin.close()
+        except OSError:
+            pass
+
+
 def _finish_event(
     code: int, *, stopped: bool, crashed: bool
 ) -> tuple[int, str, str | None]:
@@ -776,6 +805,9 @@ def run_argv(
     linked: Any = None,
     watch_id: str | None = None,
     call_fn: Any = None,
+    card: int | None = None,
+    pr: int | None = None,
+    stdin_stream: Any = None,
 ) -> int:
     who = _desk(desk)
     _reclaim_lost(who)
@@ -861,7 +893,11 @@ def run_argv(
         env[_WATCH_ENV] = watch_id
         try:
             proc = subprocess.Popen(
-                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+                argv,
+                stdin=subprocess.PIPE if stdin_stream is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
             )
         except OSError as exc:
             print(str(exc), file=sys.stderr)
@@ -875,7 +911,16 @@ def run_argv(
         sink = open(target, "ab")
         print("%s %s %s" % (watch_id, os.getpid(), target), file=sys.stderr, flush=True)
         lock = threading.Lock()
-        counters = {"stdout": 0, "stderr": 0}
+        counters = {"stdout": 0, "stderr": 0, "stdin": 0}
+        argv_bytes = _argv_bytes(argv)
+        if stdin_stream is not None and proc.stdin is not None:
+            pumps.append(
+                threading.Thread(
+                    target=_feed_stdin,
+                    args=(stdin_stream, proc.stdin, lock, counters),
+                    daemon=True,
+                )
+            )
         pumps.append(
             threading.Thread(
                 target=_pump,
@@ -907,6 +952,12 @@ def run_argv(
         started = True
         start_body = _event_body(watch_id, "start", proc.pid)
         start_body["ts_ms"] = observed_ms
+        card_id = bounded_int(card, positive=True)
+        pr_id = bounded_int(pr, positive=True)
+        if card_id is not None:
+            start_body["card"] = card_id
+        if pr_id is not None:
+            start_body["pr"] = pr_id
         _send(start_body)
         stopped = False
         crashed = False
@@ -951,6 +1002,7 @@ def run_argv(
         with lock:
             stdout_bytes = int(counters.get("stdout", 0))
             stderr_bytes = int(counters.get("stderr", 0))
+            stdin_bytes = int(counters.get("stdin", 0))
         code = proc.returncode
         if code is None:
             code = 1
@@ -961,6 +1013,12 @@ def run_argv(
         body = _event_body(
             watch_id, kind_name, proc.pid, cause=cause, exit_code=code
         )
+        bytes_in = bounded_int(argv_bytes + stdin_bytes)
+        bytes_out = bounded_int(stdout_bytes + stderr_bytes)
+        if bytes_in is not None:
+            body["bytes_in"] = bytes_in
+        if bytes_out is not None:
+            body["bytes_out"] = bytes_out
         body["stdout_bytes"] = stdout_bytes
         body["stderr_bytes"] = stderr_bytes
         body["log"] = True
