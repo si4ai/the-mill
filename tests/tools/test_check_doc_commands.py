@@ -85,3 +85,39 @@ def test_a_command_no_doc_names_fails(tmp_path):
     assert "mill drain" not in undocumented
     flags = {f.text for f in found if f.kind == "undocumented-flag"}
     assert "mill todo --mine" in flags and "mill send --to-desk" not in flags
+
+
+def sessions(text: str) -> list[str]:
+    return [f.kind for f in cdc.session_findings(text, "t.md")]
+
+
+def test_the_cli_session_rule_is_read_from_the_code():
+    """Both contexts the docs describe: a sitting connect refuses --desk, no connect refuses its absence."""
+    assert "--desk is not necessary" in cdc.session_refusal(asked=True, sitting=True)
+    assert "no sitting mill connect" in cdc.session_refusal(asked=False, sitting=False)
+    assert cdc.session_refusal(asked=False, sitting=True) == ""
+    assert cdc.session_refusal(asked=True, sitting=False) == ""
+
+
+def test_a_desk_flag_in_a_session_example_fails():
+    # the 0.8.18 line (card 1310): a desk reads it inside its sitting connect
+    line = "In your weekly review, read `mill score Office doing.task.end_reason --desk DESK` and act."
+    assert sessions(line) == ["desk-in-session"]
+    assert sessions("```\nmill score Office doing.task.end_reason --desk DESK\n```") == ["desk-in-session"]
+    assert sessions("```\nmill todo --mine --desk=builder\n```") == ["desk-in-session"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "In your weekly review, read `mill score Office doing.task.end_reason` and act.",
+        "With no sitting connect, run `mill todo --mine --desk DESK` for one command.",
+        "Fallback: `mill reply 12 --body-file P --desk DESK`.",
+        "Then `mill reply ... --desk DESK` borrows the seat with no leftover connect.",
+        "With no connect sitting:\n```\nmill todo --mine --desk DESK\n```",
+        "`--desk` alone is the seat borrow.",
+        "<!-- doc-commands: skip -->\n`mill todo --desk DESK`",
+    ],
+)
+def test_a_desk_flag_in_the_no_connect_form_passes(text):
+    assert sessions(text) == []

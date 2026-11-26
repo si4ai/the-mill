@@ -11,6 +11,9 @@ in a code span or a code block of the checked docs is read token by token:
                     command requires (e.g. `mill connected` without a roster)
   retired-word      a retired name (RETIRED below) anywhere in the text
   bad-choice        a literal positional outside its choices (`mill install foo`)
+  desk-in-session   an example with `--desk` that a sitting connect refuses (the
+                    CLI's own session check decides), in a line that does not
+                    say it is the no-connect form (card 1310)
   stale-placeholder `<project>` where the command's positional is now a roster
   undocumented-command a command `mill -h` lists that no checked doc names
   undocumented-flag a flag `mill VERB -h` lists that no checked doc names
@@ -68,6 +71,11 @@ RETIRED = {
 GONE_COMMANDS = {"mail", "mcp", "mcp-config", "leftover", "leftover-done", "heartbeat", "sync", "done", "spend", "issues", "here", "presence", "acquire", "yield", "open"}
 
 SKIP_MARK = "doc-commands: skip"
+# A line that names the no-connect case ("with no sitting connect", "borrow", "fallback")
+# is the place `--desk DESK` belongs; anywhere else a desk runs in a sitting connect.
+NO_CONNECT = re.compile(
+    r"\b(?:no|without|neither|not)\b[^.;]{0,40}\bconnect|fallback|borrow|one-shot|one-command", re.I
+)
 PLACEHOLDER = re.compile(r"^(<[^>]*>|[A-Z][A-Z0-9_]*|\.\.\.|\u2026|VERB|verb|\$\w+|\{[^}]*\}|[A-Z_]+\.\.\.)$")
 COMMAND_TOKEN = re.compile(r"^[a-z][a-z0-9-]*$")
 FLAG_TOKEN = re.compile(r"^(--[a-z][a-z0-9-]*|-[a-zA-Z])(=.*)?$")
@@ -352,6 +360,69 @@ def retired_in(text: str, where: str):
         yield Finding(f.kind, where, f.text, f.why)
 
 
+def session_refusal(asked: bool, sitting: bool) -> str:
+    """The refusal the CLI's own session check gives, or "" when it lets the command run.
+
+    Runs `agent_coord.client.seat.session.command` with the seat status patched, so the
+    rule is the code's, not a copy. With no connect and `--desk` the command borrows a
+    seat (it needs an office), so that case is not a refusal here.
+    """
+    from unittest import mock
+
+    from agent_coord.client import ws
+    from agent_coord.client.seat import session
+    from agent_coord.client.seat.status import Status
+    from agent_coord.helpers.errors import CoordError
+
+    if asked and not sitting:
+        return ""
+    state = Status("sitting", "builder") if sitting else Status("none")
+    body = {"verb": "todo", "sender_desk": "builder" if asked else ""}
+    with mock.patch.object(session, "look", return_value=state), mock.patch.object(
+        ws, "mill_ws_call", return_value={"ok": True}
+    ):
+        try:
+            session.command(body)
+        except CoordError as e:
+            return str(e)
+    return ""
+
+
+def _example_context(lines: list, n: int, mode: str) -> str:
+    """The text a reader sees around line n: its line, and for a code block the line above the fence."""
+    if mode != "block":
+        return lines[n - 1]
+    i = n - 1
+    while i > 0 and not re.match(r"^\s*(```+|~~~+)", lines[i]):
+        i -= 1
+    j = i - 1
+    while j >= 0 and not lines[j].strip():
+        j -= 1
+    return (lines[j] if j >= 0 else "") + "\n" + "\n".join(lines[i : n])
+
+
+def session_findings(text: str, where: str):
+    """`mill ... --desk` examples a sitting connect refuses, outside a line that says no connect."""
+    lines = text.split("\n")
+    refused = None
+    for n, piece, mode, before, after in code_pieces(text):
+        if mode == "prose":
+            continue
+        for m in (BLOCK_AT if mode == "block" else MILL_AT).finditer(piece):
+            words = [t for t, _ in tokens_after(piece, m.end(), False)]
+            if not any(w == "--desk" or w.startswith("--desk=") for w in words):
+                continue
+            if _negated(before + piece + after, len(before) + m.start(), len(before) + len(piece)):
+                continue
+            if NO_CONNECT.search(_example_context(lines, n, mode)):
+                continue
+            if refused is None:
+                refused = session_refusal(True, True)
+            if refused:
+                shown = " ".join(w for w in words[:6])
+                yield Finding("desk-in-session", f"{where}:{n}", f"mill {shown}", refused)
+
+
 def run(root: Path = ROOT) -> list:
     commands = load_commands()
     found: list = []
@@ -361,6 +432,7 @@ def run(root: Path = ROOT) -> list:
         text = (root / rel).read_text(encoding="utf-8")
         found += list(check_text(text, commands, rel))
         found += list(retired(text, rel))
+        found += list(session_findings(text, rel))
         named.update(re.findall(r"(?<![\w./-])mill ([a-z][a-z0-9-]*)", text))
         named.update(re.findall(r"^\| `([a-z][a-z0-9-]*)` \|", text, re.M))
         alltext.append(text)
