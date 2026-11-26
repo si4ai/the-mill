@@ -1,0 +1,4 @@
+# Card 1312: writes that are meant to skip a protocol's entry point, one per line:
+#   PROTOCOL PATH::FUNCTION REASON
+# Reviewed in the PR that adds a line. bypass_scan.py reports a line that matches no write.
+wake agent_coord/install/migrate.py::apply_transition_1022 migration: folds the old push_queue rows into wake once, before any desk runs
