@@ -95,4 +95,4 @@ def test_repo_scan_is_byte_stable_and_report_mode_exits_0(capsys):
     assert capsys.readouterr().out == first
     rep = json.loads(first)
     assert rep["stale_allow"] == []
-    assert [p["protocol"] for p in rep["protocols"]] == ["wake"]
+    assert [p["protocol"] for p in rep["protocols"]] == ["todo", "wake"]
