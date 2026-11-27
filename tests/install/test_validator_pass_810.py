@@ -5,9 +5,12 @@ The API is a fake; every value is invented.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests"))
+from shared_github import shared_tools  # noqa: E402
 REPO = "example-org/the-mill"
 BASE = "b" * 40
 QHEAD = "c" * 40
@@ -16,7 +19,7 @@ BOT = "si4ai-validator[bot]"
 
 
 def _mod():
-    spec = importlib.util.spec_from_file_location("check_validator_pass", ROOT / "tools" / "check_validator_pass.py")
+    spec = importlib.util.spec_from_file_location("check_validator_pass", shared_tools() / "check_validator_pass.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)

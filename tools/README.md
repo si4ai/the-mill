@@ -39,19 +39,13 @@ python tools/glance.py URL after --roster ROSTER_ID --out glance-report --runs 3
 
 Writes `glance-report/TAG.json` and `glance-report/shots/`.
 
-## check_pr_text.py
+## check_pr_text.py and check_validator_pass.py (in si4ai/.github)
 
-Scan PR and issue text with the commit-message hygiene rules (address, home path, email). CI runs it from `.github/workflows/pr_text.yml` on every PR, issue, comment and review, and once a day over all of them. Run `file` on a body before you post it: GitHub keeps every revision of a body in its edit history.
+Since card 1336 these live in the shared si4ai/.github repo, not here. `.github/workflows/pr_text.yml` and `.github/workflows/validator.yml` call its reusable workflows at a full commit sha, and the tests in `tests/tools/test_check_pr_text.py` and `tests/install/test_validator_*.py` load the scripts from that same sha (see `tests/shared_github.py`). To scan a body before you post it, from a checkout of si4ai/.github placed as `.si4ai-tools/`:
 
 ```bash
-python tools/check_pr_text.py file body.md
+python .si4ai-tools/check_pr_text.py file body.md
 ```
-
-Exit 1 on a hit; the report names the field, line and kind, never the text.
-
-## check_validator_pass.py
-
-The Validator gate in the merge queue. CI runs it from `.github/workflows/validator.yml` as the `validator_pass` check. On `merge_group` it passes only when every PR in the queue entry has a `validator` success status on its head sha; on `pull_request` it reports that state and passes. Standard library only, read-only token.
 
 ## check_sql.py
 

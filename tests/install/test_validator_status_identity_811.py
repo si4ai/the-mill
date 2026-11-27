@@ -9,9 +9,12 @@ invented except the app's bot login.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests"))
+from shared_github import shared_tools  # noqa: E402
 REPO = "example-org/the-mill"
 BASE = "b" * 40
 QHEAD = "c" * 40
@@ -23,7 +26,7 @@ SEAT = "validator-seat"  # a person or PAT user, not the app
 
 
 def _mod():
-    spec = importlib.util.spec_from_file_location("check_validator_pass", ROOT / "tools" / "check_validator_pass.py")
+    spec = importlib.util.spec_from_file_location("check_validator_pass", shared_tools() / "check_validator_pass.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
@@ -76,7 +79,7 @@ def _gate(by_sha):
 def test_expected_login_is_one_named_constant() -> None:
     mod = _mod()
     assert mod.VALIDATOR_LOGIN == BOT
-    assert (ROOT / "tools" / "check_validator_pass.py").read_text(encoding="utf-8").count(BOT) == 1
+    assert (shared_tools() / "check_validator_pass.py").read_text(encoding="utf-8").count(BOT) == 1
 
 
 def test_pat_user_success_is_rejected() -> None:

@@ -273,6 +273,17 @@ jobs:
           # shallow clone fails closed.
           fetch-depth: 0
           persist-credentials: false
+      # Card 1336: the tests for the shared pr_text and validator scripts load
+      # them from si4ai/.github at the pin the workflows call, placed at
+      # .si4ai-tools/ as the shared workflows do (tests/shared_github.py).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: si4ai/.github
+          ref: 23c056780f193d140e042491ac81a59cafb71a14
+          path: .si4ai-github
+          persist-credentials: false
+          sparse-checkout: tools
+      - run: mv .si4ai-github/tools .si4ai-tools
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -335,6 +346,17 @@ jobs:
           # shallow clone fails closed.
           fetch-depth: 0
           persist-credentials: false
+      # Card 1336: the tests for the shared pr_text and validator scripts load
+      # them from si4ai/.github at the pin the workflows call, placed at
+      # .si4ai-tools/ as the shared workflows do (tests/shared_github.py).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: si4ai/.github
+          ref: 23c056780f193d140e042491ac81a59cafb71a14
+          path: .si4ai-github
+          persist-credentials: false
+          sparse-checkout: tools
+      - run: mv .si4ai-github/tools .si4ai-tools
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}

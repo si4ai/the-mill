@@ -9,14 +9,19 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tests"))
+from shared_github import shared_tools  # noqa: E402
+
+# Card 1336: the script lives in si4ai/.github; test the pinned shared copy.
+TOOLS = shared_tools()
+sys.path.insert(0, str(TOOLS))
 import check_pr_text as pt  # noqa: E402
 
 # Built at runtime so this file stays clean under check_pack.
 HOME_PATH = "/ho" + "me/zorbin/notes.txt"
 EMAIL = "zorbin" + "@" + "corp-mail.co"
 ADDR = "10.1" + ".2.3"
-SCRIPT = ROOT / "tools" / "check_pr_text.py"
+SCRIPT = TOOLS / "check_pr_text.py"
 
 
 def _run(tmp_path: Path, name: str, event: dict, cwd: Path | None = None) -> subprocess.CompletedProcess:

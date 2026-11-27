@@ -1,13 +1,16 @@
 # PR and issue text hygiene (#723, F94). GitHub keeps every revision of a PR
 # or issue body in its edit history, so text is scanned when it is posted.
-# The text is untrusted input: tools/check_pr_text.py reads it from the event
-# JSON file or the API. No workflow expression puts event text into a shell
+# The text is untrusted input: the shared check_pr_text.py reads it from the
+# event JSON file or the API. No workflow expression puts event text into a shell
 # line. Same rules as the commit-message scan, read-only token, no secrets,
 # checkout pinned to a full SHA, system Python, nothing installed.
 # No review events (#823, F122): a review by a bot (Copilot's automatic review,
 # even one that fails on quota) starts a run GitHub holds for a maintainer's
 # approval, and a bot review must never hold or delay a merge. The sweep reads
 # every review body and review comment instead.
+# Card 1336: the jobs live in the shared si4ai/.github pr_text workflow,
+# called at a full commit sha; it checks its scripts out at that same sha,
+# so a PR cannot change the checker that scans it.
 name: pr_text
 
 on:
@@ -29,35 +32,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  event:
-    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      # Default branch tools for comment events; the PR merge commit for PR events.
-      # Full history so the docs-only Changelog exemption can diff base...head.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          sparse-checkout: tools
-      - run: python3 tools/check_pr_text.py event
-
-  sweep:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+  pr_text:
     permissions:
       contents: read
       issues: read
       pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: tools
-      - env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 tools/check_pr_text.py sweep
+    uses: si4ai/.github/.github/workflows/pr_text.yml@23c056780f193d140e042491ac81a59cafb71a14
