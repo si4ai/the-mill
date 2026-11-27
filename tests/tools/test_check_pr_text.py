@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.shared_github import shared_tools
+
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tests"))
-from shared_github import shared_tools  # noqa: E402
 
 # Card 1336: the script lives in si4ai/.github; test the pinned shared copy.
 TOOLS = shared_tools()

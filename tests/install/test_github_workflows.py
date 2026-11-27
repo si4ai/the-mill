@@ -9,15 +9,14 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
+from tests.shared_github import SHARED_PIN
+
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tests"))
-from shared_github import SHARED_PIN  # noqa: E402
 WF = ROOT / ".github" / "workflows"
 USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)", re.M)
 SHA_REF_RE = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")

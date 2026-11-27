@@ -9,12 +9,11 @@ invented except the app's bot login.
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 
+from tests.shared_github import shared_tools
+
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tests"))
-from shared_github import shared_tools  # noqa: E402
 REPO = "example-org/the-mill"
 BASE = "b" * 40
 QHEAD = "c" * 40
