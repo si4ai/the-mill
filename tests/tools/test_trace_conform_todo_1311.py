@@ -218,13 +218,15 @@ def test_command_is_clean_and_byte_stable(tmp_path, capsys):
 
 
 class _Cur:
-    def __init__(self, rows, status):
-        self.rows, self.status, self.last, self.sql = rows, status, [], []
+    def __init__(self, rows, status, late=()):
+        self.rows, self.status, self.late, self.last, self.sql = rows, status, late, [], []
 
     def execute(self, sql, args=()):
         self.sql.append(sql)
         if "UTC_TIMESTAMP" in sql:
             self.last = [("2026-11-26 12:00:00",)]
+        elif "DISTINCT activity_id" in sql and "IN (" in sql:
+            self.last = [(i,) for i in self.late]
         elif "DISTINCT activity_id" in sql:
             self.last = [(1,)]
         elif "FROM transition" in sql:
@@ -274,3 +276,16 @@ def test_collect_writes_the_card_rows_and_stored_state_and_selects_only(tmp_path
     assert any("a.deleted" in s for s in cur.sql)
     rep = tc.replay_todo(events, stored_states=states)
     assert rules(rep, "silent") == [("state_ahead", 4)]
+
+
+def test_collect_drops_the_stored_state_of_a_card_that_moved_after_until(tmp_path, monkeypatch):
+    from agent_coord.server.records import db
+
+    rows = [{**r, "role": "actor", "at": "2026-11-26 10:00:00"} for r in life()[:2]]
+    cur = _Cur(rows, "done", late=(1,))
+    monkeypatch.setattr(db, "connect", lambda *a, **k: _Conn(cur))
+    out = tmp_path / "t.jsonl"
+    args = ["collect", "todo", "--since", "2026-11-26 00:00:00", "--until", "2026-11-26 11:00:00", "--out", str(out)]
+    assert cli.main(args) == 0
+    _, states, _ = cli.read_log(str(out))
+    assert states == {}
