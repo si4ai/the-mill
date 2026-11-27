@@ -131,6 +131,7 @@ def test_moved_file_loses_the_allow_too():
 
 def test_repo_allow_line_names_a_function_that_still_holds_the_write():
     allow = bs.read_allow(bs.ALLOW)
-    assert [a["function"] for a in allow] == ["apply_transition_1022"]
+    assert [(a["protocol"], a["function"]) for a in allow] == [
+        ("wake", "apply_transition_1022"), ("todo", "_ensure_todo_claimed_at")]
     rep = bs.report(bs.scan_tree(bs.ROOT), allow)
-    assert rep["allowed"] == 1 and rep["stale_allow"] == []
+    assert rep["allowed"] == 2 and rep["stale_allow"] == []
