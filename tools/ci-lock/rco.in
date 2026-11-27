@@ -1,5 +1,5 @@
 # The rco report job (.github/workflows/rco.yml, card 1228): the rco
 # release it runs, exact pin, and the tokenizer that counts the metrics
 # file. Report-only, never product or gate code; no pack dependency.
-repo-context-optimizer==0.1.6
+repo-context-optimizer==0.1.7
 tiktoken

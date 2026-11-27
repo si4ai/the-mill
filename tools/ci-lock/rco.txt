@@ -298,9 +298,9 @@ regex==2026.11.19 \
     --hash=sha256:f6f87e7e8278dc9b8d72471f913a7f37df12b61c0b357b9569d026d248106d16 \
     --hash=sha256:fa4a76d563c0ec6b97210ceb8a3e50e8aecc0b78164aafee9da94e50b9c6b4d5
     # via tiktoken
-repo-context-optimizer==0.1.6 \
-    --hash=sha256:1718702963fc25e237107b8689d48bb817b21a743fe7c951c31cd27c0e5df949 \
-    --hash=sha256:20577c71e2f6f5ab432695af62a6336a801246b220575bbd9ac09aabfb6887ab
+repo-context-optimizer==0.1.7 \
+    --hash=sha256:06cf78f377d35cc36f7ddcb71b090dde553a1186116f6cd7fa18b81dbbcf4c77 \
+    --hash=sha256:fa11f1166b0078f406206d5db9a592201d1f4e953635e9765d06e393dd891096
     # via -r tools/ci-lock/rco.in
 requests==2.34.2 \
     --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0 \

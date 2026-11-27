@@ -340,7 +340,7 @@ new version. Every gate runs again on the exact tagged commit first.
 ### `rco.yml`
 
 The rco report (card 1228). rco is the PyPI release pinned in
-`tools/ci-lock/rco.txt` (`repo-context-optimizer==0.1.6`, hash-checked).
+`tools/ci-lock/rco.txt` (`repo-context-optimizer==0.1.7`, hash-checked).
 
 - On a pull request: `rco diff`, `rco affected`, `rco drift pins`
   (the pin files under `pins/`) and the cross-PR notice
