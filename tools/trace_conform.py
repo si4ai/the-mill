@@ -5,14 +5,17 @@
 
 collect runs where the office book is (SELECT only): every transition row of each
 wake touched in the window, its whole history, plus the wake rows' stored state
-and the window. replay needs no book: same file, same bytes out.
+and the window. Lease tokens are replaced by a keyed hash before the file is written
+(mode 0600), so a copy off the host holds none. replay needs no book: same file,
+same bytes out.
 
 EVENTS.jsonl lines: {"kind": "event", ...transition row...}, {"kind": "state",
 "id": N, "state": S}, {"kind": "window", "since": T, "until": T}. A line with
 no kind is an event.
 
 Exit: 0 clean, 1 a forbidden step (with --strict: any forbidden, silent or
-unmodelled), 2 bad input.
+unmodelled), 2 bad input (a missing file, a line that is not an object, or a
+line with a missing or wrong-typed field).
 """
 from __future__ import annotations
 
@@ -46,13 +49,31 @@ def read_log(path: str) -> tuple[list[dict], dict[int, str], dict]:
         if not isinstance(obj, dict):
             raise SystemExit(f"trace_conform: {path}:{no}: not an object")
         kind = obj.get("kind", "event")
-        if kind == "state":
-            states[int(obj["id"])] = str(obj["state"])
-        elif kind == "window":
-            window = obj
-        else:
-            events.append(obj)
+        try:
+            if kind == "state":
+                states[int(obj["id"])] = str(obj["state"])
+            elif kind == "window":
+                window = obj
+            else:
+                _check_event(obj)
+                events.append(obj)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SystemExit(f"trace_conform: {path}:{no}: bad {kind} line ({type(exc).__name__}: {exc})")
     return events, states, window
+
+
+EVENT_REQUIRED = ("id", "activity_type", "activity_id", "to_state")
+EVENT_INTS = ("id", "activity_id", "desk_id", "n")
+
+
+def _check_event(obj: dict) -> None:
+    """An event line needs its key fields and whole-number ids; else ValueError or KeyError."""
+    for key in EVENT_REQUIRED:
+        if obj[key] is None or isinstance(obj[key], (dict, list, bool)):
+            raise ValueError(f"{key} is {type(obj[key]).__name__}")
+    for key in EVENT_INTS:
+        if obj.get(key) is not None:
+            int(obj[key])
 
 
 def _summary(rep: dict) -> str:
@@ -72,13 +93,17 @@ def cmd_replay(args: argparse.Namespace) -> int:
     except SystemExit as exc:
         print(exc, file=sys.stderr)
         return 2
-    rep = tc.replay(
-        args.protocol,
-        events,
-        stored_states=states,
-        lease_cap_s=args.lease_cap_s,
-        window_end=args.window_end or window.get("until"),
-    )
+    try:
+        rep = tc.replay(
+            args.protocol,
+            events,
+            stored_states=states,
+            lease_cap_s=args.lease_cap_s,
+            window_end=args.window_end or window.get("until"),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"trace_conform: bad log ({type(exc).__name__}: {exc})", file=sys.stderr)
+        return 2
     if window:
         rep["window"] = {"since": window.get("since"), "until": window.get("until")}
     sys.stdout.write(json.dumps(rep, sort_keys=True, indent=1) + "\n")
@@ -96,7 +121,39 @@ def _jsonable(v):
     return v
 
 
+def redact_row(row: dict, key: bytes) -> dict:
+    """Lease tokens never leave the host in the clear (card 1328).
+
+    A token in join_key ``lease:TOKEN`` or in meta ``lease`` becomes a keyed hash
+    (HMAC-SHA256, a random key thrown away after the run), so rows of one lease still
+    share one join_key in the file and the token cannot be recovered from it.
+    """
+    import hashlib
+    import hmac
+
+    def tag(token: str) -> str:
+        return hmac.new(key, token.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+
+    out = dict(row)
+    jk = out.get("join_key")
+    if isinstance(jk, str) and jk.startswith("lease:"):
+        out["join_key"] = "lease:" + tag(jk[len("lease:"):])
+    meta = out.get("meta")
+    if isinstance(meta, str) and meta:
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = None
+    if isinstance(meta, dict) and "lease" in meta:
+        meta = {**meta, "lease": tag(str(meta["lease"]))}
+    out["meta"] = meta if isinstance(meta, dict) else None
+    return out
+
+
 def cmd_collect(args: argparse.Namespace) -> int:
+    import os
+    import secrets
+
     from agent_coord.server.records import db
 
     cn = db.connect()
@@ -133,11 +190,15 @@ def cmd_collect(args: argparse.Namespace) -> int:
             cn.close()
         except Exception:
             pass
+    rk = secrets.token_bytes(32)
+    rows = [redact_row(r, rk) for r in rows]
     rows.sort(key=lambda r: r["id"])
     out = [json.dumps({"kind": "window", "since": args.since, "until": until, "protocol": args.protocol})]
     out += [json.dumps({"kind": "state", "id": i, "state": s}) for i, s in sorted(states)]
     out += [json.dumps({"kind": "event", **r}, sort_keys=True) for r in rows]
-    Path(args.out).write_text("\n".join(out) + "\n", encoding="utf-8")
+    fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
     print(f"trace_conform: {len(rows)} events, {len(ids)} objects -> {args.out}", file=sys.stderr)
     return 0
 
