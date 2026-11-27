@@ -13,6 +13,12 @@ Wake (slice 1) has two machines on one wake row:
           (done W9, expired W12, cleared W12b). A row leaving ring or lease_live
           with no lease key (written before card 1140) is checked as an edge only.
 
+Todo (card status) has one machine per card, rows joined by ``card:ID``:
+none -> parked|open -> claimed -> shipped -> done, with the back moves (T7, T10, T11),
+retire (T12, from any state) and reclaim (T13, back to the status it had). Status moves
+T1-T11 follow todo.pml's table; a retired card takes no status move until reclaimed
+(todo.pml DELETED_GUARD).
+
 A step is checked three ways:
   unmodelled  its (from, to, reason) is no model edge
   forbidden   a model edge taken from the wrong state, or a step a wake.pml
@@ -76,7 +82,30 @@ WAKE_STEPS: dict[tuple[str, str, str], str] = {
     ("unread_owed", "lost_unread", "wake_lost"): "W18",
 }
 
-PROTOCOLS = ("wake",)
+# Model step id for each todo edge (transition_enums.ALLOWED_TRANSITIONS, todo rows; todo.pml T1-T16).
+TODO_STEPS: dict[tuple[str, str, str], str] = {
+    ("none", "open", "create"): "T1",
+    ("none", "parked", "create_parked"): "T2",
+    ("parked", "open", "unpark"): "T3",
+    ("open", "claimed", "claim"): "T4",
+    ("open", "claimed", "assign"): "T5",
+    ("claimed", "claimed", "take_over"): "T6",
+    ("claimed", "open", "unclaim"): "T7",
+    ("claimed", "shipped", "pass_ship"): "T8",
+    ("shipped", "done", "pass_done"): "T9",
+    ("done", "shipped", "pass_back"): "T10",
+    ("shipped", "claimed", "pass_back"): "T11a",
+    ("shipped", "open", "pass_back"): "T11b",
+    ("any", "retired", "retire"): "T12",
+    ("retired", "prior", "reclaim"): "T13",
+    ("any", "same", "note"): "T14",
+    ("live", "deleted", "delete_probe"): "T15",
+    ("any", "same", "rename"): "T16",
+}
+# Statuses a card row holds; any other from or to state on a todo row is a model token.
+TODO_STATUSES = ("parked", "open", "claimed", "shipped", "done")
+
+PROTOCOLS = ("wake", "todo")
 
 
 def model_edges(activity_type: str) -> frozenset[tuple[str, str, str]]:
@@ -285,7 +314,120 @@ def replay_wake(
     return rep.as_dict()
 
 
+def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored: str | None) -> None:
+    status = "none"
+    retired = False  # a retired card keeps its status; no move may change it until reclaim
+    moved = False  # a status move was seen: before it the card's status is unknown
+    retire_seen = False
+    path: list[int] = []
+    for i, ev in enumerate(evs):
+        path.append(ev["id"])
+        modelled = rep.edge_ok(ev, obj)
+        frm, to, why = ev["from_state"], ev["to_state"], ev["reason"]
+        if not modelled:
+            continue
+        if why == "reclaim":
+            if not retired and not moved and not retire_seen:
+                # the retire row is not in the log (card retired before retire wrote rows)
+                rep.silent.append(
+                    {"object": obj, "rule": "no_start_event", "event_id": ev["id"],
+                     "detail": "first event reclaims a card; nothing recorded retiring it",
+                     "path": list(path)}
+                )
+                retire_seen = True
+            elif not retired:
+                rep.forbidden.append(
+                    {"object": obj, "rule": "reclaim_not_retired", "event_id": ev["id"],
+                     "step": rep.step(ev), "detail": f"reclaim of a card that is {status}, not retired",
+                     "path": list(path)}
+                )
+            else:
+                retired = False
+            continue
+        if why == "retire":
+            if retired:
+                rep.forbidden.append(
+                    {"object": obj, "rule": "retired_twice", "event_id": ev["id"], "step": rep.step(ev),
+                     "detail": "retire of a card that is already retired", "path": list(path)}
+                )
+            else:
+                retired = True
+                retire_seen = True
+            continue
+        if to in ("same", "deleted"):
+            continue
+        # a status move, T1-T11
+        if retired:
+            rep.forbidden.append(
+                {"object": obj, "rule": "move_on_retired", "event_id": ev["id"], "step": rep.step(ev),
+                 "detail": f"{rep.step(ev) or 'step'} on a retired card (todo.pml refuses it until reclaim)",
+                 "path": list(path)}
+            )
+            continue
+        first_move, moved = not moved, True
+        if first_move and frm != "none":
+            rep.silent.append(
+                {"object": obj, "rule": "no_start_event", "event_id": ev["id"],
+                 "detail": f"first status move leaves {frm}; nothing recorded entering it",
+                 "path": list(path)}
+            )
+            status = frm
+        elif frm == "none" and status != "none":
+            # todo.pml MIGRATED: a seed row written for a card that already had a life
+            rep.silent.append(
+                {"object": obj, "rule": "create_on_live_card", "event_id": ev["id"], "step": rep.step(ev),
+                 "detail": f"{rep.step(ev)} for a card that is already {status} (a seed row)",
+                 "path": list(path)}
+            )
+        elif why == "pass_ship" and frm == "claimed" and status == "open":
+            # todo.pml T8: a ship also leaves open-with-volunteer; the row cannot show the volunteer
+            rep.silent.append(
+                {"object": obj, "rule": "ship_from_open", "event_id": ev["id"], "step": rep.step(ev),
+                 "detail": "T8 row leaves claimed but the card is open (legal only with a volunteer)",
+                 "path": list(path)}
+            )
+        elif frm != status:
+            rep.forbidden.append(
+                {"object": obj, "rule": "from_state", "event_id": ev["id"], "step": rep.step(ev),
+                 "detail": f"{rep.step(ev) or 'step'} leaves {frm} but the card is {status}",
+                 "path": list(path)}
+            )
+        status = to if ev["n"] % 2 == 1 else frm
+    if stored is not None and (moved or retired):
+        end = "retired" if retired else status
+        if stored != end:
+            rep.silent.append(
+                {"object": obj, "rule": "state_ahead", "event_id": evs[-1]["id"],
+                 "detail": f"stored state {stored}, events end at {end}", "path": list(path)}
+            )
+
+
+def replay_todo(
+    rows: Iterable[dict[str, Any]],
+    *,
+    stored_states: dict[int, str] | None = None,
+    **_unused: Any,
+) -> dict[str, Any]:
+    """Replay todo transition rows. stored_states: card id -> "retired" or todo.status (optional)."""
+    rep = _Report("todo", model_edges("todo"), TODO_STEPS)
+    cards: dict[int, list[dict[str, Any]]] = {}
+    for raw in rows:
+        ev = normalize(raw)
+        if ev["activity_type"] != "todo":
+            continue
+        rep.events += 1
+        cards.setdefault(ev["activity_id"], []).append(ev)
+    stored = stored_states or {}
+    for cid in sorted(cards):
+        _replay_todo_card(rep, f"todo:{cid}", sorted(cards[cid], key=lambda e: (e["at"], e["id"])), stored.get(cid))
+    for bucket in (rep.forbidden, rep.silent, rep.unmodelled):
+        bucket.sort(key=lambda f: (f["event_id"], f.get("rule", "")))
+    return rep.as_dict()
+
+
 def replay(protocol: str, rows: Iterable[dict[str, Any]], **kw: Any) -> dict[str, Any]:
     if protocol == "wake":
         return replay_wake(rows, **kw)
+    if protocol == "todo":
+        return replay_todo(rows, **kw)
     raise ValueError(f"unknown protocol {protocol!r}; known: {', '.join(PROTOCOLS)}")

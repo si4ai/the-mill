@@ -69,6 +69,9 @@ def _log(tmp_path, *objs):
     {"kind": "state", "id": True, "state": "taken"},
     {"kind": "state", "id": 5, "state": None},
     {"kind": "state", "id": 5, "state": ["taken"]},
+    {**GOOD, "id": "7"},
+    {**GOOD, "activity_id": "1"},
+    {"kind": "state", "id": "1", "state": "taken"},
 ])
 def test_bad_field_exits_2_not_1(tmp_path, capsys, bad):
     assert cli.main(["replay", "wake", str(_log(tmp_path, GOOD, bad))]) == 2
