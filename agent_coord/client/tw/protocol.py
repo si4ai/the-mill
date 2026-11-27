@@ -53,6 +53,19 @@ def bounded_int(value: Any, *, positive: bool = False) -> int | None:
     return value
 
 
+# Card 1321: the wake lease token (MILL_LEASE, wake.lease) a tw start carries. Same pattern
+# the office stores. Not a credential: wake-done --lease ends only the caller's own lease.
+_LEASE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def lease_token(value: Any) -> str | None:
+    """A lease token the office would store, or None."""
+    if not isinstance(value, str):
+        return None
+    token = value.strip()
+    return token if _LEASE_RE.fullmatch(token) else None
+
+
 # Card 1303: a program, plus one subcommand word. Same pattern the office stores.
 _CMD_RE = re.compile(r"[a-z0-9][a-z0-9._+-]{0,31}( [a-z][a-z0-9-]{0,31})?")
 _SUBCOMMANDS = frozenset({"git", "gh", "mill", "rco", "pip", "npm", "docker", "uv", "cargo"})

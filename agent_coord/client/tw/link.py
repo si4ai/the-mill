@@ -591,6 +591,9 @@ class Link:
             cmd = protocol.command_text(msg.get("cmd"))
             if cmd is not None:
                 body["cmd"] = cmd
+            lease = protocol.lease_token(msg.get("wake_lease"))
+            if lease is not None:
+                body["wake_lease"] = lease
         ts_ms = msg.get("ts_ms")
         if isinstance(ts_ms, int) and not isinstance(ts_ms, bool) and ts_ms >= 0:
             body["ts_ms"] = ts_ms
