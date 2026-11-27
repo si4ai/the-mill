@@ -51,7 +51,7 @@ def read_log(path: str) -> tuple[list[dict], dict[int, str], dict]:
         kind = obj.get("kind", "event")
         try:
             if kind == "state":
-                states[int(obj["id"])] = str(obj["state"])
+                states[_whole(obj["id"], "id")] = _text(obj["state"], "state")
             elif kind == "window":
                 window = obj
             else:
@@ -64,16 +64,37 @@ def read_log(path: str) -> tuple[list[dict], dict[int, str], dict]:
 
 EVENT_REQUIRED = ("id", "activity_type", "activity_id", "to_state")
 EVENT_INTS = ("id", "activity_id", "desk_id", "n")
+EVENT_TEXT = ("activity_type", "to_state")
+EVENT_TEXT_OR_NONE = ("from_state", "reason")
+
+
+def _whole(v, name: str) -> int:
+    """A whole number: an int (not a bool), or a float that is_integer(). Else ValueError."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError(f"{name} is {type(v).__name__}, want a whole number")
+    if isinstance(v, float) and not v.is_integer():
+        raise ValueError(f"{name} is {v!r}, want a whole number")
+    return int(v)
+
+
+def _text(v, name: str) -> str:
+    if not isinstance(v, str):
+        raise ValueError(f"{name} is {type(v).__name__}, want text")
+    return v
 
 
 def _check_event(obj: dict) -> None:
-    """An event line needs its key fields and whole-number ids; else ValueError or KeyError."""
+    """An event line needs its key fields, whole-number ids and text states; else ValueError or KeyError."""
     for key in EVENT_REQUIRED:
-        if obj[key] is None or isinstance(obj[key], (dict, list, bool)):
-            raise ValueError(f"{key} is {type(obj[key]).__name__}")
+        obj[key]
     for key in EVENT_INTS:
+        if obj.get(key) is not None or key in EVENT_REQUIRED:
+            _whole(obj[key], key)
+    for key in EVENT_TEXT:
+        _text(obj[key], key)
+    for key in EVENT_TEXT_OR_NONE:
         if obj.get(key) is not None:
-            int(obj[key])
+            _text(obj[key], key)
 
 
 def _summary(rep: dict) -> str:
@@ -204,6 +225,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     out += [json.dumps({"kind": "state", "id": i, "state": s}) for i, s in sorted(states)]
     out += [json.dumps({"kind": "event", **r}, sort_keys=True) for r in rows]
     fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write("\n".join(out) + "\n")
     print(f"trace_conform: {len(rows)} events, {len(ids)} objects -> {args.out}", file=sys.stderr)

@@ -57,6 +57,18 @@ def _log(tmp_path, *objs):
     {"kind": "event", "id": None, "activity_type": "wake", "activity_id": 1, "to_state": "queued"},
     {**GOOD, "desk_id": "me"},
     {**GOOD, "n": "many"},
+    {**GOOD, "id": 7.5},
+    {**GOOD, "id": True},
+    {**GOOD, "activity_id": 1.5},
+    {**GOOD, "desk_id": 2.5},
+    {**GOOD, "n": 1.5},
+    {**GOOD, "to_state": 5},
+    {**GOOD, "activity_type": 5},
+    {**GOOD, "from_state": ["none"]},
+    {"kind": "state", "id": 1.5, "state": "taken"},
+    {"kind": "state", "id": True, "state": "taken"},
+    {"kind": "state", "id": 5, "state": None},
+    {"kind": "state", "id": 5, "state": ["taken"]},
 ])
 def test_bad_field_exits_2_not_1(tmp_path, capsys, bad):
     assert cli.main(["replay", "wake", str(_log(tmp_path, GOOD, bad))]) == 2
@@ -209,3 +221,27 @@ def test_collect_drops_stored_state_of_a_wake_that_moved_after_until(tmp_path, m
     assert cli.main(args) == 0
     _, states, _ = cli.read_log(str(out))
     assert states == {1: "taken"}
+
+
+def test_a_whole_float_id_is_accepted(tmp_path):
+    p = _log(tmp_path, {**GOOD, "id": 7.0}, {"kind": "state", "id": 1.0, "state": "queued"})
+    events, states, _ = cli.read_log(str(p))
+    assert events[0]["id"] == 7.0 and states == {1: "queued"}
+
+
+def test_collect_tightens_the_mode_of_an_existing_out_file(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from agent_coord.server.records import db
+
+    rows = [
+        (3, "2026-11-26 10:00:00", "wake", 1, "none", "queued", "wake_queue", 7, "office", None, None, 1),
+    ]
+    monkeypatch.setattr(db, "connect", lambda *a, **k: _FakeConn(rows))
+    out = tmp_path / "w.jsonl"
+    out.write_text("old\n", encoding="utf-8")
+    os.chmod(out, 0o644)
+    assert cli.main(["collect", "wake", "--since", "2026-11-26 00:00:00", "--out", str(out)]) == 0
+    assert stat.S_IMODE(os.stat(out).st_mode) == 0o600
+    assert "old" not in out.read_text(encoding="utf-8")
