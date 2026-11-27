@@ -13,10 +13,15 @@ from agent_coord.client.tw.protocol import lease_token
 from tests.client.test_tw_cmd_1303 import _home, _within
 
 
-def _hops(monkeypatch) -> list[dict]:
+def _hops(monkeypatch, exit_delay: float = 0.0) -> list[dict]:
+    """Office replies, recorded. exit_delay holds the exit post, as a slow office would."""
+    import time
+
     hops: list[dict] = []
 
     def fake_http(body):
+        if body.get("kind") == "exit" and exit_delay:
+            time.sleep(exit_delay)
         hops.append(dict(body))
         return {"ok": True, "result": {"ok": True}}
 
@@ -28,13 +33,16 @@ def _events(hops: list[dict]) -> list[dict]:
     return [item for item in hops if item.get("verb") == "tw.event"]
 
 
-def test_woken_run_start_carries_the_lease_and_the_end_does_not(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("exit_delay", [0.0, 0.3])
+def test_woken_run_start_carries_the_lease_and_the_end_does_not(tmp_path, monkeypatch, exit_delay) -> None:
     _home(monkeypatch, tmp_path)
     monkeypatch.setenv("MILL_LEASE", "abc123def456")
-    hops = _hops(monkeypatch)
+    hops = _hops(monkeypatch, exit_delay)
     link = serve("tw-wake")
     try:
         assert run_argv("tw-wake", [sys.executable, "-c", "pass"]) == 0
+        # run_argv returns once the exit hop is queued; the sender posts it later.
+        assert link.drain() == "empty"
         events = _events(hops)
         assert [e["kind"] for e in events] == ["start", "exit"]
         assert events[0]["wake_lease"] == "abc123def456"
@@ -54,8 +62,10 @@ def test_manual_run_start_carries_no_lease(tmp_path, monkeypatch, env) -> None:
     link = serve("tw-hand")
     try:
         assert run_argv("tw-hand", [sys.executable, "-c", "pass"]) == 0
+        assert link.drain() == "empty"
         events = _events(hops)
-        assert events and all("wake_lease" not in e and "lease" not in e for e in events)
+        assert [e["kind"] for e in events] == ["start", "exit"]
+        assert all("wake_lease" not in e and "lease" not in e for e in events)
     finally:
         link.close()
 
