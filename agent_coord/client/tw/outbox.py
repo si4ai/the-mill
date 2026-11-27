@@ -73,7 +73,8 @@ class Outbox:
                 pr INTEGER,
                 bytes_in INTEGER,
                 bytes_out INTEGER,
-                cmd TEXT
+                cmd TEXT,
+                wake_lease TEXT
             )
             """
         )
@@ -86,6 +87,9 @@ class Outbox:
                 self._db.execute("ALTER TABLE hop ADD COLUMN %s INTEGER" % col)
         if "cmd" not in cols:
             self._db.execute("ALTER TABLE hop ADD COLUMN cmd TEXT")
+        if "wake_lease" not in cols:
+            # A hop file from 0.8.18 or older (card 1321).
+            self._db.execute("ALTER TABLE hop ADD COLUMN wake_lease TEXT")
         self._db.commit()
 
     def close(self) -> None:
@@ -94,7 +98,7 @@ class Outbox:
 
     def add(self, body: dict[str, Any]) -> int:
         counts = body.get("counts")
-        from agent_coord.client.tw.protocol import bounded_int, command_text
+        from agent_coord.client.tw.protocol import bounded_int, command_text, lease_token
 
         card = body.get("card")
         if isinstance(card, bool) or not isinstance(card, int):
@@ -103,6 +107,7 @@ class Outbox:
         bytes_in = bounded_int(body.get("bytes_in"))
         bytes_out = bounded_int(body.get("bytes_out"))
         cmd = command_text(body.get("cmd"))
+        wake_lease = lease_token(body.get("wake_lease")) if body.get("kind") == "start" else None
         desk = body.get("desk")
         if not isinstance(desk, str) or not desk.strip():
             desk = None
@@ -114,9 +119,9 @@ class Outbox:
                 """
                 INSERT INTO hop (
                     watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                    parent_watch_id, pr, bytes_in, bytes_out, cmd
+                    parent_watch_id, pr, bytes_in, bytes_out, cmd, wake_lease
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(body.get("watch_id") or ""),
@@ -133,6 +138,7 @@ class Outbox:
                     bytes_in,
                     bytes_out,
                     cmd,
+                    wake_lease,
                 ),
             )
             self._db.commit()
@@ -143,7 +149,7 @@ class Outbox:
             row = self._db.execute(
                 """
                 SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                       parent_watch_id, pr, bytes_in, bytes_out, cmd
+                       parent_watch_id, pr, bytes_in, bytes_out, cmd, wake_lease
                 FROM hop ORDER BY id LIMIT 1
                 """
             ).fetchone()
@@ -156,7 +162,7 @@ class Outbox:
             rows = self._db.execute(
                 """
                 SELECT id, watch_id, kind, cause, exit_code, wake, counts, desk, card, ts_ms,
-                       parent_watch_id, pr, bytes_in, bytes_out, cmd
+                       parent_watch_id, pr, bytes_in, bytes_out, cmd, wake_lease
                 FROM hop ORDER BY id
                 """
             ).fetchall()
@@ -188,6 +194,8 @@ def _post_body(item: dict[str, Any]) -> dict[str, Any]:
             body[key] = item[key]
     if isinstance(item.get("cmd"), str) and item["cmd"]:
         body["cmd"] = item["cmd"]
+    if isinstance(item.get("wake_lease"), str) and item["wake_lease"]:
+        body["wake_lease"] = item["wake_lease"]
     if item.get("parent_watch_id"):
         body["parent_watch_id"] = item["parent_watch_id"]
     if item.get("cause"):
