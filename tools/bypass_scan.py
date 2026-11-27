@@ -23,7 +23,8 @@ the table after the first table (written when its SET assigns to the table's ali
 an unqualified column); a multi-table DELETE (DELETE w FROM x JOIN wake w, DELETE FROM w
 USING ...); a transition INSERT or REPLACE with or without a column list; a put call that
 passes ActivityType.<protocol> by position or by keyword. A string that is only a
-docstring (a statement that is just a string) is documentation, not a write. Not read:
+docstring (a statement that is just a string) is documentation, not a write. A quoted string
+inside a statement is text: a comma, WHERE or ; in a literal is not a clause edge. Not read:
 SQL assembled at run time from variables.
 """
 from __future__ import annotations
@@ -118,7 +119,17 @@ def _clause_end(text: str) -> str:
     return re.split(r"\b(?:WHERE|ORDER\s+BY|LIMIT)\b", text, maxsplit=1, flags=re.I)[0]
 
 
+_STRING = re.compile(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.|\"\")*\"", re.S)
+
+
+def _blank_strings(text: str) -> str:
+    """The inside of every quoted string becomes spaces (same length), so a comma, = or
+    WHERE in a literal is not a clause edge."""
+    return _STRING.sub(lambda m: m.group(0)[0] + re.sub(r"[^\n]", " ", m.group(0)[1:-1]) + m.group(0)[-1], text)
+
+
 def _update_writes(tail: str, table: str, columns: tuple[str, ...] | None = None) -> bool:
+    tail = _blank_strings(tail)
     m = re.match(rf"UPDATE\s+{_MODS}(.*?)\bSET\b(.*)", tail, re.I | re.S)
     if not m:
         return False
@@ -162,9 +173,10 @@ def _sql_hits(protocol: str, spec: dict, text: str) -> list[tuple[int, str, str]
     """(offset, kind, snippet) of every protected write in one SQL text."""
     hits: list[tuple[int, str, str]] = []
     tables = tuple(t.lower() for t in spec["tables"])
+    plain = _blank_strings(text)  # a ; inside a literal does not end the statement
     for m in _KW.finditer(text):
         kw = m.group(1).upper()
-        end = text.find(";", m.end())
+        end = plain.find(";", m.end())
         tail = text[m.start(): end if end >= 0 else len(text)]
         snip = _snip(tail[:120])
         if kw in ("INSERT", "REPLACE"):
