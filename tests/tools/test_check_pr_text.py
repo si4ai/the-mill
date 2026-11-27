@@ -177,7 +177,7 @@ def test_comment_name_token_stays_on_generic_rules(tmp_path: Path) -> None:
 
 
 def test_bot_authored_body_skips_name_token(tmp_path: Path) -> None:
-    """Card 1103: a bot-authored PR title and body skip the name-token rule, with a note."""
+    """Card 1103, card 1334: a dependabot-authored PR title and body skip the name-token rule, with a note."""
     who = _who()
     body = f"ok\n{who} chose the paragraph over table rows\n"
     res = _run(
@@ -187,11 +187,11 @@ def test_bot_authored_body_skips_name_token(tmp_path: Path) -> None:
             "number": 374,
             "title": "#1 Fix",
             "body": body,
-            "user": {"type": "Bot"},
+            "user": {"type": "Bot", "login": "dependabot[bot]"},
         }},
     )
     assert res.returncode == 0, res.stderr
-    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert "name-token rule skipped: dependabot-authored body" in res.stdout
     assert "personal name token" not in res.stderr
     assert who not in res.stderr + res.stdout
     assert "0 hits" in res.stdout
@@ -228,16 +228,97 @@ def test_bot_authored_body_with_email_still_fails(tmp_path: Path) -> None:
             "number": 377,
             "title": "#1 Fix",
             "body": body,
-            "user": {"type": "Bot"},
+            "user": {"type": "Bot", "login": "dependabot[bot]"},
         }},
     )
     assert res.returncode == 1
     assert "PR #377 body:2: email outside placeholder domains" in res.stderr
     assert "personal name token" not in res.stderr
-    assert "name-token rule skipped: bot-authored body" in res.stdout
+    assert "name-token rule skipped: dependabot-authored body" in res.stdout
     assert EMAIL not in res.stderr + res.stdout
     assert who not in res.stderr + res.stdout
     assert "zorbin" not in res.stderr + res.stdout
+
+
+@pytest.mark.parametrize("action", ["opened", "edited"])
+def test_desk_bot_body_name_token_fails(tmp_path: Path, action: str) -> None:
+    """Card 1334: a desk bot is user.type Bot too, but only dependabot skips the rule."""
+    who = _who()
+    body = f"ok\n{who} chose the paragraph over table rows\n"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"action": action, "pull_request": {
+            "number": 84,
+            "title": "#1 Fix",
+            "body": body,
+            "user": {"type": "Bot", "login": "si4ai-auditor[bot]"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #84 body:2: personal name token" in res.stderr
+    assert "name-token rule skipped" not in res.stdout + res.stderr
+    assert who not in res.stderr + res.stdout
+
+
+def test_desk_bot_clean_body_passes(tmp_path: Path) -> None:
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"action": "opened", "pull_request": {
+            "number": 85,
+            "title": "#1 Fix",
+            "body": "ok\nthe desk chose the paragraph over table rows\n",
+            "user": {"type": "Bot", "login": "si4ai-auditor[bot]"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "0 hits" in res.stdout
+
+
+def test_user_named_like_dependabot_is_scanned(tmp_path: Path) -> None:
+    """The skip needs user.type Bot and the dependabot login; a user account named alike is scanned."""
+    who = _who()
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 86,
+            "title": "#1 Fix",
+            "body": f"ok\n{who} chose the paragraph over table rows\n",
+            "user": {"type": "User", "login": "dependabot[bot]"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #86 body:2: personal name token" in res.stderr
+
+
+def test_desk_bot_mid_line_cursor_passes(tmp_path: Path) -> None:
+    """Card 1334: cursor is on the desk-word allowlist, so it passes mid-line; another tool name does not."""
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 87,
+            "title": "#1 Fix",
+            "body": "ok\nthe guide covers Cursor and the cloud agents\n",
+            "user": {"type": "Bot", "login": "si4ai-builder[bot]"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    tool = "W" + "indsurf"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 87,
+            "title": "#1 Fix",
+            "body": f"ok\nthe guide covers {tool} and the cloud agents\n",
+            "user": {"type": "Bot", "login": "si4ai-builder[bot]"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #87 body:2: personal name token" in res.stderr
 
 
 def test_missing_changelog_section_hints_and_does_not_fail(tmp_path: Path) -> None:

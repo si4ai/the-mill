@@ -197,6 +197,7 @@ def test_commit_message_allowlisted_tokens_pass() -> None:
         "Merge branch fix into main",
         "Bump the mill pack",
         "Builder notes the Wall Loop",
+        "The guide covers Cursor and the cloud agents",
         "Add name-token scan to commit-message hygiene",
         "Speech for labels; Refuse an unknown project",
         "Without -r the newest connect wins. Regression row F43 (connect-refuse).",

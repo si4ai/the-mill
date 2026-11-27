@@ -12,8 +12,9 @@ around them, with the same check_pack rules the commit-message scan uses:
 non-documentation address, home path with a login segment, email outside
 placeholder domains, and credential shapes (#760). PR and issue titles and
 bodies also get the Title-case name-token rule (card 937 / F-pr-title-body-name-token), except
-a bot-authored title and body (user.type Bot) skip that one rule and print a visible note; comments
-and reviews stay on the generic rules only (too noisy for name-token).
+a dependabot-authored title and body (user.type Bot, dependabot login) skip that one rule and print
+a visible note; other bot accounts are scanned like people. Comments and reviews stay on the
+generic rules only (too noisy for name-token).
 
 The text is untrusted input. It is read from the event JSON file
 (GITHUB_EVENT_PATH) or the API, never from a shell argument or a workflow
@@ -44,12 +45,16 @@ def _name_token_field(where: str) -> bool:
     return where.endswith(" title") or where.endswith(" body")
 
 
-BOT_NAME_TOKEN_SKIP = "name-token rule skipped: bot-authored body"
+BOT_NAME_TOKEN_SKIP = "name-token rule skipped: dependabot-authored body"
 
 
 def _author_is_bot(obj: dict) -> bool:
-    """True when the GitHub account that opened the item is type Bot."""
-    return (obj.get("user") or {}).get("type") == "Bot"
+    """True when dependabot opened the item: a type Bot account with a dependabot login.
+
+    Card 1103 skipped the name-token rule for every bot to quiet dependabot's
+    release-note text; desk bots open most PRs here, so only dependabot skips.
+    """
+    return (obj.get("user") or {}).get("type") == "Bot" and is_dependabot(obj)
 
 
 def _unpack(item: tuple) -> tuple[str, str, bool]:
@@ -60,7 +65,7 @@ def _unpack(item: tuple) -> tuple[str, str, bool]:
 
 
 def bot_name_token_skipped(texts: list[tuple]) -> bool:
-    """True when a PR/issue title or body is present and its author is a bot."""
+    """True when a PR/issue title or body is present and dependabot is its author."""
     return any(
         bot and _name_token_field(where) for where, _text, bot in map(_unpack, texts)
     )
@@ -97,8 +102,8 @@ def scan(
     """texts is [(where, text)]; returns report lines, never the text.
 
     Title and body fields also run the commit-msg name-token rule (card 937),
-    unless the author is a bot account (user.type Bot); then that rule is skipped
-    and a visible note is printed. Comments and reviews keep the generic rules only.
+    unless dependabot is the author (user.type Bot, dependabot login); then that
+    rule is skipped and a visible note is printed. Comments and reviews keep the generic rules only.
     """
     words = vocab if vocab is not None else cp.ordinary_words()
     out: list[str] = []
