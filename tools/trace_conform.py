@@ -1,7 +1,7 @@
 """Replay recorded protocol events against the model (card 1311).
 
-  python tools/trace_conform.py replay wake EVENTS.jsonl [--lease-cap-s S] [--strict]
-  python tools/trace_conform.py collect wake --since STAMP [--until STAMP] --out EVENTS.jsonl
+  python tools/trace_conform.py replay wake|todo EVENTS.jsonl [--lease-cap-s S] [--strict]
+  python tools/trace_conform.py collect wake|todo --since STAMP [--until STAMP] --out EVENTS.jsonl
 
 collect runs where the office book is (SELECT only): every transition row of each
 wake touched in the window, its whole history, plus the wake rows' stored state
@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 
 # collect runs on the office host against the installed pack, so it must not need this
 # module; replay imports it.
-PROTOCOLS = ("wake",)
+PROTOCOLS = ("wake", "todo")
 
 
 def read_log(path: str) -> tuple[list[dict], dict[int, str], dict]:
@@ -125,6 +125,14 @@ def cmd_collect(args: argparse.Namespace) -> int:
             rows.extend(dict(zip(cols, (_jsonable(v) for v in r))) for r in cur.fetchall())
             if args.protocol == "wake":
                 cur.execute(f"SELECT id, state FROM wake WHERE id IN ({marks})", tuple(part))
+                states.extend((int(r[0]), str(r[1])) for r in cur.fetchall())
+            elif args.protocol == "todo":
+                # a retired card keeps its status on the row; the stored state is "retired"
+                cur.execute(
+                    f"SELECT t.id, IF(a.deleted IS NULL, t.status, 'retired') FROM todo t"
+                    f" JOIN activity a ON a.type = 'todo' AND a.id = t.id WHERE t.id IN ({marks})",
+                    tuple(part),
+                )
                 states.extend((int(r[0]), str(r[1])) for r in cur.fetchall())
     finally:
         cur.close()
