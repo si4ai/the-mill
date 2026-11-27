@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_coord.client.tw.link import _desk, open_session, pointer_path
-from agent_coord.client.tw.protocol import bounded_int, command_word, error_lines
+from agent_coord.client.tw.protocol import bounded_int, command_word, error_lines, lease_token
 
 
 def runs_path(desk: str):
@@ -963,6 +963,10 @@ def run_argv(
         word = command_word(argv)
         if word is not None:
             start_body["cmd"] = word
+        # Card 1321: a woken run exported MILL_LEASE; a run started by hand has none.
+        lease = lease_token(os.environ.get("MILL_LEASE"))
+        if lease is not None:
+            start_body["wake_lease"] = lease
         _send(start_body)
         stopped = False
         crashed = False

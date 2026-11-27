@@ -10,6 +10,27 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 
 ## New changes
 
+0.8.19 (2026-11-27)
+
+- card 1293: record the 0.8.18 failure-class list
+- card 1310: CI checks that skill examples with --desk are the no-connect form
+- reword the 0.8.18 failure-class note so it is not a mill --desk example
+- card 1324: exact-edge tests for the 7d and 30d doing-error windows
+- card 1311: replay wake events against the model (slice 1)
+- card 1312: scan for wake writes that skip the wake queue code (slice 1)
+- card 1329: wake bypass scan warnings from #526
+- card 1328: wake trace replay and collect warnings from #525
+- card 1312: bypass scan reads card status writes
+- card 1311: trace_conform replays todo (card status) events
+- card 1312: bypass scan skips quoted strings in a SET list
+- card 1334: pr_text name-token skip applies to dependabot only, not every bot account
+- card 1335: pr_text name-token skip needs the exact dependabot login
+- card 1336: call the shared si4ai/.github pr_text, validator and codeql workflows; drop the local copies
+- card 1321: a tw start records the wake that started the run
+- the rco report job pins repo-context-optimizer 0.1.7 (hash-locked)
+
+## Last changes
+
 0.8.18 (2026-11-24)
 
 - card 1293: record the 0.8.17 failure-class list
@@ -21,21 +42,3 @@ Upcoming changes are our current plan, not a promise; they can change or move at
 - A tw run records its command word and prints a repeated error count.
 - #1303 Wall desks: paint doing errors in the desk score row
 - 1303 add the repeat-errors habit and name both doing-error score keys
-
-## Last changes
-
-0.8.17 (2026-11-23)
-
-- card 1281: a tw descendant cannot forge a start to take a run credit
-- card 1228: report-only rco job (diff, affected, drift, notice, update) with an rco-report artifact and token metrics
-- 1285: mill-build-wake prints one hint line and stays quiet when a child command exits 0.
-- Ignore .rco/ and rco-report/ local RCO output
-- card 1288: a body:stale refusal names the editor, the UTC time and the next step
-- A reply keeps the body stamp of the letter it answered.
-- A send names a webhook wake and keeps offline for a desk with no wake.
-- #1286 Wall desks: nest live tw runs in the desk detail
-- dependency bumps: eslint 10.15.0 (minimatch 11.0.9 for CVE-2026-118764), stylelint 18.1.0, fastapi 0.165.0 (CI lock), github/codeql-action 4.39.4
-- A send or reply to the sender's own desk returns the letter id.
-- A label skip names the type or the restore, and a trashed label-add drops the code prefix.
-- card 1273: teach CodeQL the redactor and gate new silencers
-- check_pack: a bare card number at the start of a line is a line-start prefix, the same as #338

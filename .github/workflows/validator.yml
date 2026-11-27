@@ -3,6 +3,8 @@
 # `validator` success status on its head sha. On pull_request it reports the
 # state and passes, so a PR can wait for its PASS without a red check.
 # Kept out of ci.yml: release.yml calls ci.yml with contents read only.
+# Card 1336: the job lives in the shared si4ai/.github validator workflow,
+# called at a full commit sha; it checks its script out at that same sha.
 name: validator
 
 on:
@@ -19,17 +21,8 @@ concurrency:
 
 jobs:
   validator_pass:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
       statuses: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: tools
-      - env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 tools/check_validator_pass.py
+    uses: si4ai/.github/.github/workflows/validator.yml@23c056780f193d140e042491ac81a59cafb71a14

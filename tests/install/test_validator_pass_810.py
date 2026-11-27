@@ -7,6 +7,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from tests.shared_github import shared_tools
+
 ROOT = Path(__file__).resolve().parents[2]
 REPO = "example-org/the-mill"
 BASE = "b" * 40
@@ -16,7 +18,7 @@ BOT = "si4ai-validator[bot]"
 
 
 def _mod():
-    spec = importlib.util.spec_from_file_location("check_validator_pass", ROOT / "tools" / "check_validator_pass.py")
+    spec = importlib.util.spec_from_file_location("check_validator_pass", shared_tools() / "check_validator_pass.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)

@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.shared_github import SHARED_PIN
+
 ROOT = Path(__file__).resolve().parents[2]
 WF = ROOT / ".github" / "workflows"
 USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)", re.M)
@@ -61,7 +63,9 @@ def test_history_jobs_clone_full_history() -> None:
     text = (WF / "ci.yml").read_text(encoding="utf-8")
     for name in ("check_pack", "select", "pytest_no_sql_run", "pytest_sql_run"):
         job = _job(text, name)
-        assert job.count("fetch-depth: 0") == job.count("actions/checkout@"), name
+        # The si4ai/.github checkout (card 1336) holds scripts only, no history.
+        own = job.count("actions/checkout@") - job.count("repository: si4ai/.github")
+        assert job.count("fetch-depth: 0") == own, name
         assert "fetch-depth: 0" in job, name
 
 def test_publish_jobs_use_oidc_not_tokens() -> None:
@@ -251,7 +255,7 @@ def test_permissions_are_minimal() -> None:
     """Top level read-only (release: none); id-token: write only in publish_pypi."""
     allowed_write = {("release.yml", "publish_pypi"): {"id-token": "write"},
                      ("codeql.yml", "analyze"): {"contents": "read", "security-events": "write"},
-                     ("pr_text.yml", "sweep"): {"contents": "read", "issues": "read", "pull-requests": "read"},
+                     ("pr_text.yml", "pr_text"): {"contents": "read", "issues": "read", "pull-requests": "read"},
                      ("validator.yml", "validator_pass"): {"contents": "read", "pull-requests": "read", "statuses": "read"},
                      ("rco.yml", "rco"): {"contents": "read", "pull-requests": "read"}}
     for p in _workflows():
@@ -311,8 +315,8 @@ def test_pr_text_scans_every_posted_text_read_only() -> None:
     code = _code(WF / "pr_text.yml")
     assert "secrets." not in code and "write" not in code
     assert re.search(r"github\.event\.[\w.]*(title|body)", code) is None
-    assert "python3 tools/check_pr_text.py event" in _job(code, "event")
-    assert "python3 tools/check_pr_text.py sweep" in _job(code, "sweep")
+    # Card 1336: the event and sweep jobs live in si4ai/.github at the pin.
+    assert f"uses: si4ai/.github/.github/workflows/pr_text.yml@{SHARED_PIN}" in _job(code, "pr_text")
     assert "pip" not in code
 
 def test_pr_text_never_runs_on_a_review_event() -> None:
@@ -359,7 +363,7 @@ def test_validator_pass_runs_in_the_queue_outside_ci() -> None:
     code = _code(WF / "validator.yml")
     on = _on_block(code)
     assert re.search(r"^  merge_group:", on, re.M) and re.search(r"^  pull_request:", on, re.M), on
-    assert "python3 tools/check_validator_pass.py" in _job(code, "validator_pass")
+    assert f"uses: si4ai/.github/.github/workflows/validator.yml@{SHARED_PIN}" in _job(code, "validator_pass")
     assert "secrets." not in code and "pip" not in code
     assert "validator_pass" not in _code(WF / "ci.yml")
 
@@ -525,3 +529,17 @@ def test_required_gate_exit_status(select: str, selected: str, run: str, success
             env={**os.environ, "SELECT_RESULT": select, "SELECTED": selected, "RUN_RESULT": run},
         )
         assert (result.returncode == 0) is success
+
+
+def test_shared_org_workflows_use_one_pin() -> None:
+    """Card 1336: every si4ai/.github call and the CI checkout of its scripts use
+    tests/shared_github.py SHARED_PIN, so the tests check the code CI runs."""
+    pins = []
+    for p in _workflows():
+        code = _code(p)
+        pins += re.findall(r"uses: si4ai/\.github/\.github/workflows/[\w.-]+@([0-9a-f]{40})", code)
+        pins += re.findall(r"repository: si4ai/\.github\n\s+ref: ([0-9a-f]{40})", code)
+    assert len(pins) >= 5, pins
+    assert set(pins) == {SHARED_PIN}, pins
+    for name in ("check_pr_text.py", "check_validator_pass.py"):
+        assert not (ROOT / "tools" / name).exists(), name

@@ -4249,6 +4249,32 @@ def _tw_exit_errors(c: Book, desk: str, watch_id: str) -> dict | None:
         return None
 
 
+# Card 1321: the lease token shape a tw start may store (wake.py makes 12 hex).
+_TW_LEASE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _tw_wake_link(c: Book, desk: str, raw: Any) -> dict[str, Any] | None:
+    """{lease, wake_id when the book rang it} for a start, or None to drop the key.
+
+    A token of another desk's wake is dropped. A token the book has no ring for (its
+    ring write is instrumentation and may be missing) keeps the token without a wake id.
+    """
+    from agent_coord.server import mail_activity as ma
+    from agent_coord.server import wake_lease
+
+    if not isinstance(raw, str) or not _TW_LEASE_RE.fullmatch(raw):
+        return None
+    try:
+        ring = wake_lease.ring_row(c._cn, raw)
+        if ring is None:
+            return {"lease": raw}
+        if int(ring["desk_id"]) != int(ma.desk_id_for(c._cn, desk) or 0):
+            return None
+        return {"lease": raw, "wake_id": int(ring["wake_id"])}
+    except Exception:
+        return {"lease": raw}
+
+
 def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) -> Any:
     """Card 970: accept metadata, persist task edges and use the shared wake path."""
     import re
@@ -4293,6 +4319,15 @@ def _h_tw_event(c: Book, body: dict[str, Any], project: str, owner: str | None) 
             meta["cmd"] = cmd
         else:
             dropped.append("cmd")
+    # Card 1321: a woken run's start carries its wake lease (MILL_LEASE); a run started by hand
+    # carries none and stores none. Same drop rule. wake_lease is not the lease key: no renewal.
+    lease = clean.get("wake_lease")
+    if lease is not None and kind == "start":
+        link = _tw_wake_link(c, desk, lease)
+        if link:
+            meta.update(link)
+        else:
+            dropped.append("wake_lease")
     for name, kinds, low in (("pr", ("start",), 1), ("bytes_in", ("exit", "crash"), 0),
                              ("bytes_out", ("exit", "crash"), 0)):
         val = clean.get(name)

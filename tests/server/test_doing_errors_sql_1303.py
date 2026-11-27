@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -133,6 +134,20 @@ def test_desk_errors_counts_each_kind_reruns_open_and_by_cmd(cn, desk):
     assert sum(h["failed_n"] for h in got["daily"]) == 3
 
 
+
+def _at(cn, desk, wid, start_at, end_at=None):
+    """Pin a run to an exact UTC datetime so window edges stay exact."""
+    key = f"task:{desk}:{wid}"
+    _exec(cn, "UPDATE transition SET at=%s WHERE join_key=%s AND reason='tw_start'", (start_at, key))
+    if end_at is not None:
+        _exec(
+            cn,
+            "UPDATE transition SET at=%s WHERE join_key=%s AND reason IN "
+            "('tw_finished','tw_failed','tw_stale')",
+            (end_at, key),
+        )
+
+
 def test_window_edges_7d_and_30d(cn, desk):
     old, _ = _run(cn, desk, "exit", exit_code=4)
     mid, _ = _run(cn, desk, "exit", exit_code=128)
@@ -146,6 +161,49 @@ def test_window_edges_7d_and_30d(cn, desk):
     assert w["7d"]["runs"] == 1 and w["7d"]["failed"] == {"usage": 0, "git_fatal": 0, "other_nonzero": 1}
     assert w["last_n"]["runs"] == 3 and w["last_n"]["failed"]["usage"] == 1   # last N has no time bound
     assert sum(d["runs"] for d in got["daily"]) == 2
+
+
+
+def test_window_exact_edges_7d_and_30d(cn, desk):
+    """A run at the edge is in the window; a run one second past it is out.
+
+    The older edge test sits a full day past each edge, so a 7d->8d or
+    30d->31d mutant still excludes that run. Clock drift past an exact
+    8d or 31d mark hid the inclusive case too. Pin `now` so the edges
+    stay exact.
+    """
+    now = _rows(cn, "SELECT UTC_TIMESTAMP(6) AS now")[0]["now"]
+    edge7, _ = _run(cn, desk, "exit", exit_code=4)
+    past7, _ = _run(cn, desk, "exit", exit_code=128)
+    edge30, _ = _run(cn, desk, "exit", exit_code=1)
+    past30, _ = _run(cn, desk, "exit", exit_code=4)
+    _at(cn, desk, edge7, now - timedelta(days=7), now - timedelta(days=7) + timedelta(seconds=5))
+    _at(
+        cn,
+        desk,
+        past7,
+        now - timedelta(days=7, seconds=1),
+        now - timedelta(days=7, seconds=1) + timedelta(seconds=5),
+    )
+    _at(cn, desk, edge30, now - timedelta(days=30), now - timedelta(days=30) + timedelta(seconds=5))
+    _at(
+        cn,
+        desk,
+        past30,
+        now - timedelta(days=30, seconds=1),
+        now - timedelta(days=30, seconds=1) + timedelta(seconds=5),
+    )
+    got = doing_errors.desk_errors(cn, _desk_id(cn, desk), now=now)
+    w = got["windows"]
+    # 7d: only the run at exactly 7d. The 7d+1s run (and both 30d runs) stay out.
+    # A 7d->8d mutant would also count the 7d+1s run.
+    assert w["7d"]["runs"] == 1 and w["7d"]["failed"]["usage"] == 1
+    # 30d: exact 30d, 7d+1s, and exact 7d. The 30d+1s run stays out.
+    # A 30d->31d mutant would also count the 30d+1s run.
+    assert w["30d"]["runs"] == 3 and w["30d"]["failed"] == {
+        "usage": 1, "git_fatal": 1, "other_nonzero": 1,
+    }
+    assert w["last_n"]["runs"] == 4 and w["last_n"]["failed"]["usage"] == 2
 
 
 def test_no_runs_gives_null_windows(cn, desk):

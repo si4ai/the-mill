@@ -72,6 +72,7 @@ paths = [
   "tests/install/test_sql_marker_guard_794.py",
   "tests/install/test_validator_pass_810.py",
   "tests/install/test_validator_status_identity_811.py",
+  "tests/shared_github.py",
   "tests/tools/test_precheck_959.py",
   "tests/tools/test_check_install_drift.py",
   "tests/tools/test_dev_host_import_1266.py",

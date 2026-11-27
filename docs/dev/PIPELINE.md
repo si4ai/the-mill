@@ -22,9 +22,9 @@ Seven files live under `.github/workflows/`:
 | File | Starts on | Jobs |
 | :--- | :--- | :--- |
 | `ci.yml` | pull request, merge queue (`merge_group`), push to `main`, manual run, and called by `release.yml` | `select`, `build_pack`, `check_pack`, `hidden_code_report`, `mill_cli_smoke`, `pytest_no_sql_run`, `pytest_sql_run`, `pytest_no_sql`, `pytest_sql`, `precheck` |
-| `codeql.yml` | pull request, merge queue, push to `main`, weekly (Monday 06:17 UTC), manual run | `analyze (python)`, `analyze (actions)` |
-| `validator.yml` | pull request (opened, synchronize, reopened), merge queue | `validator_pass` |
-| `pr_text.yml` | pull request (opened, edited, synchronize, reopened), issue opened or edited, issue comment, daily (06:17 UTC), manual run | `event`, `sweep` |
+| `codeql.yml` | pull request, merge queue, push to `main`, weekly (Monday 06:17 UTC), manual run | `analyze` (calls si4ai/.github `codeql.yml`): `analyze / analyze (python)`, `analyze / analyze (actions)` |
+| `validator.yml` | pull request (opened, synchronize, reopened), merge queue | `validator_pass` (calls si4ai/.github `validator.yml`): `validator_pass / validator_pass` |
+| `pr_text.yml` | pull request (opened, edited, synchronize, reopened), issue opened or edited, issue comment, daily (06:17 UTC), manual run | `pr_text` (calls si4ai/.github `pr_text.yml`): `pr_text / event`, `pr_text / sweep` |
 | `release.yml` | push of a `v*` tag, manual run (dry run) | `ci` (calls `ci.yml`), `verify`, `publish_pypi` |
 | `copilot-setup-steps.yml` | push or pull request that changes this file, manual run | `copilot-setup-steps` |
 | `rco.yml` | pull request, push to `main` | `rco` (report only) |
@@ -49,7 +49,9 @@ Rules every workflow keeps, and why:
 The required checks come from the `main` ruleset, a repo setting, not a
 file. As of this writing they are `build_pack`, `check_pack`,
 `mill_cli_smoke`, `pytest_no_sql`, `pytest_sql`, `analyze (python)`,
-`analyze (actions)` and the `validator` commit status. The ruleset also
+`analyze (actions)` and the `validator` commit status. Since card 1336 the
+CodeQL checks report as `analyze / analyze (python)` and
+`analyze / analyze (actions)`, and the ruleset must name those. The ruleset also
 requires a PR to be up to date with `main` before it merges. The merge
 queue lands entries as squash commits.
 
@@ -63,9 +65,9 @@ queue lands entries as squash commits.
 | `pytest_no_sql_run`, `pytest_sql_run` | yes, unless no changed file selects them | never | never | never | no |
 | `pytest_no_sql`, `pytest_sql` (wrappers) | yes | yes | yes | yes | yes |
 | `precheck` | yes | yes | yes | yes | no |
-| `analyze (python)`, `analyze (actions)` | yes | yes | yes | no | yes |
-| `validator_pass` | yes (reports only) | yes (the gate) | no | no | no |
-| `pr_text` `event` | yes | no | no | no | no |
+| `analyze / analyze (python)`, `analyze / analyze (actions)` | yes | yes | yes | no | yes |
+| `validator_pass / validator_pass` | yes (reports only) | yes (the gate) | no | no | no |
+| `pr_text / event` | yes | no | no | no | no |
 
 The split, as the code does it today:
 
@@ -282,7 +284,8 @@ injection) that tests rarely aim at.
 
 ### `validator.yml`
 
-Runs `python3 tools/check_validator_pass.py`.
+Calls the shared si4ai/.github `validator.yml` at a full commit sha (card
+1336), which runs its `tools/check_validator_pass.py` at that same sha.
 
 - In the merge queue it finds every PR in the entry and requires the
   latest `validator` commit status on each PR's head sha to be success.
@@ -297,12 +300,16 @@ tested (#810, F110).
 
 ### `pr_text.yml`
 
-`event` runs `python3 tools/check_pr_text.py event` on the text of the
+Calls the shared si4ai/.github `pr_text.yml` at a full commit sha (card
+1336); its scripts run from that same sha, from `.si4ai-tools/` in this
+checkout, so the ordinary-word list is this tree's. `event` runs
+`check_pr_text.py event` on the text of the
 triggering PR, issue or comment. `sweep` runs daily and on a manual run
 over every PR and issue title, body, comment and review. Both use the
 `check_pack` text rules: addresses, home paths, emails, credential
 shapes. PR and issue titles and bodies also get the name-token rule,
-except when the author is a bot account. On a PR, a missing
+except when the author is the exact `dependabot[bot]` account (cards 1334,
+1335). On a PR, a missing
 `## Changelog` section prints a hint and does not fail.
 
 Why: GitHub keeps every revision of a PR body in its edit history, so a
@@ -333,7 +340,7 @@ new version. Every gate runs again on the exact tagged commit first.
 ### `rco.yml`
 
 The rco report (card 1228). rco is the PyPI release pinned in
-`tools/ci-lock/rco.txt` (`repo-context-optimizer==0.1.6`, hash-checked).
+`tools/ci-lock/rco.txt` (`repo-context-optimizer==0.1.7`, hash-checked).
 
 - On a pull request: `rco diff`, `rco affected`, `rco drift pins`
   (the pin files under `pins/`) and the cross-PR notice
@@ -419,7 +426,7 @@ and accepts an ordinary word at any position.
 | `check_pack.py --commits origin/main..HEAD` (PR) | Every commit message the PR brings to `main` | **no** |
 | `check_pack.py --pr-message` (PR) | `TITLE (#N)` plus the PR body | not a commit |
 | `check_pack.py --head-message` (merge queue) | The queued squash message | not a commit |
-| `check_pr_text.py event` and `sweep` | PR and issue titles and bodies; skipped for bot authors | not a commit |
+| si4ai/.github `check_pr_text.py event` and `sweep` | PR and issue titles and bodies; skipped for the `dependabot[bot]` author only | not a commit |
 | `precommit_hygiene.py msg` (`commit-msg` hook) | The message being written, line by line | not a commit |
 | `precommit_hygiene.py staged` and `tree` | Comments, docstrings, Markdown prose (looser rule) | not a commit |
 
@@ -443,9 +450,9 @@ write it in lower case; the body now reads "the system desk". The same word at t
 have passed.
 
 `pr_text` `event` stayed green on that PR: its author is the
-`si4ai-builder[bot]` account, and `check_pr_text.py` skips the
-name-token rule for bot authors. `check_pack --pr-message` has no such
-skip. So the same body can pass one check and fail the other.
+`si4ai-builder[bot]` account, and `check_pr_text.py` then skipped the
+name-token rule for bot authors. Since card 1334 only the exact
+`dependabot[bot]` login skips it, so both checks now scan that body.
 
 **Example: commit `07f8876` on `release/0.8.15`.** This was a revert of
 a revert. `git revert` writes the subject itself:
