@@ -123,12 +123,16 @@ def test_ring_after_an_end_that_had_no_ring_is_a_second_ring():
 
 
 class _FakeCursor:
+    late: list = []
+
     def __init__(self, rows):
         self.rows, self.last = rows, []
 
     def execute(self, sql, args=()):
         if "UTC_TIMESTAMP" in sql:
             self.last = [("2026-11-26 12:00:00",)]
+        elif "DISTINCT activity_id" in sql and "IN (" in sql:
+            self.last = [(i,) for i in self.late]
         elif "DISTINCT activity_id" in sql:
             self.last = [(1,)]
         elif "FROM transition" in sql:
@@ -184,3 +188,24 @@ def test_collect_writes_no_token_and_a_private_file(tmp_path, monkeypatch):
     events, states, window = cli.read_log(str(out))
     assert len(events) == 2 and events[0]["join_key"] == events[1]["join_key"]
     assert tc.replay_wake(events, stored_states=states)["counts"] == {"forbidden": 0, "silent": 0, "unmodelled": 0}
+
+
+def test_collect_drops_stored_state_of_a_wake_that_moved_after_until(tmp_path, monkeypatch):
+    from agent_coord.server.records import db
+
+    rows = [
+        (3, "2026-11-26 10:00:00", "wake", 1, "none", "queued", "wake_enqueued", 7, "office",
+         None, None, 1),
+    ]
+    monkeypatch.setattr(db, "connect", lambda *a, **k: _FakeConn(rows))
+    out = tmp_path / "w.jsonl"
+    args = ["collect", "wake", "--since", "2026-11-26 00:00:00", "--until", "2026-11-26 11:00:00",
+            "--out", str(out)]
+    monkeypatch.setattr(_FakeCursor, "late", [1])
+    assert cli.main(args) == 0
+    _, states, _ = cli.read_log(str(out))
+    assert states == {}
+    monkeypatch.setattr(_FakeCursor, "late", [])
+    assert cli.main(args) == 0
+    _, states, _ = cli.read_log(str(out))
+    assert states == {1: "taken"}

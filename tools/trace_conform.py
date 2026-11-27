@@ -181,8 +181,15 @@ def cmd_collect(args: argparse.Namespace) -> int:
             )
             rows.extend(dict(zip(cols, (_jsonable(v) for v in r))) for r in cur.fetchall())
             if args.protocol == "wake":
+                # the stored state is read now; a wake that moved at or after until would look ahead
+                cur.execute(
+                    f"SELECT DISTINCT activity_id FROM transition WHERE activity_type = %s"
+                    f" AND activity_id IN ({marks}) AND at >= %s",
+                    (args.protocol, *part, until),
+                )
+                late = {int(r[0]) for r in cur.fetchall()}
                 cur.execute(f"SELECT id, state FROM wake WHERE id IN ({marks})", tuple(part))
-                states.extend((int(r[0]), str(r[1])) for r in cur.fetchall())
+                states.extend((int(r[0]), str(r[1])) for r in cur.fetchall() if int(r[0]) not in late)
     finally:
         cur.close()
         try:
