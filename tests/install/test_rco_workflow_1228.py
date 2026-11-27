@@ -66,9 +66,9 @@ def test_report_job_is_not_selected_or_in_precommit() -> None:
 
 
 def test_rco_is_the_exact_release_from_the_hash_lock() -> None:
-    assert "repo-context-optimizer==0.1.6" in (LOCK / "rco.in").read_text(encoding="utf-8")
+    assert "repo-context-optimizer==0.1.7" in (LOCK / "rco.in").read_text(encoding="utf-8")
     lock = (LOCK / "rco.txt").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^repo-context-optimizer==0\.1\.6 \\\n\s+--hash=sha256:[0-9a-f]{64}", lock)
+    assert re.search(r"(?m)^repo-context-optimizer==0\.1\.7 \\\n\s+--hash=sha256:[0-9a-f]{64}", lock)
     code = _code(RCO)
     assert "python -m pip install --require-hashes -r tools/ci-lock/rco.txt" in code
     assert len(re.findall(r"pip install", code)) == 2, "only the pip bootstrap and the lock"
