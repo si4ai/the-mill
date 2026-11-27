@@ -1,5 +1,7 @@
 # CodeQL code scanning (free on public repos): Python sources and the
 # workflow files themselves.
+# Card 1336: the job lives in the shared si4ai/.github codeql workflow,
+# called at a full commit sha, with this repo's config file.
 name: codeql
 
 on:
@@ -21,24 +23,10 @@ concurrency:
 
 jobs:
   analyze:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [python, actions]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: none
-          config-file: ./.github/codeql/codeql-config.yml
-      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
-        with:
-          category: /language:${{ matrix.language }}
+    uses: si4ai/.github/.github/workflows/codeql.yml@23c056780f193d140e042491ac81a59cafb71a14
+    with:
+      languages: '["python", "actions"]'
+      config-file: ./.github/codeql/codeql-config.yml
