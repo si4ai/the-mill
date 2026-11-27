@@ -276,6 +276,25 @@ def test_desk_bot_clean_body_passes(tmp_path: Path) -> None:
     assert "0 hits" in res.stdout
 
 
+@pytest.mark.parametrize("login", ["dependabot-preview[bot]", "dependabot-fan[bot]", "Dependabot[bot]"])
+def test_dependabot_lookalike_bot_is_scanned(tmp_path: Path, login: str) -> None:
+    """Validator W2: only the exact dependabot[bot] login skips the name-token rule."""
+    who = _who()
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 88,
+            "title": "#1 Fix",
+            "body": f"ok\n{who} chose the paragraph over table rows\n",
+            "user": {"type": "Bot", "login": login},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #88 body:2: personal name token" in res.stderr
+    assert "name-token rule skipped" not in res.stdout
+
+
 def test_user_named_like_dependabot_is_scanned(tmp_path: Path) -> None:
     """The skip needs user.type Bot and the dependabot login; a user account named alike is scanned."""
     who = _who()

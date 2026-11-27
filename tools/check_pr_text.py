@@ -197,9 +197,11 @@ def _login(obj: dict) -> str:
 
 
 def is_dependabot(obj: dict) -> bool:
-    """True for Dependabot-authored PRs (exempt from the Changelog hint)."""
-    login = _login(obj).casefold()
-    return login == "dependabot[bot]" or login.startswith("dependabot")
+    """True for Dependabot-authored PRs (exempt from the Changelog hint).
+
+    Exact login only: a lookalike such as dependabot-preview[bot] is scanned.
+    """
+    return _login(obj) == "dependabot[bot]"
 
 
 def changelog_section_present(body: str) -> bool:
