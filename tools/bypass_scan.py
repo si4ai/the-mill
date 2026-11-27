@@ -15,6 +15,15 @@ finding unless tools/bypass_allow.txt names it with a reason; an allow line
 that matches no write is reported as stale.
 
 Slice 1 is wake (rows and leases). Holds, card status and send identity follow.
+
+SQL shapes read (card 1329): INSERT, REPLACE and UPDATE with or without LOW_PRIORITY,
+DELAYED, HIGH_PRIORITY or IGNORE, and INSERT without INTO; an UPDATE whose JOIN list names
+the table after the first table (written when its SET assigns to the table's alias, or to
+an unqualified column); a multi-table DELETE (DELETE w FROM x JOIN wake w, DELETE FROM w
+USING ...); a transition INSERT or REPLACE with or without a column list; a put call that
+passes ActivityType.<protocol> by position or by keyword. A string that is only a
+docstring (a statement that is just a string) is documentation, not a write. Not read:
+SQL assembled at run time from variables.
 """
 from __future__ import annotations
 
@@ -51,19 +60,110 @@ PROTOCOLS: dict[str, dict] = {
 _ROUTINE = re.compile(r"\bCREATE\s+(?:DEFINER\s*=\s*\S+\s+)?(?:PROCEDURE|FUNCTION|TRIGGER)\s+`?(\w+)`?", re.I)
 
 
-def _write_re(table: str) -> re.Pattern[str]:
-    t = rf"`?{re.escape(table)}`?(?![\w.])"
-    return re.compile(
-        rf"\b(?:INSERT(?:\s+IGNORE)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+IGNORE)?|DELETE\s+FROM|DELETE\s+\w+\s+FROM)\s+{t}",
-        re.I,
-    )
-
-
-_TRANS_INSERT = re.compile(r"\bINSERT(?:\s+IGNORE)?\s+INTO\s+`?transition`?\s*\(", re.I)
+_MODS = r"(?:(?:LOW_PRIORITY|DELAYED|HIGH_PRIORITY|QUICK|IGNORE)\s+)*"
+_KW = re.compile(r"\b(INSERT|REPLACE|UPDATE|DELETE)\b", re.I)
+_INS_REST = re.compile(rf"\s*{_MODS}(?:INTO\s+)?`?(?:\w+`?\.`?)?(\w+)`?", re.I)
+_NOT_ALIAS = frozenset(
+    "JOIN INNER LEFT RIGHT CROSS NATURAL STRAIGHT_JOIN OUTER ON USING SET WHERE ORDER LIMIT AS FORCE USE IGNORE".split()
+)
 
 
 def _trans_put_re(activity: str) -> re.Pattern[str]:
     return re.compile(rf"\bmill_transition_put\s*\(\s*'{re.escape(activity)}'", re.I)
+
+
+def _blank_parens(text: str) -> str:
+    """Text inside parentheses becomes spaces, so a comma or = in a call is not a clause edge."""
+    out, depth = [], 0
+    for ch in text:
+        if ch == "(":
+            depth += 1
+            out.append(" " if depth > 1 else ch)
+        elif ch == ")":
+            out.append(" " if depth > 1 else ch)
+            depth = max(0, depth - 1)
+        else:
+            out.append(ch if depth == 0 or ch == "\n" else " ")
+    return "".join(out)
+
+
+def _names_for(refs: str, table: str) -> set[str]:
+    """The table's own name and any alias it has in a table-reference list; empty if absent."""
+    names: set[str] = set()
+    for m in re.finditer(rf"(?<![\w.`])`?{re.escape(table)}`?(?![\w.`(])(?:\s+(?:AS\s+)?`?(\w+)`?)?", refs, re.I):
+        names.add(table.lower())
+        alias = m.group(1)
+        if alias and alias.upper() not in _NOT_ALIAS:
+            names.add(alias.lower())
+    return names
+
+
+def _clause_end(text: str) -> str:
+    return re.split(r"\b(?:WHERE|ORDER\s+BY|LIMIT)\b", text, maxsplit=1, flags=re.I)[0]
+
+
+def _update_writes(tail: str, table: str) -> bool:
+    m = re.match(rf"UPDATE\s+{_MODS}(.*?)\bSET\b(.*)", tail, re.I | re.S)
+    if not m:
+        return False
+    names = _names_for(m.group(1), table)
+    if not names:
+        return False
+    for part in _blank_parens(_clause_end(m.group(2))).split(","):
+        lhs = part.split("=", 1)[0].strip().replace("`", "")
+        if "=" not in part or not lhs:
+            continue
+        owner = lhs.rsplit(".", 1)[0].lower() if "." in lhs else ""
+        if owner == "" or owner in names:
+            return True
+    return False
+
+
+def _delete_writes(tail: str, table: str) -> bool:
+    m = re.match(rf"DELETE\s+{_MODS}(.*)", tail, re.I | re.S)
+    if not m:
+        return False
+    rest = _clause_end(m.group(1))
+    if re.match(r"FROM\b", rest, re.I):
+        after = rest[4:]
+        using = re.split(r"\bUSING\b", after, maxsplit=1, flags=re.I)
+        if len(using) == 1:
+            return bool(_names_for(after, table))
+        targets, refs = using
+    else:
+        parts = re.split(r"\bFROM\b", rest, maxsplit=1, flags=re.I)
+        if len(parts) == 1:
+            return False
+        targets, refs = parts
+    names = _names_for(refs, table)
+    wanted = {t.strip().replace("`", "").split(".")[0].lower() for t in targets.split(",") if t.strip()}
+    return bool(names & wanted)
+
+
+def _sql_hits(protocol: str, spec: dict, text: str) -> list[tuple[int, str, str]]:
+    """(offset, kind, snippet) of every protected write in one SQL text."""
+    hits: list[tuple[int, str, str]] = []
+    tables = tuple(t.lower() for t in spec["tables"])
+    for m in _KW.finditer(text):
+        kw = m.group(1).upper()
+        end = text.find(";", m.end())
+        tail = text[m.start(): end if end >= 0 else len(text)]
+        snip = _snip(tail[:120])
+        if kw in ("INSERT", "REPLACE"):
+            rest = tail[m.end() - m.start():]
+            t = _INS_REST.match(rest)
+            if t and t.group(1).lower() in tables:
+                hits.append((m.start(), "sql-write", snip))
+            elif t and t.group(1).lower() == "transition" and f"'{spec['activity']}'" in tail:
+                hits.append((m.start(), "transition-write", _snip(tail)))
+        elif kw == "UPDATE":
+            if any(_update_writes(tail, t) for t in tables):
+                hits.append((m.start(), "sql-write", snip))
+        elif any(_delete_writes(tail, t) for t in tables):
+            hits.append((m.start(), "sql-write", snip))
+    for m in _trans_put_re(spec["activity"]).finditer(text):
+        hits.append((m.start(), "transition-write", _snip(text[m.start():m.start() + 120])))
+    return sorted(set(hits))
 
 
 @dataclass(frozen=True)
@@ -89,22 +189,6 @@ def _snip(text: str) -> str:
     return " ".join(text.split())[:100]
 
 
-def _sql_hits(protocol: str, spec: dict, text: str) -> list[tuple[int, str, str]]:
-    """(offset, kind, snippet) of every protected write in one SQL text."""
-    hits: list[tuple[int, str, str]] = []
-    for table in spec["tables"]:
-        for m in _write_re(table).finditer(text):
-            hits.append((m.start(), "sql-write", _snip(text[m.start():m.start() + 120])))
-    for m in _TRANS_INSERT.finditer(text):
-        end = text.find(";", m.end())
-        stmt = text[m.start(): end if end >= 0 else len(text)]
-        if f"'{spec['activity']}'" in stmt:
-            hits.append((m.start(), "transition-write", _snip(stmt)))
-    for m in _trans_put_re(spec["activity"]).finditer(text):
-        hits.append((m.start(), "transition-write", _snip(text[m.start():m.start() + 120])))
-    return hits
-
-
 def scan_sql(path: str, text: str) -> list[Write]:
     clean = _blank_sql_comments(text)
     routines = [(m.start(), m.group(1)) for m in _ROUTINE.finditer(clean)]
@@ -124,6 +208,7 @@ class _PyScan(ast.NodeVisitor):
         self.path = path
         self.stack: list[str] = []
         self.out: list[Write] = []
+        self.docs: set[int] = set()
 
     def _fn(self) -> str:
         return ".".join(self.stack) or "<module>"
@@ -135,22 +220,39 @@ class _PyScan(ast.NodeVisitor):
 
     visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _def
 
+    def visit_Expr(self, node: ast.Expr) -> None:
+        # A statement that is only a string (a docstring, a block comment) runs nothing.
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            self.docs.add(id(node.value))
+        self.generic_visit(node)
+
     def visit_Constant(self, node: ast.Constant) -> None:
+        if id(node) in self.docs:
+            return
         if isinstance(node.value, str) and len(node.value) > 8:
             for protocol, spec in PROTOCOLS.items():
                 for off, kind, snip in _sql_hits(protocol, spec, node.value):
                     line = node.lineno + node.value.count("\n", 0, off)
                     self.out.append(Write(protocol, self.path, line, self._fn(), kind, snip))
 
+    @staticmethod
+    def _activity(v: ast.AST) -> str:
+        """X for ActivityType.X or mod.ActivityType.X, else ''."""
+        if isinstance(v, ast.Attribute):
+            base = v.value
+            if (isinstance(base, ast.Name) and base.id == "ActivityType") or (
+                    isinstance(base, ast.Attribute) and base.attr == "ActivityType"):
+                return v.attr
+        return ""
+
     def visit_Call(self, node: ast.Call) -> None:
-        for kw in node.keywords:
-            v = kw.value
-            if (kw.arg == "activity_type" and isinstance(v, ast.Attribute)
-                    and isinstance(v.value, ast.Name) and v.value.id == "ActivityType"):
-                for protocol, spec in PROTOCOLS.items():
-                    if v.attr == spec["activity"]:
-                        self.out.append(Write(protocol, self.path, node.lineno, self._fn(),
-                                              "transition-write", f"put(activity_type=ActivityType.{v.attr})"))
+        args = [*node.args, *(kw.value for kw in node.keywords)]
+        for v in args:
+            act = self._activity(v)
+            for protocol, spec in PROTOCOLS.items():
+                if act and act == spec["activity"]:
+                    self.out.append(Write(protocol, self.path, node.lineno, self._fn(),
+                                          "transition-write", f"put(ActivityType.{act})"))
         self.generic_visit(node)
 
 
@@ -244,28 +346,53 @@ PLANTED = {
         "  UPDATE wake SET state = 'taken' WHERE id = p;\n"
         "  INSERT INTO transition (activity_type, activity_id, from_state, to_state, reason)\n"
         "  VALUES ('wake', p, 'sent', 'taken', 'wake_deliver');\nEND //\n"
+        "CREATE PROCEDURE planted_join_first(IN p BIGINT)\nBEGIN\n"
+        "  UPDATE activity a JOIN wake w ON w.id = a.id SET w.state = 'taken' WHERE a.id = p;\nEND //\n"
+        "CREATE PROCEDURE planted_delete_join(IN p BIGINT)\nBEGIN\n"
+        "  DELETE w FROM mail m JOIN wake w ON w.cause_id = m.id WHERE m.id = p;\nEND //\n"
+        "CREATE PROCEDURE planted_low_priority(IN p BIGINT)\nBEGIN\n"
+        "  UPDATE LOW_PRIORITY wake SET state = 'taken' WHERE id = p;\nEND //\n"
+        "CREATE PROCEDURE planted_columnless(IN p BIGINT)\nBEGIN\n"
+        "  INSERT INTO transition SELECT 0, NOW(6), 'wake', id, state, 'taken', 'wake_deliver', desk_id,\n"
+        "    'office', NULL, NULL, 1 FROM wake WHERE id = p;\nEND //\n"
     ),
     "agent_coord/server/planted.py": (
         "def lease_end_elsewhere(cn, wid):\n"
         "    put(cn, activity_type=ActivityType.wake, activity_id=wid)\n"
         "    cn.cursor().execute(\"DELETE FROM wake WHERE id = %s\", (wid,))\n"
+        "\n\n"
+        "def positional(cn, wid):\n"
+        "    put(cn, ActivityType.wake, wid, State.idle)\n"
+        "\n\n"
+        "def only_documents():\n"
+        "    \"\"\"Runs UPDATE wake SET state = 'x' and DELETE FROM wake, in prose.\"\"\"\n"
     ),
 }
 PLANTED_WANT = {
     ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_wake_skip", "sql-write"),
     ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_wake_skip", "transition-write"),
+    ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_join_first", "sql-write"),
+    ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_delete_join", "sql-write"),
+    ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_low_priority", "sql-write"),
+    ("wake", "agent_coord/server/sql/sp_planted.sql", "planted_columnless", "transition-write"),
     ("wake", "agent_coord/server/planted.py", "lease_end_elsewhere", "transition-write"),
     ("wake", "agent_coord/server/planted.py", "lease_end_elsewhere", "sql-write"),
+    ("wake", "agent_coord/server/planted.py", "positional", "transition-write"),
 }
+# Functions in the plants that only talk about a write: any finding there is a bug.
+PLANTED_QUIET = {"only_documents"}
 
 
 def self_test() -> list[str]:
     writes: list[Write] = []
     for path, text in PLANTED.items():
         writes += scan_sql(path, text) if path.endswith(".sql") else scan_py(path, text)
-    got = {(f["protocol"], f["path"], f["function"], f["kind"]) for f in report(writes, [])["findings"]}
+    found = report(writes, [])["findings"]
+    got = {(f["protocol"], f["path"], f["function"], f["kind"]) for f in found}
     problems = [f"planted bypass not flagged: {w}" for w in sorted(PLANTED_WANT - got)]
-    if any(w.line == 3 and w.path.endswith(".sql") for w in writes):
+    problems += [f"counted a write that is not one: {f['function']}" for f in found
+                 if f["function"] in PLANTED_QUIET]
+    if any(f["line"] == 3 and f["path"].endswith(".sql") for f in found):
         problems.append("a commented-out write was counted")
     return problems
 
