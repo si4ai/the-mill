@@ -289,3 +289,58 @@ def test_collect_drops_the_stored_state_of_a_card_that_moved_after_until(tmp_pat
     assert cli.main(args) == 0
     _, states, _ = cli.read_log(str(out))
     assert states == {}
+
+
+def test_a_rename_first_then_a_mid_life_move_is_a_silent_start_not_forbidden():
+    rows = [ev(1, "any", "same", "rename"), ev(2, "open", "claimed", "claim")]
+    rep = tc.replay_todo(rows, stored_states={1: "claimed"})
+    assert rules(rep, "silent") == [("no_start_event", 2)]
+    assert counts(rep)["forbidden"] == 0
+
+
+def test_a_note_first_then_a_mid_life_move_is_a_silent_start_not_forbidden():
+    rows = [ev(1, "any", "same", "note"), ev(2, "claimed", "shipped", "pass_ship")]
+    rep = tc.replay_todo(rows, stored_states={1: "shipped"})
+    assert rules(rep, "silent") == [("no_start_event", 2)]
+    assert counts(rep)["forbidden"] == 0
+
+
+def test_a_retire_first_then_reclaim_then_a_mid_life_move_is_a_silent_start_not_forbidden():
+    rows = [ev(1, "any", "retired", "retire"), ev(2, "retired", "prior", "reclaim"),
+            ev(3, "claimed", "open", "unclaim")]
+    rep = tc.replay_todo(rows, stored_states={1: "open"})
+    assert rules(rep, "silent") == [("no_start_event", 3)]
+    assert counts(rep)["forbidden"] == 0
+
+
+def test_a_retire_first_card_still_refuses_a_move_before_reclaim():
+    rows = [ev(1, "any", "retired", "retire"), ev(2, "claimed", "shipped", "pass_ship")]
+    assert rules(tc.replay_todo(rows), "forbidden") == [("move_on_retired", 2)]
+
+
+def test_a_reclaim_first_is_a_silent_start_not_forbidden():
+    rows = [ev(1, "retired", "prior", "reclaim"), ev(2, "claimed", "shipped", "pass_ship")]
+    rep = tc.replay_todo(rows, stored_states={1: "shipped"})
+    assert rules(rep, "silent") == [("no_start_event", 1), ("no_start_event", 2)]
+    assert counts(rep)["forbidden"] == 0
+
+
+def test_a_reclaim_of_a_card_that_moved_in_this_log_is_still_forbidden():
+    rows = [ev(1, "none", "open", "create"), ev(2, "retired", "prior", "reclaim")]
+    assert rules(tc.replay_todo(rows), "forbidden") == [("reclaim_not_retired", 2)]
+
+
+def test_a_second_reclaim_after_the_silent_one_is_forbidden():
+    rows = [ev(1, "retired", "prior", "reclaim"), ev(2, "retired", "prior", "reclaim")]
+    assert rules(tc.replay_todo(rows), "forbidden") == [("reclaim_not_retired", 2)]
+
+
+def test_a_card_with_only_notes_has_nothing_to_compare_with_the_stored_state():
+    rows = [ev(1, "any", "same", "note"), ev(2, "any", "same", "rename")]
+    assert counts(tc.replay_todo(rows, stored_states={1: "open"})) == {"forbidden": 0, "silent": 0, "unmodelled": 0}
+
+
+def test_a_second_reclaim_after_a_recorded_retire_is_forbidden():
+    rows = [ev(1, "any", "retired", "retire"), ev(2, "retired", "prior", "reclaim"),
+            ev(3, "retired", "prior", "reclaim")]
+    assert rules(tc.replay_todo(rows), "forbidden") == [("reclaim_not_retired", 3)]

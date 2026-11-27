@@ -317,6 +317,8 @@ def replay_wake(
 def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored: str | None) -> None:
     status = "none"
     retired = False  # a retired card keeps its status; no move may change it until reclaim
+    moved = False  # a status move was seen: before it the card's status is unknown
+    retire_seen = False
     path: list[int] = []
     for i, ev in enumerate(evs):
         path.append(ev["id"])
@@ -325,7 +327,15 @@ def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored:
         if not modelled:
             continue
         if why == "reclaim":
-            if not retired:
+            if not retired and not moved and not retire_seen:
+                # the retire row is not in the log (card retired before retire wrote rows)
+                rep.silent.append(
+                    {"object": obj, "rule": "no_start_event", "event_id": ev["id"],
+                     "detail": "first event reclaims a card; nothing recorded retiring it",
+                     "path": list(path)}
+                )
+                retire_seen = True
+            elif not retired:
                 rep.forbidden.append(
                     {"object": obj, "rule": "reclaim_not_retired", "event_id": ev["id"],
                      "step": rep.step(ev), "detail": f"reclaim of a card that is {status}, not retired",
@@ -342,6 +352,7 @@ def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored:
                 )
             else:
                 retired = True
+                retire_seen = True
             continue
         if to in ("same", "deleted"):
             continue
@@ -353,10 +364,12 @@ def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored:
                  "path": list(path)}
             )
             continue
-        if i == 0 and frm != "none":
+        first_move, moved = not moved, True
+        if first_move and frm != "none":
             rep.silent.append(
                 {"object": obj, "rule": "no_start_event", "event_id": ev["id"],
-                 "detail": f"first event leaves {frm}; nothing recorded entering it", "path": list(path)}
+                 "detail": f"first status move leaves {frm}; nothing recorded entering it",
+                 "path": list(path)}
             )
             status = frm
         elif frm == "none" and status != "none":
@@ -380,7 +393,7 @@ def _replay_todo_card(rep: _Report, obj: str, evs: list[dict[str, Any]], stored:
                  "path": list(path)}
             )
         status = to if ev["n"] % 2 == 1 else frm
-    if stored is not None and evs:
+    if stored is not None and (moved or retired):
         end = "retired" if retired else status
         if stored != end:
             rep.silent.append(
