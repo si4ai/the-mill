@@ -293,6 +293,34 @@ def test_user_named_like_dependabot_is_scanned(tmp_path: Path) -> None:
     assert "PR #86 body:2: personal name token" in res.stderr
 
 
+def test_desk_bot_mid_line_cursor_passes(tmp_path: Path) -> None:
+    """Card 1334: cursor is on the desk-word allowlist, so it passes mid-line; another tool name does not."""
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 87,
+            "title": "#1 Fix",
+            "body": "ok\nthe guide covers Cursor and the cloud agents\n",
+            "user": {"type": "Bot", "login": "si4ai-builder[bot]"},
+        }},
+    )
+    assert res.returncode == 0, res.stderr
+    tool = "W" + "indsurf"
+    res = _run(
+        tmp_path,
+        "pull_request",
+        {"pull_request": {
+            "number": 87,
+            "title": "#1 Fix",
+            "body": f"ok\nthe guide covers {tool} and the cloud agents\n",
+            "user": {"type": "Bot", "login": "si4ai-builder[bot]"},
+        }},
+    )
+    assert res.returncode == 1
+    assert "PR #87 body:2: personal name token" in res.stderr
+
+
 def test_missing_changelog_section_hints_and_does_not_fail(tmp_path: Path) -> None:
     body = "## summary\n\nwhat changed\n\n## claims\n\nclaim 1\n"
     res = _run(tmp_path, "pull_request", {"pull_request": {"number": 90, "title": "#1 Fix", "body": body}})

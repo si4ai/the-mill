@@ -334,7 +334,7 @@ DESK_WORD_ALLOWLIST = frozenset(
         "clean", "client", "clip", "close", "code", "cold",
         "column", "columns", "commit", "commits", "compare", "conflict",
         "conflicts", "connect", "connection", "correct", "count", "counts",
-        "create", "cut", "data", "db", "default", "delete",
+        "create", "cursor", "cut", "data", "db", "default", "delete",
         "design", "desk", "desks", "docs", "doctrine", "document",
         "documentation", "dogfood", "drop", "each", "edge", "else",
         "email", "empty", "end", "entry", "error", "errors",
